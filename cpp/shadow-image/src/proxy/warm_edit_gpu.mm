@@ -19,6 +19,7 @@ struct WarmEditGpuSession::Impl final {
     std::unique_ptr<WarmGpuResidentResources> resident;
     std::mutex host_source_mutex;
     std::shared_ptr<const FloatRgbImage> host_source;
+    std::uint64_t host_source_bytes = 0U;
 };
 
 WarmEditGpuSession::WarmEditGpuSession(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -129,7 +130,17 @@ WarmEditPreviewGpuStats WarmEditGpuSession::stats() const noexcept {
     if (!impl_ || !impl_->resident) {
         return {};
     }
-    return impl_->resident->stats_snapshot();
+    std::lock_guard lock(impl_->host_source_mutex);
+    WarmEditPreviewGpuStats stats = impl_->resident->stats_snapshot();
+    if (impl_->host_source_bytes
+        > std::numeric_limits<std::uint64_t>::max() - stats.resident_bytes) {
+        // Never let an impossible accounting state wrap into a small cache charge. A saturated
+        // value makes every bounded cache reject this session conservatively.
+        stats.resident_bytes = std::numeric_limits<std::uint64_t>::max();
+    } else {
+        stats.resident_bytes += impl_->host_source_bytes;
+    }
+    return stats;
 }
 
 WarmEditGpuHostSourceAttempt WarmEditGpuSession::host_source_for_cpu_replay(
@@ -162,6 +173,16 @@ WarmEditGpuHostSourceAttempt WarmEditGpuSession::host_source_for_cpu_replay(
         layout.source_row_stride_bytes * static_cast<std::size_t>(layout.dimensions.height);
     if (source_bytes == 0U || source_bytes % sizeof(float) != 0U) {
         return {.diagnostic = "resident warm-preview source byte layout is invalid"};
+    }
+    const std::uint64_t host_source_bytes = static_cast<std::uint64_t>(source_bytes);
+    const WarmEditPreviewGpuStats resident_stats = impl_->resident->stats_snapshot();
+    if (static_cast<std::size_t>(host_source_bytes) != source_bytes
+        || host_source_bytes
+               > std::numeric_limits<std::uint64_t>::max() - resident_stats.resident_bytes) {
+        return {
+            .diagnostic =
+                "resident warm-preview CPU replay would overflow its retained-byte accounting",
+        };
     }
 
     auto& context = metal_context();
@@ -200,6 +221,9 @@ WarmEditGpuHostSourceAttempt WarmEditGpuSession::host_source_for_cpu_replay(
                            size:source_bytes];
         [encoder endEncoding];
         [command_buffer commit];
+        // Metal cannot cooperatively cancel a committed blit. Cancellation is checked before
+        // submission and again before publication; an in-flight request may wait for this one
+        // bounded source copy to finish, after which the reusable host source remains cached.
         [command_buffer waitUntilCompleted];
         if (command_buffer.status != MTLCommandBufferStatusCompleted) {
             return {.diagnostic = command_buffer_diagnostic(command_buffer)};
@@ -208,6 +232,7 @@ WarmEditGpuHostSourceAttempt WarmEditGpuSession::host_source_for_cpu_replay(
     }
 
     impl_->host_source = std::move(materialized);
+    impl_->host_source_bytes = host_source_bytes;
     if (cancellation.stop_requested()) {
         return {.cancelled = true};
     }

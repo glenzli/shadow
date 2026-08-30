@@ -105,6 +105,49 @@ void expect(const bool condition, const std::string_view message) {
     return result;
 }
 
+void host_replay_bytes_are_exact_and_idempotent() {
+    const auto source = make_random_image(41U, 29U, true);
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        return;
+    }
+    const auto before = preparation.session->stats();
+    const std::array neutral_nodes{
+        image::AdjustmentNode{
+            .node_id = "host-replay-neutral",
+            .parameters = image::ExposureAdjustment{},
+        },
+    };
+    const auto ordinary = preparation.session->render(
+        neutral_nodes,
+        image::compile_edit_execution_plan(neutral_nodes),
+        false
+    );
+    const auto after_ordinary = preparation.session->stats();
+    const auto first = preparation.session->host_source_for_cpu_replay();
+    const auto after_first = preparation.session->stats();
+    const auto repeated = preparation.session->host_source_for_cpu_replay();
+    const auto after_repeated = preparation.session->stats();
+    const std::uint64_t expected_host_bytes =
+        static_cast<std::uint64_t>(source.row_stride_bytes) * source.dimensions.height;
+    expect(
+        ordinary.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && ordinary.output.has_value()
+            && after_ordinary.resident_bytes == before.resident_bytes,
+        "ordinary resident Metal rendering does not precharge a host replay"
+    );
+    expect(
+        first.source != nullptr && !first.cancelled && first.diagnostic.empty()
+            && after_first.resident_bytes == after_ordinary.resident_bytes + expected_host_bytes,
+        "the first CPU replay materialization adds its exact padded fp32 source bytes"
+    );
+    expect(
+        repeated.source == first.source && !repeated.cancelled && repeated.diagnostic.empty()
+            && after_repeated.resident_bytes == after_first.resident_bytes,
+        "repeated CPU replay reuses one host source without charging it twice"
+    );
+}
+
 void resident_backend_matches_cpu_oracle() {
     const auto source = make_random_image(257U, 129U, true);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
@@ -565,6 +608,7 @@ void benchmark_resident_backend_when_requested() {
 
 int run_resident_backend_matches_cpu_oracle() {
     failures = 0;
+    host_replay_bytes_are_exact_and_idempotent();
     resident_backend_matches_cpu_oracle();
     return failures;
 }

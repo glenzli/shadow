@@ -95,6 +95,11 @@ class FullEditDetailGpuCache final {
     void make_room_locked(std::uint64_t incoming_bytes);
     void
     refresh_resident_bytes(DetailTileRect rect, const std::shared_ptr<WarmEditGpuSession>& session);
+    void refresh_resident_bytes_locked(
+        DetailTileRect rect,
+        const std::shared_ptr<WarmEditGpuSession>& session,
+        std::uint64_t current_bytes
+    );
     [[nodiscard]] static RenderAttempt finish_render(
         WarmEditGpuSession::RenderAttempt attempt,
         bool source_cache_hit,
@@ -111,6 +116,8 @@ class FullEditDetailGpuCache final {
     std::vector<Entry> entries_;
     std::uint64_t resident_bytes_ = 0U;
     std::uint64_t use_sequence_ = 0U;
+
+    friend struct FullEditDetailGpuCacheContractAccess;
 };
 
 } // namespace shadow::image::detail

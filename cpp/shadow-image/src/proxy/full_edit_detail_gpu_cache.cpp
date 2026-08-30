@@ -24,10 +24,18 @@ std::shared_ptr<WarmEditGpuSession> FullEditDetailGpuCache::find_locked(const De
 }
 
 void FullEditDetailGpuCache::make_room_locked(const std::uint64_t incoming_bytes) {
+    if (incoming_bytes == 0U || incoming_bytes > maximum_resident_bytes) {
+        return;
+    }
     while (!entries_.empty()
            && (entries_.size() >= maximum_entries
                || resident_bytes_ > maximum_resident_bytes - incoming_bytes)) {
         const auto oldest = std::ranges::min_element(entries_, {}, &Entry::last_use);
+        if (oldest->resident_bytes > resident_bytes_) {
+            entries_.clear();
+            resident_bytes_ = 0U;
+            return;
+        }
         resident_bytes_ -= oldest->resident_bytes;
         entries_.erase(oldest);
     }
@@ -39,14 +47,30 @@ void FullEditDetailGpuCache::refresh_resident_bytes(
 ) {
     const std::uint64_t current_bytes = session->stats().resident_bytes;
     std::scoped_lock lock(mutex_);
+    refresh_resident_bytes_locked(rect, session, current_bytes);
+}
+
+void FullEditDetailGpuCache::refresh_resident_bytes_locked(
+    const DetailTileRect rect,
+    const std::shared_ptr<WarmEditGpuSession>& session,
+    const std::uint64_t current_bytes
+) {
     const auto match = std::ranges::find(entries_, rect, &Entry::rect);
     if (match == entries_.end() || match->session != session) {
         return;
     }
+    if (match->resident_bytes > resident_bytes_) {
+        entries_.clear();
+        resident_bytes_ = 0U;
+        return;
+    }
     resident_bytes_ -= match->resident_bytes;
-    match->resident_bytes = current_bytes;
-    resident_bytes_ += current_bytes;
-    while (resident_bytes_ > maximum_resident_bytes && entries_.size() > 1U) {
+    match->resident_bytes = 0U;
+    if (current_bytes == 0U || current_bytes > maximum_resident_bytes) {
+        entries_.erase(match);
+        return;
+    }
+    while (resident_bytes_ > maximum_resident_bytes - current_bytes) {
         auto oldest = entries_.end();
         for (auto candidate = entries_.begin(); candidate != entries_.end(); ++candidate) {
             if (candidate->session == session) {
@@ -57,15 +81,26 @@ void FullEditDetailGpuCache::refresh_resident_bytes(
             }
         }
         if (oldest == entries_.end()) {
-            break;
+            entries_.clear();
+            resident_bytes_ = 0U;
+            return;
+        }
+        if (oldest->resident_bytes > resident_bytes_) {
+            entries_.clear();
+            resident_bytes_ = 0U;
+            return;
         }
         resident_bytes_ -= oldest->resident_bytes;
         entries_.erase(oldest);
     }
-    if (resident_bytes_ > maximum_resident_bytes && entries_.size() == 1U) {
+    const auto refreshed = std::ranges::find(entries_, rect, &Entry::rect);
+    if (refreshed == entries_.end() || refreshed->session != session) {
         resident_bytes_ = 0U;
         entries_.clear();
+        return;
     }
+    refreshed->resident_bytes = current_bytes;
+    resident_bytes_ += current_bytes;
 }
 
 FullEditDetailGpuCache::Acquisition FullEditDetailGpuCache::acquire(

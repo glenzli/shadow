@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <numeric>
 #include <optional>
 #include <span>
@@ -28,6 +29,70 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+namespace shadow::image::detail {
+
+struct FullEditDetailGpuCacheContractAccess final {
+    static void seed_entry(
+        FullEditDetailGpuCache& cache,
+        const DetailTileRect rect,
+        const std::shared_ptr<WarmEditGpuSession>& session,
+        const std::uint64_t charged_bytes,
+        const std::uint64_t last_use
+    ) {
+        std::scoped_lock lock(cache.mutex_);
+        cache.entries_.push_back(
+            FullEditDetailGpuCache::Entry{
+                .rect = rect,
+                .session = session,
+                .resident_bytes = charged_bytes,
+                .last_use = last_use,
+            }
+        );
+        cache.resident_bytes_ += charged_bytes;
+        cache.use_sequence_ = std::max(cache.use_sequence_, last_use);
+    }
+
+    static void refresh(
+        FullEditDetailGpuCache& cache,
+        const DetailTileRect rect,
+        const std::shared_ptr<WarmEditGpuSession>& session
+    ) {
+        cache.refresh_resident_bytes(rect, session);
+    }
+
+    static void refresh_with_charge(
+        FullEditDetailGpuCache& cache,
+        const DetailTileRect rect,
+        const std::shared_ptr<WarmEditGpuSession>& session,
+        const std::uint64_t current_bytes
+    ) {
+        std::scoped_lock lock(cache.mutex_);
+        cache.refresh_resident_bytes_locked(rect, session, current_bytes);
+    }
+
+    [[nodiscard]] static bool contains(
+        FullEditDetailGpuCache& cache,
+        const DetailTileRect rect,
+        const std::shared_ptr<WarmEditGpuSession>& session
+    ) {
+        std::scoped_lock lock(cache.mutex_);
+        return std::ranges::any_of(cache.entries_, [&](const FullEditDetailGpuCache::Entry& entry) {
+            return entry.rect == rect && entry.session == session;
+        });
+    }
+
+    [[nodiscard]] static std::uint64_t resident_bytes(FullEditDetailGpuCache& cache) {
+        std::scoped_lock lock(cache.mutex_);
+        return cache.resident_bytes_;
+    }
+
+    [[nodiscard]] static constexpr std::uint64_t maximum_resident_bytes() noexcept {
+        return FullEditDetailGpuCache::maximum_resident_bytes;
+    }
+};
+
+} // namespace shadow::image::detail
 
 namespace {
 
@@ -243,6 +308,125 @@ void resident_viewport_cache_reuses_the_adopted_session() {
             && !first.source_cache_hit && repeated.source_cache_hit
             && raw.region_dispatch_count == 1U && raw.region_readback_count == 0U,
         "the same viewport reuses one native source-rendered warm session"
+    );
+}
+
+void host_replay_growth_evicts_the_oldest_entry_at_the_cache_budget() {
+    PublishedResident current_resident = publish_resident(detail_fixture());
+    PublishedResident oldest_resident = publish_resident(detail_fixture());
+    expect(
+        current_resident.source != nullptr && oldest_resident.source != nullptr,
+        "host replay cache contract publishes two resident RAW sources"
+    );
+    if (current_resident.source == nullptr || oldest_resident.source == nullptr) {
+        return;
+    }
+    const image::SourceRenderingReceipt current_rendering = image::resolve_source_rendering(
+        current_resident.metadata,
+        current_resident.source->raw_pipeline_receipt()
+    );
+    const image::SourceRenderingReceipt oldest_rendering = image::resolve_source_rendering(
+        oldest_resident.metadata,
+        oldest_resident.source->raw_pipeline_receipt()
+    );
+    const image::GeometryPixelRect current_rect{17U, 13U, 96U, 72U};
+    const image::GeometryPixelRect oldest_rect{19U, 15U, 88U, 68U};
+    auto current = image::detail::prepare_full_edit_detail_metal_source(
+        *current_resident.source,
+        current_rendering,
+        current_rect,
+        0U
+    );
+    auto oldest = image::detail::prepare_full_edit_detail_metal_source(
+        *oldest_resident.source,
+        oldest_rendering,
+        oldest_rect,
+        0U
+    );
+    expect(
+        current.published() && oldest.published(),
+        "host replay cache contract prepares two bounded warm sessions"
+    );
+    if (!current.published() || !oldest.published()) {
+        return;
+    }
+
+    const auto before = current.session->stats();
+    const std::uint64_t maximum =
+        image::detail::FullEditDetailGpuCacheContractAccess::maximum_resident_bytes();
+    expect(
+        before.resident_bytes > 0U && before.resident_bytes < maximum,
+        "the current viewport begins below the 256 MiB cache budget"
+    );
+    if (before.resident_bytes == 0U || before.resident_bytes >= maximum) {
+        return;
+    }
+
+    image::detail::FullEditDetailGpuCache cache;
+    const image::DetailTileRect oldest_key{19U, 15U, 88U, 68U};
+    const image::DetailTileRect current_key{17U, 13U, 96U, 72U};
+    image::detail::FullEditDetailGpuCacheContractAccess::seed_entry(
+        cache,
+        oldest_key,
+        oldest.session,
+        maximum - before.resident_bytes,
+        1U
+    );
+    image::detail::FullEditDetailGpuCacheContractAccess::seed_entry(
+        cache,
+        current_key,
+        current.session,
+        before.resident_bytes,
+        2U
+    );
+
+    const auto replay = current.session->host_source_for_cpu_replay();
+    const auto after = current.session->stats();
+    image::detail::FullEditDetailGpuCacheContractAccess::refresh(
+        cache,
+        current_key,
+        current.session
+    );
+    expect(
+        replay.source != nullptr && after.resident_bytes > before.resident_bytes
+            && image::detail::FullEditDetailGpuCacheContractAccess::contains(
+                cache,
+                current_key,
+                current.session
+            )
+            && !image::detail::FullEditDetailGpuCacheContractAccess::contains(
+                cache,
+                oldest_key,
+                oldest.session
+            )
+            && image::detail::FullEditDetailGpuCacheContractAccess::resident_bytes(cache)
+                   == after.resident_bytes,
+        "first host replay growth is charged and evicts the oldest entry at the 256 MiB gate"
+    );
+
+    image::detail::FullEditDetailGpuCache overflow_cache;
+    image::detail::FullEditDetailGpuCacheContractAccess::seed_entry(
+        overflow_cache,
+        current_key,
+        current.session,
+        before.resident_bytes,
+        1U
+    );
+    image::detail::FullEditDetailGpuCacheContractAccess::refresh_with_charge(
+        overflow_cache,
+        current_key,
+        current.session,
+        std::numeric_limits<std::uint64_t>::max()
+    );
+    expect(
+        !image::detail::FullEditDetailGpuCacheContractAccess::contains(
+            overflow_cache,
+            current_key,
+            current.session
+        )
+            && image::detail::FullEditDetailGpuCacheContractAccess::resident_bytes(overflow_cache)
+                   == 0U,
+        "an unrepresentable combined charge evicts the entry instead of wrapping under budget"
     );
 }
 
@@ -595,6 +779,7 @@ int main() {
     }
     native_source_adoption_has_no_intermediate_host_round_trip();
     resident_viewport_cache_reuses_the_adopted_session();
+    host_replay_growth_evicts_the_oldest_entry_at_the_cache_budget();
     resident_viewport_cache_rejects_a_terminally_invalidated_source();
     completed_source_rendering_is_preserved_when_warm_adoption_fails();
     public_cpu_and_metal_tiles_match_with_display_precision();
