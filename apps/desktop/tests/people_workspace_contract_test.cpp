@@ -61,6 +61,7 @@ class FakePeopleAnalysisController final : public QObject {
             return {
                 QVariantMap{
                     {QStringLiteral("groupId"), QStringLiteral("session-merged-person-1")},
+                    {QStringLiteral("displayName"), QStringLiteral("Alice")},
                     {QStringLiteral("displayIndex"), 1},
                     {QStringLiteral("photoCount"), 5},
                     {QStringLiteral("thumbnailSource"), QString{}},
@@ -72,6 +73,7 @@ class FakePeopleAnalysisController final : public QObject {
         return {
             QVariantMap{
                 {QStringLiteral("groupId"), QStringLiteral("a")},
+                {QStringLiteral("displayName"), first_name_},
                 {QStringLiteral("displayIndex"), 1},
                 {QStringLiteral("photoCount"), 3},
                 {QStringLiteral("thumbnailSource"), QString{}},
@@ -80,6 +82,7 @@ class FakePeopleAnalysisController final : public QObject {
             },
             QVariantMap{
                 {QStringLiteral("groupId"), QStringLiteral("b")},
+                {QStringLiteral("displayName"), QString{}},
                 {QStringLiteral("displayIndex"), 2},
                 {QStringLiteral("photoCount"), 2},
                 {QStringLiteral("thumbnailSource"), QString{}},
@@ -155,6 +158,14 @@ class FakePeopleAnalysisController final : public QObject {
         selected_.clear();
         emit changed();
     }
+    Q_INVOKABLE void renameGroup(const QString& group_id, const QString& display_name) {
+        if (group_id != QStringLiteral("a")) {
+            return;
+        }
+        ++rename_count;
+        first_name_ = display_name.trimmed();
+        emit changed();
+    }
     Q_INVOKABLE void undoLastMerge() {
         if (!can_undo_merge_) {
             return;
@@ -169,6 +180,7 @@ class FakePeopleAnalysisController final : public QObject {
     int clear_count = 0;
     int merge_count = 0;
     int undo_count = 0;
+    int rename_count = 0;
     int cancel_count = 0;
 
     void setBusy(const bool busy) {
@@ -186,6 +198,7 @@ class FakePeopleAnalysisController final : public QObject {
     bool cancel_requested_ = false;
     bool merged_ = false;
     bool can_undo_merge_ = false;
+    QString first_name_;
     QSet<QString> selected_;
 };
 
@@ -337,6 +350,40 @@ int main(int argc, char* argv[]) {
         || !require(
             workspace->property("renderedGroupCount").toInt() == 2,
             "anonymous group cards follow stored people data"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    if (!require(
+            QMetaObject::invokeMethod(
+                workspace,
+                "requestRenameRenderedGroup",
+                Q_ARG(QVariant, QVariant{0})
+            ),
+            "person naming entry is packaged"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    QObject* const name_dialog = workspace->findChild<QObject*>(QStringLiteral("peopleNameDialog"));
+    QObject* const name_field = workspace->findChild<QObject*>(QStringLiteral("peopleNameField"));
+    if (!require(
+            name_dialog != nullptr && name_dialog->property("opened").toBool(),
+            "naming opens a focused dialog"
+        )
+        || !require(name_field != nullptr, "naming field is packaged")) {
+        return EXIT_FAILURE;
+    }
+    name_field->setProperty("text", QStringLiteral("Alice"));
+    if (!require(QMetaObject::invokeMethod(name_dialog, "accept"), "person name can be saved")) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    if (!require(controller.rename_count == 1, "saved name reaches the controller")
+        || !require(
+            controller.groups().front().toMap().value(QStringLiteral("displayName")).toString()
+                == QStringLiteral("Alice"),
+            "saved name immediately replaces the anonymous fallback"
         )) {
         return EXIT_FAILURE;
     }

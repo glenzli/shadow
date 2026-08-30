@@ -333,6 +333,10 @@ int main(int argc, char* argv[]) {
             .merge = [backend](
                          const QStringList& person_ids
                      ) { return backend->mergePeople(person_ids); },
+            .rename =
+                [backend](const QString& person_id, const QString& display_name) {
+                    return backend->renamePerson(person_id, display_name);
+                },
             .undo_merge = [backend]() { return backend->undoPeopleMerge(); },
             .clear = [backend]() { backend->clearPeopleData(); },
         },

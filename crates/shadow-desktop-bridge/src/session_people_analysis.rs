@@ -106,6 +106,14 @@ impl DesktopSession {
         ffi_people_analysis_report(self.people_library.undo_merge()?)
     }
 
+    pub(crate) fn rename_person(
+        &self,
+        person_id: &str,
+        display_name: &str,
+    ) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
+        ffi_people_analysis_report(self.people_library.rename_person(person_id, display_name)?)
+    }
+
     pub(crate) fn clear_people_data(&self) -> AnyResult<()> {
         self.people_library.clear()
     }
@@ -157,6 +165,7 @@ fn ffi_people_analysis_report(
             .map(|group| {
                 Ok(ffi::FfiPeopleGroup {
                     group_id: group.person_id,
+                    display_name: group.display_name,
                     member_count: group.member_count,
                     photo_ids: group.photo_ids,
                     thumbnail_jpeg: group.thumbnail_jpeg,

@@ -54,6 +54,7 @@ class PeopleAnalysisController final : public QObject {
         std::function<bool(std::uint64_t)> cancel;
         std::function<void(std::uint64_t)> retire;
         std::function<BackendPeopleAnalysisReport(const QStringList&)> merge;
+        std::function<BackendPeopleAnalysisReport(const QString&, const QString&)> rename;
         std::function<BackendPeopleAnalysisReport()> undo_merge;
         std::function<void()> clear;
     };
@@ -87,6 +88,7 @@ class PeopleAnalysisController final : public QObject {
     Q_INVOKABLE void clearPeopleData();
     Q_INVOKABLE void toggleGroupSelection(const QString& group_id);
     Q_INVOKABLE void mergeSelectedGroups();
+    Q_INVOKABLE void renameGroup(const QString& group_id, const QString& display_name);
     Q_INVOKABLE void undoLastMerge();
     Q_INVOKABLE void retranslateUi();
 

@@ -5193,6 +5193,43 @@ R %2 · G %3 · B %4</translation>
 </context>
 <context>
     <name>PeopleWorkspace</name>
+    <message numerus="yes">
+        <location filename="../qml/PeopleWorkspace.qml" line="493"/>
+        <source>%1, %n photos</source>
+        <translation>
+            <numerusform>%1，%n 张照片</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="559"/>
+        <source>Name</source>
+        <translation>命名</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="137"/>
+        <source>Name person</source>
+        <translation>为人物命名</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="153"/>
+        <source>Names stay in this device's local People data.</source>
+        <translation>姓名仅保存在本机的人物数据中。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="166"/>
+        <source>Person name</source>
+        <translation>人物姓名</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="558"/>
+        <source>Rename</source>
+        <translation>重命名</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="137"/>
+        <source>Rename person</source>
+        <translation>重命名人物</translation>
+    </message>
     <message>
         <location filename="../qml/PeopleWorkspace.qml" line="157"/>
         <source>People</source>

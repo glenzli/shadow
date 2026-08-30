@@ -25,6 +25,7 @@ project_report(const shadow::desktop::FfiPeopleAnalysisReport& source) {
     for (const auto& group : source.groups) {
         groups.push_back({
             .group_id = desktop_backend_projection::qstring(group.group_id),
+            .display_name = desktop_backend_projection::qstring(group.display_name),
             .member_count = group.member_count,
             .photo_ids = project_photo_ids(group.photo_ids),
             .thumbnail_jpeg = desktop_backend_projection::qbytes(group.thumbnail_jpeg),
@@ -108,6 +109,13 @@ void DesktopBackend::retirePeopleAnalysisJob(const std::uint64_t job_token) cons
 
 BackendPeopleAnalysisReport DesktopBackend::mergePeople(const QStringList& person_ids) const {
     return project_report(impl_->session->merge_people(rust_strings(person_ids)));
+}
+
+BackendPeopleAnalysisReport
+DesktopBackend::renamePerson(const QString& person_id, const QString& display_name) const {
+    return project_report(
+        impl_->session->rename_person(person_id.toStdString(), display_name.toStdString())
+    );
 }
 
 BackendPeopleAnalysisReport DesktopBackend::undoPeopleMerge() const {

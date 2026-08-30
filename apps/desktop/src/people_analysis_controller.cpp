@@ -136,6 +136,7 @@ QVariantList PeopleAnalysisController::groups() const {
         projected.push_back(
             QVariantMap{
                 {QStringLiteral("groupId"), group.group_id},
+                {QStringLiteral("displayName"), group.display_name},
                 {QStringLiteral("displayIndex"), index + 1},
                 {QStringLiteral("photoCount"), group.member_count},
                 {QStringLiteral("thumbnailSource"), thumbnail_source(group.thumbnail_jpeg)},
@@ -303,6 +304,30 @@ void PeopleAnalysisController::mergeSelectedGroups() {
         report_ = operations_.merge(selected_group_ids_);
     } catch (const std::exception& error) {
         qWarning().noquote() << "People merge could not be saved:" << error.what();
+        state_ = State::Failed;
+        emit stateChanged();
+        return;
+    }
+    resetSelection();
+    emit resultsChanged();
+}
+
+void PeopleAnalysisController::renameGroup(const QString& group_id, const QString& display_name) {
+    if (watcher_.isRunning() || !has_results_) {
+        return;
+    }
+    const bool exists = std::any_of(
+        report_.groups.cbegin(),
+        report_.groups.cend(),
+        [&group_id](const BackendPeopleGroup& group) { return group.group_id == group_id; }
+    );
+    if (!exists) {
+        return;
+    }
+    try {
+        report_ = operations_.rename(group_id, display_name);
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "Person name could not be saved:" << error.what();
         state_ = State::Failed;
         emit stateChanged();
         return;

@@ -11,6 +11,8 @@ Item {
     required property var aiPreferences
     readonly property int renderedGroupCount: peopleGroupRepeater.count
     readonly property int selectedGroupCount: controller.selectedGroupCount
+    property string renameGroupId: ""
+    property string renameCurrentName: ""
 
     function requestStartAnalysis() {
         if (controller.busy)
@@ -40,6 +42,18 @@ Item {
     function requestUndoMerge() {
         if (!controller.busy && controller.canUndoMerge)
             controller.undoLastMerge()
+    }
+
+    function requestRenameRenderedGroup(index) {
+        const renderedGroups = controller.groups
+        if (controller.busy || index < 0 || index >= renderedGroups.length)
+            return
+        renameGroupId = String(renderedGroups[index].groupId)
+        renameCurrentName = String(renderedGroups[index].displayName || "")
+        personNameField.text = renameCurrentName
+        personNameDialog.open()
+        personNameField.forceActiveFocus()
+        personNameField.selectAll()
     }
 
     function requestToggleRenderedGroup(index) {
@@ -110,6 +124,49 @@ Item {
             text: qsTr("Stored face references, people groups, thumbnails, and your merges will be removed. Original photos and edits are not changed.")
             color: Theme.textPrimary
             wrapMode: Text.WordWrap
+        }
+    }
+
+    Dialog {
+        id: personNameDialog
+        objectName: "peopleNameDialog"
+        anchors.centerIn: parent
+        width: Math.min(420, parent.width - 48)
+        modal: true
+        title: people.renameCurrentName.length > 0
+            ? qsTr("Rename person") : qsTr("Name person")
+        standardButtons: Dialog.Cancel | Dialog.Save
+        onAccepted: {
+            people.controller.renameGroup(people.renameGroupId,
+                                          personNameField.text)
+            people.renameGroupId = ""
+            people.renameCurrentName = ""
+        }
+        onRejected: {
+            people.renameGroupId = ""
+            people.renameCurrentName = ""
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Names stay in this device's local People data.")
+                color: Theme.textMuted
+                wrapMode: Text.WordWrap
+            }
+
+            TextField {
+                id: personNameField
+                objectName: "peopleNameField"
+                Layout.fillWidth: true
+                maximumLength: 80
+                selectByMouse: true
+                placeholderText: qsTr("Person name")
+                Accessible.name: qsTr("Person name")
+                onAccepted: personNameDialog.accept()
+            }
         }
     }
 
@@ -431,14 +488,17 @@ Item {
                         objectName: "peopleGroupCard"
 
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 188
+                        Layout.preferredHeight: 218
                         radius: 12
                         color: selected ? Theme.accentSurface : Theme.panelRaised
                         border.width: selected ? 2 : 1
                         border.color: selected ? Theme.accent : Theme.border
                         Accessible.role: Accessible.Button
-                        Accessible.name: qsTr("Person %1, %n photos", "", modelData.photoCount)
-                            .arg(modelData.displayIndex)
+                        Accessible.name: String(modelData.displayName || "").length > 0
+                            ? qsTr("%1, %n photos", "", modelData.photoCount)
+                                .arg(String(modelData.displayName))
+                            : qsTr("Person %1, %n photos", "", modelData.photoCount)
+                                .arg(modelData.displayIndex)
                         Accessible.checked: selected
 
                         TapHandler {
@@ -482,8 +542,10 @@ Item {
 
                             Label {
                                 Layout.fillWidth: true
-                                text: qsTr("Person %1").arg(
-                                    peopleGroup.modelData.displayIndex)
+                                text: String(peopleGroup.modelData.displayName || "").length > 0
+                                    ? String(peopleGroup.modelData.displayName)
+                                    : qsTr("Person %1").arg(
+                                        peopleGroup.modelData.displayIndex)
                                 color: Theme.textPrimary
                                 font.pixelSize: 14
                                 font.weight: Font.DemiBold
@@ -496,6 +558,17 @@ Item {
                                 color: Theme.textMuted
                                 font.pixelSize: 11
                                 horizontalAlignment: Text.AlignHCenter
+                            }
+
+                            ShadowButton {
+                                objectName: "peopleNameButton"
+                                Layout.alignment: Qt.AlignHCenter
+                                text: String(peopleGroup.modelData.displayName || "").length > 0
+                                    ? qsTr("Rename") : qsTr("Name")
+                                enabled: !people.controller.busy
+                                variant: ShadowButton.Ghost
+                                onClicked: people.requestRenameRenderedGroup(
+                                    peopleGroup.index)
                             }
 
                             Label {

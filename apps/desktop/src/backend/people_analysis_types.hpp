@@ -9,6 +9,7 @@
 
 struct BackendPeopleGroup final {
     QString group_id;
+    QString display_name;
     std::uint32_t member_count = 0;
     /// Logical photo identities used only to reject a contradictory session
     /// merge. No face geometry or embedding crosses the desktop boundary.

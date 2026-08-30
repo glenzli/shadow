@@ -64,7 +64,7 @@ Application startup is split from environment-driven automation:
 - [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,
   authorization-gated anonymous-people analysis lifecycle: persisted local-summary loading, worker
   admission, safe failure presentation, conflict-safe group selection, durable merge delegation,
-  one-step merge undo, rerun, localization, and explicit clear. It delegates model execution and
+  stable local naming, one-step merge undo, rerun, localization, and explicit clear. It delegates model execution and
   the independently clearable People Store through `DesktopBackend`; only logical photo ids needed
   to reject co-occurring-face merges enter Qt, while embeddings and face geometry remain in Rust.
 - [`src/semantic_search_controller.*`](src/semantic_search_controller.hpp) owns manual,
@@ -98,7 +98,7 @@ Application startup is split from environment-driven automation:
   remains a secondary route rather than consuming a top-level tab.
 - [`qml/PeopleWorkspace.qml`](qml/PeopleWorkspace.qml) owns first-use consent, the manually
   triggered People workflow, local-only disclosure, analysis summary, bounded representative face
-  crops, selectable anonymous cards, reversible durable merge, and confirmed clear interaction. It
+  crops, locally named selectable cards, reversible durable merge, and confirmed clear interaction. It
   does not imply naming or automatic background analysis.
 - [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns the compact grid/filmstrip
   modes and batch controls inside Review. It does not route to Map; the application title bar owns

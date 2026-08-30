@@ -78,6 +78,7 @@ PeopleAnalysisController::Operations operationsForReport(BackendPeopleAnalysisRe
                     }
                     if (merged.group_id.isEmpty()) {
                         merged.group_id = group.group_id;
+                        merged.display_name = group.display_name;
                         merged.thumbnail_jpeg = group.thumbnail_jpeg;
                     }
                     merged.member_count += group.member_count;
@@ -96,6 +97,22 @@ PeopleAnalysisController::Operations operationsForReport(BackendPeopleAnalysisRe
                 );
                 current->groups.prepend(std::move(merged));
                 current->can_undo_merge = true;
+                return *current;
+            },
+        .rename =
+            [current](const QString& person_id, const QString& display_name) {
+                const auto found = std::find_if(
+                    current->groups.begin(),
+                    current->groups.end(),
+                    [&person_id](const BackendPeopleGroup& group) {
+                        return group.group_id == person_id;
+                    }
+                );
+                if (found == current->groups.end()) {
+                    throw std::runtime_error("person unavailable");
+                }
+                found->display_name = display_name.trimmed();
+                current->can_undo_merge = false;
                 return *current;
             },
         .undo_merge =
@@ -177,6 +194,15 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    controller.renameGroup(QStringLiteral("group-a"), QStringLiteral("  Alice  "));
+    if (!require(
+            controller.groups().front().toMap().value(QStringLiteral("displayName")).toString()
+                == QStringLiteral("Alice"),
+            "a local person name reaches the QML projection"
+        )) {
+        return EXIT_FAILURE;
+    }
+
     controller.toggleGroupSelection(QStringLiteral("group-a"));
     controller.toggleGroupSelection(QStringLiteral("group-c"));
     if (!require(controller.selectedGroupCount() == 2, "two groups can be selected")
@@ -201,6 +227,11 @@ int main(int argc, char* argv[]) {
         || !require(
             merged_groups.front().toMap().value(QStringLiteral("merged")).toBool(),
             "merged group is marked as a session correction"
+        )
+        || !require(
+            merged_groups.front().toMap().value(QStringLiteral("displayName")).toString()
+                == QStringLiteral("Alice"),
+            "merge preserves the target person's local name"
         )
         || !require(controller.canUndoMerge(), "merge exposes one-step undo")) {
         return EXIT_FAILURE;
@@ -230,6 +261,7 @@ int main(int argc, char* argv[]) {
             .cancel = [](std::uint64_t) { return true; },
             .retire = [](std::uint64_t) {},
             .merge = [](const QStringList&) { return BackendPeopleAnalysisReport{}; },
+            .rename = [](const QString&, const QString&) { return BackendPeopleAnalysisReport{}; },
             .undo_merge = [] { return BackendPeopleAnalysisReport{}; },
             .clear = [] {},
         },
@@ -279,6 +311,7 @@ int main(int argc, char* argv[]) {
                 },
             .retire = [retired](std::uint64_t) { retired->store(true, std::memory_order_release); },
             .merge = [](const QStringList&) { return BackendPeopleAnalysisReport{}; },
+            .rename = [](const QString&, const QString&) { return BackendPeopleAnalysisReport{}; },
             .undo_merge = [] { return BackendPeopleAnalysisReport{}; },
             .clear = [] {},
         },

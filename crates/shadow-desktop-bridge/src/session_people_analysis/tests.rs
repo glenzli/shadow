@@ -16,6 +16,7 @@ fn desktop_projection_keeps_durable_merge_data_but_never_embeddings_or_geometry(
         grouping_revision: "test".into(),
         groups: vec![PeopleLibraryGroup {
             person_id: "person-a".into(),
+            display_name: "Alice".into(),
             member_count: 2,
             photo_ids: vec!["photo-a".into(), "photo-b".into()],
             thumbnail_jpeg: vec![1, 2, 3],
@@ -29,6 +30,7 @@ fn desktop_projection_keeps_durable_merge_data_but_never_embeddings_or_geometry(
     assert_eq!(projected.skipped_items, 15);
     assert_eq!(projected.groups.len(), 1);
     assert_eq!(projected.groups[0].group_id, "person-a");
+    assert_eq!(projected.groups[0].display_name, "Alice");
     assert_eq!(projected.groups[0].member_count, 2);
     assert_eq!(projected.groups[0].photo_ids, vec!["photo-a", "photo-b"]);
     assert_eq!(projected.groups[0].thumbnail_jpeg, vec![1, 2, 3]);

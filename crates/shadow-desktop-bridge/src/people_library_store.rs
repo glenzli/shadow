@@ -17,12 +17,16 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use shadow_ai::FaceOccurrenceReference;
 use shadow_core::PeopleAnalysisReport;
 
-const SCHEMA_VERSION: i64 = 1;
-const SCHEMA_IDENTITY: &str = "shadow-people-store-20260830.1";
+const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_IDENTITY: &str = "shadow-people-store-20260831.2";
+const LEGACY_SCHEMA_VERSION: i64 = 1;
+const LEGACY_SCHEMA_IDENTITY: &str = "shadow-people-store-20260830.1";
+const MAX_DISPLAY_NAME_BYTES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PeopleLibraryGroup {
     pub(crate) person_id: String,
+    pub(crate) display_name: String,
     pub(crate) member_count: u32,
     pub(crate) photo_ids: Vec<String>,
     pub(crate) thumbnail_jpeg: Vec<u8>,
@@ -87,6 +91,7 @@ struct StoredSnapshot {
 struct StoredGroup {
     person_id: String,
     sort_index: u32,
+    display_name: String,
     thumbnail_jpeg: Vec<u8>,
     manually_merged: bool,
     occurrences: Vec<StoredOccurrence>,
@@ -174,6 +179,20 @@ impl PeopleLibraryStore {
         let target_person_id = snapshot.groups[target_index].person_id.clone();
         let target_sort_index = snapshot.groups[target_index].sort_index;
         let target_thumbnail = snapshot.groups[target_index].thumbnail_jpeg.clone();
+        let target_display_name = selected_indexes
+            .iter()
+            .map(|index| &snapshot.groups[*index])
+            .min_by_key(|group| group.sort_index)
+            .and_then(|group| (!group.display_name.is_empty()).then(|| group.display_name.clone()))
+            .or_else(|| {
+                selected_indexes
+                    .iter()
+                    .map(|index| &snapshot.groups[*index])
+                    .filter(|group| !group.display_name.is_empty())
+                    .min_by_key(|group| group.sort_index)
+                    .map(|group| group.display_name.clone())
+            })
+            .unwrap_or_default();
         let mut merged_occurrences = Vec::new();
         for index in &selected_indexes {
             merged_occurrences.extend(snapshot.groups[*index].occurrences.clone());
@@ -185,6 +204,7 @@ impl PeopleLibraryStore {
         snapshot.groups.push(StoredGroup {
             person_id: target_person_id,
             sort_index: target_sort_index,
+            display_name: target_display_name,
             thumbnail_jpeg: target_thumbnail,
             manually_merged: true,
             occurrences: merged_occurrences,
@@ -196,6 +216,31 @@ impl PeopleLibraryStore {
         write_snapshot(&mut state.connection, &snapshot)?;
         state.undo = Some(previous);
         project_snapshot(snapshot, true)
+    }
+
+    pub(crate) fn rename_person(
+        &self,
+        person_id: &str,
+        display_name: &str,
+    ) -> AnyResult<PeopleLibrarySnapshot> {
+        let display_name = normalized_display_name(display_name)?;
+        let mut state = self.lock()?;
+        let mut snapshot = read_snapshot(&state.connection)?
+            .ok_or_else(|| anyhow!("people data has not been analyzed"))?;
+        let group = snapshot
+            .groups
+            .iter_mut()
+            .find(|group| group.person_id == person_id)
+            .ok_or_else(|| anyhow!("the selected person is no longer available"))?;
+        if group.display_name == display_name {
+            return project_snapshot(snapshot, state.undo.is_some());
+        }
+        group.display_name = display_name;
+        write_snapshot(&mut state.connection, &snapshot)?;
+        // Rename follows the merge in the same linear correction history. A
+        // stale merge undo would otherwise silently discard the new name.
+        state.undo = None;
+        project_snapshot(snapshot, false)
     }
 
     pub(crate) fn undo_merge(&self) -> AnyResult<PeopleLibrarySnapshot> {
@@ -268,6 +313,8 @@ fn initialize(connection: &mut Connection) -> AnyResult<()> {
              CREATE TABLE IF NOT EXISTS people_groups (
                  person_id TEXT PRIMARY KEY NOT NULL,
                  sort_index INTEGER NOT NULL CHECK (sort_index >= 0),
+                 display_name TEXT NOT NULL DEFAULT ''
+                     CHECK (length(CAST(display_name AS BLOB)) <= 256),
                  thumbnail_jpeg BLOB NOT NULL,
                  manually_merged INTEGER NOT NULL CHECK (manually_merged IN (0, 1))
              ) STRICT;
@@ -308,6 +355,23 @@ fn initialize(connection: &mut Connection) -> AnyResult<()> {
                 .context("record local people store schema identity")?;
         }
         Some((SCHEMA_VERSION, identity)) if identity == SCHEMA_IDENTITY => {}
+        Some((LEGACY_SCHEMA_VERSION, identity)) if identity == LEGACY_SCHEMA_IDENTITY => {
+            let transaction = connection
+                .transaction()
+                .context("begin local people-store schema migration")?;
+            transaction
+                .execute_batch(
+                    "ALTER TABLE people_groups
+                         ADD COLUMN display_name TEXT NOT NULL DEFAULT ''
+                         CHECK (length(CAST(display_name AS BLOB)) <= 256);
+                     UPDATE people_schema
+                         SET version = 2, identity = 'shadow-people-store-20260831.2';",
+                )
+                .context("migrate local people store to named people")?;
+            transaction
+                .commit()
+                .context("commit local people-store schema migration")?;
+        }
         Some((version, identity)) => bail!(
             "unsupported local people store schema {version} ({identity}); clear people data before continuing"
         ),
@@ -371,6 +435,7 @@ fn reconcile_analysis(
                 person_id,
                 incoming,
                 preview,
+                prior.map_or_else(String::new, |group| group.display_name.clone()),
                 prior.is_some_and(|group| group.manually_merged),
                 prior.map_or(u32::MAX, |group| group.sort_index),
             );
@@ -392,6 +457,7 @@ fn reconcile_analysis(
                     person_id.clone(),
                     vec![occurrence],
                     prior.thumbnail_jpeg.clone(),
+                    prior.display_name.clone(),
                     prior.manually_merged,
                     prior.sort_index,
                 );
@@ -401,7 +467,15 @@ fn reconcile_analysis(
         }
         if !unmatched.is_empty() {
             let person_id = person_id_for_occurrences(&unmatched);
-            append_draft(&mut drafts, person_id, unmatched, preview, false, u32::MAX);
+            append_draft(
+                &mut drafts,
+                person_id,
+                unmatched,
+                preview,
+                String::new(),
+                false,
+                u32::MAX,
+            );
         }
     }
 
@@ -424,6 +498,7 @@ fn append_draft(
     person_id: String,
     occurrences: Vec<StoredOccurrence>,
     thumbnail_jpeg: Vec<u8>,
+    display_name: String,
     manually_merged: bool,
     sort_index: u32,
 ) {
@@ -432,12 +507,16 @@ fn append_draft(
         .or_insert_with(|| StoredGroup {
             person_id,
             sort_index,
+            display_name: display_name.clone(),
             thumbnail_jpeg: thumbnail_jpeg.clone(),
             manually_merged,
             occurrences: Vec::new(),
         });
     draft.sort_index = draft.sort_index.min(sort_index);
     draft.manually_merged |= manually_merged;
+    if draft.display_name.is_empty() && !display_name.is_empty() {
+        draft.display_name = display_name;
+    }
     if draft.thumbnail_jpeg.is_empty() && !thumbnail_jpeg.is_empty() {
         draft.thumbnail_jpeg = thumbnail_jpeg;
     }
@@ -526,7 +605,7 @@ fn read_snapshot(connection: &Connection) -> AnyResult<Option<StoredSnapshot>> {
 
     let mut groups_statement = connection
         .prepare(
-            "SELECT person_id, sort_index, thumbnail_jpeg, manually_merged
+            "SELECT person_id, sort_index, display_name, thumbnail_jpeg, manually_merged
              FROM people_groups ORDER BY sort_index, person_id",
         )
         .context("prepare local people group read")?;
@@ -535,8 +614,9 @@ fn read_snapshot(connection: &Connection) -> AnyResult<Option<StoredSnapshot>> {
             Ok(StoredGroup {
                 person_id: row.get(0)?,
                 sort_index: row.get(1)?,
-                thumbnail_jpeg: row.get(2)?,
-                manually_merged: row.get(3)?,
+                display_name: row.get(2)?,
+                thumbnail_jpeg: row.get(3)?,
+                manually_merged: row.get(4)?,
                 occurrences: Vec::new(),
             })
         })
@@ -614,11 +694,12 @@ fn write_snapshot(connection: &mut Connection, snapshot: &StoredSnapshot) -> Any
         transaction
             .execute(
                 "INSERT INTO people_groups (
-                     person_id, sort_index, thumbnail_jpeg, manually_merged
-                 ) VALUES (?1, ?2, ?3, ?4)",
+                     person_id, sort_index, display_name, thumbnail_jpeg, manually_merged
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     group.person_id,
                     group.sort_index,
+                    group.display_name,
                     group.thumbnail_jpeg,
                     group.manually_merged,
                 ],
@@ -680,6 +761,7 @@ fn project_snapshot(
                 .collect::<Vec<_>>();
             Ok(PeopleLibraryGroup {
                 person_id: group.person_id,
+                display_name: group.display_name,
                 member_count: bounded_u32(group.occurrences.len(), "people group member count")?,
                 photo_ids,
                 thumbnail_jpeg: group.thumbnail_jpeg,
@@ -699,6 +781,17 @@ fn project_snapshot(
         groups,
         can_undo_merge,
     })
+}
+
+fn normalized_display_name(display_name: &str) -> AnyResult<String> {
+    let display_name = display_name.trim();
+    if display_name.len() > MAX_DISPLAY_NAME_BYTES {
+        bail!("person name exceeds {MAX_DISPLAY_NAME_BYTES} UTF-8 bytes");
+    }
+    if display_name.chars().any(char::is_control) {
+        bail!("person name contains a control character");
+    }
+    Ok(display_name.to_owned())
 }
 
 fn bounded_u32(value: usize, field: &'static str) -> AnyResult<u32> {

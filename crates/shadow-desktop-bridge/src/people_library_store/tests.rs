@@ -98,10 +98,18 @@ fn persists_groups_merges_and_explicit_clear_without_embeddings() {
     let undone = store.undo_merge().expect("undo merge");
     assert_eq!(undone.groups.len(), 2);
     assert!(!undone.can_undo_merge);
+    let named = store
+        .rename_person(&undone.groups[0].person_id, "  Alice  ")
+        .expect("persist person name");
+    assert_eq!(named.groups[0].display_name, "Alice");
 
     drop(store);
     let reopened = PeopleLibraryStore::open(root.path()).expect("reopen people store");
     assert_eq!(reopened.snapshot().expect("load snapshot").groups.len(), 2);
+    assert_eq!(
+        reopened.snapshot().expect("reload named snapshot").groups[0].display_name,
+        "Alice"
+    );
     reopened.clear().expect("clear people data");
     let empty = reopened.snapshot().expect("empty snapshot");
     assert!(!empty.has_data);
@@ -144,6 +152,9 @@ fn repeated_analysis_reuses_a_manually_merged_person_by_occurrence_identity() {
         .collect::<Vec<_>>();
     let merged = store.merge_people(&person_ids).expect("merge people");
     let durable_person_id = merged.groups[0].person_id.clone();
+    store
+        .rename_person(&durable_person_id, "Alice")
+        .expect("name merged person");
 
     let refreshed = store
         .replace_analysis(report(vec![
@@ -167,5 +178,71 @@ fn repeated_analysis_reuses_a_manually_merged_person_by_occurrence_identity() {
     assert_eq!(refreshed.groups.len(), 1);
     assert_eq!(refreshed.groups[0].person_id, durable_person_id);
     assert_eq!(refreshed.groups[0].member_count, 5);
+    assert_eq!(refreshed.groups[0].display_name, "Alice");
     assert!(refreshed.groups[0].manually_merged);
+}
+
+#[test]
+fn opens_and_transactionally_migrates_the_previous_people_store_schema() {
+    let root = tempfile::tempdir().expect("temporary people store");
+    let path = root.path().join("people.sqlite");
+    let connection = rusqlite::Connection::open(&path).expect("open legacy people store");
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE people_schema (
+                 version INTEGER PRIMARY KEY NOT NULL,
+                 identity TEXT NOT NULL
+             ) STRICT;
+             INSERT INTO people_schema (version, identity)
+                 VALUES (1, 'shadow-people-store-20260830.1');
+             CREATE TABLE people_snapshot (
+                 singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+                 analyzed_photos INTEGER NOT NULL CHECK (analyzed_photos >= 0),
+                 detected_faces INTEGER NOT NULL CHECK (detected_faces >= 0),
+                 embedded_faces INTEGER NOT NULL CHECK (embedded_faces >= 0),
+                 skipped_items INTEGER NOT NULL CHECK (skipped_items >= 0),
+                 ungrouped_faces INTEGER NOT NULL CHECK (ungrouped_faces >= 0),
+                 truncated INTEGER NOT NULL CHECK (truncated IN (0, 1)),
+                 grouping_revision TEXT NOT NULL
+             ) STRICT;
+             CREATE TABLE people_groups (
+                 person_id TEXT PRIMARY KEY NOT NULL,
+                 sort_index INTEGER NOT NULL CHECK (sort_index >= 0),
+                 thumbnail_jpeg BLOB NOT NULL,
+                 manually_merged INTEGER NOT NULL CHECK (manually_merged IN (0, 1))
+             ) STRICT;
+             CREATE TABLE people_occurrences (
+                 occurrence_id TEXT PRIMARY KEY NOT NULL,
+                 person_id TEXT NOT NULL,
+                 photo_id TEXT NOT NULL,
+                 representation_id TEXT NOT NULL,
+                 bounds_x REAL NOT NULL,
+                 bounds_y REAL NOT NULL,
+                 bounds_width REAL NOT NULL,
+                 bounds_height REAL NOT NULL,
+                 FOREIGN KEY (person_id) REFERENCES people_groups(person_id) ON DELETE CASCADE
+             ) STRICT;",
+        )
+        .expect("seed legacy people schema");
+    drop(connection);
+
+    let store = PeopleLibraryStore::open(root.path()).expect("migrate legacy people store");
+    assert!(!store.snapshot().expect("read migrated store").has_data);
+    drop(store);
+    let connection = rusqlite::Connection::open(path).expect("reopen migrated people store");
+    let schema: (i64, String) = connection
+        .query_row("SELECT version, identity FROM people_schema", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("read migrated identity");
+    assert_eq!(schema, (2, "shadow-people-store-20260831.2".into()));
+    let display_name: String = connection
+        .query_row(
+            "SELECT dflt_value FROM pragma_table_info('people_groups') WHERE name = 'display_name'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read migrated display-name column");
+    assert_eq!(display_name, "''");
 }

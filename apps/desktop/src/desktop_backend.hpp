@@ -264,6 +264,8 @@ class DesktopBackend final {
     ) const;
     void retirePeopleAnalysisJob(std::uint64_t job_token) const;
     [[nodiscard]] BackendPeopleAnalysisReport mergePeople(const QStringList& person_ids) const;
+    [[nodiscard]] BackendPeopleAnalysisReport
+    renamePerson(const QString& person_id, const QString& display_name) const;
     [[nodiscard]] BackendPeopleAnalysisReport undoPeopleMerge() const;
     void clearPeopleData() const;
     /// Executes bounded SigLIP text-to-image ranking over the current Review
