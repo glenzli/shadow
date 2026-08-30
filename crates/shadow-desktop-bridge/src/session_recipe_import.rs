@@ -1,6 +1,7 @@
 //! DesktopSession orchestration for adaptive semantic Shadow Recipe import.
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
+use shadow_ai::{RasterExtent, SoftMaskEncoding};
 use shadow_domain::ShadowRecipeDocument;
 
 use crate::{
@@ -11,8 +12,18 @@ use crate::{
         RecipeImportPlanSnapshot, RecipeImportProposalPreview, RecipeImportTargetIdentity,
     },
     recipe_v1::{decode_grade_stack_draft_recipe_v1, encode_grade_stack_draft_recipe_v1},
+    subject_mask_runtime::{
+        SemanticMaskInvocation, SemanticMaskStageOutcome, geometry::project_gray8_mask_to_output,
+    },
     subject_mask_service::SubjectMaskRefinement,
+    subject_mask_service::{
+        SubjectMaskCompletion, SubjectMaskInputAdmission, SubjectMaskRenderInputIdentity,
+    },
 };
+
+const RECIPE_IMPORT_INPUT_MAX_EDGE: u32 = 1_024;
+const RECIPE_IMPORT_INPUT_JPEG_QUALITY: u8 = 95;
+const RECIPE_IMPORT_PREVIEW_EDGE: u32 = 256;
 
 impl DesktopSession {
     pub(crate) fn prepare_semantic_recipe_import(
@@ -80,51 +91,35 @@ impl DesktopSession {
         let context = self
             .recipe_imports
             .execution_context(plan_token, item_id, job_token)?;
-        let result = self.execute_subject_mask_job(
-            &context.target.photo_id,
-            &context.target.source_path,
-            &semantic_subject_mask_request(&context)?,
-        )?;
-        let (terminal, detail, proposal_token, preview) = match result.terminal {
-            ffi::FfiSubjectMaskTerminal::Staged => (
+        let result = self.execute_semantic_recipe_stage(&context)?;
+        let (terminal, detail, proposal_token, preview) = match result {
+            SemanticRecipeExecution::Staged {
+                proposal_token,
+                preview,
+            } => (
                 RecipeImportItemTerminal::Staged,
                 String::new(),
-                Some(result.proposal_token),
-                Some(RecipeImportProposalPreview {
-                    width: result.preview_width,
-                    height: result.preview_height,
-                    samples: result.preview_samples,
-                }),
+                Some(proposal_token),
+                Some(preview),
             ),
-            ffi::FfiSubjectMaskTerminal::Unavailable => (
-                RecipeImportItemTerminal::Unavailable,
-                result.detail,
+            SemanticRecipeExecution::NotFound => (
+                RecipeImportItemTerminal::NotFound,
+                String::new(),
                 None,
                 None,
             ),
-            ffi::FfiSubjectMaskTerminal::Cancelled => (
+            SemanticRecipeExecution::Unavailable(detail) => {
+                (RecipeImportItemTerminal::Unavailable, detail, None, None)
+            }
+            SemanticRecipeExecution::Cancelled => (
                 RecipeImportItemTerminal::Cancelled,
-                result.detail,
+                String::new(),
                 None,
                 None,
             ),
-            ffi::FfiSubjectMaskTerminal::Failed
-                if result.detail == "semantic query did not match a visible region" =>
-            {
-                (
-                    RecipeImportItemTerminal::NotFound,
-                    result.detail,
-                    None,
-                    None,
-                )
+            SemanticRecipeExecution::Failed(detail) => {
+                (RecipeImportItemTerminal::Failed, detail, None, None)
             }
-            ffi::FfiSubjectMaskTerminal::Failed => {
-                (RecipeImportItemTerminal::Failed, result.detail, None, None)
-            }
-            ffi::FfiSubjectMaskTerminal::PeopleReady => {
-                bail!("semantic Recipe import received an invalid people result")
-            }
-            _ => bail!("semantic Recipe import received an unsupported subject-mask result"),
         };
         if !self.recipe_imports.complete_item(
             &context,
@@ -146,6 +141,191 @@ impl DesktopSession {
                 .find(|item| item.leaf.item_id.to_string() == item_id)
                 .ok_or_else(|| anyhow!("semantic Recipe import item is unavailable"))?,
         )
+    }
+
+    fn execute_semantic_recipe_stage(
+        &self,
+        context: &RecipeImportExecutionContext,
+    ) -> AnyResult<SemanticRecipeExecution> {
+        match self.execute_semantic_recipe_stage_inner(context) {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                let _ = self.subject_masks.finish_job(context.job_token);
+                Err(error)
+            }
+        }
+    }
+
+    fn execute_semantic_recipe_stage_inner(
+        &self,
+        context: &RecipeImportExecutionContext,
+    ) -> AnyResult<SemanticRecipeExecution> {
+        let cancellation = self.subject_masks.cancellation(context.job_token)?;
+        if cancellation.is_cancelled() {
+            self.subject_masks.finish_job(context.job_token)?;
+            return Ok(SemanticRecipeExecution::Cancelled);
+        }
+        let input_identity = SubjectMaskRenderInputIdentity {
+            photo_id: context.target.photo_id.clone(),
+            source_path: context.target.source_path.clone(),
+            base_commit_id: context.target.base_commit_id.clone(),
+            grade_stack: context.target.settings.clone(),
+        };
+        let prepared_input = match self
+            .subject_masks
+            .admit_original_space_input(context.input_session_token, &input_identity)?
+        {
+            SubjectMaskInputAdmission::Reuse(input) => input,
+            SubjectMaskInputAdmission::Prepare => {
+                let prepared = (|| -> AnyResult<Option<_>> {
+                    let render_token = self.begin_basic_edit_preview();
+                    if render_token == 0 {
+                        bail!("semantic Recipe import input preview registry is full");
+                    }
+                    if let Err(error) = self
+                        .subject_masks
+                        .attach_preview_render(context.job_token, render_token)
+                    {
+                        let _ = self.cancel_basic_edit_preview(render_token);
+                        return Err(error.into());
+                    }
+                    let mut settings =
+                        encode_grade_stack_draft_recipe_v1(context.target.settings.clone())?;
+                    settings.geometry = identity_recipe_import_geometry();
+                    let preview = self.render_subject_mask_input_preview(
+                        &context.target.photo_id,
+                        &context.target.source_path,
+                        &ffi::FfiEditPreviewRequest {
+                            base_commit_id: context.target.base_commit_id.clone(),
+                            settings,
+                            render_token,
+                            max_edge: RECIPE_IMPORT_INPUT_MAX_EDGE,
+                            jpeg_quality: RECIPE_IMPORT_INPUT_JPEG_QUALITY,
+                            policy: ffi::FfiEditPreviewPolicy::Settled,
+                            use_working_recipe: true,
+                            mask_coverage_requested: false,
+                            mask_coverage_target_layer_index: 0,
+                            mask_coverage_component_requested: false,
+                            mask_coverage_target_component_index: 0,
+                            mask_selection_revision: 0,
+                        },
+                    )?;
+                    if preview.terminal == ffi::FfiEditPreviewTerminal::Cancelled
+                        || cancellation.is_cancelled()
+                    {
+                        return Ok(None);
+                    }
+                    if preview.terminal != ffi::FfiEditPreviewTerminal::Completed
+                        || preview.row_stride_bytes != 0
+                    {
+                        bail!("semantic Recipe import input preview returned an invalid payload");
+                    }
+                    let extent = RasterExtent::new(preview.width, preview.height)
+                        .context("semantic Recipe import input dimensions are invalid")?;
+                    Ok(Some(
+                        self.subject_masks
+                            .complete_original_space_input_preparation(
+                                context.input_session_token,
+                                &input_identity,
+                                preview.bytes,
+                                extent,
+                            )?,
+                    ))
+                })();
+                match prepared {
+                    Ok(Some(input)) => input,
+                    Ok(None) => {
+                        let _ = self.subject_masks.abort_original_space_input_preparation(
+                            context.input_session_token,
+                            &input_identity,
+                        );
+                        self.subject_masks.finish_job(context.job_token)?;
+                        return Ok(SemanticRecipeExecution::Cancelled);
+                    }
+                    Err(error) => {
+                        let _ = self.subject_masks.abort_original_space_input_preparation(
+                            context.input_session_token,
+                            &input_identity,
+                        );
+                        return Err(error);
+                    }
+                }
+            }
+        };
+
+        let request_id = format!(
+            "desktop-semantic-recipe-{}-{}",
+            context.job_token, context.generation
+        );
+        let outcome = self.subject_mask_runtime.stage_semantic_intent(
+            self.subject_masks.store(),
+            SemanticMaskInvocation {
+                request_id: request_id.clone(),
+                promotion_id: format!(
+                    "photo:{}:recipe-import:{}:{}",
+                    context.target.photo_id, context.plan_token, context.item.component_id
+                ),
+                generation: context.generation,
+                photo_id: context.target.photo_id.clone(),
+                original_space_input: prepared_input,
+                intent: context.item.intent.clone(),
+            },
+            &cancellation,
+        );
+        let receipt = match semantic_stage_receipt(outcome) {
+            Ok(receipt) => receipt,
+            Err(terminal) => {
+                self.subject_masks.finish_job(context.job_token)?;
+                return Ok(terminal);
+            }
+        };
+        let completion = self
+            .subject_masks
+            .complete_job(context.job_token, receipt)?;
+        match completion {
+            SubjectMaskCompletion::Staged {
+                request_id: actual_request_id,
+                generation,
+                proposal_token,
+            } => {
+                if actual_request_id != request_id || generation != context.generation {
+                    let _ = self.subject_masks.discard_proposal(proposal_token);
+                    bail!("semantic Recipe import runtime returned a stale identity");
+                }
+                let preview = self.subject_masks.proposal_preview(proposal_token)?;
+                if preview.generation != generation
+                    || preview.encoding != SoftMaskEncoding::Gray8Unorm
+                {
+                    let _ = self.subject_masks.discard_proposal(proposal_token);
+                    bail!("semantic Recipe import proposal preview is incompatible");
+                }
+                let output_extent =
+                    RasterExtent::new(RECIPE_IMPORT_PREVIEW_EDGE, RECIPE_IMPORT_PREVIEW_EDGE)?;
+                let samples = project_gray8_mask_to_output(
+                    &preview.samples,
+                    preview.raster_extent,
+                    preview.coordinate_extent,
+                    context.target.settings.canvas.effective_geometry(),
+                    output_extent,
+                )
+                .context("semantic Recipe import proposal projection is invalid")?;
+                Ok(SemanticRecipeExecution::Staged {
+                    proposal_token,
+                    preview: RecipeImportProposalPreview {
+                        width: output_extent.width,
+                        height: output_extent.height,
+                        samples,
+                    },
+                })
+            }
+            SubjectMaskCompletion::Unavailable { reason } => {
+                Ok(SemanticRecipeExecution::Unavailable(format!("{reason:?}")))
+            }
+            SubjectMaskCompletion::Cancelled => Ok(SemanticRecipeExecution::Cancelled),
+            SubjectMaskCompletion::Failed { failure } => {
+                Ok(SemanticRecipeExecution::Failed(format!("{failure:?}")))
+            }
+        }
     }
 
     pub(crate) fn cancel_semantic_recipe_import_item(
@@ -270,32 +450,48 @@ fn recipe_import_target(
     })
 }
 
-fn semantic_subject_mask_request(
-    context: &RecipeImportExecutionContext,
-) -> AnyResult<ffi::FfiSubjectMaskRequest> {
-    let settings = encode_grade_stack_draft_recipe_v1(context.target.settings.clone())?;
-    let target_grade_node_id = settings
-        .grade_nodes
-        .first()
-        .ok_or_else(|| anyhow!("semantic Recipe import destination has no Grade Node"))?
-        .grade_node_id
-        .clone();
-    Ok(ffi::FfiSubjectMaskRequest {
-        input_session_token: context.input_session_token,
-        job_token: context.job_token,
-        generation: context.generation,
-        base_commit_id: context.target.base_commit_id.clone(),
-        settings,
-        target_grade_node_index: 0,
-        target_grade_node_id,
-        kind: ffi::FfiSubjectMaskKind::SemanticQuery,
-        person_index: 0,
-        face_region_mask: 0,
-        semantic_query: context.item.intent.query().to_owned(),
-        semantic_maximum_regions: context.item.intent.maximum_regions(),
-        semantic_score_threshold_percent: context.item.intent.score_threshold_percent(),
-        points: Vec::new(),
-    })
+#[derive(Debug)]
+enum SemanticRecipeExecution {
+    Staged {
+        proposal_token: u64,
+        preview: RecipeImportProposalPreview,
+    },
+    NotFound,
+    Unavailable(String),
+    Cancelled,
+    Failed(String),
+}
+
+fn semantic_stage_receipt(
+    outcome: SemanticMaskStageOutcome,
+) -> Result<shadow_core::DerivedRasterStageReceipt, SemanticRecipeExecution> {
+    match outcome {
+        SemanticMaskStageOutcome::Staged(receipt)
+        | SemanticMaskStageOutcome::ProviderUnavailable(receipt)
+        | SemanticMaskStageOutcome::ProviderFailed(receipt) => Ok(receipt),
+        SemanticMaskStageOutcome::NotFound => Err(SemanticRecipeExecution::NotFound),
+        SemanticMaskStageOutcome::Cancelled => Err(SemanticRecipeExecution::Cancelled),
+        SemanticMaskStageOutcome::Unavailable(error) => {
+            Err(SemanticRecipeExecution::Unavailable(error.to_string()))
+        }
+    }
+}
+
+const fn identity_recipe_import_geometry() -> ffi::FfiPhotoGeometry {
+    ffi::FfiPhotoGeometry {
+        present: false,
+        enabled: true,
+        crop_left: 0.0,
+        crop_top: 0.0,
+        crop_right: 1.0,
+        crop_bottom: 1.0,
+        quarter_turn: 0,
+        straighten_degrees: 0.0,
+        perspective_vertical: 0.0,
+        perspective_horizontal: 0.0,
+        flip_horizontal: false,
+        flip_vertical: false,
+    }
 }
 
 fn recipe_import_plan_ffi(
@@ -360,3 +556,6 @@ fn recipe_import_item_ffi(item: RecipeImportItemSnapshot) -> AnyResult<ffi::FfiR
         preview_samples,
     })
 }
+
+#[cfg(test)]
+mod tests;
