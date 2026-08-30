@@ -55,6 +55,7 @@ mod raw_foundation_noise_assessment;
 mod raw_foundation_render_source;
 mod raw_foundation_runtime;
 mod raw_foundation_service;
+mod recipe_import_plan;
 mod recipe_interchange;
 mod recipe_v1;
 mod session_edit_history;
