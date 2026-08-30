@@ -27,6 +27,12 @@ namespace shadow::image::detail {
 struct WarmEditGpuPreparation;
 class WarmEditGpuPresentationSurface;
 
+struct WarmEditGpuHostSourceAttempt final {
+    std::shared_ptr<const FloatRgbImage> source;
+    bool cancelled = false;
+    std::string diagnostic;
+};
+
 enum class WarmEditGpuOutputIntent : std::uint8_t {
     host_rgb8,
     metal_presentation_surface,
@@ -157,6 +163,11 @@ class WarmEditGpuSession final {
     ) const;
 
     [[nodiscard]] WarmEditPreviewGpuStats stats() const noexcept;
+    // Materializes the immutable resident source only for an exact portable replay that the
+    // active Metal layer backend cannot execute. The first successful readback is retained by
+    // this bounded warm session; ordinary Metal edits never pay this transfer.
+    [[nodiscard]] WarmEditGpuHostSourceAttempt
+    host_source_for_cpu_replay(std::stop_token cancellation = {}) const;
 
   private:
     struct Impl;

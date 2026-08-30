@@ -7,6 +7,7 @@
 #include "../src/raw/raw_preview_rebinding.hpp"
 #include "../src/raw/raw_source_reconstruction.hpp"
 
+#include <shadow/image/edit_error.hpp>
 #include <shadow/image/raw_foundation.hpp>
 
 #include <array>
@@ -37,6 +38,46 @@ constexpr std::string_view cache_key_digest =
         .tint = 18,
     };
     return plan;
+}
+
+[[nodiscard]] std::array<image::AdjustmentLayer, 1U> composite_layers() {
+    image::LocalMask composite;
+    composite.components = {
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::base,
+            .mask = image::LocalMask{
+                .kind = image::LocalMaskKind::linear_gradient,
+                .x0 = 0.1,
+                .y0 = 0.2,
+                .x1 = 0.9,
+                .y1 = 0.8,
+            },
+        },
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::add,
+            .mask = image::LocalMask{
+                .kind = image::LocalMaskKind::radial_gradient,
+                .x0 = 0.5,
+                .y0 = 0.5,
+                .radius_x = 0.3,
+                .radius_y = 0.25,
+                .feather = 0.5,
+            },
+        },
+    };
+    return {
+        image::AdjustmentLayer{
+            .layer_id = "resident-raw-composite",
+            .mask = std::move(composite),
+            .nodes =
+                {
+                    image::AdjustmentNode{
+                        .node_id = "resident-raw-composite-exposure",
+                        .parameters = image::ExposureAdjustment{.stops = 0.24},
+                    },
+                },
+        },
+    };
 }
 
 [[nodiscard]] image::RawFoundationCameraRgbView foundation(const std::vector<float>& pixels) {
@@ -179,6 +220,45 @@ void ordinary_raw_rebind_uses_the_retained_metal_source() {
         rebound.gpu_stats().resident && rebound.gpu_stats().source_upload_count == 0U,
         "Metal RAW rebinding adopts the freshly developed device buffer without a host upload"
     );
+
+    const auto layers = composite_layers();
+    {
+        const ScopedEnvironment automatic("SHADOW_IMAGE_ACCELERATION", "auto");
+        const auto first = rebound.render_jpeg_with_analysis_layers(layers, 95U);
+        const auto repeated = rebound.render_jpeg_with_analysis_layers(layers, 95U);
+        const auto coverage =
+            rebound.render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(
+                layers,
+                0U,
+                95U,
+                {}
+            );
+        expect(
+            !first.proxy.bytes.empty() && first.proxy.bytes == repeated.proxy.bytes
+                && first.execution.adjustment_backend == image::EditPreviewBackend::cpu
+                && first.execution.display_backend == image::EditPreviewBackend::cpu
+                && first.execution.adjustment_fell_back && first.execution.display_fell_back
+                && first.execution.diagnostic.find("exact CPU replay") != std::string::npos
+                && coverage.completed.has_value()
+                && coverage.completed->mask_coverage.has_value()
+                && coverage.completed->mask_coverage->valid()
+                && coverage.completed->preview.execution.adjustment_backend
+                       == image::EditPreviewBackend::cpu
+                && decoder.raw_frame_count() == 1U
+                && rebound.raw_rebinding_telemetry().bind_count == 2U,
+            "automatic composite preview and coverage replay one cached host copy of resident RAW"
+        );
+    }
+    try {
+        static_cast<void>(rebound.render_jpeg_with_analysis_layers(layers, 95U));
+        expect(false, "forced Metal composite preview must fail before CPU replay");
+    } catch (const image::EditError& error) {
+        expect(
+            error.code() == image::EditErrorCode::backend_failure
+                && decoder.raw_frame_count() == 1U,
+            "forced Metal composite preview remains a typed fail-closed route"
+        );
+    }
 }
 
 void retained_metal_cfa_preview_matches_the_one_shot_kernel() {

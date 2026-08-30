@@ -6,7 +6,7 @@ use shadow_domain::ImageDimensions;
 
 use super::{
     BridgeError,
-    adjustment::AdjustmentRenderPlan,
+    adjustment::{AdjustmentLocalMask, AdjustmentRenderOperation, AdjustmentRenderPlan},
     decoder::{dimensions, open_photo},
     ffi,
     optics::{OpticsReceipt, OpticsSettings, ffi_optics_settings, optics_receipt},
@@ -38,10 +38,10 @@ pub const MAX_EDIT_DETAIL_RETAINED_BYTES: u64 = 1_024 * 1_024 * 1_024;
 /// Runtime source capabilities required by a complete full-detail render plan.
 ///
 /// This is execution policy, not authored Recipe state. The current Metal
-/// structural path does not implement Liquify, so those plans require a
-/// retained source that can be replayed through the portable CPU executor.
-/// Once Metal Liquify reaches parity, this derivation can admit a
-/// Metal-resident source without changing the Recipe or render-plan schema.
+/// structural path does not implement Liquify or composite local masks, so
+/// those plans require a retained source that can be replayed through the
+/// portable CPU executor. Once Metal reaches parity, this derivation can admit
+/// a Metal-resident source without changing Recipe or render-plan schemas.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 pub struct DetailSessionRequirements {
     requires_cpu_replay: bool,
@@ -50,9 +50,19 @@ pub struct DetailSessionRequirements {
 impl DetailSessionRequirements {
     /// Derives source-admission requirements from the complete executable plan.
     #[must_use]
-    pub const fn for_render_plan(plan: &AdjustmentRenderPlan) -> Self {
+    pub fn for_render_plan(plan: &AdjustmentRenderPlan) -> Self {
+        let requires_cpu_replay = plan.liquify.is_some()
+            || plan.nodes.iter().any(|node| {
+                matches!(
+                    &node.operation,
+                    AdjustmentRenderOperation::LocalMaskLayerStart {
+                        mask: Some(AdjustmentLocalMask::Composite { .. }),
+                        ..
+                    }
+                )
+            });
         Self {
-            requires_cpu_replay: plan.liquify.is_some(),
+            requires_cpu_replay,
         }
     }
 

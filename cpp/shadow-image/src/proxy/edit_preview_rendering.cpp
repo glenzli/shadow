@@ -514,12 +514,34 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
         }
     }
 
+    const FloatRgbImage* cpu_working_proxy = &working_proxy;
+    std::shared_ptr<const FloatRgbImage> resident_host_source;
     if (working_proxy.samples.empty()) {
-        throw EditError(
-            EditErrorCode::backend_failure,
-            std::nullopt,
-            "resident RAW preview requires its Metal warm session: " + fallback_diagnostic
-        );
+        auto host_source = warm_gpu_session != nullptr
+                               ? warm_gpu_session->host_source_for_cpu_replay(cancellation)
+                               : detail::WarmEditGpuHostSourceAttempt{
+                                     .diagnostic = "resident Metal warm session is unavailable",
+                                 };
+        if (host_source.cancelled || cancellation.stop_requested()) {
+            return std::nullopt;
+        }
+        if (!host_source.source) {
+            std::string diagnostic = std::move(host_source.diagnostic);
+            if (!fallback_diagnostic.empty()) {
+                diagnostic = fallback_diagnostic
+                             + (diagnostic.empty() ? std::string{}
+                                                   : "; CPU replay: " + diagnostic);
+            }
+            throw EditError(
+                EditErrorCode::backend_failure,
+                std::nullopt,
+                diagnostic.empty()
+                    ? "resident RAW preview could not materialize its exact CPU replay source"
+                    : std::move(diagnostic)
+            );
+        }
+        resident_host_source = std::move(host_source.source);
+        cpu_working_proxy = resident_host_source.get();
     }
 
     AdjustmentExecutionResult adjustment;
@@ -530,11 +552,11 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
         detail::ScopedRowCancellation scoped_cancellation(cancellation);
         detail::throw_if_row_cancelled();
         auto executed = detail::execute_adjustment_layers_with_mask_coverage(
-            working_proxy,
+            *cpu_working_proxy,
             layers,
             target_layer_index,
             AdjustmentExecutionContext{
-                .full_dimensions = working_proxy.dimensions,
+                .full_dimensions = cpu_working_proxy->dimensions,
                 .sensor_clipping_mask = sensor_clipping_mask,
                 .highlight_chroma_risk_map = highlight_chroma_risk_map,
             },

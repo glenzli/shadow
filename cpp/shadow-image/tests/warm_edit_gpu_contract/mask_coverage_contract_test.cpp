@@ -80,6 +80,21 @@ void expect(const bool condition, const std::string_view message) {
     };
 }
 
+[[nodiscard]] image::LocalMask composite_mask() {
+    image::LocalMask composite;
+    composite.components = {
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::base,
+            .mask = masks()[0U],
+        },
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::add,
+            .mask = masks()[1U],
+        },
+    };
+    return composite;
+}
+
 [[nodiscard]] image::detail::WarmEditGpuRenderContext geometry_context(
     const image::FloatRgbImage& source,
     const image::PhotoGeometry& geometry
@@ -165,21 +180,20 @@ void expect(const bool condition, const std::string_view message) {
 
 void composite_masks_are_explicitly_admitted_to_cpu_replay_only() {
     const auto source = make_random_image(41U, 29U, true);
-    image::LocalMask composite;
-    composite.components = {
-        image::LocalMaskComponent{
-            .operation = image::LocalMaskComponentOperation::base,
-            .mask = masks()[0U],
-        },
-        image::LocalMaskComponent{
-            .operation = image::LocalMaskComponentOperation::add,
-            .mask = masks()[1U],
-        },
-    };
     const std::array layers{
         image::AdjustmentLayer{
+            .layer_id = "ordinary-metal",
+            .nodes =
+                {
+                    image::AdjustmentNode{
+                        .node_id = "ordinary-exposure",
+                        .parameters = image::ExposureAdjustment{.stops = 0.1},
+                    },
+                },
+        },
+        image::AdjustmentLayer{
             .layer_id = "composite-cpu-replay",
-            .mask = std::move(composite),
+            .mask = composite_mask(),
             .nodes =
                 {
                     image::AdjustmentNode{
@@ -202,6 +216,65 @@ void composite_masks_are_explicitly_admitted_to_cpu_replay_only() {
             && plan.diagnostic.find("exact CPU replay") != std::string::npos,
         "resident Metal explicitly declines composite masks instead of executing a legacy leaf"
     );
+
+    for (const auto& inactive : {
+             image::AdjustmentLayer{
+                 .layer_id = "disabled-composite",
+                 .enabled = false,
+                 .mask = composite_mask(),
+                 .nodes =
+                     {
+                         image::AdjustmentNode{
+                             .node_id = "disabled-composite-exposure",
+                             .parameters = image::ExposureAdjustment{.stops = 0.2},
+                         },
+                     },
+             },
+             image::AdjustmentLayer{
+                 .layer_id = "zero-opacity-composite",
+                 .opacity = 0.0,
+                 .mask = composite_mask(),
+                 .nodes =
+                     {
+                         image::AdjustmentNode{
+                             .node_id = "zero-opacity-composite-exposure",
+                             .parameters = image::ExposureAdjustment{.stops = 0.2},
+                         },
+                     },
+             },
+         }) {
+        const std::array inactive_layers{layers.front(), inactive};
+        const auto inactive_plan = image::detail::prepare_warm_gpu_layer_plan(
+            source,
+            inactive_layers,
+            image::detail::WarmEditGpuRenderContext{
+                .adjustment = image::AdjustmentExecutionContext{
+                    .full_dimensions = source.dimensions,
+                },
+            }
+        );
+        expect(
+            inactive_plan.complete && inactive_plan.active_layers.size() == 1U,
+            "inactive composite masks do not evict an otherwise Metal-capable render"
+        );
+
+        const auto coverage_plan = image::detail::prepare_warm_gpu_layer_plan(
+            source,
+            inactive_layers,
+            image::detail::WarmEditGpuRenderContext{
+                .adjustment = image::AdjustmentExecutionContext{
+                    .full_dimensions = source.dimensions,
+                },
+            },
+            1U
+        );
+        expect(
+            !coverage_plan.complete && coverage_plan.active_layers.empty()
+                && coverage_plan.diagnostic.find("coverage requires exact CPU replay")
+                       != std::string::npos,
+            "composite coverage remains an exact CPU replay even when its layer is inactive"
+        );
+    }
 }
 
 void five_kinds_match_cpu_on_pre_adjustment_input_and_geometry() {

@@ -7,13 +7,18 @@
 
 #include <shadow/image/warm_edit_preview.hpp>
 
+#include <cstring>
+#include <limits>
 #include <memory>
+#include <mutex>
 #include <utility>
 
 namespace shadow::image::detail {
 
 struct WarmEditGpuSession::Impl final {
     std::unique_ptr<WarmGpuResidentResources> resident;
+    std::mutex host_source_mutex;
+    std::shared_ptr<const FloatRgbImage> host_source;
 };
 
 WarmEditGpuSession::WarmEditGpuSession(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -125,6 +130,88 @@ WarmEditPreviewGpuStats WarmEditGpuSession::stats() const noexcept {
         return {};
     }
     return impl_->resident->stats_snapshot();
+}
+
+WarmEditGpuHostSourceAttempt WarmEditGpuSession::host_source_for_cpu_replay(
+    const std::stop_token cancellation
+) const {
+    if (cancellation.stop_requested()) {
+        return {.cancelled = true};
+    }
+    if (!impl_ || !impl_->resident) {
+        return {
+            .diagnostic = "session-resident Metal warm preview is not initialized",
+        };
+    }
+
+    std::lock_guard lock(impl_->host_source_mutex);
+    if (cancellation.stop_requested()) {
+        return {.cancelled = true};
+    }
+    if (impl_->host_source) {
+        return {.source = impl_->host_source};
+    }
+
+    const WarmGpuResidentLayout& layout = impl_->resident->layout();
+    if (layout.dimensions.height == 0U
+        || layout.source_row_stride_bytes > std::numeric_limits<std::size_t>::max()
+                                                   / layout.dimensions.height) {
+        return {.diagnostic = "resident warm-preview source layout cannot be materialized"};
+    }
+    const std::size_t source_bytes =
+        layout.source_row_stride_bytes * static_cast<std::size_t>(layout.dimensions.height);
+    if (source_bytes == 0U || source_bytes % sizeof(float) != 0U) {
+        return {.diagnostic = "resident warm-preview source byte layout is invalid"};
+    }
+
+    auto& context = metal_context();
+    id<MTLBuffer> source = impl_->resident->source_buffer();
+    if (!context.valid() || source == nil || static_cast<std::size_t>(source.length) < source_bytes) {
+        return {.diagnostic = "resident warm-preview source is unavailable for CPU replay"};
+    }
+
+    auto materialized = std::make_shared<FloatRgbImage>();
+    materialized->dimensions = layout.dimensions;
+    materialized->row_stride_bytes = layout.source_row_stride_bytes;
+    materialized->pixel_format = layout.pixel_format;
+    materialized->transfer_function = layout.transfer_function;
+    materialized->reference = layout.reference;
+    materialized->working_space = layout.working_space;
+    materialized->level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x;
+    materialized->level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y;
+    materialized->samples.resize(source_bytes / sizeof(float));
+
+    @autoreleasepool {
+        id<MTLBuffer> staging = [[context.device()
+            newBufferWithLength:source_bytes
+                        options:MTLResourceStorageModeShared] autorelease];
+        id<MTLCommandBuffer> command_buffer = [context.queue() commandBuffer];
+        id<MTLBlitCommandEncoder> encoder =
+            command_buffer == nil ? nil : [command_buffer blitCommandEncoder];
+        if (staging == nil || encoder == nil) {
+            return {
+                .diagnostic = "Metal could not prepare the resident warm-preview CPU replay",
+            };
+        }
+        [encoder copyFromBuffer:source
+                   sourceOffset:0U
+                       toBuffer:staging
+              destinationOffset:0U
+                           size:source_bytes];
+        [encoder endEncoding];
+        [command_buffer commit];
+        [command_buffer waitUntilCompleted];
+        if (command_buffer.status != MTLCommandBufferStatusCompleted) {
+            return {.diagnostic = command_buffer_diagnostic(command_buffer)};
+        }
+        std::memcpy(materialized->samples.data(), staging.contents, source_bytes);
+    }
+
+    impl_->host_source = std::move(materialized);
+    if (cancellation.stop_requested()) {
+        return {.cancelled = true};
+    }
+    return {.source = impl_->host_source};
 }
 
 WarmEditGpuPreparation prepare_warm_edit_gpu_session(

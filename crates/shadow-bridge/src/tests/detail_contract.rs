@@ -4,10 +4,12 @@ use shadow_domain::ImageDimensions;
 
 use crate::{
     AdjustmentGeometry, AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
-    AdjustmentLiquifyStroke, AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan,
-    BridgeError, DetailSessionRequirements, DetailTileRect, DetailTileRenderBackend,
-    DetailTileRequest, LibRawEditDetailSession, MAX_EDIT_DETAIL_RETAINED_BYTES,
-    MAX_EDIT_DETAIL_TILE_SIDE, OpticsSettings, PhotoEditDetailSession, RawDevelopmentPlan,
+    AdjustmentLiquifyStroke, AdjustmentLocalMask, AdjustmentLocalMaskComponent,
+    AdjustmentMaskComponentOperation, AdjustmentRenderNode, AdjustmentRenderOperation,
+    AdjustmentRenderPlan, BridgeError, DetailSessionRequirements, DetailTileRect,
+    DetailTileRenderBackend, DetailTileRequest, LibRawEditDetailSession,
+    MAX_EDIT_DETAIL_RETAINED_BYTES, MAX_EDIT_DETAIL_TILE_SIDE, OpticsSettings,
+    PhotoEditDetailSession, RawDevelopmentPlan,
 };
 
 fn liquify() -> AdjustmentLiquify {
@@ -47,6 +49,60 @@ fn plan(liquify: Option<AdjustmentLiquify>) -> AdjustmentRenderPlan {
     }
 }
 
+fn composite_plan(layer_enabled: bool, opacity: f64) -> AdjustmentRenderPlan {
+    let leaf = AdjustmentLocalMask::LinearGradient {
+        start_x: 0.1,
+        start_y: 0.2,
+        end_x: 0.9,
+        end_y: 0.8,
+        invert: false,
+    };
+    AdjustmentRenderPlan {
+        nodes: vec![
+            AdjustmentRenderNode {
+                node_id: "composite-start".to_owned(),
+                parameter_schema_version: 1,
+                implementation_version: 1,
+                enabled: layer_enabled,
+                operation: AdjustmentRenderOperation::LocalMaskLayerStart {
+                    opacity,
+                    mask: Some(AdjustmentLocalMask::Composite {
+                        components: vec![
+                            AdjustmentLocalMaskComponent {
+                                operation: AdjustmentMaskComponentOperation::Base,
+                                enabled: true,
+                                mask: leaf.clone(),
+                            },
+                            AdjustmentLocalMaskComponent {
+                                operation: AdjustmentMaskComponentOperation::Add,
+                                enabled: true,
+                                mask: leaf,
+                            },
+                        ],
+                        invert: false,
+                    }),
+                },
+            },
+            AdjustmentRenderNode {
+                node_id: "composite-exposure".to_owned(),
+                parameter_schema_version: 1,
+                implementation_version: 1,
+                enabled: true,
+                operation: AdjustmentRenderOperation::Exposure { stops: 0.2 },
+            },
+            AdjustmentRenderNode {
+                node_id: "composite-end".to_owned(),
+                parameter_schema_version: 1,
+                implementation_version: 1,
+                enabled: true,
+                operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
+            },
+        ],
+        liquify: None,
+        geometry: AdjustmentGeometry::identity(),
+    }
+}
+
 #[test]
 fn detail_source_requirements_are_derived_from_the_complete_structural_plan() {
     let ordinary = DetailSessionRequirements::for_render_plan(&plan(None));
@@ -62,6 +118,17 @@ fn detail_source_requirements_are_derived_from_the_complete_structural_plan() {
         bypassed_structural.requires_cpu_replay(),
         "bypass preserves CPU-capable source admission so re-enable never reopens the photo"
     );
+
+    for composite in [
+        composite_plan(true, 1.0),
+        composite_plan(false, 1.0),
+        composite_plan(true, 0.0),
+    ] {
+        assert!(
+            DetailSessionRequirements::for_render_plan(&composite).requires_cpu_replay(),
+            "composite topology keeps the detail source CPU-capable across bypass and opacity edits"
+        );
+    }
 
     assert!(
         DetailSessionRequirements::for_high_bit_export(&plan(None)).requires_cpu_replay(),

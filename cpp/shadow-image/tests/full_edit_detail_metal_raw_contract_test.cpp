@@ -109,6 +109,46 @@ detail_fixture(const std::uint32_t width = 160U, const std::uint32_t height = 12
     };
 }
 
+[[nodiscard]] std::array<image::AdjustmentLayer, 1U> composite_layers() {
+    image::LocalMask composite;
+    composite.components = {
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::base,
+            .mask = image::LocalMask{
+                .kind = image::LocalMaskKind::linear_gradient,
+                .x0 = 0.1,
+                .y0 = 0.2,
+                .x1 = 0.9,
+                .y1 = 0.8,
+            },
+        },
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::add,
+            .mask = image::LocalMask{
+                .kind = image::LocalMaskKind::radial_gradient,
+                .x0 = 0.5,
+                .y0 = 0.5,
+                .radius_x = 0.3,
+                .radius_y = 0.25,
+                .feather = 0.5,
+            },
+        },
+    };
+    return {
+        image::AdjustmentLayer{
+            .layer_id = "detail-composite",
+            .mask = std::move(composite),
+            .nodes =
+                {
+                    image::AdjustmentNode{
+                        .node_id = "detail-composite-exposure",
+                        .parameters = image::ExposureAdjustment{.stops = 0.24},
+                    },
+                },
+        },
+    };
+}
+
 void native_source_adoption_has_no_intermediate_host_round_trip() {
     PublishedResident resident = publish_resident(detail_fixture());
     expect(resident.source != nullptr, "native detail contract publishes a resident RAW source");
@@ -374,6 +414,30 @@ void public_automatic_route_reuses_one_resident_viewport() {
     );
 }
 
+void composite_requirements_retain_an_exact_cpu_replay_source() {
+    const ScopedEnvironment acceleration("SHADOW_IMAGE_ACCELERATION", "auto");
+    SyntheticRawSession session(detail_fixture());
+    auto detail = image::prepare_full_edit_detail(
+        session,
+        detail_plan(),
+        image::FullEditDetailSourceRequirements{.requires_cpu_replay = true}
+    );
+    const std::uint64_t complete_fp32_bytes =
+        static_cast<std::uint64_t>(detail.dimensions().pixel_count()) * 3U * sizeof(float);
+    const auto rendered = detail.render_rgb8_layers(
+        composite_layers(),
+        image::DetailTileRect{23U, 19U, 96U, 72U}
+    );
+    expect(
+        session.raw_frame_count() == 1U && session.processed_count() == 0U
+            && detail.cpu_replay_available() && detail.retained_bytes() >= complete_fp32_bytes
+            && rendered.execution.backend == image::DetailTileRenderBackend::cpu
+            && rendered.execution.fell_back
+            && rendered.execution.diagnostic.find("exact CPU replay") != std::string::npos,
+        "composite detail admission retains one CPU-capable RAW source and falls back atomically"
+    );
+}
+
 void automatic_prepublication_failure_materializes_the_intact_owner() {
     const ScopedEnvironment acceleration("SHADOW_IMAGE_ACCELERATION", "auto");
     SyntheticRawSession session(detail_fixture());
@@ -535,6 +599,7 @@ int main() {
     completed_source_rendering_is_preserved_when_warm_adoption_fails();
     public_cpu_and_metal_tiles_match_with_display_precision();
     public_automatic_route_reuses_one_resident_viewport();
+    composite_requirements_retain_an_exact_cpu_replay_source();
     automatic_prepublication_failure_materializes_the_intact_owner();
     published_full_detail_failure_is_terminal_without_cpu_replay();
     report_opt_in_benchmark();
