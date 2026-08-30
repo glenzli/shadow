@@ -11,6 +11,7 @@ Item {
     id: menus
 
     required property var editor
+    required property var interchangeController
 
     signal cropGeometryRequested
     signal repairRequested
@@ -157,6 +158,16 @@ Item {
                 onClicked: {
                     addGradeNodePopup.close()
                     menus.editor.addGradeNode()
+                }
+            }
+
+            PopupAction {
+                text: qsTr("Import XMP adjustments…")
+                enabled: menus.editor.active && menus.editor.canAddGradeNode
+                    && !menus.editor.stateBusy
+                onClicked: {
+                    addGradeNodePopup.close()
+                    xmpImportDialog.chooseFile()
                 }
             }
 
@@ -335,5 +346,10 @@ Item {
                 }
             }
         }
+    }
+
+    XmpImportDialog {
+        id: xmpImportDialog
+        interchangeController: menus.interchangeController
     }
 }

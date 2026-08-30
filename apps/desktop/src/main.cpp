@@ -5,6 +5,7 @@
 #include "desktop_backend.hpp"
 #include "desktop_smoke_harness.hpp"
 #include "edit_controller.hpp"
+#include "edit_interchange_controller.hpp"
 #include "edit_preview_presentation_context.hpp"
 #include "edit_preview_presentation_registry.hpp"
 #include "edit_preview_provider.hpp"
@@ -552,6 +553,7 @@ int main(int argc, char* argv[]) {
     );
     EditController
         editor(backend, edit_preview_store, edit_preview_presentation_context, &ai_preferences);
+    EditInterchangeController edit_interchange_controller(editor);
     HistoryCoordinator history({
         .photo_page = [backend](
                           const QString& photo_id,
@@ -627,6 +629,10 @@ int main(int argc, char* argv[]) {
             QVariant::fromValue(&review_gallery_grouping),
         },
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
+        {
+            QStringLiteral("editInterchangeController"),
+            QVariant::fromValue(&edit_interchange_controller),
+        },
         {
             QStringLiteral("editPreviewPresentation"),
             QVariant::fromValue(&edit_preview_presentation),

@@ -8633,6 +8633,11 @@ R %2 · G %3 · B %4</translation>
         <source>Create</source>
         <translation>创建</translation>
     </message>
+    <message>
+        <location filename="../qml/PrecisionGradeNodeMenus.qml" line="165"/>
+        <source>Import XMP adjustments…</source>
+        <translation>导入 XMP 调整…</translation>
+    </message>
 </context>
 <context>
     <name>QObject</name>
@@ -12768,6 +12773,180 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/ToneCurveEditor.qml" line="457"/>
         <source>Reset curve</source>
         <translation>重置曲线</translation>
+    </message>
+</context>
+<context>
+    <name>EditInterchangeController</name>
+    <message>
+        <source>The file contains different values for the same field.</source>
+        <translation>文件中同一字段包含不同的值。</translation>
+    </message>
+    <message>
+        <source>The value is not a valid finite number.</source>
+        <translation>该值不是有效的有限数值。</translation>
+    </message>
+    <message>
+        <source>The value is outside the supported range.</source>
+        <translation>该值超出支持范围。</translation>
+    </message>
+    <message>
+        <source>This is not a readable XMP document: %1</source>
+        <translation>无法读取此 XMP 文档：%1</translation>
+    </message>
+    <message>
+        <source>No supported Camera Raw develop adjustments were found.</source>
+        <translation>未找到受支持的 Camera Raw 调整。</translation>
+    </message>
+    <message>
+        <source>The selected file is unavailable.</source>
+        <translation>所选文件不可用。</translation>
+    </message>
+    <message>
+        <source>The XMP file is larger than 4 MB.</source>
+        <translation>XMP 文件大于 4 MB。</translation>
+    </message>
+    <message>
+        <source>The selected file could not be opened.</source>
+        <translation>无法打开所选文件。</translation>
+    </message>
+    <message>
+        <source>Resolve the XMP preview before importing.</source>
+        <translation>请先处理 XMP 预览中的问题，再进行导入。</translation>
+    </message>
+    <message>
+        <source>Open a photo before importing XMP adjustments.</source>
+        <translation>请先打开照片，再导入 XMP 调整。</translation>
+    </message>
+    <message>
+        <source>Wait for the current edit operation to finish.</source>
+        <translation>请等待当前编辑操作完成。</translation>
+    </message>
+    <message>
+        <source>This photo already contains the maximum of 16 Grade Nodes.</source>
+        <translation>这张照片已包含最多 16 个调色节点。</translation>
+    </message>
+    <message>
+        <source>Shadow could not create the destination Grade Node.</source>
+        <translation>Shadow 无法创建用于导入的调色节点。</translation>
+    </message>
+    <message>
+        <source>Exposure</source>
+        <translation>曝光</translation>
+    </message>
+    <message>
+        <source>Contrast</source>
+        <translation>对比度</translation>
+    </message>
+    <message>
+        <source>Highlights</source>
+        <translation>高光</translation>
+    </message>
+    <message>
+        <source>Shadows</source>
+        <translation>阴影</translation>
+    </message>
+    <message>
+        <source>Whites</source>
+        <translation>白色色阶</translation>
+    </message>
+    <message>
+        <source>Blacks</source>
+        <translation>黑色色阶</translation>
+    </message>
+    <message>
+        <source>Texture</source>
+        <translation>纹理</translation>
+    </message>
+    <message>
+        <source>Clarity</source>
+        <translation>清晰度</translation>
+    </message>
+    <message>
+        <source>Dehaze</source>
+        <translation>去朦胧</translation>
+    </message>
+    <message>
+        <source>Vibrance</source>
+        <translation>自然饱和度</translation>
+    </message>
+    <message>
+        <source>Chroma</source>
+        <translation>色度</translation>
+    </message>
+    <message>
+        <source>%1 EV</source>
+        <translation>%1 EV</translation>
+    </message>
+    <message>
+        <source>%1×</source>
+        <translation>%1×</translation>
+    </message>
+    <message>
+        <source>%1%</source>
+        <translation>%1%</translation>
+    </message>
+    <message>
+        <source>Absolute source white balance has no reliable Grade Node equivalent.</source>
+        <translation>源文件的绝对白平衡无法可靠映射为调色节点参数。</translation>
+    </message>
+    <message>
+        <source>This structured adjustment is outside the controlled mapping.</source>
+        <translation>此结构化调整不在受控映射范围内。</translation>
+    </message>
+    <message>
+        <source>This field is outside the controlled mapping.</source>
+        <translation>此字段不在受控映射范围内。</translation>
+    </message>
+</context>
+<context>
+    <name>XmpImportDialog</name>
+    <message>
+        <source>Import XMP adjustments</source>
+        <translation>导入 XMP 调整</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Close XMP import</source>
+        <translation>关闭 XMP 导入</translation>
+    </message>
+    <message>
+        <source>Shadow maps only adjustments with a stable local equivalent. The values below are approximate because the source and Shadow use different processing pipelines.</source>
+        <translation>Shadow 仅映射具有稳定本地对应项的调整。由于源应用与 Shadow 使用不同的处理流程，以下数值为近似映射。</translation>
+    </message>
+    <message>
+        <source>Camera Raw process version: %1</source>
+        <translation>Camera Raw 处理版本：%1</translation>
+    </message>
+    <message>
+        <source>WILL CREATE ONE NEW GRADE NODE · %1 ADJUSTMENTS</source>
+        <translation>将新建一个调色节点 · %1 项调整</translation>
+    </message>
+    <message>
+        <source>NOT IMPORTED · %1 FIELDS</source>
+        <translation>未导入 · %1 个字段</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Import as new node</source>
+        <translation>导入为新节点</translation>
+    </message>
+    <message>
+        <source>Choose an XMP sidecar</source>
+        <translation>选择 XMP 附属文件</translation>
+    </message>
+    <message>
+        <source>XMP sidecars (*.xmp)</source>
+        <translation>XMP 附属文件 (*.xmp)</translation>
+    </message>
+    <message>
+        <source>All files (*)</source>
+        <translation>所有文件 (*)</translation>
     </message>
 </context>
 </TS>

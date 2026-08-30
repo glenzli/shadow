@@ -11,6 +11,7 @@ Rectangle {
     id: pane
 
     required property var editor
+    required property var interchangeController
     required property color panel
     required property color panelRaised
     required property color borderColor
@@ -29,6 +30,7 @@ Rectangle {
     PrecisionGradeNodeMenus {
         id: gradeNodeMenus
         editor: pane.editor
+        interchangeController: pane.interchangeController
         onCropGeometryRequested: pane.cropToolRequested()
         onRepairRequested: pane.repairToolRequested()
         onLiquifyRequested: pane.liquifyToolRequested()

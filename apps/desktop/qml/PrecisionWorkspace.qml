@@ -10,6 +10,7 @@ Item {
     id: precision
 
     required property var editor
+    required property var interchangeController
     required property var editPreviewPresentation
     required property var lutLibrary
     required property var captureMetadata
@@ -240,6 +241,7 @@ Item {
             Layout.preferredWidth: Math.max(220, Math.min(252, precision.width * 0.19))
             Layout.fillHeight: true
             editor: precision.editor
+            interchangeController: precision.interchangeController
             panel: precision.panel
             panelRaised: precision.panelRaised
             borderColor: precision.border

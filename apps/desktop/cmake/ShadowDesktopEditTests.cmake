@@ -1,6 +1,31 @@
 # Precision edit-session, preview/detail transport, tool interaction, and
 # packaged edit-component contracts.
     add_executable(
+        shadow-xmp-develop-import-test
+        tests/xmp_develop_import_test.cpp
+        src/xmp_develop_import.cpp
+        src/xmp_develop_import.hpp
+    )
+    target_compile_features(shadow-xmp-develop-import-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-xmp-develop-import-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-xmp-develop-import-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-xmp-develop-import-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-xmp-develop-import-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-xmp-develop-import
+        COMMAND shadow-xmp-develop-import-test
+    )
+
+    add_executable(
         shadow-edit-source-admission-test
         tests/edit_source_admission_test.cpp
         src/edit_source_admission.cpp

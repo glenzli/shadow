@@ -12,6 +12,7 @@ ApplicationWindow {
     required property var justifiedReviewLayout
     required property var reviewGalleryGrouping
     required property var editor
+    required property var editInterchangeController
     required property var editPreviewPresentation
     required property var exportController
     required property var cacheMaintenanceController
@@ -362,6 +363,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             editor: window.editor
+            interchangeController: window.editInterchangeController
             editPreviewPresentation: window.editPreviewPresentation
             lutLibrary: window.lutLibrary
             captureMetadata: ({

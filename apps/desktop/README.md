@@ -1069,8 +1069,15 @@ cannot be overwritten merely because the final values happen to match.
 This ledger is deliberately separate from AI feedback. The current UI records
 human state only; it does not create feature snapshots, train the preference
 head, synthesize pairwise examples, or grant a model write access to Pick,
-Reject, or rating. Color labels, bulk mutation, decision filtering, XMP
-round-trip, and durable cross-session command undo remain follow-up work.
+Reject, or rating. Color labels, bulk mutation, decision filtering, and durable
+cross-session command undo remain follow-up work.
+
+Precision can preview a bounded Camera Raw XMP develop subset and import the
+accepted values as one new photo-local Grade Node. The preview separates mapped,
+ignored, and invalid fields before mutation. This is an approximate format
+mapping, not XMP round-trip support: absolute source white balance, curves,
+profiles, structured masks, and other parameters without a stable local
+equivalent remain explicit non-imported fields.
 
 ## Review comparison and culling
 
