@@ -3,7 +3,8 @@
 use thiserror::Error;
 
 use crate::{
-    BranchId, LayerInstanceId, LayerRevisionId, MaskId, NodeId, RecipeCommitId, RecipeId, VersionId,
+    BranchId, LayerInstanceId, LayerRevisionId, MaskComponentId, MaskId, NodeId, RecipeCommitId,
+    RecipeId, VersionId,
 };
 
 use super::{BranchName, GraphValidationError, VersionName};
@@ -45,6 +46,24 @@ pub enum RecipeValidationError {
     DegenerateBrushMask,
     #[error("brush mask contains {0} points, but at most 4096 are supported")]
     TooManyMaskBrushPoints(usize),
+    #[error("composite mask must contain at least one component")]
+    EmptyMaskComposite,
+    #[error("composite mask contains {0} components, but at most 8 are supported")]
+    TooManyMaskComponents(usize),
+    #[error("the first composite-mask component must use the base operation")]
+    FirstMaskComponentMustBeBase,
+    #[error("the base composite-mask operation is only valid for the first component")]
+    BaseMaskComponentMustBeFirst,
+    #[error("composite-mask component {0} appears more than once")]
+    DuplicateMaskComponent(MaskComponentId),
+    #[error("a composite-mask component cannot contain another composite mask")]
+    NestedMaskComposite,
+    #[error("a reducible single-component mask must use its legacy leaf representation")]
+    NonCanonicalMaskComposite,
+    #[error(
+        "composite-mask reference coverage count does not match its components: expected {expected}, got {actual}"
+    )]
+    MaskComponentCoverageArity { expected: usize, actual: usize },
     #[error("luminance-range mask lower bound {lower} must not exceed upper bound {upper}")]
     InvalidLuminanceMaskRange { lower: f64, upper: f64 },
     #[error("color-range mask hue {0}° must use the canonical interval [0, 360)")]

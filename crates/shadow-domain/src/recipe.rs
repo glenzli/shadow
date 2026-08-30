@@ -63,8 +63,9 @@ pub use layer::{
 };
 pub use local_mask::{
     MANAGED_RASTER_MASK_REFERENCE_VERSION, MAX_MANAGED_RASTER_MASK_DIMENSION,
-    MAX_MASK_BRUSH_POINTS, MAX_SEMANTIC_MASK_QUERY_BYTES, MAX_SEMANTIC_MASK_REGIONS,
-    ManagedRasterMask, MaskBrushPoint, MaskDefinition, MaskReference, MaskRevision,
+    MAX_MASK_BRUSH_POINTS, MAX_MASK_COMPONENTS, MAX_SEMANTIC_MASK_QUERY_BYTES,
+    MAX_SEMANTIC_MASK_REGIONS, ManagedRasterMask, MaskBrushPoint, MaskComponent,
+    MaskComponentOperation, MaskComposite, MaskDefinition, MaskReference, MaskRevision,
     RasterMaskEncoding, SEMANTIC_MASK_INTENT_CONTRACT_VERSION, SemanticMaskAggregation,
     SemanticMaskIntent,
 };

@@ -4,6 +4,21 @@ use crate::recipe::{
     RecipeValidationError, UnitInterval,
 };
 
+fn component_id(suffix: u8) -> MaskComponentId {
+    format!("00000000-0000-7000-8000-{suffix:012x}")
+        .parse()
+        .expect("component id")
+}
+
+fn unit(value: f64) -> UnitInterval {
+    UnitInterval::new(value).expect("unit interval")
+}
+
+fn linear_leaf(invert: bool) -> MaskDefinition {
+    MaskDefinition::linear_gradient(unit(0.1), unit(0.2), unit(0.8), unit(0.9), invert)
+        .expect("linear mask")
+}
+
 #[test]
 fn local_masks_reject_degenerate_geometry() {
     assert_eq!(
@@ -114,6 +129,307 @@ fn legacy_mask_json_contract_is_byte_stable() {
         serde_json::to_string(&brush).expect("serialize brush mask"),
         r#"{"kind":"brush","points":[{"x":0.25,"y":0.75,"begins_stroke":true}],"radius":0.04,"feather":0.6,"invert":true}"#
     );
+}
+
+#[test]
+fn one_enabled_base_component_keeps_the_legacy_leaf_byte_shape() {
+    let leaf = linear_leaf(true);
+    let legacy_bytes = serde_json::to_vec(&leaf).expect("serialize legacy leaf");
+    let definition = MaskDefinition::composite(
+        vec![
+            MaskComponent::new(
+                component_id(1),
+                MaskComponentOperation::Base,
+                true,
+                leaf.clone(),
+            )
+            .expect("base component"),
+        ],
+        false,
+    )
+    .expect("normalized composite");
+
+    assert_eq!(definition, leaf);
+    assert_eq!(
+        serde_json::to_vec(&definition).expect("serialize normalized definition"),
+        legacy_bytes
+    );
+
+    let direct_composite = MaskDefinition::Composite {
+        composite: MaskComposite::new(
+            vec![
+                MaskComponent::new(
+                    component_id(1),
+                    MaskComponentOperation::Base,
+                    true,
+                    linear_leaf(true),
+                )
+                .expect("base component"),
+            ],
+            false,
+        )
+        .expect("intermediate composition"),
+    };
+    assert_eq!(
+        direct_composite.validate(),
+        Err(RecipeValidationError::NonCanonicalMaskComposite)
+    );
+}
+
+#[test]
+fn composite_masks_round_trip_stable_components_and_final_inversion() {
+    let base = MaskComponent::new(
+        component_id(1),
+        MaskComponentOperation::Base,
+        true,
+        linear_leaf(false),
+    )
+    .expect("base component");
+    let subtract = MaskComponent::new(
+        component_id(2),
+        MaskComponentOperation::Subtract,
+        false,
+        MaskDefinition::luminance_range(unit(0.25), unit(0.75), unit(0.1), false)
+            .expect("luminance range"),
+    )
+    .expect("subtract component");
+    let definition =
+        MaskDefinition::composite(vec![base, subtract], true).expect("composite mask definition");
+    let encoded = serde_json::to_string(&definition).expect("serialize composite mask");
+
+    assert_eq!(
+        encoded,
+        r#"{"kind":"composite","components":[{"id":"00000000-0000-7000-8000-000000000001","operation":"base","enabled":true,"definition":{"kind":"linear_gradient","start_x":0.1,"start_y":0.2,"end_x":0.8,"end_y":0.9,"invert":false}},{"id":"00000000-0000-7000-8000-000000000002","operation":"subtract","enabled":false,"definition":{"kind":"luminance_range","lower":0.25,"upper":0.75,"softness":0.1,"invert":false}}],"invert":true}"#
+    );
+    let decoded =
+        serde_json::from_str::<MaskDefinition>(&encoded).expect("deserialize composite mask");
+    assert_eq!(decoded, definition);
+
+    let composite = decoded
+        .composite_definition()
+        .expect("composite definition");
+    assert!(composite.invert());
+    assert_eq!(composite.components().len(), 2);
+    assert_eq!(composite.components()[0].id(), component_id(1));
+    assert_eq!(
+        composite.components()[1].operation(),
+        MaskComponentOperation::Subtract
+    );
+    assert!(!composite.components()[1].enabled());
+    assert!(matches!(
+        composite.components()[1].definition(),
+        MaskDefinition::LuminanceRange { .. }
+    ));
+}
+
+#[test]
+fn composite_mask_reference_algebra_handles_soft_coverage_bypass_and_inversion() {
+    let components = vec![
+        MaskComponent::new(
+            component_id(1),
+            MaskComponentOperation::Base,
+            true,
+            linear_leaf(false),
+        )
+        .expect("base"),
+        MaskComponent::new(
+            component_id(2),
+            MaskComponentOperation::Add,
+            true,
+            linear_leaf(false),
+        )
+        .expect("add"),
+        MaskComponent::new(
+            component_id(3),
+            MaskComponentOperation::Subtract,
+            false,
+            linear_leaf(false),
+        )
+        .expect("disabled subtract"),
+        MaskComponent::new(
+            component_id(4),
+            MaskComponentOperation::Intersect,
+            true,
+            linear_leaf(false),
+        )
+        .expect("intersect"),
+    ];
+    let composite = MaskComposite::new(components, true).expect("composite");
+    let coverage = composite
+        .reference_coverage(&[unit(0.25), unit(0.5), unit(1.0), unit(0.8)])
+        .expect("reference coverage");
+
+    // add(0.25, 0.5) = 0.5; disabled subtract is skipped;
+    // intersection with 0.8 = 0.5; final inversion = 0.5.
+    assert_eq!(coverage, unit(0.5));
+    assert_eq!(
+        composite.reference_coverage(&[unit(0.25)]),
+        Err(RecipeValidationError::MaskComponentCoverageArity {
+            expected: 4,
+            actual: 1,
+        })
+    );
+
+    assert_eq!(
+        MaskComponentOperation::Base.combine_coverage(unit(0.9), unit(0.2)),
+        unit(0.2)
+    );
+    assert_eq!(
+        MaskComponentOperation::Add.combine_coverage(unit(0.25), unit(0.5)),
+        unit(0.5)
+    );
+    assert_eq!(
+        MaskComponentOperation::Subtract.combine_coverage(unit(0.8), unit(0.25)),
+        unit(0.75)
+    );
+    assert_eq!(
+        MaskComponentOperation::Intersect.combine_coverage(unit(0.8), unit(0.25)),
+        unit(0.25)
+    );
+    assert_eq!(
+        MaskComponentOperation::Add.combine_coverage(unit(0.4), unit(0.4)),
+        unit(0.4)
+    );
+    assert_eq!(
+        MaskComponentOperation::Intersect.combine_coverage(unit(0.4), unit(0.4)),
+        unit(0.4)
+    );
+}
+
+#[test]
+fn composite_masks_reject_unbounded_ambiguous_or_nested_authored_state() {
+    assert_eq!(
+        MaskComposite::new(Vec::new(), false),
+        Err(RecipeValidationError::EmptyMaskComposite)
+    );
+
+    let oversized = (0..=MAX_MASK_COMPONENTS)
+        .map(|index| {
+            MaskComponent::new(
+                component_id((index + 1) as u8),
+                if index == 0 {
+                    MaskComponentOperation::Base
+                } else {
+                    MaskComponentOperation::Add
+                },
+                true,
+                linear_leaf(false),
+            )
+            .expect("component")
+        })
+        .collect();
+    assert_eq!(
+        MaskComposite::new(oversized, false),
+        Err(RecipeValidationError::TooManyMaskComponents(
+            MAX_MASK_COMPONENTS + 1
+        ))
+    );
+
+    let add_first = MaskComponent::new(
+        component_id(1),
+        MaskComponentOperation::Add,
+        true,
+        linear_leaf(false),
+    )
+    .expect("add component");
+    assert_eq!(
+        MaskComposite::new(vec![add_first], false),
+        Err(RecipeValidationError::FirstMaskComponentMustBeBase)
+    );
+
+    let base = MaskComponent::new(
+        component_id(1),
+        MaskComponentOperation::Base,
+        true,
+        linear_leaf(false),
+    )
+    .expect("base component");
+    let later_base = MaskComponent::new(
+        component_id(2),
+        MaskComponentOperation::Base,
+        true,
+        linear_leaf(false),
+    )
+    .expect("later base component");
+    assert_eq!(
+        MaskComposite::new(vec![base.clone(), later_base], false),
+        Err(RecipeValidationError::BaseMaskComponentMustBeFirst)
+    );
+
+    let duplicate = MaskComponent::new(
+        component_id(1),
+        MaskComponentOperation::Add,
+        true,
+        linear_leaf(false),
+    )
+    .expect("duplicate component");
+    assert_eq!(
+        MaskComposite::new(vec![base, duplicate], false),
+        Err(RecipeValidationError::DuplicateMaskComponent(component_id(
+            1
+        )))
+    );
+
+    let nested_json = r#"{
+        "kind":"composite",
+        "components":[
+          {
+            "id":"00000000-0000-7000-8000-000000000001",
+            "operation":"base",
+            "enabled":true,
+            "definition":{
+              "kind":"composite",
+              "components":[
+                {
+                  "id":"00000000-0000-7000-8000-000000000002",
+                  "operation":"base",
+                  "enabled":true,
+                  "definition":{
+                    "kind":"linear_gradient",
+                    "start_x":0.1,
+                    "start_y":0.2,
+                    "end_x":0.8,
+                    "end_y":0.9,
+                    "invert":false
+                  }
+                },
+                {
+                  "id":"00000000-0000-7000-8000-000000000003",
+                  "operation":"add",
+                  "enabled":true,
+                  "definition":{
+                    "kind":"linear_gradient",
+                    "start_x":0.2,
+                    "start_y":0.3,
+                    "end_x":0.7,
+                    "end_y":0.8,
+                    "invert":false
+                  }
+                }
+              ],
+              "invert":false
+            }
+          },
+          {
+            "id":"00000000-0000-7000-8000-000000000004",
+            "operation":"add",
+            "enabled":true,
+            "definition":{
+              "kind":"linear_gradient",
+              "start_x":0.2,
+              "start_y":0.3,
+              "end_x":0.7,
+              "end_y":0.8,
+              "invert":false
+            }
+          }
+        ],
+        "invert":false
+    }"#;
+    let error = serde_json::from_str::<MaskDefinition>(nested_json)
+        .expect_err("nested composite must be rejected")
+        .to_string();
+    assert!(error.contains("cannot contain another composite"));
 }
 
 #[test]
