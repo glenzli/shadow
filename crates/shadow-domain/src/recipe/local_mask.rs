@@ -3,9 +3,12 @@
 mod managed_raster;
 mod semantic;
 
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 
-use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{Error as _, MapAccess, Visitor},
+};
 
 use crate::{MaskComponentId, MaskId};
 
@@ -110,13 +113,40 @@ impl MaskComponentOperation {
 /// The definition is always an existing non-composite mask definition. This
 /// makes one MaskRevision the sole persistence owner while preventing an
 /// unbounded second expression tree.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MaskComponent {
     id: MaskComponentId,
     operation: MaskComponentOperation,
-    #[serde(default = "mask_component_enabled_default")]
     enabled: bool,
     definition: MaskDefinition,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnvalidatedMaskComponent {
+    id: MaskComponentId,
+    operation: MaskComponentOperation,
+    enabled: bool,
+    definition: MaskDefinition,
+}
+
+impl TryFrom<UnvalidatedMaskComponent> for MaskComponent {
+    type Error = RecipeValidationError;
+
+    fn try_from(value: UnvalidatedMaskComponent) -> Result<Self, Self::Error> {
+        Self::new(value.id, value.operation, value.enabled, value.definition)
+    }
+}
+
+impl<'de> Deserialize<'de> for MaskComponent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        UnvalidatedMaskComponent::deserialize(deserializer)?
+            .try_into()
+            .map_err(D::Error::custom)
+    }
 }
 
 impl MaskComponent {
@@ -182,23 +212,14 @@ impl MaskComponent {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MaskComposite {
     components: Vec<MaskComponent>,
-    #[serde(default)]
     invert: bool,
 }
 
 #[derive(Deserialize)]
-struct UnvalidatedMaskComposite {
-    components: Vec<MaskComponent>,
-    #[serde(default)]
-    invert: bool,
-}
-
-impl TryFrom<UnvalidatedMaskComposite> for MaskComposite {
-    type Error = RecipeValidationError;
-
-    fn try_from(value: UnvalidatedMaskComposite) -> Result<Self, Self::Error> {
-        Self::new(value.components, value.invert)
-    }
+#[serde(field_identifier, rename_all = "snake_case")]
+enum MaskCompositeField {
+    Components,
+    Invert,
 }
 
 impl<'de> Deserialize<'de> for MaskComposite {
@@ -206,9 +227,44 @@ impl<'de> Deserialize<'de> for MaskComposite {
     where
         D: Deserializer<'de>,
     {
-        UnvalidatedMaskComposite::deserialize(deserializer)?
-            .try_into()
-            .map_err(D::Error::custom)
+        deserializer.deserialize_map(MaskCompositeVisitor)
+    }
+}
+
+struct MaskCompositeVisitor;
+
+impl<'de> Visitor<'de> for MaskCompositeVisitor {
+    type Value = MaskComposite;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a composite mask with explicit components and final inversion")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut components = None;
+        let mut invert = None;
+        while let Some(field) = map.next_key()? {
+            match field {
+                MaskCompositeField::Components => {
+                    if components.is_some() {
+                        return Err(A::Error::duplicate_field("components"));
+                    }
+                    components = Some(map.next_value()?);
+                }
+                MaskCompositeField::Invert => {
+                    if invert.is_some() {
+                        return Err(A::Error::duplicate_field("invert"));
+                    }
+                    invert = Some(map.next_value()?);
+                }
+            }
+        }
+        let components = components.ok_or_else(|| A::Error::missing_field("components"))?;
+        let invert = invert.ok_or_else(|| A::Error::missing_field("invert"))?;
+        MaskComposite::new(components, invert).map_err(A::Error::custom)
     }
 }
 
@@ -320,10 +376,6 @@ impl MaskComposite {
         }
         Ok(())
     }
-}
-
-const fn mask_component_enabled_default() -> bool {
-    true
 }
 
 /// One renderer-neutral spatial or pixel-condition mask.

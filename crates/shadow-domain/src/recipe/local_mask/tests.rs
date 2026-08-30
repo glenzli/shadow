@@ -1,7 +1,8 @@
 use super::*;
 use crate::recipe::{
-    ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, FiniteF64,
-    RecipeValidationError, UnitInterval,
+    CURRENT_RECIPE_SCHEMA_VERSION, ConditionMaskExpression, ConditionMaskNode,
+    ConditionMaskPredicate, FiniteF64, MaskCoordinateSpace, RecipeInputSettings, RecipeSnapshot,
+    RecipeValidationError, ShadowRecipeDocument, UnitInterval, canonical_recipe_snapshot_digest,
 };
 
 fn component_id(suffix: u8) -> MaskComponentId {
@@ -17,6 +18,45 @@ fn unit(value: f64) -> UnitInterval {
 fn linear_leaf(invert: bool) -> MaskDefinition {
     MaskDefinition::linear_gradient(unit(0.1), unit(0.2), unit(0.8), unit(0.9), invert)
         .expect("linear mask")
+}
+
+fn two_component_mask(second_enabled: bool, invert: bool) -> MaskDefinition {
+    MaskDefinition::composite(
+        vec![
+            MaskComponent::new(
+                component_id(1),
+                MaskComponentOperation::Base,
+                true,
+                linear_leaf(false),
+            )
+            .expect("base component"),
+            MaskComponent::new(
+                component_id(2),
+                MaskComponentOperation::Add,
+                second_enabled,
+                MaskDefinition::luminance_range(unit(0.25), unit(0.75), unit(0.1), false)
+                    .expect("luminance range"),
+            )
+            .expect("add component"),
+        ],
+        invert,
+    )
+    .expect("composite mask")
+}
+
+fn snapshot_with_mask(definition: MaskDefinition) -> RecipeSnapshot {
+    let mask_id = "00000000-0000-7000-8000-000000000010"
+        .parse::<MaskId>()
+        .expect("mask id");
+    let revision = MaskRevision::new(mask_id, 1, MaskCoordinateSpace::Original, definition)
+        .expect("mask revision");
+    RecipeSnapshot::new_with_input_settings_and_masks(
+        CURRENT_RECIPE_SCHEMA_VERSION,
+        RecipeInputSettings::default(),
+        vec![revision],
+        Vec::new(),
+    )
+    .expect("snapshot with composite mask")
 }
 
 #[test]
@@ -220,6 +260,93 @@ fn composite_masks_round_trip_stable_components_and_final_inversion() {
         composite.components()[1].definition(),
         MaskDefinition::LuminanceRange { .. }
     ));
+}
+
+#[test]
+fn composite_mask_wire_requires_authored_fields_and_rejects_unknown_fields() {
+    let encoded = serde_json::to_value(two_component_mask(false, true)).expect("serialize mask");
+
+    let mut missing_enabled = encoded.clone();
+    missing_enabled["components"][1]
+        .as_object_mut()
+        .expect("component object")
+        .remove("enabled");
+    let error = serde_json::from_value::<MaskDefinition>(missing_enabled)
+        .expect_err("component bypass state must be explicit")
+        .to_string();
+    assert!(error.contains("missing field `enabled`"), "{error}");
+
+    let mut missing_invert = encoded.clone();
+    missing_invert
+        .as_object_mut()
+        .expect("composite object")
+        .remove("invert");
+    let error = serde_json::from_value::<MaskDefinition>(missing_invert)
+        .expect_err("final inversion must be explicit")
+        .to_string();
+    assert!(error.contains("missing field `invert`"), "{error}");
+
+    let mut unknown_component = encoded.clone();
+    unknown_component["components"][1]
+        .as_object_mut()
+        .expect("component object")
+        .insert(
+            "future_component_mode".to_owned(),
+            serde_json::Value::String("replace".to_owned()),
+        );
+    let error = serde_json::from_value::<MaskDefinition>(unknown_component)
+        .expect_err("unknown component state must not be discarded")
+        .to_string();
+    assert!(
+        error.contains("unknown field `future_component_mode`"),
+        "{error}"
+    );
+
+    let mut unknown_composite = encoded;
+    unknown_composite
+        .as_object_mut()
+        .expect("composite object")
+        .insert(
+            "future_composite_mode".to_owned(),
+            serde_json::Value::String("xor".to_owned()),
+        );
+    let error = serde_json::from_value::<MaskDefinition>(unknown_composite)
+        .expect_err("unknown composite state must not be discarded")
+        .to_string();
+    assert!(error.contains("future_composite_mode"), "{error}");
+}
+
+#[test]
+fn composite_mask_snapshot_document_round_trip_preserves_identity_and_digest() {
+    let snapshot = snapshot_with_mask(two_component_mask(false, true));
+    let digest = canonical_recipe_snapshot_digest(&snapshot).expect("snapshot digest");
+    let document =
+        ShadowRecipeDocument::new(Some("Composite mask"), snapshot.clone()).expect("document");
+    let encoded = document.to_pretty_json().expect("encode document");
+    let decoded = ShadowRecipeDocument::from_json(&encoded).expect("decode document");
+
+    assert_eq!(decoded.snapshot(), &snapshot);
+    assert_eq!(
+        canonical_recipe_snapshot_digest(decoded.snapshot()).expect("decoded digest"),
+        digest
+    );
+    assert_eq!(
+        decoded.to_pretty_json().expect("re-encode document"),
+        encoded
+    );
+    let composite = decoded.snapshot().masks()[0]
+        .definition()
+        .composite_definition()
+        .expect("composite definition");
+    assert_eq!(composite.components()[0].id(), component_id(1));
+    assert_eq!(composite.components()[1].id(), component_id(2));
+
+    let enabled_snapshot = snapshot_with_mask(two_component_mask(true, true));
+    assert_ne!(
+        canonical_recipe_snapshot_digest(&enabled_snapshot).expect("enabled digest"),
+        digest,
+        "component bypass state must participate in the snapshot identity"
+    );
 }
 
 #[test]
