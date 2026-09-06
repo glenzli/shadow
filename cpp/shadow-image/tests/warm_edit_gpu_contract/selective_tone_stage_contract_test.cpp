@@ -311,6 +311,34 @@ void resident_gpu_channel_only_highlight_repair_matches_cpu_without_guided_suppo
             && linear_close(*gpu.output->analyzed_linear, cpu.pixels, maximum_error, 1.5e-3),
         "resident Metal broad-highlight channel repair matches the CPU pixel-local reference"
     );
+
+    // Exercise the desktop layer route without a preceding settled render: analysis would
+    // allocate the alternate RGB buffer and hide a missing channel-only stage dependency.
+    auto layer_preparation = image::detail::prepare_warm_edit_gpu_session(source, nullptr, &risk);
+    expect(layer_preparation.session != nullptr, "channel-only layer gets a fresh Metal session");
+    if (!layer_preparation.session) {
+        return;
+    }
+    const std::array layers{
+        image::AdjustmentLayer{
+            .layer_id = "channel-only-highlight-layer",
+            .nodes = std::vector<image::AdjustmentNode>(nodes.begin(), nodes.end()),
+        },
+    };
+    const auto interactive = layer_preparation.session->render_layers(layers, false);
+    expect(
+        interactive.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && interactive.output.has_value() && !interactive.output->analyzed_linear.has_value()
+            && gpu.output.has_value() && interactive.output->rgb8 == gpu.output->rgb8,
+        "cold channel-only layer renders the oracle-matched pixels without settled analysis"
+    );
+    const auto settled = layer_preparation.session->render_layers(layers, true);
+    expect(
+        settled.status == image::detail::WarmEditGpuSession::RenderStatus::completed
+            && settled.output.has_value() && settled.output->analyzed_linear.has_value()
+            && linear_close(*settled.output->analyzed_linear, cpu.pixels, maximum_error, 1.5e-3),
+        "channel-only layer keeps CPU parity when transitioning from interactive to settled"
+    );
 }
 
 template <typename Callable>

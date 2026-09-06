@@ -452,7 +452,10 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
                 );
             }
         }
-        id<MTLBuffer> final_adjusted = current == slot.adjusted ? slot.denoised : slot.adjusted;
+        // Interactive display never writes linear output, but Metal still requires a valid
+        // binding. Reuse the ordinary buffer instead of allocating an unused alternate.
+        id<MTLBuffer> final_adjusted =
+            retain_linear_for_analysis && current == slot.adjusted ? slot.denoised : slot.adjusted;
         [encoder setComputePipelineState:context.display_pipeline()];
         [encoder setBuffer:current offset:0U atIndex:0U];
         [encoder setBuffer:final_adjusted offset:0U atIndex:1U];

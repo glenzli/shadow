@@ -32,9 +32,11 @@ ensure_warm_gpu_stage_resources(WarmGpuSlotLease& slot, const WarmGpuNeighbourho
             } else if constexpr (std::is_same_v<Stage, WarmLocalContrastStage>) {
                 return slot.ensure_local_contrast_resources();
             } else if constexpr (std::is_same_v<Stage, WarmSelectiveToneStage>) {
+                // Channel-only repair skips the guided mask, but still writes the alternate
+                // RGB buffer after the transaction prefix has populated slot.adjusted.
                 return value.parameters.guided_tone_active != 0U
                            ? slot.ensure_local_contrast_resources()
-                           : std::string{};
+                           : slot.ensure_denoise_resources();
             } else if constexpr (std::is_same_v<Stage, WarmTextureStage>) {
                 return slot.ensure_sharpen_resources();
             } else if constexpr (std::is_same_v<Stage, WarmClarityStage>) {
