@@ -361,6 +361,22 @@ int ReviewRemoteLibraryCoordinator::remotePhotoCount() const noexcept {
     return boundedPhotoCount(photos_.size());
 }
 
+QVariantMap ReviewRemoteLibraryCoordinator::systemCollectionCounts() const {
+    qulonglong liked = 0;
+    qulonglong five_star = 0;
+    // Count the logical projection, after cross-server identity merging and
+    // optimistic curation, independently of the currently visible Library scope.
+    for (const auto& photo : photos_) {
+        liked += photo.liked ? 1U : 0U;
+        five_star += photo.decision_rating == 5 ? 1U : 0U;
+    }
+    return {
+        {QStringLiteral("all"), QVariant::fromValue(static_cast<qulonglong>(photos_.size()))},
+        {QStringLiteral("liked"), QVariant::fromValue(liked)},
+        {QStringLiteral("fiveStar"), QVariant::fromValue(five_star)},
+    };
+}
+
 QString ReviewRemoteLibraryCoordinator::statusCode() const {
     return status_code_;
 }
@@ -745,6 +761,7 @@ bool ReviewRemoteLibraryCoordinator::setDecision(
                    })
                    || enqueued;
     }
+    emit systemCollectionCountsChanged();
     return enqueued;
 }
 
@@ -789,6 +806,7 @@ bool ReviewRemoteLibraryCoordinator::setAffinity(
                    })
                    || enqueued;
     }
+    emit systemCollectionCountsChanged();
     return enqueued;
 }
 

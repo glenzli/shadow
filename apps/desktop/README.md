@@ -282,7 +282,8 @@ Application startup is split from environment-driven automation:
 - [`src/desktop_smoke/application_lifecycle.cpp`](src/desktop_smoke/application_lifecycle.cpp)
   owns normal close, dirty autosave close, and live language-switch acceptance.
 - [`src/desktop_smoke/library_lifecycle.cpp`](src/desktop_smoke/library_lifecycle.cpp) owns import
-  cancellation, progressive-grid visibility, and persisted-Library reopen acceptance, while
+  cancellation, progressive-grid visibility, persisted-Library reopen, and remote collection
+  count/restoration acceptance, while
   [`src/desktop_smoke/review_mutations.cpp`](src/desktop_smoke/review_mutations.cpp) owns Review
   decision/comparison completion and undo/forget outcomes.
 - [`src/desktop_smoke/edit_preview_session.cpp`](src/desktop_smoke/edit_preview_session.cpp)
@@ -1267,6 +1268,12 @@ Release builds never embed or scan this repository-local path.
 `SHADOW_DESKTOP_DATA_ROOT=/absolute/folder` overrides the local Catalog/cache directory for isolated smoke tests. Normal launches continue to use Qt's per-user application-data location.
 
 Adding `SHADOW_DESKTOP_STREAMING_SCAN_SMOKE=1` proves that both the Review model and QML Grid become non-empty while `scanning` is still true, then requires `refreshing` to settle only after the terminal stable-prefix refresh. `SHADOW_DESKTOP_CANCEL_SCAN_SMOKE=1` requests cooperative cancellation after live progress begins and likewise waits for the final Library refresh before accepting a `cancelled` terminal snapshot. After a completed scan, launch the same isolated data root without `SHADOW_DESKTOP_SCAN_FOLDER` and add `SHADOW_DESKTOP_REOPEN_LIBRARY_SMOKE=1` to prove that the persisted Library appears without rescanning.
+
+With at least one configured, populated remote mirror, `SHADOW_DESKTOP_REMOTE_LIBRARY_SMOKE=1`
+checks the packaged All Photos badge, remote rows in the gallery, and restoration through the
+QML All Photos action after a local-only camera filter. System collection counts combine local
+Catalog totals with deduplicated remote logical photos, including cached offline mirrors;
+remote rating and Like changes update the corresponding global counts.
 
 Adding `SHADOW_DESKTOP_OPEN_FIRST_EDIT=1` to a smoke run waits for the first scanned Review item, opens it through the real Precision controller, renders its processed linear-light RGB edit preview, validates all four 256-bin histogram sums and clipping bounds, and fails after 30 seconds if no generation-matched preview and analysis reach QML.
 

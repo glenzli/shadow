@@ -85,7 +85,9 @@ void installDesktopSmokeHarness(
         return;
     }
 
-    if (map_workspace_smoke) {
+    if (qEnvironmentVariableIsSet("SHADOW_DESKTOP_REMOTE_LIBRARY_SMOKE")) {
+        DesktopSmoke::startRemoteLibraryLifecycle(application, engine, controller);
+    } else if (map_workspace_smoke) {
         QObject* const root = engine.rootObjects().front();
         constexpr int map_workspace_page = 4;
         root->setProperty("workspaceIndex", map_workspace_page);

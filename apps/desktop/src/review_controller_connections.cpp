@@ -391,7 +391,14 @@ void ReviewController::initializeCoordinatorWiring() {
             refreshRemoteLibraryPresentation();
             emit remoteLibraryChanged();
             emit itemCountChanged();
+            emit libraryFacetsChanged();
         }
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::systemCollectionCountsChanged,
+        this,
+        &ReviewController::libraryFacetsChanged
     );
     connect(
         &remote_library_coordinator_,

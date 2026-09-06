@@ -1,6 +1,7 @@
 #include "library_lifecycle.hpp"
 
 #include "../edit_controller.hpp"
+#include "../justified_review_layout_model.hpp"
 #include "../review_controller.hpp"
 
 #include <QAbstractItemModel>
@@ -290,6 +291,112 @@ void startReopenLibraryLifecycle(
     );
     QTimer::singleShot(30'000, &application, [&application, succeeded]() {
         application.exit(*succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
+    });
+}
+
+void startRemoteLibraryLifecycle(
+    QApplication& application,
+    QQmlApplicationEngine& engine,
+    ReviewController& controller
+) {
+    auto* poll = new QTimer(&application);
+    poll->setInterval(100);
+    QObject* const workspace =
+        engine.rootObjects().front()->findChild<QObject*>(QStringLiteral("reviewWorkspace"));
+    QObject* const count_label =
+        engine.rootObjects().front()->findChild<QObject*>(QStringLiteral("allPhotosCount"));
+    QObject* const grid =
+        engine.rootObjects().front()->findChild<QObject*>(QStringLiteral("reviewJustifiedGrid"));
+    auto phase = std::make_shared<int>(0);
+    QObject::connect(
+        poll,
+        &QTimer::timeout,
+        &application,
+        [&, poll, workspace, count_label, grid, phase]() {
+            if (workspace == nullptr || count_label == nullptr || grid == nullptr) {
+                qCritical() << "Remote Library smoke requires the packaged collection controls";
+                application.exit(EXIT_FAILURE);
+                return;
+            }
+            if (controller.remoteLibrarySyncing() || controller.refreshing()
+                || !controller.librarySystemCollectionCounts()
+                        .value(QStringLiteral("available"))
+                        .toBool()
+                || controller.remoteLibraryPhotoCount() == 0) {
+                return;
+            }
+            if (*phase == 0 || *phase == 2) {
+                if (!QMetaObject::invokeMethod(
+                        workspace,
+                        "applySystemCollection",
+                        Qt::DirectConnection,
+                        Q_ARG(QVariant, QVariant(QStringLiteral("all")))
+                    )) {
+                    application.exit(EXIT_FAILURE);
+                    return;
+                }
+                ++*phase;
+                return;
+            }
+            const auto* model = controller.model();
+            int remote_rows = 0;
+            for (int row = 0; row < model->rowCount(); ++row) {
+                remote_rows +=
+                    model->data(model->index(row, 0), ReviewModel::IsRemoteRole).toBool() ? 1 : 0;
+            }
+            const auto all = controller.librarySystemCollectionCounts()
+                                 .value(QStringLiteral("all"))
+                                 .toULongLong();
+            const auto* layout = qobject_cast<JustifiedReviewLayoutModel*>(
+                grid->property("model").value<QObject*>()
+            );
+            qsizetype layout_photos = 0;
+            int layout_remote = 0;
+            if (layout != nullptr) {
+                for (int row = 0; row < layout->rowCount(); ++row) {
+                    const auto items =
+                        layout->data(layout->index(row, 0), JustifiedReviewLayoutModel::ItemsRole)
+                            .toList();
+                    layout_photos += items.size();
+                    for (const auto& item : items) {
+                        layout_remote +=
+                            item.toMap().value(QStringLiteral("isRemote")).toBool() ? 1 : 0;
+                    }
+                }
+            }
+            if (remote_rows != controller.remoteLibraryPhotoCount()
+                || all != static_cast<qulonglong>(controller.itemCount())
+                || layout_photos != model->rowCount() || layout_remote != remote_rows
+                || count_label->property("text").toString() != QStringLiteral("%L1").arg(all)) {
+                return;
+            }
+            if (*phase == 1) {
+                controller.setFilterCameraKey(QStringLiteral("remote-smoke-no-local-camera"));
+                // A local-only scope hides remote rows, but global collection badges
+                // must still include them while the asynchronous local query changes.
+                if (controller.librarySystemCollectionCounts()
+                        .value(QStringLiteral("all"))
+                        .toULongLong()
+                    != all) {
+                    application.exit(EXIT_FAILURE);
+                    return;
+                }
+                ++*phase;
+                return;
+            }
+            qInfo() << "Remote Library smoke: all" << all << "remote" << remote_rows
+                    << "gallery photos" << layout_photos
+                    << "sidebar count and All Photos restoration verified";
+            poll->stop();
+            application.quit();
+        }
+    );
+    poll->start();
+    QTimer::singleShot(60'000, &application, [&application, &controller]() {
+        qCritical() << "Remote Library smoke timed out: remote"
+                    << controller.remoteLibraryPhotoCount() << "total" << controller.itemCount()
+                    << "status" << controller.remoteLibraryStatusCode();
+        application.exit(EXIT_FAILURE);
     });
 }
 

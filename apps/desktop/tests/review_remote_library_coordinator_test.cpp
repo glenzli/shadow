@@ -305,6 +305,12 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
     );
     require(ran_off_main_thread.load(std::memory_order_acquire), "snapshot must run off UI thread");
     require(
+        coordinator.systemCollectionCounts().value(QStringLiteral("all")).toInt() == 1
+            && coordinator.systemCollectionCounts().value(QStringLiteral("liked")).toInt() == 0
+            && coordinator.systemCollectionCounts().value(QStringLiteral("fiveStar")).toInt() == 0,
+        "offline collection counts include remote logical photos without counting local rows"
+    );
+    require(
         model.rowCount() == 2 && coordinator.hasServer()
             && coordinator.serverName() == QStringLiteral("Studio Mac")
             && coordinator.remotePhotoCount() == 1,
@@ -344,8 +350,14 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
         "successful synchronization status"
     );
 
+    int collection_count_notifications = 0;
+    QObject::connect(
+        &coordinator,
+        &ReviewRemoteLibraryCoordinator::systemCollectionCountsChanged,
+        [&collection_count_notifications]() { ++collection_count_notifications; }
+    );
     require(
-        coordinator.setDecision(presentation_photo_id, BackendReviewDecisionFlag::Picked, 4),
+        coordinator.setDecision(presentation_photo_id, BackendReviewDecisionFlag::Picked, 5),
         "remote decision mutation admission"
     );
     require(
@@ -358,10 +370,23 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
     );
     require(
         model.data(model.index(projected_remote_row, 0), ReviewModel::DecisionRatingRole).toInt()
-                == 4
+                == 5
             && model.data(model.index(projected_remote_row, 0), ReviewModel::LikedRole).toBool(),
         "remote curation must update the grid optimistically"
     );
+
+    require(
+        collection_count_notifications == 2,
+        "remote rating and Like changes must notify collection badge bindings immediately"
+    );
+    (void)model.replaceRemoteItems({});
+    require(
+        coordinator.systemCollectionCounts().value(QStringLiteral("all")).toInt() == 1
+            && coordinator.systemCollectionCounts().value(QStringLiteral("liked")).toInt() == 1
+            && coordinator.systemCollectionCounts().value(QStringLiteral("fiveStar")).toInt() == 1,
+        "curation counts remain global when a local Library scope hides remote rows"
+    );
+    coordinator.reapplyRemoteItems();
 
     QString ready_photo_id;
     QVariantMap ready_capture_metadata;
@@ -806,7 +831,8 @@ void multiple_connections_keep_independent_identity_and_projection() {
     );
     require(
         coordinator.removeConnection(studio_id) && coordinator.connections().size() == 1
-            && coordinator.remotePhotoCount() == 1 && model.rowCount() == 1,
+            && coordinator.remotePhotoCount() == 1 && model.rowCount() == 1
+            && coordinator.systemCollectionCounts().value(QStringLiteral("all")).toInt() == 1,
         "removing one remote Library must preserve the other projection"
     );
 }

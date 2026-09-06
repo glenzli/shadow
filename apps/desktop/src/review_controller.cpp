@@ -347,7 +347,15 @@ bool ReviewController::libraryKeywordsBusy() const noexcept {
 }
 
 QVariantMap ReviewController::librarySystemCollectionCounts() const {
-    return facet_coordinator_.systemCollectionCounts();
+    QVariantMap counts = facet_coordinator_.systemCollectionCounts();
+    const QVariantMap remote_counts = remote_library_coordinator_.systemCollectionCounts();
+    for (auto remote = remote_counts.cbegin(); remote != remote_counts.cend(); ++remote) {
+        counts.insert(
+            remote.key(),
+            QVariant::fromValue(counts.value(remote.key()).toULongLong() + remote->toULongLong())
+        );
+    }
+    return counts;
 }
 
 QString ReviewController::libraryAlbumId() const {

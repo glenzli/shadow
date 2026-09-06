@@ -43,6 +43,7 @@ ColumnLayout {
             }
 
             Label {
+                objectName: "allPhotosCount"
                 Layout.fillWidth: true
                 text: qsTranslate("ReviewWorkspace", "%L1").arg(
                     collections.systemCounts.available

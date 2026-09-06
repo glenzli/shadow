@@ -84,6 +84,7 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     [[nodiscard]] bool hasServer() const noexcept;
     [[nodiscard]] QString serverName() const;
     [[nodiscard]] int remotePhotoCount() const noexcept;
+    [[nodiscard]] QVariantMap systemCollectionCounts() const;
     [[nodiscard]] QString statusCode() const;
     [[nodiscard]] QString diagnosticText() const;
     [[nodiscard]] QString materializingPhotoId() const;
@@ -113,6 +114,7 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
 
   signals:
     void stateChanged();
+    void systemCollectionCountsChanged();
     void connectionChanged();
     void remotePhotoReady(
         const QString& photoId,
