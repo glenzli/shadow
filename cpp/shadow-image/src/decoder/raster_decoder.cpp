@@ -1,4 +1,5 @@
 #include <shadow/image/color_management.hpp>
+#include <shadow/image/linear_raster.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/decoder_metadata.hpp>
 #include <shadow/image/decoder_session.hpp>
@@ -623,6 +624,9 @@ public:
     [[nodiscard]] std::unique_ptr<DecodeSession> open(
         const std::filesystem::path& path
     ) const override {
+        if (has_extension(path, {"tif", "tiff"})) {
+            return open_linear_tiff(path);
+        }
         if (has_extension(path, {"heic", "heif"})) {
             return open_heif_decode_session(path);
         }
@@ -640,7 +644,7 @@ std::unique_ptr<DecoderProvider> make_raster_decoder_provider() {
 }
 
 std::vector<std::string> raster_supported_file_extensions() {
-    std::vector<std::string> extensions{"jpg", "jpeg"};
+    std::vector<std::string> extensions{"jpg", "jpeg", "tif", "tiff"};
     if (heif_decoder_available()) {
         extensions.emplace_back("heic");
         extensions.emplace_back("heif");

@@ -134,6 +134,7 @@ mod macos {
     struct BundleDigests {
         shadow: String,
         decode_helper: String,
+        composition_worker: String,
         server: String,
         server_decode_helper: String,
         geonames_index: String,
@@ -153,6 +154,7 @@ mod macos {
         for (label, path) in [
             ("Shadow executable", &bundle.shadow_executable),
             ("isolated RAW decode helper", &bundle.decode_helper),
+            ("photo composition worker", &bundle.composition_worker),
             ("Shadow Server executable", &bundle.server_executable),
             ("Shadow Server decode helper", &bundle.server_decode_helper),
         ] {
@@ -178,6 +180,7 @@ mod macos {
         let pairs = [
             (&source.shadow_executable, &copied.shadow_executable),
             (&source.decode_helper, &copied.decode_helper),
+            (&source.composition_worker, &copied.composition_worker),
             (&source.server_executable, &copied.server_executable),
             (&source.server_decode_helper, &copied.server_decode_helper),
             (&source.geonames_index, &copied.geonames_index),
@@ -198,6 +201,7 @@ mod macos {
         let [
             shadow,
             decode_helper,
+            composition_worker,
             server,
             server_decode_helper,
             geonames_index,
@@ -208,6 +212,7 @@ mod macos {
         Ok(BundleDigests {
             shadow,
             decode_helper,
+            composition_worker,
             server,
             server_decode_helper,
             geonames_index,
@@ -228,6 +233,11 @@ mod macos {
             file,
             "decode_helper_sha256={}",
             manifest.digests.decode_helper
+        )?;
+        writeln!(
+            file,
+            "composition_worker_sha256={}",
+            manifest.digests.composition_worker
         )?;
         writeln!(file, "server_executable_sha256={}", manifest.digests.server)?;
         writeln!(

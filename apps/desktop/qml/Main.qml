@@ -14,6 +14,7 @@ ApplicationWindow {
     required property var editor
     required property var editInterchangeController
     required property var editPreviewPresentation
+    required property var compositionController
     required property var exportController
     required property var cacheMaintenanceController
     required property var peopleAnalysisController
@@ -95,6 +96,7 @@ ApplicationWindow {
         !applicationSettingsDialog.opened
         && !personalProfileDialog.opened
         && !exportDialog.opened
+        && !compositionDialog.opened
         && !historyDrawer.opened
     readonly property bool nativeWebMapForegroundAllowed:
         window.workspaceIndex === mapWorkspacePage
@@ -181,6 +183,11 @@ ApplicationWindow {
         id: opticsProfileManager
         editor: window.editor
         opticsProfileLibrary: window.opticsProfileLibrary
+    }
+
+    PhotoCompositionDialog {
+        id: compositionDialog
+        compositionController: window.compositionController
     }
 
     ExportDialog {
@@ -353,6 +360,7 @@ ApplicationWindow {
                 && !window.mapNativeSurfaceBlocked
             nativeLocationDialogWebMapAllowed:
                 window.nativeLocationDialogWebMapAllowed
+            onCompositionRequested: (targets, mode) => compositionDialog.present(targets, mode)
             onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
                                         previewSource, captureMetadata) => {

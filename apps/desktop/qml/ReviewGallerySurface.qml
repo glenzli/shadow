@@ -26,7 +26,7 @@ Rectangle {
             justifiedGrid.forceActiveFocus()
     }
 
-    function navigateGrid(horizontalDelta, verticalDelta) {
+    function navigateGrid(horizontalDelta, verticalDelta, modifiers) {
         const target = gallery.workspace.justifiedReviewLayout.navigationTarget(
             gallery.workspace.selectedPhotoId,
             gallery.workspace.selectedRepresentationId,
@@ -34,7 +34,7 @@ Rectangle {
             verticalDelta)
         if (!target || String(target.photoId || "").length === 0)
             return
-        gallery.workspace.selectPhoto(target, 0)
+        gallery.workspace.selectPhoto(target, Number(modifiers || 0))
         justifiedGrid.positionViewAtIndex(
             Number(target.layoutRow), ListView.Contain)
     }
@@ -146,7 +146,7 @@ Rectangle {
                 vertical = 1
             else
                 return
-            gallery.navigateGrid(horizontal, vertical)
+            gallery.navigateGrid(horizontal, vertical, event.modifiers)
             event.accepted = true
         }
 

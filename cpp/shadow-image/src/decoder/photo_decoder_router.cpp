@@ -1,4 +1,5 @@
 #include <shadow/image/decoder_error.hpp>
+#include <shadow/image/linear_raster.hpp>
 #include <shadow/image/decoder_metadata.hpp>
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/decoder_types.hpp>
@@ -476,6 +477,8 @@ public:
         const std::filesystem::path& path
     ) const override {
         const std::string extension = lowercase_extension(path);
+        if ((extension == "tif" || extension == "tiff") && is_shadow_linear_tiff(path))
+            return detail::isolate_decode_session(open_linear_tiff(path));
         if (is_raster_extension(extension) || has_jpeg_signature(path)) {
             return detail::isolate_decode_session(raster_->open(path));
         }

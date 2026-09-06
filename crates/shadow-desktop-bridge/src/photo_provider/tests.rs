@@ -39,3 +39,16 @@ fn original_rasters_and_no_helper_cache_keep_the_direct_route() {
         InspectionRoute::Direct
     );
 }
+
+#[test]
+fn direct_raster_snapshot_matches_helper_enabled_inspector_identity() {
+    let fixture = tempfile::tempdir().expect("fixture directory");
+    let path = fixture.path().join("photo.jpg");
+    image::RgbImage::from_pixel(16, 16, image::Rgb([80, 120, 160]))
+        .save(&path)
+        .expect("JPEG fixture");
+    let mut inspector = inspector_with_route_cache(Some(fixture.path().join("cache")));
+    let snapshot = inspector.inspect(&path).expect("direct raster inspection");
+    assert_eq!(snapshot.provider.id, inspector.provider_id());
+    assert_eq!(snapshot.provider.version, inspector.provider_version());
+}

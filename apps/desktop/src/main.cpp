@@ -1,3 +1,4 @@
+#include "composition_controller.hpp"
 #include "ai_preferences.hpp"
 #include "amap_place_search_service.hpp"
 #include "cache_maintenance_controller.hpp"
@@ -215,6 +216,8 @@ int main(int argc, char* argv[]) {
         }
     );
     ExportController export_controller(backend, isolated_settings_file);
+    CompositionController composition_controller;
+    QObject::connect(&composition_controller, &CompositionController::saved, &controller, &ReviewController::scanFolder);
     CacheMaintenanceController cache_maintenance_controller(backend, &cache_preferences);
     QString infer_base_url = qEnvironmentVariable("SHADOW_INFER_BASE_URL");
     QString infer_credential_file = qEnvironmentVariable("SHADOW_INFER_CREDENTIAL_FILE");
@@ -546,6 +549,7 @@ int main(int argc, char* argv[]) {
     );
     engine.setInitialProperties({
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
+        {QStringLiteral("compositionController"), QVariant::fromValue(&composition_controller)},
         {
             QStringLiteral("justifiedReviewLayout"),
             QVariant::fromValue(&justified_review_layout),

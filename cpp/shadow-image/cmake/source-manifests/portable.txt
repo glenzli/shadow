@@ -10,6 +10,7 @@ src/decoder/libraw_reference_development.cpp
 src/decoder/libraw_decoder.cpp
 src/decoder/raster_exif.cpp
 src/decoder/raster_decoder.cpp
+src/decoder/linear_raster.cpp
 src/decoder/heif_decoder.cpp
 src/decoder/decode_session_isolation.cpp
 src/decoder/photo_decoder_router.cpp

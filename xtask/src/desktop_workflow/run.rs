@@ -89,6 +89,10 @@ mod macos {
         for (label, path) in [
             ("Shadow executable", bundle.shadow_executable.as_path()),
             ("RAW decode helper", bundle.decode_helper.as_path()),
+            (
+                "photo composition worker",
+                bundle.composition_worker.as_path(),
+            ),
         ] {
             if !process::is_executable(path) {
                 return Err(not_found(format!("{label} is missing: {}", path.display())));

@@ -29,6 +29,46 @@ remote Mac manifest / client-local proxy cache
 
 QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
 
+## HDR and panorama composition
+
+Select 2–12 photos in Review, then use **Merge → HDR merge / Panorama merge**. Remote originals
+use the existing verified download preparation before opening the composition dialog. The selected
+2048/4096-pixel long edge applies to each input; this first implementation does not claim native
+full-resolution composition. Originals and their existing recipes are read-only inputs; recipes
+are not baked into the composite.
+
+- HDR accepts RAW exposure brackets from one camera, with matching dimensions, aperture, ISO and
+  white balance. It uses the existing owned RAW developer and sensor-clipping evidence, without
+  optional creative DCP tables/curves. Translation alignment, exposure normalization, shared RGB
+  fusion weights and reference-based ghost rejection preserve scene-linear headroom. Rotation,
+  optical-flow deghosting and JPEG response-curve calibration are not implemented.
+- Panorama accepts supported RAW and raster sources. OpenCV estimates camera rotations, followed
+  by spherical projection of linear RGB, scalar overlap exposure compensation, feather blending
+  and a largest fully covered rectangular crop. Every selected image must join. Close foreground
+  parallax, moving subjects and large exposure differences can still leave seams; there is no
+  graph-cut/multiband or content-aware border fill.
+- Review the preview, then **Save and import** to create a separate 32-bit float linear-sRGB TIFF
+  with ICC profile and embedded source hashes/development provenance. Saving never replaces an
+  existing file. Only the saved file is scanned through normal Library import; the composite can be
+  opened in Precision without clipping its float headroom at the decoder boundary.
+
+[`src/composition_controller.*`](src/composition_controller.hpp) owns process lifecycle, progress,
+cancellation and atomic no-replace publication. [`src/composition/`](src/composition/) owns the
+isolated decoder/fusion worker and algorithms; Qt never runs registration in its event loop. The
+worker bounds retained input and output pixels to 64 Mi each and rejects excess before fusion.
+Cancellation terminates the worker and discards private staging; save cancellation is honored
+until the atomic destination creation. A completed save remains a completed save.
+
+The desktop build needs OpenCV (4 or 5, core/imgproc/photo/stitching) and libtiff. The packaged
+`shadow-photo-composition-worker` is a required canonical-debug input with its own verified digest.
+`shadow-desktop-photo-composition` covers linear HDR color/headroom, translated alignment,
+rotational panorama, float TIFF edit rebinding, worker errors/cancellation and non-overwriting save.
+Direct raster inspection and isolated RAW inspection publish the same outer inspector identity,
+including the configured helper graph, so raster thumbnails pass the worker identity guard.
+Initial preparation may use the existing RAW Metal route, but registration/fusion are CPU work.
+After import, interactive adjustments reuse the normal warm editor source; only a new composition
+reruns multi-photo registration. No new host/device transfer is added to ordinary RAW editing.
+
 ## Desktop source index
 
 Application startup is split from environment-driven automation:

@@ -422,6 +422,8 @@ qt_add_executable(
     src/edit_version_model.hpp
     src/edit_version_presentation.cpp
     src/edit_version_presentation.hpp
+    src/composition_controller.cpp
+    src/composition_controller.hpp
     src/export_controller.cpp
     src/export_controller.hpp
     src/export_preset_store.cpp
@@ -937,6 +939,7 @@ qt_add_qml_module(
         qml/ShadowSubsectionLabel.qml
         qml/ShadowTabButton.qml
         qml/Theme.qml
+        qml/PhotoCompositionDialog.qml
         qml/ToneCurveEditor.qml
 )
 
@@ -1084,3 +1087,5 @@ set_target_properties(
 )
 
 include(cmake/ShadowDesktopTests.cmake)
+
+include(cmake/ShadowDesktopComposition.cmake)

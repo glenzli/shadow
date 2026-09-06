@@ -287,6 +287,24 @@ Rectangle {
                 toolbar.workspace.batchSelectionTargets())
         }
 
+        ShadowButton {
+            id: mergeButton
+            objectName: "photoCompositionMenuButton"
+            text: qsTr("Merge")
+            compact: true
+            variant: ShadowButton.Ghost
+            toolTipText: qsTr("Merge 2–12 selected photos")
+            enabled: toolbar.workspace.selectedPhotoCount >= 2
+                && toolbar.workspace.selectedPhotoCount <= 12
+                && !toolbar.workspace.controller.remoteLibraryBusy
+            onClicked: mergeMenu.popup(mergeButton, 0, mergeButton.height)
+            Menu {
+                id: mergeMenu
+                MenuItem { text: qsTr("HDR merge…"); onTriggered: toolbar.workspace.requestComposition("hdr") }
+                MenuItem { text: qsTr("Panorama merge…"); onTriggered: toolbar.workspace.requestComposition("panorama") }
+            }
+        }
+
         ShadowIconButton {
             source: "qrc:/icons/export.svg"
             toolTipText: qsTr("Export selected photos")

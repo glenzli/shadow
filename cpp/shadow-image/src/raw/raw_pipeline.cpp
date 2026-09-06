@@ -2,6 +2,7 @@
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/linear_raster.hpp>
 
 #include "raw_foundation_source.hpp"
 #include "raw_frame_source_development.hpp"
@@ -75,6 +76,22 @@ inline constexpr std::string_view raw_pipeline_environment = "SHADOW_RAW_PIPELIN
             0,
             "provider-processed RAW fallback cannot honor a manual camera neutral"
         );
+    }
+    if (path == RawPipelinePath::decoded_raster) {
+        const auto* linear = dynamic_cast<const LinearRasterSource*>(&session);
+        if (linear) {
+            auto frame = linear->linear_raster(preview_max_edge);
+            if (frame) {
+                RawPipelineReceipt receipt;
+                receipt.path = path;
+                receipt.pipeline_identity = "shadow-linear-srgb-f32-v1";
+                receipt.source_provider_id = "shadow-linear-tiff";
+                receipt.source_provider_version = "1";
+                receipt.requested_plan = plan;
+                receipt.effective_plan = plan;
+                return {.source = std::move(*frame), .pipeline_receipt = std::move(receipt)};
+            }
+        }
     }
     PixelBuffer pixels = preview_max_edge.has_value()
                              ? session.render_reference_rgb_for_preview(*preview_max_edge, plan)

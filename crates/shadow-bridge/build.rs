@@ -346,6 +346,10 @@ fn main() {
         .cargo_metadata(false)
         .probe("lensfun")
         .ok();
+    let libtiff = pkg_config::Config::new()
+        .cargo_metadata(false)
+        .probe("libtiff-4")
+        .expect("libtiff is required");
     let lcms2 = pkg_config::Config::new()
         .cargo_metadata(false)
         .probe("lcms2")
@@ -429,6 +433,9 @@ fn main() {
             build.include(include_path);
         }
     }
+    for include_path in &libtiff.include_paths {
+        build.include(include_path);
+    }
     for include_path in &lcms2.include_paths {
         if target_family == "unix" {
             build
@@ -471,6 +478,12 @@ fn main() {
         println!("cargo:rustc-link-search=native={}", link_path.display());
     }
     for library in &libjpeg.libs {
+        println!("cargo:rustc-link-lib={library}");
+    }
+    for link_path in &libtiff.link_paths {
+        println!("cargo:rustc-link-search=native={}", link_path.display());
+    }
+    for library in &libtiff.libs {
         println!("cargo:rustc-link-lib={library}");
     }
     for link_path in &lcms2.link_paths {

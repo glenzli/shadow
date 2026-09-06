@@ -11,6 +11,12 @@ defines the required minimal invalidation path, source/receipt continuity, host/
 budget, and interactive-versus-settled behavior. The project-local
 `$shadow-interactive-rendering` skill turns that contract into the required change workflow.
 
+## Multi-photo composition
+
+The [desktop composition owner](../../apps/desktop/README.md#hdr-and-panorama-composition)
+documents source admission, quality limits, cancellable worker execution and non-destructive
+publication. The native decoder index owns the linear TIFF round-trip contract.
+
 ## Canonical debug application
 
 Build and atomically promote a complete debug application with:

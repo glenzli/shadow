@@ -289,6 +289,8 @@ Item {
     signal openMapProviderSettingsRequested()
     signal libraryScopeCommitted()
     signal exportRequested(var targets)
+    signal compositionRequested(var targets, string mode)
+    property string pendingCompositionMode: ""
 
     ReviewMetadataPresentation {
         id: metadataPresentation
@@ -400,6 +402,19 @@ Item {
         return false
     }
 
+    function requestComposition(mode) {
+        if (controller.remoteLibraryBusy || pendingCompositionMode.length > 0) return
+        const targets = batchSelectionTargets()
+        if (targets.length < 2 || targets.length > 12) return
+        pendingCompositionMode = mode
+        if (!requestExport(targets)) pendingCompositionMode = ""
+    }
+    function completePreparedTargets(targets) {
+        const mode = pendingCompositionMode
+        pendingCompositionMode = ""
+        if (mode.length > 0) compositionRequested(targets, mode)
+        else exportRequested(targets)
+    }
     function requestExport(targets) {
         const requestedTargets = targets || batchSelectionTargets()
         let hasRemote = false
@@ -412,7 +427,7 @@ Item {
             }
         }
         if (!hasRemote) {
-            exportRequested(requestedTargets)
+            completePreparedTargets(requestedTargets)
             return true
         }
         precisionOpenStatus = needsDownload
@@ -737,9 +752,10 @@ Item {
         }
         function onRemoteExportReady(targets) {
             review.precisionOpenStatus = ""
-            review.exportRequested(targets)
+            review.completePreparedTargets(targets)
         }
         function onRemoteExportPreparationFailed(statusCode) {
+            review.pendingCompositionMode = ""
             const failure = review.remoteOpenFailureMessage(statusCode)
             review.precisionOpenStatus = failure.length > 0 ? failure
                 : review.controller.remoteLibraryDiagnosticText

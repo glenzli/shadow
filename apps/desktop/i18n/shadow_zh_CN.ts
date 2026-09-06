@@ -249,6 +249,139 @@
     </message>
 </context>
 <context>
+    <name>CompositionController</name>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="86"/>
+        <source>%1 × %2 pixels · 32-bit linear TIFF</source>
+        <translation>%1 × %2 像素 · 32 位线性 TIFF</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="90"/>
+        <source>Preparing photo %1 of %2…</source>
+        <translation>正在准备第 %1 张照片，共 %2 张…</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="92"/>
+        <source>Aligning overlapping photos…</source>
+        <translation>正在对齐重叠照片…</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="94"/>
+        <source>Blending photo %1 of %2…</source>
+        <translation>正在融合第 %1 张照片，共 %2 张…</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="96"/>
+        <source>Preparing the composite preview…</source>
+        <translation>正在生成合成预览…</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="98"/>
+        <source>Review the result before saving.</source>
+        <translation>保存前请检查合成结果。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="100"/>
+        <source>Saving the composite…</source>
+        <translation>正在保存合成结果…</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="102"/>
+        <source>Saved. Importing the composite into the Library.</source>
+        <translation>已保存，正在导入图库。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="104"/>
+        <source>Composition cancelled.</source>
+        <translation>已取消合成。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="105"/>
+        <source>%1 source photos selected.</source>
+        <translation>已选择 %1 张原片。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="109"/>
+        <source>Select between 2 and 12 photos.</source>
+        <translation>请选择 2 至 12 张照片。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="111"/>
+        <source>An original is unavailable. Download or reconnect it, then retry.</source>
+        <translation>有原片不可用，请下载或重新连接后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="113"/>
+        <source>Each source photo must be selected only once.</source>
+        <translation>每张原片只能选择一次。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="115"/>
+        <source>HDR requires RAW photos with shutter speed, aperture and ISO metadata.</source>
+        <translation>HDR 需要包含快门速度、光圈和 ISO 元数据的 RAW 照片。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="117"/>
+        <source>Use an exposure bracket from the same camera with fixed aperture and ISO.</source>
+        <translation>请使用同一相机拍摄、光圈和 ISO 固定的包围曝光照片。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="119"/>
+        <source>The bracket has different white balances. Use photos captured with a fixed white balance.</source>
+        <translation>这些照片的白平衡不同，请使用固定白平衡拍摄的照片。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="124"/>
+        <source>The photos do not contain a sufficient exposure bracket.</source>
+        <translation>这些照片的曝光差异不足以合成 HDR。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="126"/>
+        <source>HDR source photos must have the same dimensions and orientation.</source>
+        <translation>HDR 原片的尺寸和方向必须一致。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="128"/>
+        <source>The bracket could not be aligned reliably. Try tripod photos or disable alignment.</source>
+        <translation>无法可靠地对齐照片，请使用三脚架拍摄的照片或关闭自动对齐。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="132"/>
+        <source>All photos could not be joined reliably. Use overlapping views from the same scene.</source>
+        <translation>无法可靠地拼接全部照片，请使用同一场景中相互重叠的视图。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="136"/>
+        <source>This set exceeds the composition memory limit. Choose 2048 pixels or fewer photos.</source>
+        <translation>这组照片超出合成内存上限，请选择 2048 像素或减少照片数量。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="140"/>
+        <source>An original changed during composition. The result was discarded; please retry.</source>
+        <translation>合成期间有原片发生变化，结果已丢弃，请重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="144"/>
+        <source>A file already exists at that destination. Choose a new name.</source>
+        <translation>目标位置已有同名文件，请选择新名称。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="146"/>
+        <source>The photo composition worker is unavailable. Reinstall the complete application.</source>
+        <translation>照片合成组件不可用，请重新安装完整应用。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="150"/>
+        <source>The composite could not be saved. Check the destination and available space.</source>
+        <translation>无法保存合成结果，请检查目标位置和可用空间。</translation>
+    </message>
+    <message>
+        <location filename="../src/composition_controller.cpp" line="151"/>
+        <source>Composition failed. Check the source files and try again.</source>
+        <translation>合成失败，请检查原片后重试。</translation>
+    </message>
+</context>
+<context>
     <name>EditController</name>
     <message>
         <source>AI Completion applied · the region is now managed by the photo node</source>
@@ -4848,6 +4981,25 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
+    <name>MainLibraryFilterBar</name>
+    <message>
+        <source>Editable only</source>
+        <translation>仅显示可精修</translation>
+    </message>
+    <message>
+        <source>Hide offline photos only when neither a preview nor an original is cached locally</source>
+        <translation>仅隐藏离线且本地既无预览缓存也无原片缓存的照片</translation>
+    </message>
+    <message>
+        <source>Hide offline uncached</source>
+        <translation>隐藏离线无缓存</translation>
+    </message>
+    <message>
+        <source>Show photos with a local original or an available online original</source>
+        <translation>显示具有本地原片或可获取在线原片的照片</translation>
+    </message>
+</context>
+<context>
     <name>MapProviderSettingsPane</name>
     <message>
         <location filename="../qml/MapProviderSettingsPane.qml" line="41"/>
@@ -5923,6 +6075,89 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PersonalProfileDialog.qml" line="265"/>
         <source>No resolved Library city is available yet; offline search still works</source>
         <translation>图库中尚无已解析的城市；仍可使用离线搜索</translation>
+    </message>
+</context>
+<context>
+    <name>PhotoCompositionDialog</name>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="33"/>
+        <source>Save composite</source>
+        <translation>保存合成结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="35"/>
+        <source>Linear TIFF (*.tif *.tiff)</source>
+        <translation>线性 TIFF (*.tif *.tiff)</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="42"/>
+        <source>HDR merge</source>
+        <translation>HDR 合成</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="42"/>
+        <source>Panorama merge</source>
+        <translation>全景合成</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="51"/>
+        <source>Use a RAW exposure bracket with fixed camera, aperture, ISO and white balance. Original files and their edits remain unchanged.</source>
+        <translation>请使用相机、光圈、ISO 和白平衡固定的 RAW 包围曝光照片。原文件及其编辑保持不变。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="52"/>
+        <source>Use overlapping views of one scene. Photos are aligned automatically and cropped to a fully covered rectangle. Existing edits are not applied.</source>
+        <translation>请使用同一场景中相互重叠的视图。照片会自动对齐并裁切为完整覆盖的矩形，已有编辑不会应用到合成中。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="62"/>
+        <source>Source long edge</source>
+        <translation>原片长边</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="64"/>
+        <source>Auto align</source>
+        <translation>自动对齐</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="65"/>
+        <source>Reduce ghosting</source>
+        <translation>减少重影</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="66"/>
+        <source>Match exposure</source>
+        <translation>匹配曝光</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="70"/>
+        <source>The selected size bounds each source image. The result is a separate 32-bit linear TIFF that can be edited after import.</source>
+        <translation>所选尺寸限定每张原片的长边。结果保存为独立的 32 位线性 TIFF，导入后可继续编辑。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="96"/>
+        <source>Cancel composition</source>
+        <translation>取消合成</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="96"/>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="101"/>
+        <source>Change settings</source>
+        <translation>更改设置</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="107"/>
+        <source>Merge</source>
+        <translation>合成</translation>
+    </message>
+    <message>
+        <location filename="../qml/PhotoCompositionDialog.qml" line="114"/>
+        <source>Save and import</source>
+        <translation>保存并导入</translation>
     </message>
 </context>
 <context>
@@ -11377,6 +11612,26 @@ Details: %3</source>
         <translation>从此手动相册移除所选照片</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="293"/>
+        <source>Merge</source>
+        <translation>合成</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="296"/>
+        <source>Merge 2–12 selected photos</source>
+        <translation>合成所选的 2–12 张照片</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="303"/>
+        <source>HDR merge…</source>
+        <translation>HDR 合成…</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="304"/>
+        <source>Panorama merge…</source>
+        <translation>全景合成…</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="292"/>
         <source>Export selected photos</source>
         <translation>导出所选照片</translation>
@@ -13420,25 +13675,6 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     <message>
         <source>All files (*)</source>
         <translation>所有文件 (*)</translation>
-    </message>
-</context>
-<context>
-    <name>MainLibraryFilterBar</name>
-    <message>
-        <source>Editable only</source>
-        <translation>仅显示可精修</translation>
-    </message>
-    <message>
-        <source>Hide offline photos only when neither a preview nor an original is cached locally</source>
-        <translation>仅隐藏离线且本地既无预览缓存也无原片缓存的照片</translation>
-    </message>
-    <message>
-        <source>Hide offline uncached</source>
-        <translation>隐藏离线无缓存</translation>
-    </message>
-    <message>
-        <source>Show photos with a local original or an available online original</source>
-        <translation>显示具有本地原片或可获取在线原片的照片</translation>
     </message>
 </context>
 </TS>

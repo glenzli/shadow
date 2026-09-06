@@ -30,6 +30,17 @@ by CMake and direct Cargo builds. Portable, Metal, and non-Metal fallback
 translation units are selected there; adding Windows acceleration must add a distinct manifest
 and backend owner rather than duplicate the portable kernel or fork this library.
 
+## Linear composite raster
+
+[`include/shadow/image/linear_raster.hpp`](include/shadow/image/linear_raster.hpp) and
+[`src/decoder/linear_raster.cpp`](src/decoder/linear_raster.cpp) own Shadow's tagged 32-bit float
+linear-sRGB TIFF contract, including ICC/provenance writing and bounded streaming area resampling.
+The optional `LinearRasterSource` interface leaves the private `DecodeSession` ABI unchanged.
+The router and isolation wrapper preserve this interface through normal source development, so
+composite values above white remain float in warm preview, detail and export. Untagged TIFFs keep
+the previous decoder route; this is not general TIFF/ICC import support. Private provider u16
+compatibility entry points remain clamped; normal composite editing uses the float interface.
+
 ## Decoder boundary
 
 ```text

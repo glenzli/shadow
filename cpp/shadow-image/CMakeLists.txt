@@ -11,6 +11,7 @@ pkg_check_modules(Lensfun QUIET IMPORTED_TARGET lensfun)
 pkg_check_modules(LittleCms REQUIRED IMPORTED_TARGET lcms2)
 pkg_check_modules(LibHeif QUIET IMPORTED_TARGET libheif>=1.19.7)
 find_package(JPEG REQUIRED)
+find_package(TIFF REQUIRED)
 
 add_library(shadow-image-platform-runtime INTERFACE)
 add_library(Shadow::ImagePlatformRuntime ALIAS shadow-image-platform-runtime)
@@ -125,7 +126,7 @@ target_include_directories(
 )
 target_link_libraries(
     shadow-image
-    PRIVATE PkgConfig::LibRaw PkgConfig::LittleCms JPEG::JPEG ${CMAKE_DL_LIBS}
+    PRIVATE PkgConfig::LibRaw PkgConfig::LittleCms JPEG::JPEG TIFF::TIFF ${CMAKE_DL_LIBS}
     PUBLIC Shadow::ImagePlatformRuntime
 )
 if(Lensfun_FOUND)

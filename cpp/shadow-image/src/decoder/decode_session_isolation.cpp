@@ -1,6 +1,7 @@
 #include "decode_session_isolation.hpp"
 
 #include <shadow/image/decoder_error.hpp>
+#include <shadow/image/linear_raster.hpp>
 
 #include <exception>
 #include <optional>
@@ -11,7 +12,7 @@ namespace shadow::image::detail {
 
 namespace {
 
-class IsolatedDecodeSession final : public DecodeSession {
+class IsolatedDecodeSession final : public DecodeSession, public LinearRasterSource {
 private:
     template <typename Callback>
     decltype(auto) access(Callback&& callback) const {
@@ -63,6 +64,13 @@ public:
             }
             throw;
         }
+    }
+
+    std::optional<SceneLinearRgbFrame> linear_raster(std::optional<std::uint32_t> edge) const override {
+        return access([edge](DecodeSession& session) -> std::optional<SceneLinearRgbFrame> {
+            const auto* linear = dynamic_cast<const LinearRasterSource*>(&session);
+            return linear ? linear->linear_raster(edge) : std::nullopt;
+        });
     }
 
     ~IsolatedDecodeSession() override {
