@@ -20,6 +20,12 @@ below, then follow its local README, module declarations, native facade, or QML 
 | CLI | [`shadow-cli`](../../apps/shadow-cli/README.md) | Focused catalog, decode, backup, AI, and remote-Library operator commands |
 | Repository validation | [`xtask`](../../xtask/src/main.rs) | Repository-wide format, structure, test, localization, and build gates |
 
+## Personal learning
+
+[个人选片与调色学习方案](personal-learning.md) owns the long-term evidence, evaluation,
+and product rollout design. Implemented evidence and readiness behavior remains with
+`shadow-ai/feedback`, Catalog feedback, and the operator CLI.
+
 ## Stable boundaries
 
 - A logical photo may own several representations and locations. A path, cache location, or server

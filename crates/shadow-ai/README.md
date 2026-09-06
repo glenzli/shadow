@@ -278,3 +278,19 @@ confidence score. The CLI keeps a smaller caller-controlled default budget.
 - Keep application scheduling, persistence, Recipe integration, and UI ownership
   in their respective crates. This README should change only when the current
   crate boundary or implemented facts change.
+
+## Personal learning evidence
+
+[`feedback/readiness.rs`](src/feedback/readiness.rs) inventories a bounded page of explicit
+pairwise and approved-edit references. It reports missing frozen features and excludes forgotten
+or out-of-scope events; it does not load features, render Recipes, authorize learning or train a
+model. `EditExampleConfirmed` binds an operator-approved baseline and result to immutable Recipe
+commits, with declared manual/imported/assisted/mixed/unknown origin and style/correction intent.
+Catalog validates both commits belong to the named photo. Equal commits can explicitly mean no
+adjustment was wanted. Autosave and export are not implicit approvals. The Catalog page resolves
+Recipe integrity and revocations in one read snapshot; source and feature verification remain
+separate admission requirements. Older event JSON is unchanged; older binaries do not necessarily
+understand the new action.
+
+The [personal learning design](../../docs/architecture/personal-learning.md) distinguishes this
+operator/API foundation from future desktop capture, dataset manifests, training and model rollout.

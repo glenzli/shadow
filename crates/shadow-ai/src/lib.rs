@@ -44,12 +44,14 @@ pub use derived_raster::{
     reload_managed_derived_raster,
 };
 pub use feedback::{
-    BatchBuildReport, FeatureSnapshotRef, FeedbackAction, FeedbackEvent, FeedbackForgetFact,
-    FeedbackIgnored, FeedbackValidationError, IncrementalTrainingBatch, IncrementalTrainingPolicy,
-    LearningScope, NewFeedbackEvent, NewFeedbackForgetFact, PairwiseExampleRef, PairwiseOutcome,
-    PresentationContext, PresentedCandidate, PresentedFitMode, PresentedVisualArtifact,
-    PresentedVisualFrame, PresentedVisualProvenance, PresentedVisualRole, SuggestionDecision,
-    build_incremental_preference_batch,
+    ApprovedEditExampleRef, BatchBuildReport, EditExampleIntent, EditExampleOrigin,
+    FeatureSnapshotRef, FeedbackAction, FeedbackEvent, FeedbackForgetFact, FeedbackIgnored,
+    FeedbackValidationError, IncrementalTrainingBatch, IncrementalTrainingPolicy,
+    LearningEvidenceExcluded, LearningReadinessError, LearningReadinessReport, LearningScope,
+    MAX_LEARNING_READINESS_EVENTS, NewFeedbackEvent, NewFeedbackForgetFact, PairwiseExampleRef,
+    PairwiseOutcome, PresentationContext, PresentedCandidate, PresentedFitMode,
+    PresentedVisualArtifact, PresentedVisualFrame, PresentedVisualProvenance, PresentedVisualRole,
+    SuggestionDecision, build_incremental_preference_batch, build_learning_readiness,
 };
 pub use generated::{
     AI_GENERATED_ARTIFACT_CONTRACT_VERSION, AiArtifactContractError, AiGeneratedPayload,

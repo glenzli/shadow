@@ -63,7 +63,7 @@ pub use export_queue::{
     ExportPresetRevisionId, ExportPresetRevisionRecord, ExportQueueRecovery, ExportSettingsSource,
     MAX_EXPORT_JOB_PAGE_SIZE, NewExportItem, NewExportOutputReceipt,
 };
-pub use feedback::{FeedbackPage, MAX_FEEDBACK_PAGE_SIZE};
+pub use feedback::{FeedbackPage, LearningEvidencePage, MAX_FEEDBACK_PAGE_SIZE};
 pub use import_journal::{
     ImportPhotoGrouping, ImportSession, ImportSessionState, ImportSessionSummary,
     SourceScanReconciliation,

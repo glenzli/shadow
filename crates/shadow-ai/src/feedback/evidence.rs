@@ -138,10 +138,38 @@ pub enum SuggestionDecision {
     AcceptedThenUndone,
 }
 
+/// User-declared provenance; approval does not turn imported or assisted edits into manual work.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditExampleOrigin {
+    Manual,
+    Imported,
+    Assisted,
+    Mixed,
+    Unknown,
+}
+
+/// Technical corrections and creative style must not share an undifferentiated target.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditExampleIntent {
+    PersonalStyle,
+    TechnicalCorrection,
+}
+
 /// Append-only human evidence. Absence of an event is never a negative label.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "action")]
 pub enum FeedbackAction {
+    /// Explicit approval of exact immutable states, never inferred from autosave or export.
+    /// Equal states are valid evidence that the user wanted no adjustment.
+    EditExampleConfirmed {
+        photo_id: PhotoId,
+        baseline_recipe: RecipeCommitId,
+        approved_recipe: RecipeCommitId,
+        origin: EditExampleOrigin,
+        intent: EditExampleIntent,
+    },
     PairwiseComparison {
         left: PhotoId,
         right: PhotoId,
@@ -589,7 +617,9 @@ fn validate_action(
                 }
             }
         }
-        FeedbackAction::Exported { .. } | FeedbackAction::ReturnedForRework { .. } => {}
+        FeedbackAction::EditExampleConfirmed { .. }
+        | FeedbackAction::Exported { .. }
+        | FeedbackAction::ReturnedForRework { .. } => {}
     }
     Ok(())
 }

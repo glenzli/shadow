@@ -20,6 +20,18 @@ pub struct FeedbackPage {
     pub has_more: bool,
 }
 
+/// Snapshot-consistent, bounded inventory. References do not authorize training.
+#[derive(Debug, serde::Serialize)]
+pub struct LearningEvidencePage {
+    pub report: shadow_ai::LearningReadinessReport,
+    pub has_more: bool,
+    pub next_after_sequence: u64,
+    /// Missing histories remain human facts but are unavailable training targets.
+    pub unavailable_edit_event_ids: Vec<String>,
+    pub feature_artifacts_verified: bool,
+    pub training_performed: bool,
+}
+
 struct StoredFeedbackRow {
     sequence: i64,
     event_id: String,
@@ -31,6 +43,50 @@ struct StoredFeedbackRow {
 }
 
 impl Catalog {
+    /// Reads one evidence page, revocations and Recipe integrity in one `SQLite` snapshot.
+    ///
+    /// Only this page's event interval is scanned for forget facts. No image bytes,
+    /// feature extraction or model execution are involved. A complete training manifest
+    /// must still pin source/render identities and recheck revocations before publication.
+    ///
+    /// # Errors
+    ///
+    /// Rejects malformed evidence, unsupported bounds and corrupted Recipe history.
+    pub fn learning_evidence_page(
+        &self,
+        scope: &LearningScope,
+        after_sequence: u64,
+        limit: usize,
+    ) -> Result<LearningEvidencePage, CatalogError> {
+        let transaction = self.connection.unchecked_transaction()?;
+        let page = self.feedback_events_after(scope, after_sequence, limit)?;
+        let through = page
+            .events
+            .last()
+            .map_or(after_sequence, |event| event.sequence);
+        let forgotten =
+            self.forgotten_feedback_event_ids_between(scope, after_sequence, through)?;
+        let report = shadow_ai::build_learning_readiness(&page.events, scope, &forgotten)
+            .map_err(|error| CatalogError::InvalidFeedback(error.to_string()))?;
+        let mut unavailable_edit_event_ids = Vec::new();
+        for example in &report.approved_edit_references {
+            let before = self.recipe_commit(example.photo_id, example.baseline_recipe)?;
+            let after = self.recipe_commit(example.photo_id, example.approved_recipe)?;
+            if before.is_none() || after.is_none() {
+                unavailable_edit_event_ids.push(example.event_id.clone());
+            }
+        }
+        transaction.commit()?;
+        Ok(LearningEvidencePage {
+            report,
+            has_more: page.has_more,
+            next_after_sequence: through,
+            unavailable_edit_event_ids,
+            feature_artifacts_verified: false,
+            training_performed: false,
+        })
+    }
+
     /// Validates and appends one human-feedback fact, assigning its sequence.
     ///
     /// # Errors
@@ -51,6 +107,7 @@ impl Catalog {
         ensure_feedback_event_absent(&transaction, &request.event_id)?;
         ensure_referenced_photos_exist(&transaction, request)?;
         ensure_presented_visual_ownership(&transaction, request)?;
+        ensure_edit_example_ownership(&transaction, request)?;
         let sequence = next_feedback_sequence(&transaction)?;
         let event = request
             .clone()
@@ -191,6 +248,15 @@ impl Catalog {
         &self,
         scope: &LearningScope,
     ) -> Result<BTreeSet<String>, CatalogError> {
+        self.forgotten_feedback_event_ids_between(scope, 0, i64::MAX.unsigned_abs())
+    }
+
+    fn forgotten_feedback_event_ids_between(
+        &self,
+        scope: &LearningScope,
+        after: u64,
+        through: u64,
+    ) -> Result<BTreeSet<String>, CatalogError> {
         validate_scope(scope)?;
         let (scope_kind, project_id) = scope_columns(scope);
         let mut statement = self.connection.prepare(
@@ -200,18 +266,27 @@ impl Catalog {
              JOIN ai_feedback_events e ON e.event_id = f.target_event_id
              WHERE e.scope_kind = ?1
                AND ((?2 IS NULL AND e.project_id IS NULL) OR e.project_id = ?2)
+             AND e.sequence > ?3 AND e.sequence <= ?4
              ORDER BY f.sequence ASC",
         )?;
-        let rows = statement.query_map(params![scope_kind, project_id], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, String>(4)?,
-                digest(row.get(5)?, 5)?,
-            ))
-        })?;
+        let rows = statement.query_map(
+            params![
+                scope_kind,
+                project_id,
+                sequence_to_sql(after)?,
+                sequence_to_sql(through)?
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    digest(row.get(5)?, 5)?,
+                ))
+            },
+        )?;
         let mut event_ids = BTreeSet::new();
         for row in rows {
             let (sequence, fact_id, target_event_id, occurred_at_ms, json, stored_digest) = row?;
@@ -441,7 +516,8 @@ fn ensure_referenced_photos_exist(
             photo_ids.insert(*left);
             photo_ids.insert(*right);
         }
-        FeedbackAction::FlagChanged { photo_id, .. }
+        FeedbackAction::EditExampleConfirmed { photo_id, .. }
+        | FeedbackAction::FlagChanged { photo_id, .. }
         | FeedbackAction::RatingChanged { photo_id, .. }
         | FeedbackAction::Exported { photo_id }
         | FeedbackAction::ReturnedForRework { photo_id } => {
@@ -507,6 +583,40 @@ fn ensure_presented_visual_ownership(
                 photo_id: candidate.photo_id,
                 representation_id,
             });
+        }
+    }
+    Ok(())
+}
+
+/// Bind approval to existing immutable commits belonging to exactly this logical photo.
+fn ensure_edit_example_ownership(
+    transaction: &Transaction<'_>,
+    request: &NewFeedbackEvent,
+) -> Result<(), CatalogError> {
+    if let FeedbackAction::EditExampleConfirmed {
+        photo_id,
+        baseline_recipe,
+        approved_recipe,
+        ..
+    } = request.action
+    {
+        for commit_id in [baseline_recipe, approved_recipe] {
+            let exists = transaction
+                .query_row(
+                    "SELECT 1 FROM recipe_commits WHERE photo_id = ?1 AND id = ?2",
+                    params![
+                        photo_id.as_bytes().as_slice(),
+                        commit_id.as_bytes().as_slice()
+                    ],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if !exists {
+                return Err(CatalogError::InvalidFeedback(
+                    "edit example commits must exist and belong to the declared photo".into(),
+                ));
+            }
         }
     }
     Ok(())

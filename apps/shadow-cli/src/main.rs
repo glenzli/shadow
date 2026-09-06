@@ -8,6 +8,7 @@ mod backup;
 mod catalog;
 mod commands;
 mod decode;
+mod learning;
 mod people;
 mod remote_library;
 mod scan;
