@@ -12,6 +12,9 @@
 // and status routing reviewable without hiding it in the constructor.
 void ReviewController::initializeCoordinatorWiring() {
     filtered_model_.setSourceModel(&model_);
+    connect(&filtered_model_, &ReviewFilterModel::availabilityFiltersChanged, this, [this]() {
+        emit filtersChanged();
+    });
     connect(&filtered_model_, &ReviewFilterModel::filtersChanged, this, [this]() {
         scheduleFilterQuery();
         refreshRemoteLibraryPresentation();

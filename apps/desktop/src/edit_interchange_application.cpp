@@ -66,6 +66,84 @@ bool EditController::applyShadowRecipeGradeNodes(
     return true;
 }
 
+bool EditController::applyXmpDevelopImport(
+    const XmpDevelopImport& imported,
+    const QString& label,
+    QString* const error_text
+) {
+    const auto fail = [error_text](const QString& error) {
+        if (error_text != nullptr)
+            *error_text = error;
+        return false;
+    };
+    if (!active_ || interactionLocked() || !canAddGradeNode() || !imported.canApply()) {
+        return fail(tr("The XMP adjustments cannot be applied to the current photo."));
+    }
+    BackendGradeNode node;
+    try {
+        node = backend_->newBasicGradeNode(tr("Imported XMP · %1").arg(label));
+    } catch (const std::exception& error) {
+        return fail(QString::fromUtf8(error.what()));
+    }
+    for (const auto& adjustment : imported.adjustments) {
+        const double value = adjustment.target_value;
+        switch (adjustment.target) {
+        case XmpDevelopTarget::ExposureStops:
+            node.basic.exposure_stops = value;
+            break;
+        case XmpDevelopTarget::ContrastFactor:
+            node.basic.contrast_factor = value;
+            break;
+        case XmpDevelopTarget::SaturationFactor:
+            node.basic.saturation_factor = value;
+            break;
+        case XmpDevelopTarget::Highlights:
+            node.fine.highlights = value;
+            break;
+        case XmpDevelopTarget::Shadows:
+            node.fine.shadows = value;
+            break;
+        case XmpDevelopTarget::Whites:
+            node.fine.whites = value;
+            break;
+        case XmpDevelopTarget::Blacks:
+            node.fine.blacks = value;
+            break;
+        case XmpDevelopTarget::Texture:
+            node.fine.texture = value;
+            break;
+        case XmpDevelopTarget::Clarity:
+            node.fine.clarity = value;
+            break;
+        case XmpDevelopTarget::Dehaze:
+            node.fine.dehaze = value;
+            break;
+        case XmpDevelopTarget::Vibrance:
+            node.fine.vibrance = value;
+            break;
+        }
+    }
+    finishActiveGesture();
+    const BackendGradeStack before = grade_stack_;
+    BackendGradeStack updated = before;
+    int selection = selected_grade_node_index_;
+    if (!GradeNodeStack::insertAfterSelection(updated, node, selection)) {
+        return fail(tr("The XMP adjustments cannot be applied to the current photo."));
+    }
+    const BackendGradeStack expected = updated;
+    setGradeStack(std::move(updated), node.grade_node_id);
+    if (grade_stack_ != expected) {
+        setGradeStack(before);
+        return fail(tr("The XMP adjustments cannot be applied to the current photo."));
+    }
+    selectGradeNode(selection);
+    recordWorkingTransition(QStringLiteral("xmp/import/%1").arg(node.grade_node_id), before);
+    schedulePreview(0);
+    if (error_text != nullptr)
+        error_text->clear();
+    return true;
+}
+
 void EditController::reportShadowRecipeExported(const QString& file_name) {
     setStatusMessage(interchange_message(
         QT_TRANSLATE_NOOP("EditController", "Exported Shadow Recipe · %1"),

@@ -48,10 +48,8 @@ namespace {
     return rank;
 }
 
-[[nodiscard]] bool preferredBefore(
-    const RemotePhotoSourceChoice& candidate,
-    const RemotePhotoSourceChoice& current
-) {
+[[nodiscard]] bool
+preferredBefore(const RemotePhotoSourceChoice& candidate, const RemotePhotoSourceChoice& current) {
     const int candidate_rank = sourceRank(candidate);
     const int current_rank = sourceRank(current);
     if (candidate_rank != current_rank) {
@@ -69,18 +67,12 @@ namespace {
     return candidate.photo.remote_representation_id < current.photo.remote_representation_id;
 }
 
-[[nodiscard]] std::uint32_t saturatedAdd(
-    const std::uint32_t left,
-    const std::uint32_t right
-) {
+[[nodiscard]] std::uint32_t saturatedAdd(const std::uint32_t left, const std::uint32_t right) {
     const auto maximum = std::numeric_limits<std::uint32_t>::max();
     return right > maximum - left ? maximum : left + right;
 }
 
-void mergeAggregateSource(
-    RemotePhotoAggregate& aggregate,
-    RemotePhotoSourceChoice source
-) {
+void mergeAggregateSource(RemotePhotoAggregate& aggregate, RemotePhotoSourceChoice source) {
     aggregate.representation_count =
         std::max(aggregate.representation_count, source.photo.representation_count);
     aggregate.has_raw_representation =
@@ -99,18 +91,13 @@ void mergeAggregateSource(
         }
     }
 
-    aggregate.source_location_count = aggregate.sources.isEmpty()
-                                          ? std::max<std::uint32_t>(
-                                                1,
-                                                source.photo.source_location_count
-                                            )
-                                          : saturatedAdd(
-                                                aggregate.source_location_count,
-                                                std::max<std::uint32_t>(
-                                                    1,
-                                                    source.photo.source_location_count
-                                                )
-                                            );
+    aggregate.source_location_count =
+        aggregate.sources.isEmpty()
+            ? std::max<std::uint32_t>(1, source.photo.source_location_count)
+            : saturatedAdd(
+                  aggregate.source_location_count,
+                  std::max<std::uint32_t>(1, source.photo.source_location_count)
+              );
     aggregate.sources.push_back(std::move(source));
 }
 
@@ -137,7 +124,8 @@ const RemotePhotoSourceChoice* RemotePhotoAggregate::preferredSource() const noe
 }
 
 RemotePhotoAggregateMap aggregateRemotePhotos(
-    const QHash<QString, BackendRemoteLibrarySnapshot>& snapshots
+    const QHash<QString, BackendRemoteLibrarySnapshot>& snapshots,
+    const std::optional<QSet<QString>>& online_connections
 ) {
     RemotePhotoAggregateMap aggregates;
     QStringList connection_ids = snapshots.keys();
@@ -147,7 +135,9 @@ RemotePhotoAggregateMap aggregateRemotePhotos(
         if (found == snapshots.cend()) {
             continue;
         }
-        const bool originals_available = found->has_server && found->server.originals_available;
+        const bool originals_available =
+            found->has_server && found->server.originals_available
+            && (!online_connections || online_connections->contains(connection_id));
         for (const auto& photo : found->photos) {
             const QString presentation_id = presentationPhotoId(photo);
             auto aggregate = aggregates.find(presentation_id);

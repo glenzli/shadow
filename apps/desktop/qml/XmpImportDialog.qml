@@ -90,6 +90,16 @@ Dialog {
                 font.pixelSize: 11
                 wrapMode: Text.Wrap
             }
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                visible: dialog.interchangeController.compatibilityWarnings.length > 0
+                text: dialog.interchangeController.compatibilityWarnings.join("\n")
+                color: Theme.textSecondary
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+            }
             Rectangle {
                 visible: dialog.interchangeController.processVersion.length > 0
                 Layout.fillWidth: true

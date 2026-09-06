@@ -3,6 +3,7 @@
 #include "desktop_backend.hpp"
 #include "edit_controller.hpp"
 
+#include <QCryptographicHash>
 #include <QFile>
 #include <QFileInfo>
 #include <QLocale>
@@ -359,7 +360,23 @@ QString EditInterchangeController::recipeExportErrorText() const {
     return recipe_export_error_;
 }
 
+QStringList EditInterchangeController::compatibilityWarnings() const {
+    QStringList warnings;
+    if (preview_.already_applied)
+        warnings.append(
+            tr("This XMP marks its adjustments as already applied. Importing it may apply the "
+               "effects twice.")
+        );
+    if (!preview_.process_version.isEmpty())
+        warnings.append(
+            tr("Camera Raw process versions are not replayed exactly; this import uses Shadow's "
+               "approximate parameter mapping.")
+        );
+    return warnings;
+}
+
 void EditInterchangeController::clear() {
+    xmp_digest_.clear();
     source_name_.clear();
     preview_ = {};
     preview_error_.clear();
@@ -369,6 +386,7 @@ void EditInterchangeController::clear() {
 }
 
 void EditInterchangeController::previewXmp(const QUrl& file_url) {
+    xmp_digest_.clear();
     source_name_.clear();
     preview_ = {};
     preview_error_.clear();
@@ -394,7 +412,14 @@ void EditInterchangeController::previewXmp(const QUrl& file_url) {
         emit previewChanged();
         return;
     }
-    preview_ = parseXmpDevelopImport(file.readAll());
+    const QByteArray document = file.read(MAXIMUM_XMP_BYTES + 1);
+    if (document.size() > MAXIMUM_XMP_BYTES) {
+        preview_error_ = tr("The XMP file is larger than 4 MB.");
+        emit previewChanged();
+        return;
+    }
+    xmp_digest_ = QCryptographicHash::hash(document, QCryptographicHash::Sha256).toHex();
+    preview_ = parseXmpDevelopImport(document);
     emit previewChanged();
 }
 
@@ -417,51 +442,30 @@ bool EditInterchangeController::applyXmp() {
         return false;
     }
 
-    const QString previous_node_id = editor_.selectedGradeNodeId();
-    editor_.addGradeNode();
-    if (!editor_.hasSelectedGradeNode() || editor_.selectedGradeNodeId().isEmpty()
-        || editor_.selectedGradeNodeId() == previous_node_id) {
-        setApplyError(tr("Shadow could not create the destination Grade Node."));
+    const QString import_key =
+        editor_.photoId() + QLatin1Char(':') + QString::fromLatin1(xmp_digest_);
+    const QString existing_node = applied_xmp_nodes_.value(import_key);
+    const auto& current_nodes = editor_.gradeStackForInterchange().grade_nodes;
+    if (!existing_node.isEmpty()
+        && std::any_of(
+            current_nodes.cbegin(),
+            current_nodes.cend(),
+            [&existing_node](const auto& node) { return node.grade_node_id == existing_node; }
+        )) {
+        setApplyError(
+            tr("This XMP is already imported into the current photo. Undo or remove its imported "
+               "node before importing it again.")
+        );
         return false;
     }
-
-    for (const auto& adjustment : preview_.adjustments) {
-        switch (adjustment.target) {
-        case XmpDevelopTarget::ExposureStops:
-            editor_.setExposureStops(adjustment.target_value);
-            break;
-        case XmpDevelopTarget::ContrastFactor:
-            editor_.setContrastFactor(adjustment.target_value);
-            break;
-        case XmpDevelopTarget::SaturationFactor:
-            editor_.setSaturationFactor(adjustment.target_value);
-            break;
-        case XmpDevelopTarget::Highlights:
-            editor_.setParameterValue(QStringLiteral("highlights"), adjustment.target_value);
-            break;
-        case XmpDevelopTarget::Shadows:
-            editor_.setParameterValue(QStringLiteral("shadows"), adjustment.target_value);
-            break;
-        case XmpDevelopTarget::Whites:
-            editor_.setParameterValue(QStringLiteral("whites"), adjustment.target_value);
-            break;
-        case XmpDevelopTarget::Blacks:
-            editor_.setParameterValue(QStringLiteral("blacks"), adjustment.target_value);
-            break;
-        case XmpDevelopTarget::Texture:
-            editor_.setParameterValue(QStringLiteral("texture"), adjustment.target_value);
-            break;
-        case XmpDevelopTarget::Clarity:
-            editor_.setParameterValue(QStringLiteral("clarity"), adjustment.target_value);
-            break;
-        case XmpDevelopTarget::Dehaze:
-            editor_.setParameterValue(QStringLiteral("dehaze"), adjustment.target_value);
-            break;
-        case XmpDevelopTarget::Vibrance:
-            editor_.setParameterValue(QStringLiteral("vibrance"), adjustment.target_value);
-            break;
-        }
+    QString error;
+    if (!editor_.applyXmpDevelopImport(preview_, source_name_, &error)) {
+        setApplyError(error);
+        return false;
     }
+    if (applied_xmp_nodes_.size() >= 128)
+        applied_xmp_nodes_.erase(applied_xmp_nodes_.begin());
+    applied_xmp_nodes_.insert(import_key, editor_.selectedGradeNodeId());
     emit xmpApplied();
     return true;
 }

@@ -1728,6 +1728,14 @@
         <source>Wait for the current edit operation to finish.</source>
         <translation>请等待当前编辑操作完成。</translation>
     </message>
+    <message>
+        <source>Imported XMP · %1</source>
+        <translation>导入 XMP · %1</translation>
+    </message>
+    <message>
+        <source>The XMP adjustments cannot be applied to the current photo.</source>
+        <translation>无法将这些 XMP 调整应用到当前照片。</translation>
+    </message>
 </context>
 <context>
     <name>EditHistogram</name>
@@ -2039,10 +2047,6 @@ R %2 · G %3 · B %4</translation>
         <translation>这张照片已包含最多 16 个调色节点。</translation>
     </message>
     <message>
-        <source>Shadow could not create the destination Grade Node.</source>
-        <translation>Shadow 无法创建用于导入的调色节点。</translation>
-    </message>
-    <message>
         <source>Exposure</source>
         <translation>曝光</translation>
     </message>
@@ -2217,6 +2221,18 @@ R %2 · G %3 · B %4</translation>
     <message>
         <source>The selected Shadow Recipe file is unavailable.</source>
         <translation>所选 Shadow Recipe 文件不可用。</translation>
+    </message>
+    <message>
+        <source>Camera Raw process versions are not replayed exactly; this import uses Shadow's approximate parameter mapping.</source>
+        <translation>无法精确重现 Camera Raw 处理版本；本次导入使用 Shadow 的近似参数映射。</translation>
+    </message>
+    <message>
+        <source>This XMP is already imported into the current photo. Undo or remove its imported node before importing it again.</source>
+        <translation>此 XMP 已导入当前照片。再次导入前，请撤销导入或移除对应节点。</translation>
+    </message>
+    <message>
+        <source>This XMP marks its adjustments as already applied. Importing it may apply the effects twice.</source>
+        <translation>此 XMP 标记其调整已应用，再次导入可能重复叠加效果。</translation>
     </message>
 </context>
 <context>
@@ -10244,6 +10260,10 @@ Details: %3</source>
 <context>
     <name>ReviewWorkspace</name>
     <message>
+        <source>No photos match the current filters.</source>
+        <translation>没有符合当前筛选条件的照片。</translation>
+    </message>
+    <message>
         <location filename="../qml/LibraryLocationBatchDialog.qml" line="20"/>
         <location filename="../qml/LibraryLocationBatchDialog.qml" line="166"/>
         <source>Set Photo Location</source>
@@ -13400,6 +13420,25 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     <message>
         <source>All files (*)</source>
         <translation>所有文件 (*)</translation>
+    </message>
+</context>
+<context>
+    <name>MainLibraryFilterBar</name>
+    <message>
+        <source>Editable only</source>
+        <translation>仅显示可精修</translation>
+    </message>
+    <message>
+        <source>Hide offline photos only when neither a preview nor an original is cached locally</source>
+        <translation>仅隐藏离线且本地既无预览缓存也无原片缓存的照片</translation>
+    </message>
+    <message>
+        <source>Hide offline uncached</source>
+        <translation>隐藏离线无缓存</translation>
+    </message>
+    <message>
+        <source>Show photos with a local original or an available online original</source>
+        <translation>显示具有本地原片或可获取在线原片的照片</translation>
     </message>
 </context>
 </TS>

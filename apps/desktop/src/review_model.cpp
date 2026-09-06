@@ -102,6 +102,9 @@ void append_role(QList<int>& roles, const int role) {
     if (current.is_remote != replacement.is_remote) {
         append_role(roles, ReviewModel::IsRemoteRole);
     }
+    if (current.remote_offline != replacement.remote_offline) {
+        append_role(roles, ReviewModel::RemoteOfflineRole);
+    }
     if (current.remote_original_cached != replacement.remote_original_cached) {
         append_role(roles, ReviewModel::RemoteOriginalCachedRole);
     }
@@ -433,6 +436,8 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.has_development_edits;
     case IsRemoteRole:
         return item.is_remote;
+    case RemoteOfflineRole:
+        return item.remote_offline;
     case RemoteOriginalCachedRole:
         return item.remote_original_cached;
     case RemoteConnectionIdRole:
@@ -523,6 +528,7 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {HasDevelopmentEditsRole, "hasDevelopmentEdits"},
         {IsRemoteRole, "isRemote"},
         {RemoteOriginalCachedRole, "remoteOriginalCached"},
+        {RemoteOfflineRole, "remoteOffline"},
         {RemoteConnectionIdRole, "remoteConnectionId"},
         {RemoteServerIdRole, "remoteServerId"},
         {RemotePhotoIdRole, "remotePhotoId"},

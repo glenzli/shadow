@@ -2,8 +2,8 @@
 #include "raw_pipeline_routing_test_support.hpp"
 #include "scoped_environment.hpp"
 
-#include "../src/raw/raw_frame_source_preparation.hpp"
 #include "../src/raw/metal_raw_development.hpp"
+#include "../src/raw/raw_frame_source_preparation.hpp"
 #include "../src/raw/raw_preview_rebinding.hpp"
 #include "../src/raw/raw_source_reconstruction.hpp"
 
@@ -45,13 +45,14 @@ constexpr std::string_view cache_key_digest =
     composite.components = {
         image::LocalMaskComponent{
             .operation = image::LocalMaskComponentOperation::base,
-            .mask = image::LocalMask{
-                .kind = image::LocalMaskKind::linear_gradient,
-                .x0 = 0.1,
-                .y0 = 0.2,
-                .x1 = 0.9,
-                .y1 = 0.8,
-            },
+            .mask =
+                image::LocalMask{
+                    .kind = image::LocalMaskKind::linear_gradient,
+                    .x0 = 0.1,
+                    .y0 = 0.2,
+                    .x1 = 0.9,
+                    .y1 = 0.8,
+                },
         },
         image::LocalMaskComponent{
             .operation = image::LocalMaskComponentOperation::add,
@@ -69,13 +70,12 @@ constexpr std::string_view cache_key_digest =
         image::AdjustmentLayer{
             .layer_id = "resident-raw-composite",
             .mask = std::move(composite),
-            .nodes =
-                {
-                    image::AdjustmentNode{
-                        .node_id = "resident-raw-composite-exposure",
-                        .parameters = image::ExposureAdjustment{.stops = 0.24},
-                    },
+            .nodes = {
+                image::AdjustmentNode{
+                    .node_id = "resident-raw-composite-exposure",
+                    .parameters = image::ExposureAdjustment{.stops = 0.24},
                 },
+            },
         },
     };
 }
@@ -110,6 +110,15 @@ void ordinary_raw_rebinds_without_a_second_decode() {
     );
 
     const auto rebound = initial.rebind_raw_development_plan(manual_white_balance_plan());
+    expect(
+        initial.highlight_chroma_risk_map().has_value()
+            && rebound.highlight_chroma_risk_map().has_value()
+            && initial.highlight_chroma_risk_map()->samples
+                   == rebound.highlight_chroma_risk_map()->samples
+            && initial.highlight_chroma_risk_map()->source_surface_reconstructed
+            && rebound.highlight_chroma_risk_map()->source_surface_reconstructed,
+        "white balance preserves exact immutable completed highlight evidence"
+    );
     const auto telemetry = rebound.raw_rebinding_telemetry();
     expect(
         decoder.raw_frame_count() == 1U && decoder.processed_count() == 0U,
@@ -239,8 +248,7 @@ void ordinary_raw_rebind_uses_the_retained_metal_source() {
                 && first.execution.display_backend == image::EditPreviewBackend::cpu
                 && first.execution.adjustment_fell_back && first.execution.display_fell_back
                 && first.execution.diagnostic.find("exact CPU replay") != std::string::npos
-                && coverage.completed.has_value()
-                && coverage.completed->mask_coverage.has_value()
+                && coverage.completed.has_value() && coverage.completed->mask_coverage.has_value()
                 && coverage.completed->mask_coverage->valid()
                 && coverage.completed->preview.execution.adjustment_backend
                        == image::EditPreviewBackend::cpu
@@ -315,7 +323,8 @@ void retained_metal_cfa_preview_matches_the_one_shot_kernel() {
         return;
     }
     expect(
-        one_shot.development->scene_linear.dimensions == rebound.development->scene_linear.dimensions
+        one_shot.development->scene_linear.dimensions
+                == rebound.development->scene_linear.dimensions
             && one_shot.development->scene_linear.samples
                    == rebound.development->scene_linear.samples
             && one_shot.development->demosaic_receipt.algorithm
@@ -399,13 +408,14 @@ void source_reconstruction_basis_names_retained_sensor_capability() {
         },
     };
     image::raw_pipeline_detail::AiCameraRgbSourceReconstructionBasis ai{
-        .camera_rgb = {
-            .dimensions = {.width = 1U, .height = 1U},
-            .row_stride_bytes = 3U * sizeof(float),
-            .samples = {0.25F, 0.5F, 0.75F},
-            .source_camera_rgb_dimensions = {.width = 1U, .height = 1U},
-            .foundation_cache_identity = "test-foundation",
-        },
+        .camera_rgb =
+            {
+                .dimensions = {.width = 1U, .height = 1U},
+                .row_stride_bytes = 3U * sizeof(float),
+                .samples = {0.25F, 0.5F, 0.75F},
+                .source_camera_rgb_dimensions = {.width = 1U, .height = 1U},
+                .foundation_cache_identity = "test-foundation",
+            },
         .sensor_clipping = {
             .dimensions = {.width = 1U, .height = 1U},
             .samples = {image::sensor_highlight_clipped},
@@ -417,7 +427,8 @@ void source_reconstruction_basis_names_retained_sensor_capability() {
     expect(
         image::raw_pipeline_detail::source_reconstruction_retains_sensor_cfa(sensor_basis)
             && !image::raw_pipeline_detail::source_reconstruction_retains_sensor_cfa(ai_basis)
-            && image::raw_pipeline_detail::source_reconstruction_sensor_clipping(sensor_basis).valid()
+            && image::raw_pipeline_detail::source_reconstruction_sensor_clipping(sensor_basis)
+                   .valid()
             && image::raw_pipeline_detail::source_reconstruction_sensor_clipping(ai_basis).valid(),
         "the common source-reconstruction basis exposes one immutable sensor-evidence contract"
     );

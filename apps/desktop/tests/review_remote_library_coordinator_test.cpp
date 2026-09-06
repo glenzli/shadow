@@ -1,5 +1,5 @@
-#include "review_remote_library_coordinator.hpp"
 #include "remote_photo_aggregation.hpp"
+#include "review_remote_library_coordinator.hpp"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -44,6 +44,16 @@ template <typename Predicate> void waitUntil(Predicate predicate, const std::str
     return -1;
 }
 
+[[nodiscard]] QString cachedPreview(const QString& name) {
+    static QTemporaryDir cache;
+    require(cache.isValid(), "preview cache fixture is available");
+    const QString path = cache.filePath(name);
+    QFile file(path);
+    require(file.open(QIODevice::WriteOnly), "preview cache fixture is writable");
+    file.write("fixture");
+    return path;
+}
+
 [[nodiscard]] BackendRemoteLibrarySnapshot remoteSnapshot() {
     BackendRemoteLibraryPhoto photo;
     photo.server_id = QStringLiteral("server-a");
@@ -51,7 +61,7 @@ template <typename Predicate> void waitUntil(Predicate predicate, const std::str
     photo.remote_representation_id = QStringLiteral("representation-a");
     photo.title = QStringLiteral("Remote A.nef");
     photo.has_preview = true;
-    photo.preview_path = QStringLiteral("/client-cache/remote-a");
+    photo.preview_path = cachedPreview(QStringLiteral("remote-a"));
     photo.preview_role = QStringLiteral("embedded_preview");
     photo.preview_width = 640;
     photo.preview_height = 480;
@@ -96,7 +106,7 @@ template <typename Predicate> void waitUntil(Predicate predicate, const std::str
     snapshot.photos.front().remote_photo_id = QStringLiteral("photo-b");
     snapshot.photos.front().remote_representation_id = QStringLiteral("representation-b");
     snapshot.photos.front().title = QStringLiteral("Remote B.nef");
-    snapshot.photos.front().preview_path = QStringLiteral("/client-cache/remote-b");
+    snapshot.photos.front().preview_path = cachedPreview(QStringLiteral("remote-b"));
     return snapshot;
 }
 
@@ -109,7 +119,7 @@ template <typename Predicate> void waitUntil(Predicate predicate, const std::str
     snapshot.photos.front().remote_photo_id = photo_id;
     snapshot.photos.front().remote_representation_id = representation_id;
     snapshot.photos.front().title = title;
-    snapshot.photos.front().preview_path = QStringLiteral("/client-cache/") + photo_id;
+    snapshot.photos.front().preview_path = cachedPreview(photo_id);
     return snapshot;
 }
 
@@ -125,14 +135,12 @@ template <typename Predicate> void waitUntil(Predicate predicate, const std::str
         QStringLiteral("page-representation-a"),
         QStringLiteral("Page A.nef")
     );
-    snapshot.photos.push_back(
-        remoteSnapshotNamed(
-            QStringLiteral("page-photo-b"),
-            QStringLiteral("page-representation-b"),
-            QStringLiteral("Page B.nef")
-        )
-            .photos.front()
-    );
+    snapshot.photos.push_back(remoteSnapshotNamed(
+                                  QStringLiteral("page-photo-b"),
+                                  QStringLiteral("page-representation-b"),
+                                  QStringLiteral("Page B.nef")
+    )
+                                  .photos.front());
     return snapshot;
 }
 
@@ -156,14 +164,13 @@ syncStart(const std::uint64_t job_id, const BackendRemoteLibrarySnapshot& snapsh
         .page_count = 1,
         .photo_count = static_cast<std::uint64_t>(snapshot.photos.size()),
         .preview_completed_count = static_cast<std::uint64_t>(snapshot.photos.size()),
-        .downloaded_previews = preview_failures == 0
-                                   ? static_cast<std::uint64_t>(snapshot.photos.size())
-                                   : 0,
+        .downloaded_previews =
+            preview_failures == 0 ? static_cast<std::uint64_t>(snapshot.photos.size()) : 0,
         .preview_failures = preview_failures,
         .manifest_complete = true,
         .complete = true,
-        .diagnostic = preview_failures == 0 ? QString{}
-                                           : QStringLiteral("fixture preview unavailable"),
+        .diagnostic =
+            preview_failures == 0 ? QString{} : QStringLiteral("fixture preview unavailable"),
     };
 }
 
@@ -227,9 +234,8 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
                     sync_calls.fetch_add(1, std::memory_order_acq_rel);
                     return syncStart(1, snapshot);
                 },
-            .sync_step = [snapshot](const std::uint64_t job_id) {
-                return syncComplete(job_id, snapshot);
-            },
+            .sync_step =
+                [snapshot](const std::uint64_t job_id) { return syncComplete(job_id, snapshot); },
             .cancel_sync = [](const std::uint64_t) { return true; },
             .set_review_state =
                 [&mutation_calls](
@@ -259,8 +265,7 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
                     const QString& remote_representation_id
                 ) {
                     require(!connection_id.isEmpty(), "stable connection identity on materialize");
-                    const int call =
-                        materialize_calls.fetch_add(1, std::memory_order_acq_rel) + 1;
+                    const int call = materialize_calls.fetch_add(1, std::memory_order_acq_rel) + 1;
                     require(
                         call == 1 ? token.size() == 32 : token.isEmpty(),
                         "uncached materialization receives a token while cached reuse does not"
@@ -317,12 +322,8 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
         "offline mirror must append beside the local Catalog row"
     );
     const int projected_remote_row = remoteRow(model);
-    const QString presentation_photo_id = model
-                                              .data(
-                                                  model.index(projected_remote_row, 0),
-                                                  ReviewModel::PhotoIdRole
-                                              )
-                                              .toString();
+    const QString presentation_photo_id =
+        model.data(model.index(projected_remote_row, 0), ReviewModel::PhotoIdRole).toString();
     const QString presentation_representation_id =
         model.data(model.index(projected_remote_row, 0), ReviewModel::RepresentationIdRole)
             .toString();
@@ -440,8 +441,7 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
         "Precision metadata must be bound to the materialized local representation"
     );
     require(
-        refreshed_inspection.value(QStringLiteral("photoId")).toString()
-                == presentation_photo_id
+        refreshed_inspection.value(QStringLiteral("photoId")).toString() == presentation_photo_id
             && refreshed_inspection.value(QStringLiteral("representationId")).toString()
                    == presentation_representation_id
             && refreshed_inspection.value(QStringLiteral("cameraMake")).toString()
@@ -454,8 +454,7 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
             && model.data(model.index(remoteRow(model), 0), ReviewModel::PhotoIdRole).toString()
                    == presentation_photo_id
             && model.data(model.index(remoteRow(model), 0), ReviewModel::IsRemoteRole).toBool()
-            && model
-                   .data(model.index(remoteRow(model), 0), ReviewModel::RemoteOriginalCachedRole)
+            && model.data(model.index(remoteRow(model), 0), ReviewModel::RemoteOriginalCachedRole)
                    .toBool(),
         "a cached original must remain a remote-origin row with explicit local residency"
     );
@@ -466,7 +465,8 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
             && model.data(retained_remote, ReviewModel::VisualAutoTransformRole).toBool()
             && model.data(retained_remote, ReviewModel::OrientationRole).toInt() == 6
             && model.data(retained_remote, ReviewModel::HasCoordinatesRole).toBool(),
-        "materialization metadata and local backing identity project without replacing the remote row"
+        "materialization metadata and local backing identity project without replacing the remote "
+        "row"
     );
     require(
         coordinator.statusCode() == QStringLiteral("original-ready-metadata-limited")
@@ -475,21 +475,25 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
     );
 
     QVariantList export_targets;
-    export_targets.push_back(QVariantMap{
-        {QStringLiteral("photoId"), QStringLiteral("local-photo")},
-        {QStringLiteral("representationId"), QStringLiteral("local-representation")},
-        {QStringLiteral("sourcePath"), QStringLiteral("/local/original.nef")},
-        {QStringLiteral("title"), QStringLiteral("Local")},
-        {QStringLiteral("isRemote"), false},
-    });
-    export_targets.push_back(QVariantMap{
-        {QStringLiteral("photoId"), presentation_photo_id},
-        {QStringLiteral("representationId"),
-         model.data(retained_remote, ReviewModel::RepresentationIdRole)},
-        {QStringLiteral("sourcePath"), QString{}},
-        {QStringLiteral("title"), QStringLiteral("Remote A.nef")},
-        {QStringLiteral("isRemote"), true},
-    });
+    export_targets.push_back(
+        QVariantMap{
+            {QStringLiteral("photoId"), QStringLiteral("local-photo")},
+            {QStringLiteral("representationId"), QStringLiteral("local-representation")},
+            {QStringLiteral("sourcePath"), QStringLiteral("/local/original.nef")},
+            {QStringLiteral("title"), QStringLiteral("Local")},
+            {QStringLiteral("isRemote"), false},
+        }
+    );
+    export_targets.push_back(
+        QVariantMap{
+            {QStringLiteral("photoId"), presentation_photo_id},
+            {QStringLiteral("representationId"),
+             model.data(retained_remote, ReviewModel::RepresentationIdRole)},
+            {QStringLiteral("sourcePath"), QString{}},
+            {QStringLiteral("title"), QStringLiteral("Remote A.nef")},
+            {QStringLiteral("isRemote"), true},
+        }
+    );
     QVariantList resolved_export_targets;
     QObject::connect(
         &coordinator,
@@ -509,14 +513,12 @@ void offline_sync_curation_and_materialization_are_non_blocking_and_identity_saf
     const QVariantMap resolved_local = resolved_export_targets.at(0).toMap();
     const QVariantMap resolved_remote = resolved_export_targets.at(1).toMap();
     require(
-        resolved_local.value(QStringLiteral("photoId")).toString()
-                == QStringLiteral("local-photo")
+        resolved_local.value(QStringLiteral("photoId")).toString() == QStringLiteral("local-photo")
             && resolved_remote.value(QStringLiteral("photoId")).toString()
                    == QStringLiteral("local-materialized-photo")
             && resolved_remote.value(QStringLiteral("representationId")).toString()
                    == QStringLiteral("local-materialized-representation")
-            && resolved_remote.value(QStringLiteral("sourcePath")).toString()
-                   == materialized_source
+            && resolved_remote.value(QStringLiteral("sourcePath")).toString() == materialized_source
             && !resolved_remote.value(QStringLiteral("isRemote")).toBool(),
         "mixed export emits only local Catalog-backed execution identities"
     );
@@ -540,8 +542,7 @@ void startup_checks_server_without_hiding_a_cached_original() {
     cached_file.close();
 
     RemoteLibraryConnectionStore connection_store(settings_file);
-    const QString connection_id =
-        connection_store.add(QStringLiteral("offline.local:45321"), true);
+    const QString connection_id = connection_store.add(QStringLiteral("offline.local:45321"), true);
     require(!connection_id.isEmpty(), "persisted offline connection identity");
     auto secret_store = makeVolatileSecretStore();
     require(
@@ -558,8 +559,7 @@ void startup_checks_server_without_hiding_a_cached_original() {
     BackendRemoteLibrarySnapshot snapshot = remoteSnapshot();
     snapshot.photos.front().has_cached_original = true;
     snapshot.photos.front().local_photo_id = QStringLiteral("cached-local-photo");
-    snapshot.photos.front().local_representation_id =
-        QStringLiteral("cached-local-representation");
+    snapshot.photos.front().local_representation_id = QStringLiteral("cached-local-representation");
     snapshot.photos.front().local_source_path = cached_source;
     std::atomic<int> begin_calls = 0;
     std::atomic<int> materialize_calls = 0;
@@ -582,28 +582,29 @@ void startup_checks_server_without_hiding_a_cached_original() {
                                    bool,
                                    const QString&,
                                    std::int64_t) {},
-            .materialize = [&materialize_calls, cached_source](
-                               const QString&,
-                               const QString& address,
-                               const QString& token,
-                               const QString&,
-                               const QString&
-                           ) {
-                require(
-                    address.isEmpty() && token.isEmpty(),
-                    "verified cached original must not require a live server"
-                );
-                materialize_calls.fetch_add(1, std::memory_order_acq_rel);
-                return BackendRemoteLibraryMaterialization{
-                    .local_photo_id = QStringLiteral("cached-local-photo"),
-                    .local_representation_id = QStringLiteral("cached-local-representation"),
-                    .local_source_path = cached_source,
-                    .title = QStringLiteral("Remote A.nef"),
-                    .reused_existing = true,
-                    .metadata_schema_version = 1,
-                    .camera_make = QStringLiteral("Nikon"),
-                };
-            },
+            .materialize =
+                [&materialize_calls, cached_source](
+                    const QString&,
+                    const QString& address,
+                    const QString& token,
+                    const QString&,
+                    const QString&
+                ) {
+                    require(
+                        address.isEmpty() && token.isEmpty(),
+                        "verified cached original must not require a live server"
+                    );
+                    materialize_calls.fetch_add(1, std::memory_order_acq_rel);
+                    return BackendRemoteLibraryMaterialization{
+                        .local_photo_id = QStringLiteral("cached-local-photo"),
+                        .local_representation_id = QStringLiteral("cached-local-representation"),
+                        .local_source_path = cached_source,
+                        .title = QStringLiteral("Remote A.nef"),
+                        .reused_existing = true,
+                        .metadata_schema_version = 1,
+                        .camera_make = QStringLiteral("Nikon"),
+                    };
+                },
         },
         model,
         settings_file,
@@ -640,8 +641,7 @@ void startup_checks_server_without_hiding_a_cached_original() {
     const QModelIndex remote = model.index(0, 0);
     require(
         coordinator.prepareExport({QVariantMap{
-            {QStringLiteral("photoId"),
-             model.data(remote, ReviewModel::PhotoIdRole).toString()},
+            {QStringLiteral("photoId"), model.data(remote, ReviewModel::PhotoIdRole).toString()},
             {QStringLiteral("representationId"),
              model.data(remote, ReviewModel::RepresentationIdRole).toString()},
             {QStringLiteral("sourcePath"), QString{}},
@@ -695,12 +695,12 @@ void shutdown_drains_queued_remote_curation() {
         ReviewRemoteLibraryCoordinator coordinator(
             {
                 .snapshot = [](const QString&) { return remoteSnapshot(); },
-                .begin_sync = [](const QString&, const QString&, const QString&) {
-                    return syncStart(1, remoteSnapshot());
-                },
-                .sync_step = [](const std::uint64_t job_id) {
-                    return syncComplete(job_id, remoteSnapshot());
-                },
+                .begin_sync = [](const QString&,
+                                 const QString&,
+                                 const QString&) { return syncStart(1, remoteSnapshot()); },
+                .sync_step = [](
+                                 const std::uint64_t job_id
+                             ) { return syncComplete(job_id, remoteSnapshot()); },
                 .cancel_sync = [](const std::uint64_t) { return true; },
                 .set_review_state =
                     [&mutation_calls](
@@ -767,15 +767,13 @@ void multiple_connections_keep_independent_identity_and_projection() {
                     return syncStart(
                         job_id,
                         address.startsWith(QStringLiteral("travel")) ? remoteSnapshotB()
-                                                                       : remoteSnapshot()
+                                                                     : remoteSnapshot()
                     );
                 },
-            .sync_step = [](const std::uint64_t job_id) {
-                return syncComplete(
-                    job_id,
-                    job_id == 2 ? remoteSnapshotB() : remoteSnapshot()
-                );
-            },
+            .sync_step =
+                [](const std::uint64_t job_id) {
+                    return syncComplete(job_id, job_id == 2 ? remoteSnapshotB() : remoteSnapshot());
+                },
             .cancel_sync = [](const std::uint64_t) { return true; },
             .set_review_state = [](const QString&,
                                    const QString&,
@@ -837,6 +835,102 @@ void multiple_connections_keep_independent_identity_and_projection() {
     );
 }
 
+void identical_photo_retries_an_online_alternate_after_download_failure() {
+    QTemporaryDir storage;
+    ReviewModel model;
+    auto first = remoteSnapshot();
+    auto second = remoteSnapshotB();
+    for (auto* snapshot : {&first, &second}) {
+        snapshot->photos.front().has_original_identity = true;
+        snapshot->photos.front().original_digest_hex = QString(64, QLatin1Char('d'));
+    }
+    std::atomic<int> sync_calls{0};
+    std::atomic<int> download_calls{0};
+    int ready_count = 0;
+    const QString path = storage.filePath(QStringLiteral("materialized.nef"));
+    QFile local(path);
+    require(
+        local.open(QIODevice::WriteOnly) && local.write("original") == 8,
+        "alternate original fixture"
+    );
+    local.close();
+    ReviewRemoteLibraryCoordinator coordinator(
+        {
+            .snapshot = [](const QString&) { return BackendRemoteLibrarySnapshot{}; },
+            .begin_sync =
+                [&](const QString&, const QString& address, const QString&) {
+                    const auto job = static_cast<std::uint64_t>(++sync_calls);
+                    return syncStart(
+                        job,
+                        address.startsWith(QStringLiteral("first")) ? first : second
+                    );
+                },
+            .sync_step = [&](
+                             const std::uint64_t job
+                         ) { return syncComplete(job, job == 1 ? first : second); },
+            .cancel_sync = [](const std::uint64_t) { return true; },
+            .set_review_state = [](const QString&,
+                                   const QString&,
+                                   const QString&,
+                                   BackendReviewDecisionFlag,
+                                   std::uint8_t,
+                                   bool,
+                                   const QString&,
+                                   std::int64_t) {},
+            .materialize =
+                [&](const QString&,
+                    const QString&,
+                    const QString&,
+                    const QString&,
+                    const QString&) {
+                    if (++download_calls == 1)
+                        throw std::runtime_error("connection reset by peer");
+                    BackendRemoteLibraryMaterialization result;
+                    result.local_photo_id = QStringLiteral("downloaded-photo");
+                    result.local_representation_id = QStringLiteral("downloaded-representation");
+                    result.local_source_path = path;
+                    return result;
+                },
+        },
+        model,
+        storage.filePath(QStringLiteral("settings.ini")),
+        makeVolatileSecretStore()
+    );
+    QObject::connect(&coordinator, &ReviewRemoteLibraryCoordinator::remotePhotoReady, [&]() {
+        ++ready_count;
+    });
+    require(
+        !coordinator
+             .saveConnection({}, QStringLiteral("first.local:45321"), QString(32, QLatin1Char('x')))
+             .isEmpty(),
+        "first origin"
+    );
+    waitUntil([&]() { return !coordinator.busy(); }, "first origin sync");
+    require(
+        !coordinator
+             .saveConnection(
+                 {},
+                 QStringLiteral("second.local:45321"),
+                 QString(32, QLatin1Char('y'))
+             )
+             .isEmpty(),
+        "second origin"
+    );
+    waitUntil([&]() { return !coordinator.busy(); }, "second origin sync");
+    require(model.rowCount() == 1, "identical originals retain one presentation");
+    const QString id = model.data(model.index(0, 0), ReviewModel::PhotoIdRole).toString();
+    coordinator.materializeForEdit(id);
+    waitUntil([&]() { return !coordinator.materializing(); }, "alternate materialization");
+    require(
+        download_calls == 2 && ready_count == 1,
+        "failed download retries another online original exactly once"
+    );
+    require(
+        model.data(model.index(0, 0), ReviewModel::PhotoIdRole).toString() == id,
+        "fallback preserves the logical photo identity"
+    );
+}
+
 void progressive_sync_publishes_each_page_before_the_next_page_finishes() {
     QTemporaryDir settings_root;
     require(settings_root.isValid(), "progressive page settings root");
@@ -853,9 +947,9 @@ void progressive_sync_publishes_each_page_before_the_next_page_finishes() {
     ReviewRemoteLibraryCoordinator coordinator(
         {
             .snapshot = [](const QString&) { return BackendRemoteLibrarySnapshot{}; },
-            .begin_sync = [](const QString&, const QString&, const QString&) {
-                return syncStart(41, emptyRemoteSnapshot());
-            },
+            .begin_sync = [](const QString&,
+                             const QString&,
+                             const QString&) { return syncStart(41, emptyRemoteSnapshot()); },
             .sync_step =
                 [first_page, complete, &step_calls, &second_page_entered, &release_second_page](
                     const std::uint64_t job_id
@@ -895,11 +989,10 @@ void progressive_sync_publishes_each_page_before_the_next_page_finishes() {
                                    bool,
                                    const QString&,
                                    std::int64_t) {},
-            .materialize = [](const QString&,
-                              const QString&,
-                              const QString&,
-                              const QString&,
-                              const QString&) { return BackendRemoteLibraryMaterialization{}; },
+            .materialize =
+                [](const QString&, const QString&, const QString&, const QString&, const QString&) {
+                    return BackendRemoteLibraryMaterialization{};
+                },
         },
         model,
         settings_root.filePath(QStringLiteral("preferences.ini")),
@@ -913,8 +1006,7 @@ void progressive_sync_publishes_each_page_before_the_next_page_finishes() {
     require(!connection_id.isEmpty(), "progressive connection admission");
     waitUntil(
         [&model, &second_page_entered]() {
-            return model.rowCount() == 1
-                   && second_page_entered.load(std::memory_order_acquire);
+            return model.rowCount() == 1 && second_page_entered.load(std::memory_order_acquire);
         },
         "first manifest page visible while second page is blocked"
     );
@@ -948,12 +1040,12 @@ void preview_failure_keeps_the_manifest_photo_visible() {
     ReviewRemoteLibraryCoordinator coordinator(
         {
             .snapshot = [](const QString&) { return BackendRemoteLibrarySnapshot{}; },
-            .begin_sync = [](const QString&, const QString&, const QString&) {
-                return syncStart(51, emptyRemoteSnapshot());
-            },
-            .sync_step = [manifest_only](const std::uint64_t job_id) {
-                return syncComplete(job_id, manifest_only, 1);
-            },
+            .begin_sync = [](const QString&,
+                             const QString&,
+                             const QString&) { return syncStart(51, emptyRemoteSnapshot()); },
+            .sync_step = [manifest_only](
+                             const std::uint64_t job_id
+                         ) { return syncComplete(job_id, manifest_only, 1); },
             .cancel_sync = [](const std::uint64_t) { return true; },
             .set_review_state = [](const QString&,
                                    const QString&,
@@ -963,11 +1055,10 @@ void preview_failure_keeps_the_manifest_photo_visible() {
                                    bool,
                                    const QString&,
                                    std::int64_t) {},
-            .materialize = [](const QString&,
-                              const QString&,
-                              const QString&,
-                              const QString&,
-                              const QString&) { return BackendRemoteLibraryMaterialization{}; },
+            .materialize =
+                [](const QString&, const QString&, const QString&, const QString&, const QString&) {
+                    return BackendRemoteLibraryMaterialization{};
+                },
         },
         model,
         settings_root.filePath(QStringLiteral("preferences.ini")),
@@ -1026,13 +1117,14 @@ void stale_sync_job_cannot_overwrite_a_newer_request() {
                     }
                     return syncStart(62, current_snapshot);
                 },
-            .sync_step = [current_snapshot](const std::uint64_t job_id) {
-                return syncComplete(job_id, current_snapshot);
-            },
-            .cancel_sync = [&cancelled_job](const std::uint64_t job_id) {
-                cancelled_job.store(static_cast<int>(job_id), std::memory_order_release);
-                return true;
-            },
+            .sync_step = [current_snapshot](
+                             const std::uint64_t job_id
+                         ) { return syncComplete(job_id, current_snapshot); },
+            .cancel_sync =
+                [&cancelled_job](const std::uint64_t job_id) {
+                    cancelled_job.store(static_cast<int>(job_id), std::memory_order_release);
+                    return true;
+                },
             .set_review_state = [](const QString&,
                                    const QString&,
                                    const QString&,
@@ -1041,11 +1133,10 @@ void stale_sync_job_cannot_overwrite_a_newer_request() {
                                    bool,
                                    const QString&,
                                    std::int64_t) {},
-            .materialize = [](const QString&,
-                              const QString&,
-                              const QString&,
-                              const QString&,
-                              const QString&) { return BackendRemoteLibraryMaterialization{}; },
+            .materialize =
+                [](const QString&, const QString&, const QString&, const QString&, const QString&) {
+                    return BackendRemoteLibraryMaterialization{};
+                },
         },
         model,
         settings_root.filePath(QStringLiteral("preferences.ini")),
@@ -1089,24 +1180,26 @@ void destruction_cancels_an_incomplete_progressive_job() {
         ReviewRemoteLibraryCoordinator coordinator(
             {
                 .snapshot = [](const QString&) { return BackendRemoteLibrarySnapshot{}; },
-                .begin_sync = [](const QString&, const QString&, const QString&) {
-                    return syncStart(71, emptyRemoteSnapshot());
-                },
-                .sync_step = [&step_entered, &release_step](const std::uint64_t job_id) {
-                    step_entered.store(true, std::memory_order_release);
-                    while (!release_step.load(std::memory_order_acquire)) {
-                        QThread::msleep(1);
-                    }
-                    return BackendRemoteLibrarySyncStep{
-                        .job_id = job_id,
-                        .snapshot = emptyRemoteSnapshot(),
-                        .stage = QStringLiteral("manifest"),
-                    };
-                },
-                .cancel_sync = [&cancellation_count](const std::uint64_t) {
-                    cancellation_count.fetch_add(1, std::memory_order_acq_rel);
-                    return true;
-                },
+                .begin_sync = [](const QString&,
+                                 const QString&,
+                                 const QString&) { return syncStart(71, emptyRemoteSnapshot()); },
+                .sync_step =
+                    [&step_entered, &release_step](const std::uint64_t job_id) {
+                        step_entered.store(true, std::memory_order_release);
+                        while (!release_step.load(std::memory_order_acquire)) {
+                            QThread::msleep(1);
+                        }
+                        return BackendRemoteLibrarySyncStep{
+                            .job_id = job_id,
+                            .snapshot = emptyRemoteSnapshot(),
+                            .stage = QStringLiteral("manifest"),
+                        };
+                    },
+                .cancel_sync =
+                    [&cancellation_count](const std::uint64_t) {
+                        cancellation_count.fetch_add(1, std::memory_order_acq_rel);
+                        return true;
+                    },
                 .set_review_state = [](const QString&,
                                        const QString&,
                                        const QString&,
@@ -1172,9 +1265,8 @@ void exact_original_identity_merges_server_copies_and_retains_sources() {
         {QStringLiteral("connection-travel"), travel},
     });
     require(aggregates.size() == 1, "exact content identity collapses server copies");
-    const auto aggregate = aggregates.constFind(
-        QStringLiteral("remote-content:") + QString(64, QLatin1Char('a'))
-    );
+    const auto aggregate =
+        aggregates.constFind(QStringLiteral("remote-content:") + QString(64, QLatin1Char('a')));
     require(aggregate != aggregates.cend(), "content identity is the presentation key");
     require(
         aggregate->sources.size() == 2 && aggregate->representation_count == 2
@@ -1188,9 +1280,8 @@ void exact_original_identity_merges_server_copies_and_retains_sources() {
         {QStringLiteral("connection-studio"), studio},
         {QStringLiteral("connection-travel"), travel},
     });
-    const auto cached_aggregate = cached.constFind(
-        QStringLiteral("remote-content:") + QString(64, QLatin1Char('a'))
-    );
+    const auto cached_aggregate =
+        cached.constFind(QStringLiteral("remote-content:") + QString(64, QLatin1Char('a')));
     require(
         cached_aggregate != cached.cend() && cached_aggregate->has_cached_original
             && cached_aggregate->preferredSource() != nullptr
@@ -1204,15 +1295,30 @@ void exact_original_identity_merges_server_copies_and_retains_sources() {
         "an original-capable source is preferred over an offline proxy"
     );
 
+    studio.photos.front().has_cached_original = false;
+    studio.server.originals_available = true;
+    const auto reachable = aggregateRemotePhotos(
+        {
+            {QStringLiteral("connection-studio"), studio},
+            {QStringLiteral("connection-travel"), travel},
+        },
+        QSet<QString>{QStringLiteral("connection-travel")}
+    );
+    require(
+        reachable.cbegin()->preferredSource()->connection_id == QStringLiteral("connection-travel"),
+        "an online identical original wins over a capable but offline server"
+    );
+
     studio.photos.front().has_original_identity = false;
     studio.photos.front().original_digest_hex.clear();
     travel.photos.front().has_original_identity = false;
     travel.photos.front().original_digest_hex.clear();
     require(
         aggregateRemotePhotos({
-            {QStringLiteral("connection-studio"), studio},
-            {QStringLiteral("connection-travel"), travel},
-        }).size()
+                                  {QStringLiteral("connection-studio"), studio},
+                                  {QStringLiteral("connection-travel"), travel},
+                              })
+                .size()
             == 2,
         "unprepared originals never merge from filenames or metadata alone"
     );
@@ -1307,6 +1413,7 @@ int main(int argc, char** argv) {
     startup_checks_server_without_hiding_a_cached_original();
     shutdown_drains_queued_remote_curation();
     multiple_connections_keep_independent_identity_and_projection();
+    identical_photo_retries_an_online_alternate_after_download_failure();
     progressive_sync_publishes_each_page_before_the_next_page_finishes();
     preview_failure_keeps_the_manifest_photo_visible();
     stale_sync_job_cannot_overwrite_a_newer_request();

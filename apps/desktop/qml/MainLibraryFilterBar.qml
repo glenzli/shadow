@@ -12,7 +12,9 @@ Rectangle {
     signal advancedFilterRequested()
 
     readonly property bool anyFilterActive:
-        filterBar.controller.filterFlag !== "all"
+        filterBar.controller.filterHideOfflineUncached === true
+        || filterBar.controller.filterOnlyEditable === true
+        || filterBar.controller.filterFlag !== "all"
         || filterBar.controller.filterMinimumRating > 0
         || filterBar.controller.filterColorLabel !== "all"
         || filterBar.controller.filterEditState !== "all"
@@ -97,6 +99,36 @@ Rectangle {
             height: 16
             anchors.verticalCenter: parent.verticalCenter
             color: Theme.border
+        }
+
+        ShadowButton {
+            objectName: "hideOfflineUncachedButton"
+            anchors.verticalCenter: parent.verticalCenter
+            compact: true
+            checkable: true
+            checked: filterBar.controller.filterHideOfflineUncached
+            variant: filterBar.controller.filterHideOfflineUncached ? ShadowButton.Secondary : ShadowButton.Ghost
+            text: qsTr("Hide offline uncached")
+            toolTipText: qsTr("Hide offline photos only when neither a preview nor an original is cached locally")
+            onCheckedChanged: {
+                if (checked !== filterBar.controller.filterHideOfflineUncached)
+                    filterBar.controller.filterHideOfflineUncached = checked
+            }
+        }
+
+        ShadowButton {
+            objectName: "onlyEditableButton"
+            anchors.verticalCenter: parent.verticalCenter
+            compact: true
+            checkable: true
+            checked: filterBar.controller.filterOnlyEditable
+            variant: filterBar.controller.filterOnlyEditable ? ShadowButton.Secondary : ShadowButton.Ghost
+            text: qsTr("Editable only")
+            toolTipText: qsTr("Show photos with a local original or an available online original")
+            onCheckedChanged: {
+                if (checked !== filterBar.controller.filterOnlyEditable)
+                    filterBar.controller.filterOnlyEditable = checked
+            }
         }
 
         ShadowIconButton {

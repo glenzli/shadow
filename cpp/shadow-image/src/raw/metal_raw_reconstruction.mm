@@ -183,7 +183,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
             static_cast<float>(descriptor.white_levels[site] - descriptor.black_levels[site]);
         parameters.linear_response_minus_black[site] = static_cast<float>(
             (descriptor.has_linear_response_limits ? descriptor.linear_response_limits[site]
-                                                    : descriptor.white_levels[site])
+                                                   : descriptor.white_levels[site])
             - descriptor.black_levels[site]
         );
     }
@@ -477,12 +477,16 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                        atIndex:0U];
             [encoder setBuffer:static_cast<id<MTLBuffer>>(tile_buffer.get()) offset:0U atIndex:1U];
             [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
-            if (continuations.project_sensor_clipping) {
-                [encoder setBuffer:input_buffer offset:0U atIndex:3U];
-                [encoder setBuffer:static_cast<id<MTLBuffer>>(clipping_tile_buffer.get())
-                            offset:0U
-                           atIndex:4U];
-            }
+            // Declared optional arguments still require bindings under Metal validation.
+            // The disabled projection never reads/writes them, so reuse existing resources.
+            [encoder setBuffer:input_buffer offset:0U atIndex:3U];
+            [encoder
+                setBuffer:static_cast<id<MTLBuffer>>(
+                              continuations.project_sensor_clipping ? clipping_tile_buffer.get()
+                                                                    : tile_buffer.get()
+                          )
+                   offset:0U
+                  atIndex:4U];
             [encoder dispatchThreads:MTLSizeMake(
                                          output_dimensions.width,
                                          parameters.output_tile_height,
@@ -679,23 +683,19 @@ struct MetalRawPreviewRebindingSource::Impl final {
 
 MetalRawPreviewRebindingSource::MetalRawPreviewRebindingSource(
     std::unique_ptr<Impl> implementation
-) noexcept :
-    implementation_(std::move(implementation)) {}
+) noexcept : implementation_(std::move(implementation)) {}
 
 MetalRawPreviewRebindingSource::MetalRawPreviewRebindingSource(
     MetalRawPreviewRebindingSource&&
 ) noexcept = default;
 
-MetalRawPreviewRebindingSource& MetalRawPreviewRebindingSource::operator=(
-    MetalRawPreviewRebindingSource&&
-) noexcept = default;
+MetalRawPreviewRebindingSource&
+MetalRawPreviewRebindingSource::operator=(MetalRawPreviewRebindingSource&&) noexcept = default;
 
 MetalRawPreviewRebindingSource::~MetalRawPreviewRebindingSource() = default;
 
-std::optional<MetalRawPreviewRebindingSource> MetalRawPreviewRebindingSource::try_prepare(
-    const RawFrame& frame,
-    std::string& diagnostic
-) {
+std::optional<MetalRawPreviewRebindingSource>
+MetalRawPreviewRebindingSource::try_prepare(const RawFrame& frame, std::string& diagnostic) {
     diagnostic.clear();
     if (!metal_raw_development_available()) {
         diagnostic = metal_raw_runtime_diagnostic();
@@ -774,10 +774,10 @@ struct MetalRawPreviewResidentOutput::Impl final {
         const std::uint64_t external_bytes,
         const std::uint64_t allowance
     ) :
-        device([source_device retain]), queue([source_queue retain]), buffer([source_buffer retain]),
-        output_dimensions(dimensions), output_row_stride_bytes(row_stride_bytes),
-        output_buffer_bytes(buffer_bytes), external_resident_buffer_bytes(external_bytes),
-        resident_allowance(allowance) {}
+        device([source_device retain]), queue([source_queue retain]),
+        buffer([source_buffer retain]), output_dimensions(dimensions),
+        output_row_stride_bytes(row_stride_bytes), output_buffer_bytes(buffer_bytes),
+        external_resident_buffer_bytes(external_bytes), resident_allowance(allowance) {}
 
     ~Impl() {
         [buffer release];
@@ -788,16 +788,14 @@ struct MetalRawPreviewResidentOutput::Impl final {
 
 MetalRawPreviewResidentOutput::MetalRawPreviewResidentOutput(
     std::unique_ptr<Impl> implementation
-) noexcept :
-    implementation_(std::move(implementation)) {}
+) noexcept : implementation_(std::move(implementation)) {}
 
 MetalRawPreviewResidentOutput::MetalRawPreviewResidentOutput(
     MetalRawPreviewResidentOutput&&
 ) noexcept = default;
 
-MetalRawPreviewResidentOutput& MetalRawPreviewResidentOutput::operator=(
-    MetalRawPreviewResidentOutput&&
-) noexcept = default;
+MetalRawPreviewResidentOutput&
+MetalRawPreviewResidentOutput::operator=(MetalRawPreviewResidentOutput&&) noexcept = default;
 
 MetalRawPreviewResidentOutput::~MetalRawPreviewResidentOutput() = default;
 
@@ -911,17 +909,13 @@ MetalRawPreviewResidentDevelopmentAttempt MetalRawPreviewRebindingSource::develo
     std::size_t resident_bytes = implementation_->source_bytes;
     if (!checked_add(resident_bytes, output_bytes, resident_bytes)
         || (dcp_encoding
-            && !checked_add(
-                resident_bytes,
-                dcp_encoding->resource_bytes(),
-                resident_bytes
-            ))) {
+            && !checked_add(resident_bytes, dcp_encoding->resource_bytes(), resident_bytes))) {
         return fail("resident RAW preview working-set size overflowed");
     }
-    const auto recommended = static_cast<std::uint64_t>(metal_raw_device().recommendedMaxWorkingSetSize);
-    const std::uint64_t allowance = recommended == 0U
-                                        ? 512ULL * 1'024ULL * 1'024ULL
-                                        : recommended / 3U;
+    const auto recommended =
+        static_cast<std::uint64_t>(metal_raw_device().recommendedMaxWorkingSetSize);
+    const std::uint64_t allowance =
+        recommended == 0U ? 512ULL * 1'024ULL * 1'024ULL : recommended / 3U;
     if (allowance == 0U || resident_bytes > allowance) {
         return fail("resident RAW preview exceeds Shadow's Metal working-set allowance");
     }
@@ -963,6 +957,12 @@ MetalRawPreviewResidentDevelopmentAttempt MetalRawPreviewRebindingSource::develo
                    atIndex:0U];
         [encoder setBuffer:static_cast<id<MTLBuffer>>(output_buffer.get()) offset:0U atIndex:1U];
         [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
+        // Clipping is already retained in the immutable source evidence. These bindings
+        // satisfy the kernel ABI while project_sensor_clipping remains false.
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(implementation_->input_buffer.get())
+                    offset:0U
+                   atIndex:3U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(output_buffer.get()) offset:0U atIndex:4U];
         [encoder dispatchThreads:MTLSizeMake(output_dimensions.width, output_dimensions.height, 1U)
             threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
         [encoder endEncoding];
@@ -992,20 +992,21 @@ MetalRawPreviewResidentDevelopmentAttempt MetalRawPreviewRebindingSource::develo
             return fail(metal_raw_command_buffer_diagnostic(command_buffer));
         }
         return MetalRawPreviewResidentDevelopmentAttempt{
-            .output = MetalRawPreviewResidentOutput{std::make_unique<MetalRawPreviewResidentOutput::Impl>(
-                metal_raw_device(),
-                metal_raw_command_queue(),
-                static_cast<id<MTLBuffer>>(output_buffer.get()),
-                output_dimensions,
-                output_row_bytes,
-                static_cast<std::uint64_t>(output_bytes),
-                static_cast<std::uint64_t>(implementation_->source_bytes),
-                allowance
-            )},
+            .output =
+                MetalRawPreviewResidentOutput{std::make_unique<MetalRawPreviewResidentOutput::Impl>(
+                    metal_raw_device(),
+                    metal_raw_command_queue(),
+                    static_cast<id<MTLBuffer>>(output_buffer.get()),
+                    output_dimensions,
+                    output_row_bytes,
+                    static_cast<std::uint64_t>(output_bytes),
+                    static_cast<std::uint64_t>(implementation_->source_bytes),
+                    allowance
+                )},
             .demosaic_receipt = make_receipt(
                 frame,
                 transform,
-                area_preview                             ? RawDemosaicAlgorithm::bayer_area_preview_v1
+                area_preview ? RawDemosaicAlgorithm::bayer_area_preview_v1
                 : quality == RawDevelopmentQuality::high ? RawDemosaicAlgorithm::bayer_edge_aware_v1
                                                          : RawDemosaicAlgorithm::bayer_bilinear_v1
             ),

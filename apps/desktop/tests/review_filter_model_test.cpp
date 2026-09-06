@@ -165,8 +165,8 @@ void catalog_metadata_facets_remain_typed_server_filters() {
     filtered.clearFilters();
     require(
         !filtered.hasActiveServerFilter() && !filtered.travelFilterEnabled()
-            && !filtered.dailyFilterEnabled()
-            && filtered.chineseLunarMonth() == 0 && filtered.chineseLunarDay() == 0
+            && !filtered.dailyFilterEnabled() && filtered.chineseLunarMonth() == 0
+            && filtered.chineseLunarDay() == 0
             && filtered.chineseLunarMonthType() == QStringLiteral("all"),
         "clearing must include metadata, Daily, and Travel facets"
     );
@@ -208,8 +208,12 @@ void hierarchical_keyword_filters_are_normalized_server_predicates() {
 
 void remote_rows_participate_only_in_locally_evaluable_filters() {
     ReviewItem local = item("local-photo", "local-representation", "picked", 5, false, true);
-    ReviewItem remote = item("remote:server:photo", "remote:server:representation", "picked", 5, false, true);
+    ReviewItem remote =
+        item("remote:server:photo", "remote:server:representation", "picked", 5, false, true);
     remote.is_remote = true;
+    remote.camera_make = QStringLiteral(" NIKON ");
+    remote.camera_model = QStringLiteral("Z9");
+    remote.capture_day = QStringLiteral("2026-09-06");
 
     ReviewModel source;
     source.replace({local, remote}, 1);
@@ -223,6 +227,16 @@ void remote_rows_participate_only_in_locally_evaluable_filters() {
         "remote rows must participate in locally mirrored flag, rating, like, and color filters"
     );
 
+    filtered.setCaptureMonth(QStringLiteral("2026-09"));
+    filtered.setCameraKey(QStringLiteral("nikon\u001fz9"));
+    require(
+        filtered.rowCount() == 2,
+        "known remote date and equipment metadata participates in matching facets"
+    );
+    filtered.setCameraKey(QStringLiteral("sony\u001filce-7"));
+    require(filtered.rowCount() == 1, "nonmatching remote equipment is excluded");
+    filtered.setCameraKey({});
+    filtered.setCaptureMonth({});
     filtered.setCountryKey(QStringLiteral("cn"));
     require(
         filtered.rowCount() == 1,
@@ -301,13 +315,52 @@ void smart_categories_filter_exact_members_without_reordering() {
         "smart categories preserve the current gallery order"
     );
     filtered.clearFilters();
-    require(!filtered.smartCategoryFilterActive() && filtered.rowCount() == 3,
-            "clearing filters removes smart-category membership");
+    require(
+        !filtered.smartCategoryFilterActive() && filtered.rowCount() == 3,
+        "clearing filters removes smart-category membership"
+    );
+}
+
+void offline_availability_filters_preserve_cached_previews_and_unknown_origins() {
+    ReviewModel source;
+    auto local = item("local", "local-rep", "unflagged", 0);
+    auto unavailable = item("offline", "offline-rep", "unflagged", 0);
+    unavailable.is_remote = true;
+    unavailable.remote_offline = true;
+    unavailable.source_available = false;
+    auto preview = unavailable;
+    preview.photo_id = "preview";
+    preview.representation_id = "preview-rep";
+    preview.has_visual = true;
+    preview.visual_source_override = "file:///cached-preview.jpg";
+    auto original = unavailable;
+    original.photo_id = "original";
+    original.representation_id = "original-rep";
+    original.remote_original_cached = true;
+    original.source_available = true;
+    auto unknown = unavailable;
+    unknown.photo_id = "unknown";
+    unknown.representation_id = "unknown-rep";
+    unknown.remote_offline = false;
+    source.replace({local, unavailable, preview, original, unknown}, 1);
+    ReviewFilterModel filter;
+    filter.setSourceModel(&source);
+    filter.setHideOfflineUncached(true);
+    require(filter.rowCount() == 4, "only confirmed offline uncached rows are hidden");
+    require(!filter.hasActiveServerFilter(), "availability never changes the catalog query");
+    filter.setOnlyEditable(true);
+    require(filter.rowCount() == 2, "preview-only and unknown original are not editable");
+    filter.clearFilters();
+    require(
+        filter.rowCount() == 5 && !filter.onlyEditable() && !filter.hideOfflineUncached(),
+        "clear restores all availability states"
+    );
 }
 
 } // namespace
 
 int main() {
+    offline_availability_filters_preserve_cached_previews_and_unknown_origins();
     combined_lightroom_filters_intersect();
     catalog_metadata_facets_remain_typed_server_filters();
     hierarchical_keyword_filters_are_normalized_server_predicates();

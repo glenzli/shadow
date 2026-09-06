@@ -213,7 +213,9 @@ Item {
         controller.filterKeywordIdsAll.length > 0
         || controller.filterExcludedKeywordIdsAny.length > 0
     readonly property bool hasActiveLibraryFilter:
-        controller.filterFlag !== "all"
+        controller.filterHideOfflineUncached === true
+        || controller.filterOnlyEditable === true
+        || controller.filterFlag !== "all"
         || controller.filterMinimumRating > 0
         || controller.filterColorLabel !== "all"
         || controller.filterEditState !== "all"

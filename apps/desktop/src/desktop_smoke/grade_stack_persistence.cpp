@@ -133,6 +133,41 @@ class GradeStackPersistence final : public std::enable_shared_from_this<GradeSta
             return;
         }
 
+        if (qEnvironmentVariableIsSet("SHADOW_DESKTOP_XMP_IMPORT_SMOKE")) {
+            const auto before = editor_.gradeStackForInterchange();
+            const auto imported = parseXmpDevelopImport(
+                R"(<x xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="0.75" crs:Highlights2012="-40" crs:Saturation="-20"/>)"
+            );
+            QString error;
+            if (!expect(
+                    editor_
+                        .applyXmpDevelopImport(imported, QStringLiteral("transaction.xmp"), &error),
+                    QStringLiteral("atomic XMP application failed: ") + error
+                ))
+                return;
+            const auto applied = editor_.gradeStackForInterchange();
+            if (!expect(
+                    applied.grade_nodes.size() == before.grade_nodes.size() + 1
+                        && std::abs(editor_.exposureStops() - 0.75) < 1e-9,
+                    QStringLiteral("XMP imported all values into one new node")
+                ))
+                return;
+            editor_.undo();
+            if (!expect(
+                    editor_.gradeStackForInterchange() == before,
+                    QStringLiteral("one undo must restore the complete pre-XMP stack")
+                ))
+                return;
+            editor_.redo();
+            if (!expect(
+                    editor_.gradeStackForInterchange() == applied,
+                    QStringLiteral("one redo must restore the complete imported XMP stack")
+                ))
+                return;
+            editor_.undo();
+            qInfo() << "Atomic XMP import, single undo and redo smoke passed";
+        }
+
         editor_.addGradeNode();
         if (!expect(editor_.gradeNodes().size() == 2, QStringLiteral("add Grade Node failed"))) {
             return;

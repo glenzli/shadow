@@ -252,6 +252,7 @@ Rectangle {
     }
 
     Label {
+        id: emptyState
         objectName: "reviewEmptyStateText"
         anchors.centerIn: justifiedGrid
         width: Math.min(420, justifiedGrid.width - 60)
@@ -261,11 +262,24 @@ Rectangle {
             ? qsTranslate("ReviewWorkspace", "Searching the folder for supported photos…\nNew RAW files will appear here as they are catalogued.")
             : gallery.workspace.controller.scanProgress.phase === "failed"
             ? qsTranslate("ReviewWorkspace", "Import stopped, and no RAW files are currently visible.\nAlready catalogued files remain safely stored.")
+            : gallery.workspace.hasActiveLibraryFilter
+            ? qsTranslate("ReviewWorkspace", "No photos match the current filters.")
             : qsTranslate("ReviewWorkspace", "Add a folder to the local Library.\nShadow will show embedded previews immediately, then replace them with locally generated proxies.")
         color: gallery.workspace.textMuted
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap
         lineHeight: 1.4
+        z: 2
+    }
+
+    ShadowButton {
+        objectName: "clearEmptyLibraryFiltersButton"
+        anchors.top: emptyState.bottom
+        anchors.topMargin: 12
+        anchors.horizontalCenter: emptyState.horizontalCenter
+        visible: emptyState.visible && gallery.workspace.hasActiveLibraryFilter
+        text: qsTranslate("Main", "Clear all Library filters")
+        onClicked: gallery.workspace.controller.clearFilters()
         z: 2
     }
 

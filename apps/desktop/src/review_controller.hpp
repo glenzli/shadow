@@ -32,6 +32,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <QSettings>
 #include <cstdint>
 #include <memory>
 
@@ -78,6 +79,14 @@ class ReviewController final : public QObject {
         QString filterEditState READ filterEditState WRITE setFilterEditState NOTIFY filtersChanged
     )
     Q_PROPERTY(QString filterLiked READ filterLiked WRITE setFilterLiked NOTIFY filtersChanged)
+    Q_PROPERTY(
+        bool filterHideOfflineUncached READ filterHideOfflineUncached WRITE
+            setFilterHideOfflineUncached NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        bool filterOnlyEditable READ filterOnlyEditable WRITE setFilterOnlyEditable NOTIFY
+            filtersChanged
+    )
     Q_PROPERTY(
         QString librarySortKey READ librarySortKey WRITE setLibrarySortKey NOTIFY
             libraryOrderChanged
@@ -371,6 +380,8 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString filterColorLabel() const;
     [[nodiscard]] QString filterEditState() const;
     [[nodiscard]] QString filterLiked() const;
+    [[nodiscard]] bool filterHideOfflineUncached() const;
+    [[nodiscard]] bool filterOnlyEditable() const;
     [[nodiscard]] QString librarySortKey() const;
     [[nodiscard]] bool librarySortDescending() const noexcept;
     [[nodiscard]] QString filterExcludedFlag() const;
@@ -465,6 +476,8 @@ class ReviewController final : public QObject {
     void setFilterColorLabel(const QString& color_label);
     void setFilterEditState(const QString& edit_state);
     void setFilterLiked(const QString& liked);
+    void setFilterHideOfflineUncached(bool enabled);
+    void setFilterOnlyEditable(bool enabled);
     void setLibrarySortKey(const QString& sort_key);
     void setLibrarySortDescending(bool descending);
     void setFilterExcludedFlag(const QString& flag);
@@ -703,7 +716,6 @@ class ReviewController final : public QObject {
     void scheduleFilterQuery();
     void refreshRemoteLibraryPresentation();
     [[nodiscard]] bool remoteLibraryPresentationEligible() const;
-    [[nodiscard]] int visibleRemotePhotoCount() const;
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
     [[nodiscard]] BackendLibraryPhotoOrder currentLibraryOrder() const noexcept;
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -744,6 +756,7 @@ class ReviewController final : public QObject {
     ReviewSourceAvailabilityMonitor source_availability_monitor_;
     ReviewRemoteLibraryCoordinator remote_library_coordinator_;
     ReviewFilterModel filtered_model_;
+    std::unique_ptr<QSettings> availability_filter_settings_;
     QString library_sort_key_ = QStringLiteral("capture_time");
     bool library_sort_descending_ = true;
     ReviewLibraryQueryCoordinator query_coordinator_;

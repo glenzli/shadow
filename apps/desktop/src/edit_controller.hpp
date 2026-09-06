@@ -10,6 +10,7 @@
 #include "localized_ui_message.hpp"
 #include "preview_diagnostics.hpp"
 #include "tone_curve_point_model.hpp"
+#include "xmp_develop_import.hpp"
 
 #include <QAbstractItemModel>
 #include <QElapsedTimer>
@@ -526,6 +527,11 @@ class EditController final : public QObject {
     [[nodiscard]] bool variantActionsEnabled() const noexcept;
     [[nodiscard]] bool canUndo() const noexcept;
     [[nodiscard]] bool canRedo() const noexcept;
+    [[nodiscard]] bool applyXmpDevelopImport(
+        const XmpDevelopImport& imported,
+        const QString& label,
+        QString* error_text
+    );
     [[nodiscard]] QString photoId() const;
     [[nodiscard]] QString representationId() const;
     [[nodiscard]] QString title() const;

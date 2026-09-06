@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -50,9 +51,7 @@ struct AutoWhiteBalanceCandidate final {
 [[nodiscard]] double median(std::vector<double>& values) {
     std::sort(values.begin(), values.end());
     const std::size_t middle = values.size() / 2U;
-    return values.size() % 2U == 0U
-               ? (values[middle - 1U] + values[middle]) * 0.5
-               : values[middle];
+    return values.size() % 2U == 0U ? (values[middle - 1U] + values[middle]) * 0.5 : values[middle];
 }
 
 [[nodiscard]] bool
@@ -147,6 +146,22 @@ struct RawPreviewRebindingSource::Impl final {
     AssetMetadata metadata;
     std::optional<CameraProfileDefinition> camera_profile_definition;
     SourceReconstructionBasis basis;
+    // Completion depends only on this immutable basis and the already-validated CFA policy,
+    // never on a requested white balance. Keep the original risk for disabled/foundation paths.
+    mutable std::once_flag completed_risk_once;
+    mutable HighlightChromaRiskMap completed_risk;
+
+    [[nodiscard]] const HighlightChromaRiskMap& completed_highlight_risk() const {
+        std::call_once(completed_risk_once, [this]() {
+            auto prepared = source_reconstruction_highlight_chroma_risk(basis);
+            complete_cfa_owned_highlight_reconstruction(
+                source_reconstruction_sensor_clipping(basis),
+                prepared
+            );
+            completed_risk = std::move(prepared);
+        });
+        return completed_risk;
+    }
 #if SHADOW_IMAGE_HAS_METAL
     // This buffer is an acceleration cache only.  It retains the already-denoised CFA plane and
     // runs the same preview reconstruction kernel; the CPU frame remains the exact fallback.
@@ -336,13 +351,10 @@ RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& req
     }
     log_interactive_rebind_timing(timing_enabled, timing_sequence, "receipt-ready", timing_started);
     const auto& sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis);
-    auto highlight_chroma_risk_map = source_reconstruction_highlight_chroma_risk(impl_->basis);
-    if (uses_cfa_owned_highlight_reconstruction(effective_plan.highlight_recovery)) {
-        complete_cfa_owned_highlight_reconstruction(
-            sensor_clipping_mask,
-            highlight_chroma_risk_map
-        );
-    }
+    auto highlight_chroma_risk_map =
+        uses_cfa_owned_highlight_reconstruction(effective_plan.highlight_recovery)
+            ? impl_->completed_highlight_risk()
+            : source_reconstruction_highlight_chroma_risk(impl_->basis);
     return ResidentRawPreviewRebinding{
         .output = std::move(*development.output),
         .raw_development_receipt = std::move(receipt),
@@ -491,36 +503,32 @@ RawPreviewRebindingSource::auto_raw_white_balance() const noexcept {
         }
 
         constexpr std::uint32_t target_axis_samples = 48U;
-        const auto sample_width = std::min(
-            descriptor.active_dimensions.width,
-            target_axis_samples
-        );
-        const auto sample_height = std::min(
-            descriptor.active_dimensions.height,
-            target_axis_samples
-        );
+        const auto sample_width = std::min(descriptor.active_dimensions.width, target_axis_samples);
+        const auto sample_height =
+            std::min(descriptor.active_dimensions.height, target_axis_samples);
         std::vector<AutoWhiteBalanceCandidate> candidates;
         candidates.reserve(
-            static_cast<std::size_t>(sample_width)
-            * static_cast<std::size_t>(sample_height)
+            static_cast<std::size_t>(sample_width) * static_cast<std::size_t>(sample_height)
         );
 
         for (std::uint32_t sample_y = 0U; sample_y < sample_height; ++sample_y) {
-            const auto active_y = sample_height == 1U
-                ? 0U
-                : static_cast<std::uint32_t>(std::llround(
-                      static_cast<double>(sample_y)
-                      * static_cast<double>(descriptor.active_dimensions.height - 1U)
-                      / static_cast<double>(sample_height - 1U)
-                  ));
-            for (std::uint32_t sample_x = 0U; sample_x < sample_width; ++sample_x) {
-                const auto active_x = sample_width == 1U
+            const auto active_y =
+                sample_height == 1U
                     ? 0U
                     : static_cast<std::uint32_t>(std::llround(
-                          static_cast<double>(sample_x)
-                          * static_cast<double>(descriptor.active_dimensions.width - 1U)
-                          / static_cast<double>(sample_width - 1U)
+                          static_cast<double>(sample_y)
+                          * static_cast<double>(descriptor.active_dimensions.height - 1U)
+                          / static_cast<double>(sample_height - 1U)
                       ));
+            for (std::uint32_t sample_x = 0U; sample_x < sample_width; ++sample_x) {
+                const auto active_x =
+                    sample_width == 1U
+                        ? 0U
+                        : static_cast<std::uint32_t>(std::llround(
+                              static_cast<double>(sample_x)
+                              * static_cast<double>(descriptor.active_dimensions.width - 1U)
+                              / static_cast<double>(sample_width - 1U)
+                          ));
                 const auto sample = detail::bilinear_camera_rgb_sample_at(
                     frame,
                     descriptor.active_margins.left + active_x,
@@ -536,14 +544,12 @@ RawPreviewRebindingSource::auto_raw_white_balance() const noexcept {
                        ) > 1.0e-6F) {
                     continue;
                 }
-                const double maximum = *std::max_element(
-                    sample.values.begin(), sample.values.end()
-                );
-                const double luminance = (
-                    static_cast<double>(sample.values[0])
-                    + static_cast<double>(sample.values[1])
-                    + static_cast<double>(sample.values[2])
-                ) / 3.0;
+                const double maximum =
+                    *std::max_element(sample.values.begin(), sample.values.end());
+                const double luminance =
+                    (static_cast<double>(sample.values[0]) + static_cast<double>(sample.values[1])
+                     + static_cast<double>(sample.values[2]))
+                    / 3.0;
                 if (luminance < 0.02 || maximum > 0.90) {
                     continue;
                 }
@@ -554,10 +560,10 @@ RawPreviewRebindingSource::auto_raw_white_balance() const noexcept {
                     static_cast<double>(sample.values[2]) / (*as_shot_neutral)[2],
                 };
                 const double balanced_mean = (balanced[0] + balanced[1] + balanced[2]) / 3.0;
-                const double balanced_chroma = (
-                    *std::max_element(balanced.begin(), balanced.end())
-                    - *std::min_element(balanced.begin(), balanced.end())
-                ) / std::max(balanced_mean, 1.0e-9);
+                const double balanced_chroma =
+                    (*std::max_element(balanced.begin(), balanced.end())
+                     - *std::min_element(balanced.begin(), balanced.end()))
+                    / std::max(balanced_mean, 1.0e-9);
                 if (!std::isfinite(balanced_chroma) || balanced_chroma > 0.45) {
                     continue;
                 }
@@ -584,10 +590,8 @@ RawPreviewRebindingSource::auto_raw_white_balance() const noexcept {
                 return left.luminance > right.luminance;
             }
         );
-        const std::size_t selected_count = std::min(
-            candidates.size(),
-            std::max<std::size_t>(12U, candidates.size() / 5U)
-        );
+        const std::size_t selected_count =
+            std::min(candidates.size(), std::max<std::size_t>(12U, candidates.size() / 5U));
         if (candidates[selected_count - 1U].balanced_chroma > 0.30) {
             return std::nullopt;
         }
@@ -751,13 +755,9 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         } else {
             impl_->ordinary_raw_cpu_development_count.fetch_add(1U, std::memory_order_relaxed);
         }
-        HighlightChromaRiskMap highlight_chroma_risk = ordinary->highlight_chroma_risk;
-        if (reconstruct_cfa_highlights) {
-            complete_cfa_owned_highlight_reconstruction(
-                ordinary->sensor_clipping,
-                highlight_chroma_risk
-            );
-        }
+        HighlightChromaRiskMap highlight_chroma_risk = reconstruct_cfa_highlights
+                                                           ? impl_->completed_highlight_risk()
+                                                           : ordinary->highlight_chroma_risk;
         DcpColorExecutionBackend dcp_backend =
             fused_dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;
         if (fused_dcp_applied) {

@@ -4,6 +4,7 @@
 #include "xmp_develop_import.hpp"
 
 #include <QFutureWatcher>
+#include <QHash>
 #include <QObject>
 #include <QUrl>
 #include <QVariantList>
@@ -24,6 +25,7 @@ class EditInterchangeController final : public QObject {
     Q_PROPERTY(bool canApply READ canApply NOTIFY previewChanged)
     Q_PROPERTY(QString sourceName READ sourceName NOTIFY previewChanged)
     Q_PROPERTY(QString processVersion READ processVersion NOTIFY previewChanged)
+    Q_PROPERTY(QStringList compatibilityWarnings READ compatibilityWarnings NOTIFY previewChanged)
     Q_PROPERTY(QVariantList mappedAdjustments READ mappedAdjustments NOTIFY previewChanged)
     Q_PROPERTY(QVariantList ignoredFields READ ignoredFields NOTIFY previewChanged)
     Q_PROPERTY(QVariantList invalidFields READ invalidFields NOTIFY previewChanged)
@@ -79,6 +81,7 @@ class EditInterchangeController final : public QObject {
     [[nodiscard]] bool canApply() const noexcept;
     [[nodiscard]] QString sourceName() const;
     [[nodiscard]] QString processVersion() const;
+    [[nodiscard]] QStringList compatibilityWarnings() const;
     [[nodiscard]] QVariantList mappedAdjustments() const;
     [[nodiscard]] QVariantList ignoredFields() const;
     [[nodiscard]] QVariantList invalidFields() const;
@@ -150,6 +153,8 @@ class EditInterchangeController final : public QObject {
     DesktopBackend& backend_;
     EditController& editor_;
     QString source_name_;
+    QByteArray xmp_digest_;
+    QHash<QString, QString> applied_xmp_nodes_;
     XmpDevelopImport preview_;
     QString preview_error_;
     QString apply_error_;

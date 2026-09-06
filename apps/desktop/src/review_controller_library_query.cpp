@@ -168,6 +168,8 @@ QVariantList ReviewController::selectionRangeTargets(
 }
 
 void ReviewController::clearFilters() {
+    availability_filter_settings_->setValue(QStringLiteral("library/hide_offline_uncached"), false);
+    availability_filter_settings_->setValue(QStringLiteral("library/only_editable"), false);
     filtered_model_.clearFilters();
     album_coordinator_.clearAlbumSelection();
     emit allFiltersCleared();
@@ -202,6 +204,19 @@ void ReviewController::setFilterColorLabel(const QString& color_label) {
 
 void ReviewController::setFilterEditState(const QString& edit_state) {
     filtered_model_.setEditFilter(edit_state);
+}
+
+void ReviewController::setFilterHideOfflineUncached(const bool enabled) {
+    availability_filter_settings_->setValue(
+        QStringLiteral("library/hide_offline_uncached"),
+        enabled
+    );
+    filtered_model_.setHideOfflineUncached(enabled);
+}
+
+void ReviewController::setFilterOnlyEditable(const bool enabled) {
+    availability_filter_settings_->setValue(QStringLiteral("library/only_editable"), enabled);
+    filtered_model_.setOnlyEditable(enabled);
 }
 
 void ReviewController::setFilterLiked(const QString& liked) {

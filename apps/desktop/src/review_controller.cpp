@@ -49,6 +49,11 @@ ReviewController::ReviewController(
         this
     ),
     filtered_model_(this),
+    availability_filter_settings_(
+        isolated_settings_file.isEmpty()
+            ? std::make_unique<QSettings>()
+            : std::make_unique<QSettings>(isolated_settings_file, QSettings::IniFormat)
+    ),
     query_coordinator_(BackendOperations::query_operations(backend_), model_),
     organization_coordinator_(BackendOperations::organization_operations(backend_, model_)),
     shared_grade_coordinator_(BackendOperations::shared_grade_operations(backend_)),
@@ -71,6 +76,13 @@ ReviewController::ReviewController(
     // consumed only by device-local service preferences such as the remote
     // server address; its access token remains in the injected local store.
     Q_ASSERT(map_provider_preferences_ != nullptr);
+    filtered_model_.setHideOfflineUncached(
+        availability_filter_settings_->value(QStringLiteral("library/hide_offline_uncached"), false)
+            .toBool()
+    );
+    filtered_model_.setOnlyEditable(availability_filter_settings_
+                                        ->value(QStringLiteral("library/only_editable"), false)
+                                        .toBool());
     initializeCoordinatorWiring();
 }
 
@@ -188,6 +200,13 @@ QString ReviewController::filterColorLabel() const {
 
 QString ReviewController::filterEditState() const {
     return filtered_model_.editFilter();
+}
+
+bool ReviewController::filterHideOfflineUncached() const {
+    return filtered_model_.hideOfflineUncached();
+}
+bool ReviewController::filterOnlyEditable() const {
+    return filtered_model_.onlyEditable();
 }
 
 QString ReviewController::filterLiked() const {
@@ -443,7 +462,8 @@ QString ReviewController::sourceRelinkStatusText() const {
 }
 
 int ReviewController::filteredItemCount() const noexcept {
-    return query_coordinator_.itemCount() + visibleRemotePhotoCount();
+    // Client-only availability/exclusion filters cannot be counted by the Catalog query.
+    return filtered_model_.rowCount();
 }
 
 QVariantList ReviewController::sharedGradeNodes() const {

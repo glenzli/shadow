@@ -24,6 +24,13 @@ void require(const bool condition, const char* const message) {
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
 
+    const auto baked = parseXmpDevelopImport(
+        R"(<x xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:AlreadyApplied="True" crs:Exposure2012="0.25"/>)"
+    );
+    require(
+        baked.already_applied && baked.canApply(),
+        "already-applied evidence survives for an explicit warning"
+    );
     const auto preview = parseXmpDevelopImport(R"XMP(
         <x:xmpmeta xmlns:x="adobe:ns:meta/">
           <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">

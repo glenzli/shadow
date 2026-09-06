@@ -1,8 +1,8 @@
 #pragma once
 
-#include <QSortFilterProxyModel>
 #include <QHash>
 #include <QSet>
+#include <QSortFilterProxyModel>
 #include <QStringList>
 
 /// A client-side Lightroom-style library filter over the locally loaded page.
@@ -33,6 +33,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     [[nodiscard]] QString colorFilter() const;
     [[nodiscard]] QString editFilter() const;
     [[nodiscard]] QString likedFilter() const;
+    [[nodiscard]] bool hideOfflineUncached() const noexcept;
+    [[nodiscard]] bool onlyEditable() const noexcept;
     [[nodiscard]] QString excludedFlagFilter() const;
     [[nodiscard]] QString excludedColorFilter() const;
     [[nodiscard]] QString captureMonth() const;
@@ -56,6 +58,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     void setColorFilter(const QString& filter);
     void setEditFilter(const QString& filter);
     void setLikedFilter(const QString& filter);
+    void setHideOfflineUncached(bool enabled);
+    void setOnlyEditable(bool enabled);
     void setExcludedFlagFilter(const QString& filter);
     void setExcludedColorFilter(const QString& filter);
     /// Metadata facets are catalog-side values. They intentionally do not
@@ -84,6 +88,7 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
 
   signals:
     void filtersChanged();
+    void availabilityFiltersChanged();
     void semanticFilterChanged();
     void smartCategoryFilterChanged();
 
@@ -109,6 +114,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     QString color_filter_ = QStringLiteral("all");
     QString edit_filter_ = QStringLiteral("all");
     QString liked_filter_ = QStringLiteral("all");
+    bool hide_offline_uncached_ = false;
+    bool only_editable_ = false;
     QString excluded_flag_filter_ = QStringLiteral("all");
     QString excluded_color_filter_ = QStringLiteral("all");
     QString capture_month_;

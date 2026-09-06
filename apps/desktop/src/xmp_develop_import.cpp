@@ -128,7 +128,10 @@ XmpDevelopImport parseXmpDevelopImport(const QByteArray& document) {
 
     result.process_version = fields.take(QStringLiteral("ProcessVersion"));
     fields.remove(QStringLiteral("HasSettings"));
-    fields.remove(QStringLiteral("AlreadyApplied"));
+    const QString already_applied = fields.take(QStringLiteral("AlreadyApplied")).trimmed();
+    result.already_applied =
+        already_applied.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0
+        || already_applied == QStringLiteral("1");
 
     for (const Mapping& mapping : MAPPINGS) {
         const QString name = QString::fromLatin1(mapping.source_name);

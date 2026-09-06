@@ -44,6 +44,7 @@ struct XmpDevelopInvalidField final {
 
 struct XmpDevelopImport final {
     QString process_version;
+    bool already_applied = false;
     QVector<XmpDevelopAdjustment> adjustments;
     QVector<XmpDevelopIgnoredField> ignored_fields;
     QVector<XmpDevelopInvalidField> invalid_fields;

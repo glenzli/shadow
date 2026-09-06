@@ -1,8 +1,8 @@
 #pragma once
 
 #include "backend/remote_library_types.hpp"
-#include "remote_photo_aggregation.hpp"
 #include "remote_library_connection_store.hpp"
+#include "remote_photo_aggregation.hpp"
 #include "review_model.hpp"
 #include "secure_secret_store.hpp"
 
@@ -12,6 +12,7 @@
 #include <QQueue>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -31,11 +32,7 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
   public:
     struct Operations final {
         std::function<BackendRemoteLibrarySnapshot(const QString&)> snapshot;
-        std::function<BackendRemoteLibrarySyncStart(
-            const QString&,
-            const QString&,
-            const QString&
-        )>
+        std::function<BackendRemoteLibrarySyncStart(const QString&, const QString&, const QString&)>
             begin_sync;
         std::function<BackendRemoteLibrarySyncStep(std::uint64_t)> sync_step;
         std::function<bool(std::uint64_t)> cancel_sync;
@@ -210,18 +207,13 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     void finishSnapshotTask();
     void finishMaterializeTask();
     void finishMutationTask();
-    [[nodiscard]] bool startMaterialization(
-        const QString& presentation_photo_id,
-        MaterializationPurpose purpose
-    );
+    [[nodiscard]] bool
+    startMaterialization(const QString& presentation_photo_id, MaterializationPurpose purpose);
     void continueExportPreparation();
     void failExportPreparation(const QString& status_code);
     void startNextSnapshotTask();
-    void enqueueSyncStep(
-        const QString& connection_id,
-        std::uint64_t job_id,
-        std::uint64_t sync_epoch
-    );
+    void
+    enqueueSyncStep(const QString& connection_id, std::uint64_t job_id, std::uint64_t sync_epoch);
     void startMutationIfIdle();
     void applySnapshot(const QString& connection_id, BackendRemoteLibrarySnapshot snapshot);
     [[nodiscard]] QVector<ReviewItem> projectedRemoteItems() const;
@@ -256,6 +248,10 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     QHash<QString, std::uint64_t> active_sync_job_ids_;
     QHash<QString, std::uint64_t> latest_sync_epochs_;
     QSet<QString> online_connection_ids_;
+    QSet<QString> offline_connection_ids_;
+    QTimer reachability_refresh_timer_;
+    QString materialization_attempt_photo_id_;
+    QSet<QString> materialization_attempted_connections_;
     QString status_code_;
     QString diagnostic_text_;
     QString active_snapshot_connection_id_;
