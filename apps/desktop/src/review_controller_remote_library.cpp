@@ -32,8 +32,7 @@ QString ReviewController::remoteLibraryServerAddress() const {
 }
 
 bool ReviewController::remoteLibraryConnected() const noexcept {
-    return remote_library_coordinator_.tokenStored()
-           && !remote_library_coordinator_.serverAddress().isEmpty();
+    return remote_library_coordinator_.connected();
 }
 
 QString ReviewController::remoteLibraryServerName() const {
@@ -93,6 +92,10 @@ void ReviewController::syncAllRemoteLibraries() {
 
 void ReviewController::materializeRemotePhoto(const QString& photo_id) {
     remote_library_coordinator_.materializeForEdit(photo_id);
+}
+
+bool ReviewController::prepareRemoteExport(const QVariantList& targets) {
+    return remote_library_coordinator_.prepareExport(targets);
 }
 
 void ReviewController::refreshRemoteLibraryPresentation() {

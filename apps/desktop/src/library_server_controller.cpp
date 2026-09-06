@@ -26,6 +26,7 @@ constexpr auto auto_start_key = "library-server/auto_start";
 constexpr auto shared_folders_key = "library-server/shared_folders";
 constexpr int minimum_port = 1'024;
 constexpr int maximum_port = 65'535;
+constexpr int progress_poll_interval_ms = 250;
 
 [[nodiscard]] std::unique_ptr<QSettings> makeSettings(const QString& isolated_settings_file) {
     if (isolated_settings_file.isEmpty()) {
@@ -92,8 +93,33 @@ constexpr int maximum_port = 65'535;
         }
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
+        if ((kind == LibraryServerTaskKind::Stop || kind == LibraryServerTaskKind::Restart)
+            && !result.snapshot.has_value() && operations.snapshot) {
+            try {
+                // A stop can report a listener/index-worker teardown error after ownership of the
+                // running service has already been consumed. Refresh the authoritative backend
+                // projection so the UI does not keep advertising a server that no longer exists.
+                result.snapshot = operations.snapshot();
+            } catch (const std::exception&) {
+                // Preserve the lifecycle operation's original diagnostic. A failed recovery read
+                // must not replace the error that explains why stop/restart did not complete.
+            }
+        }
     }
     return result;
+}
+
+[[nodiscard]] QString statusForSnapshot(const BackendLibraryServerSnapshot& snapshot) {
+    if (!snapshot.running) {
+        return QStringLiteral("ready");
+    }
+    if (snapshot.index_state == QStringLiteral("scanning")) {
+        return QStringLiteral("indexing");
+    }
+    if (snapshot.index_state == QStringLiteral("failed")) {
+        return QStringLiteral("indexing-failed");
+    }
+    return QStringLiteral("running");
 }
 
 } // namespace
@@ -151,6 +177,13 @@ void LibraryServerController::initialize() {
         this,
         &LibraryServerController::finishTask
     );
+    progress_timer_.setInterval(progress_poll_interval_ms);
+    progress_timer_.setSingleShot(false);
+    connect(&progress_timer_, &QTimer::timeout, this, [this] {
+        if (!busy() && running() && indexing()) {
+            startTask(LibraryServerTaskKind::Refresh);
+        }
+    });
     loadTokenState();
     QTimer::singleShot(0, this, [this] {
         if (auto_start_ && !shared_folders_.isEmpty()) {
@@ -221,6 +254,30 @@ qulonglong LibraryServerController::photoCount() const noexcept {
 
 qulonglong LibraryServerController::cacheByteLength() const noexcept {
     return snapshot_.cache_byte_len;
+}
+
+QString LibraryServerController::indexState() const {
+    return snapshot_.index_state;
+}
+
+bool LibraryServerController::indexing() const noexcept {
+    return snapshot_.running && snapshot_.index_state == QStringLiteral("scanning");
+}
+
+qulonglong LibraryServerController::discoveredFileCount() const noexcept {
+    return snapshot_.discovered_file_count;
+}
+
+qulonglong LibraryServerController::inspectionCompletedCount() const noexcept {
+    return snapshot_.inspection_completed_count;
+}
+
+qulonglong LibraryServerController::publishedPreviewCount() const noexcept {
+    return snapshot_.published_preview_count;
+}
+
+QString LibraryServerController::indexDiagnosticText() const {
+    return snapshot_.index_diagnostic;
 }
 
 QString LibraryServerController::statusCode() const {
@@ -441,7 +498,9 @@ void LibraryServerController::startTask(
     }
     switch (kind) {
     case LibraryServerTaskKind::Refresh:
-        setStatus(QStringLiteral("refreshing"));
+        if (!indexing()) {
+            setStatus(QStringLiteral("refreshing"));
+        }
         break;
     case LibraryServerTaskKind::Start:
         setStatus(QStringLiteral("starting"));
@@ -476,11 +535,11 @@ void LibraryServerController::finishTask() {
     }
     switch (result.kind) {
     case LibraryServerTaskKind::Refresh:
-        setStatus(snapshot_.running ? QStringLiteral("running") : QStringLiteral("ready"));
+        setStatus(statusForSnapshot(snapshot_));
         break;
     case LibraryServerTaskKind::Start:
     case LibraryServerTaskKind::Restart:
-        setStatus(QStringLiteral("running"));
+        setStatus(statusForSnapshot(snapshot_));
         break;
     case LibraryServerTaskKind::Stop:
         setStatus(QStringLiteral("stopped"));
@@ -493,6 +552,11 @@ void LibraryServerController::finishTask() {
 
 void LibraryServerController::applySnapshot(const BackendLibraryServerSnapshot& snapshot) {
     snapshot_ = snapshot;
+    if (indexing()) {
+        progress_timer_.start();
+    } else {
+        progress_timer_.stop();
+    }
     emit stateChanged();
 }
 

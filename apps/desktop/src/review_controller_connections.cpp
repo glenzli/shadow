@@ -407,6 +407,24 @@ void ReviewController::initializeCoordinatorWiring() {
     );
     connect(
         &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::remoteInspectionChanged,
+        this,
+        &ReviewController::remoteInspectionChanged
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::exportReady,
+        this,
+        &ReviewController::remoteExportReady
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::exportPreparationFailed,
+        this,
+        &ReviewController::remoteExportPreparationFailed
+    );
+    connect(
+        &remote_library_coordinator_,
         &ReviewRemoteLibraryCoordinator::localLibraryRefreshRequested,
         this,
         &ReviewController::refreshVisibleLibrary

@@ -3,7 +3,10 @@
 This crate owns Shadow's Mac-first remote Library boundary. It shares a bounded
 photo manifest and content-addressed previews without exposing the server's
 filesystem, then materializes an exact original into a verified client-local
-cache only when editing needs it.
+cache when editing or export needs it. The manifest carries a versioned,
+provider-neutral metadata projection rather than arbitrary EXIF or MakerNote
+payloads, and declares whether preview pixels still require their encoded
+orientation transform.
 
 Start at [`lib.rs`](src/lib.rs), then follow:
 
@@ -11,7 +14,7 @@ Start at [`lib.rs`](src/lib.rs), then follow:
 - `catalog_source` for the read-only projection from a local Catalog and preview cache;
 - `server` for authenticated admission and bounded request execution;
 - `client` for the matching one-request-per-connection transport;
-- `mirror` for the client-local remote manifest and downloaded proxy state;
+- `mirror` for progressive cursor-chain membership, client-local review state, and downloaded proxies;
 - `materializer` for resumable, digest-verified original download and atomic publication;
 - `presentation` for local adjusted-preview precedence over a remote browse proxy.
 

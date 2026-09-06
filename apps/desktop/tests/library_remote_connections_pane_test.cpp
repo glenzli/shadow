@@ -39,6 +39,9 @@ class FakeRemoteLibraryController final : public QObject {
                 {QStringLiteral("serverName"), QStringLiteral("Studio Mac")},
                 {QStringLiteral("hasCachedServer"), true},
                 {QStringLiteral("photoCount"), 42},
+                {QStringLiteral("mirrorPhotoCount"), 42},
+                {QStringLiteral("cachedOriginalCount"), 7},
+                {QStringLiteral("reachability"), QStringLiteral("offline")},
                 {QStringLiteral("statusCode"), QStringLiteral("offline-ready")},
                 {QStringLiteral("diagnosticText"), QString{}},
                 {QStringLiteral("busy"), false},
@@ -50,6 +53,9 @@ class FakeRemoteLibraryController final : public QObject {
                 {QStringLiteral("serverName"), QStringLiteral("Travel Mac")},
                 {QStringLiteral("hasCachedServer"), false},
                 {QStringLiteral("photoCount"), 0},
+                {QStringLiteral("mirrorPhotoCount"), 0},
+                {QStringLiteral("cachedOriginalCount"), 0},
+                {QStringLiteral("reachability"), QStringLiteral("authorization-failed")},
                 {QStringLiteral("statusCode"), QStringLiteral("authorization-failed")},
                 {QStringLiteral("diagnosticText"), QStringLiteral("authorization failed")},
                 {QStringLiteral("busy"), false},
@@ -187,6 +193,16 @@ int main(int argc, char* argv[]) {
     QObject* const add =
         pane->findChild<QObject*>(QStringLiteral("remoteLibraryConnectionAddButton"));
     if (!require(sync_buttons.size() == 2, "every configured Library has its own sync action")
+        || !require(
+            status_labels.size() == 2
+                && status_labels.at(0)->property("text").toString().contains(
+                    QStringLiteral("7")
+                )
+                && status_labels.at(0)->property("text").toString().contains(
+                    QStringLiteral("42")
+                ),
+            "offline status distinguishes cached originals from mirrored thumbnails"
+        )
         || !require(
             status_labels.size() == 2
                 && status_labels.at(1)->property("text").toString().contains(

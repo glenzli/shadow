@@ -17,6 +17,11 @@ BackendLibraryServerSnapshot snapshot(const shadow::desktop::FfiLibraryServerSna
         .cache_byte_len = source.cache_byte_len,
         .shared_root_count = source.shared_root_count,
         .serves_originals = source.serves_originals,
+        .index_state = qstring(source.index_state),
+        .discovered_file_count = source.discovered_file_count,
+        .inspection_completed_count = source.inspection_completed_count,
+        .published_preview_count = source.published_preview_count,
+        .index_diagnostic = qstring(source.index_diagnostic),
     };
 }
 

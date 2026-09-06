@@ -3952,24 +3952,39 @@ R %2 · G %3 · B %4</translation>
         <translation>选择其他文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="26"/>
-        <source>Offline cache ready · %L1 photos</source>
-        <translation>离线缓存就绪 · %L1 张照片</translation>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="27"/>
+        <source>Offline · %L1 cached originals · %L2 thumbnails</source>
+        <translation>离线 · %L1 张已缓存原片 · %L2 个缩略图</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="26"/>
-        <source>Connected · no cached photos yet</source>
-        <translation>已连接 · 暂无缓存照片</translation>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="31"/>
+        <source>Offline · %L1 thumbnails · no cached originals</source>
+        <translation>离线 · %L1 个缩略图 · 无已缓存原片</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="28"/>
-        <source>Synchronizing…</source>
-        <translation>正在同步…</translation>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="33"/>
+        <source>Offline · no local cache</source>
+        <translation>离线 · 无本地缓存</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="29"/>
+        <source>Connecting…</source>
+        <translation>正在连接…</translation>
     </message>
     <message>
         <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="30"/>
-        <source>Up to date · %L1 photos</source>
-        <translation>已是最新 · %L1 张照片</translation>
+        <source>Synchronizing · %L1 pages · %L2 photos · %L3 previews checked</source>
+        <translation>正在同步 · %L1 页 · %L2 张照片 · 已检查 %L3 个预览</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="41"/>
+        <source>Online · %L1 photos · %L2 cached originals</source>
+        <translation>在线 · %L1 张照片 · %L2 张已缓存原片</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="37"/>
+        <source>Up to date · %L1 photos · %L2 previews unavailable</source>
+        <translation>已是最新 · %L1 张照片 · %L2 个预览不可用</translation>
     </message>
     <message>
         <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="34"/>
@@ -3980,6 +3995,11 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="36"/>
         <source>Offline · cached thumbnails remain available</source>
         <translation>离线 · 已缓存的缩略图仍可使用</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="52"/>
+        <source>Offline · %L1 cached originals remain available</source>
+        <translation>离线 · %L1 张已缓存原片仍可使用</translation>
     </message>
     <message>
         <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="38"/>
@@ -4002,9 +4022,24 @@ R %2 · G %3 · B %4</translation>
         <translation>仅可浏览 · 原片下载已禁用</translation>
     </message>
     <message>
-        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="46"/>
-        <source>Offline cache · %L1 photos</source>
-        <translation>离线缓存 · %L1 张照片</translation>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="65"/>
+        <source>Preparing cached original…</source>
+        <translation>正在准备已缓存原片…</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="68"/>
+        <source>Offline · cached originals remain available</source>
+        <translation>离线 · 已缓存原片仍可使用</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="69"/>
+        <source>Offline · this original is not cached</source>
+        <translation>离线 · 此原片尚未缓存</translation>
+    </message>
+    <message>
+        <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="72"/>
+        <source>Local mirror · %L1 photos · %L2 cached originals</source>
+        <translation>本地镜像 · %L1 张照片 · %L2 张已缓存原片</translation>
     </message>
     <message>
         <location filename="../qml/LibraryRemoteConnectionsPane.qml" line="46"/>
@@ -11522,8 +11557,13 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/ReviewWorkspace.qml" line="606"/>
-        <source>Downloading the original RAW from the remote Library…</source>
-        <translation>正在从远程图库下载原始 RAW…</translation>
+        <source>Downloading the original from the remote Library…</source>
+        <translation>正在从远程图库下载原始文件…</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="410"/>
+        <source>Preparing the cached original…</source>
+        <translation>正在准备已缓存原片…</translation>
     </message>
     <message>
         <location filename="../qml/ReviewWorkspace.qml" line="612"/>
@@ -11539,6 +11579,11 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/ReviewWorkspace.qml" line="631"/>
         <source>The remote server does not currently allow this RAW to be downloaded.</source>
         <translation>远程服务器当前不允许下载此 RAW。</translation>
+    </message>
+    <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="682"/>
+        <source>The remote server is offline and this original is not cached locally.</source>
+        <translation>远程服务器离线，且此原片尚未缓存在本机。</translation>
     </message>
     <message>
         <location filename="../qml/ReviewWorkspace.qml" line="633"/>
@@ -12343,8 +12388,8 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="45"/>
-        <source>Scanning shared folders and preparing previews…</source>
-        <translation>正在扫描共享文件夹并准备预览…</translation>
+        <source>Starting the Library server…</source>
+        <translation>正在启动图库服务器…</translation>
     </message>
     <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="46"/>
@@ -12353,8 +12398,8 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="47"/>
-        <source>Restarting the server and rescanning shared folders…</source>
-        <translation>正在重启服务器并重新扫描共享文件夹…</translation>
+        <source>Restarting the Library server…</source>
+        <translation>正在重新启动图库服务器…</translation>
     </message>
     <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="48"/>
@@ -12365,6 +12410,16 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/SettingsLibraryServerPane.qml" line="49"/>
         <source>This Mac is available to trusted Shadow clients.</source>
         <translation>受信任的 Shadow 客户端现在可以访问这台 Mac。</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="50"/>
+        <source>Sharing the previous completed index while shared folders update…</source>
+        <translation>共享文件夹更新期间，将继续提供上一次完成的索引…</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="51"/>
+        <source>Sharing remains available from the previous completed index. Rescan to retry.</source>
+        <translation>上一次完成的索引仍可供共享。请重新扫描以重试。</translation>
     </message>
     <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="50"/>
@@ -12557,9 +12612,14 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>移除</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsLibraryServerPane.qml" line="363"/>
-        <source>%L1 indexed photos</source>
-        <translation>已索引 %L1 张照片</translation>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="211"/>
+        <source>Discovered %L1 · inspected %L2 · published previews %L3</source>
+        <translation>已发现 %L1 · 已检查 %L2 · 已发布预览 %L3</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsLibraryServerPane.qml" line="389"/>
+        <source>%L1 published photos</source>
+        <translation>已发布 %L1 张照片</translation>
     </message>
     <message>
         <location filename="../qml/SettingsLibraryServerPane.qml" line="371"/>

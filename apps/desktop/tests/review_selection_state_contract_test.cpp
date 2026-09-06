@@ -111,6 +111,8 @@ class FakeReviewCard final : public QObject {
     Q_PROPERTY(QString visualSource MEMBER visual_source CONSTANT)
     Q_PROPERTY(int visualWidth MEMBER visual_width CONSTANT)
     Q_PROPERTY(int visualHeight MEMBER visual_height CONSTANT)
+    Q_PROPERTY(bool hasMetadata MEMBER has_metadata CONSTANT)
+    Q_PROPERTY(QString cameraMake MEMBER camera_make CONSTANT)
 
   public:
     using QObject::QObject;
@@ -135,6 +137,8 @@ class FakeReviewCard final : public QObject {
     QString visual_source = QStringLiteral("image://shadow/selected");
     int visual_width = 1'600;
     int visual_height = 1'200;
+    bool has_metadata = false;
+    QString camera_make;
 };
 
 namespace {
@@ -151,6 +155,20 @@ namespace {
         object,
         method,
         Q_ARG(QVariant, QVariant::fromValue(argument))
+    );
+}
+
+[[nodiscard]] bool invoke(
+    QObject* object,
+    const char* method,
+    const QString& photo_id,
+    const QVariantMap& inspection
+) {
+    return QMetaObject::invokeMethod(
+        object,
+        method,
+        Q_ARG(QVariant, QVariant::fromValue(photo_id)),
+        Q_ARG(QVariant, QVariant::fromValue(inspection))
     );
 }
 
@@ -245,6 +263,8 @@ int main(int argc, char* argv[]) {
     remote_card->remote_original_cached = true;
     remote_card->remote_connection_id = QStringLiteral("connection-a");
     remote_card->remote_preview_unavailable_reason = QStringLiteral("preview_cache_unavailable");
+    remote_card->has_metadata = true;
+    remote_card->camera_make = QStringLiteral("Manifest camera");
     if (!require(
             invoke(selection.get(), "updatePrimaryPhoto", remote_card.get()),
             "remote selection is invokable"
@@ -258,6 +278,27 @@ int main(int argc, char* argv[]) {
                        == QStringLiteral("preview_cache_unavailable"),
             "remote origin, connection, preview availability, and original residency remain "
             "independent selection facts"
+        )
+        || !require(
+            invoke(
+                selection.get(),
+                "applyRemoteInspectionChanged",
+                QStringLiteral("remote-photo"),
+                QVariantMap{
+                    {QStringLiteral("available"), true},
+                    {QStringLiteral("photoId"), QStringLiteral("remote-photo")},
+                    {QStringLiteral("representationId"),
+                     QStringLiteral("remote-representation")},
+                    {QStringLiteral("hasMetadata"), true},
+                    {QStringLiteral("cameraMake"), QStringLiteral("Inspected camera")},
+                }
+            ),
+            "remote materialization inspection refresh is invokable"
+        )
+        || !require(
+            selection->property("selectedCameraMake").toString()
+                == QStringLiteral("Inspected camera"),
+            "the selected remote inspection refreshes without reselecting the photo"
         )
         || !require(
             QMetaObject::invokeMethod(selection.get(), "clearPrimaryPhoto"),

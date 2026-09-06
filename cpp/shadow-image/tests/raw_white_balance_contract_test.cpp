@@ -58,6 +58,42 @@ void dcp_camera_neutral_is_an_internal_calibration_value() {
     expect_close(presentation->tint, -42.0, 0.05, "DCP presentation recovers tint");
 }
 
+void dcp_as_shot_neutral_round_trips_to_the_same_authored_white_point() {
+    const auto definition = profile_definition(false);
+    auto descriptor = raw_descriptor();
+    const auto authored = image::RawWhiteBalance{
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 5'900U,
+        .tint = -24,
+    };
+    const auto authored_neutral = image::raw_dcp_camera_neutral(definition.profile, authored);
+    expect(authored_neutral.has_value(), "DCP resolves the camera's recorded white point");
+    descriptor.as_shot_neutral = {
+        (*authored_neutral)[0],
+        (*authored_neutral)[1],
+        (*authored_neutral)[1],
+        (*authored_neutral)[2],
+    };
+
+    const auto as_shot_neutral = image::raw_as_shot_camera_neutral(descriptor);
+    expect(as_shot_neutral.has_value(), "RawFrame exposes its exact AsShot camera neutral");
+    const auto presentation =
+        image::raw_dcp_white_balance_presentation(definition.profile, *as_shot_neutral);
+    expect(presentation.has_value(), "DCP presents the AsShot neutral as photographic controls");
+    expect_close(
+        presentation->temperature_kelvin,
+        static_cast<double>(authored.temperature_kelvin),
+        0.1,
+        "AsShot presentation retains the camera white-point temperature"
+    );
+    expect_close(
+        presentation->tint,
+        static_cast<double>(authored.tint),
+        0.05,
+        "AsShot presentation retains the camera white-point tint"
+    );
+}
+
 void generic_raw_frame_uses_its_explicit_camera_matrix() {
     auto descriptor = raw_descriptor();
     descriptor.camera_to_linear_srgb_d65 = {
@@ -176,6 +212,7 @@ void invalid_authoring_values_fail_closed() {
 int main() {
     photographic_temperature_tint_round_trips_through_xy();
     dcp_camera_neutral_is_an_internal_calibration_value();
+    dcp_as_shot_neutral_round_trips_to_the_same_authored_white_point();
     generic_raw_frame_uses_its_explicit_camera_matrix();
     libraw_calibration_resolves_a_physical_d65_camera_neutral();
     raw_frame_camera_neutral_round_trips_through_photographic_presentation();

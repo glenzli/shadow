@@ -292,7 +292,7 @@ Rectangle {
             toolTipText: qsTr("Export selected photos")
             accessibleName: toolTipText
             enabled: toolbar.workspace.selectedPhotoCount > 0
-                && !toolbar.workspace.selectionContainsRemote()
+                && !toolbar.workspace.controller.remoteLibraryBusy
             onClicked: toolbar.exportRequested(
                 toolbar.workspace.batchSelectionTargets())
         }

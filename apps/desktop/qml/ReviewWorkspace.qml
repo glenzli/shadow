@@ -70,6 +70,8 @@ Item {
         selectionState.selectedRemotePreviewUnavailableReason
     readonly property alias selectedRole: selectionState.selectedRole
     readonly property alias selectedVisualSource: selectionState.selectedVisualSource
+    readonly property alias selectedVisualAutoTransform:
+        selectionState.selectedVisualAutoTransform
     readonly property alias selectedWidth: selectionState.selectedWidth
     readonly property alias selectedHeight: selectionState.selectedHeight
 
@@ -280,7 +282,7 @@ Item {
     }
     signal openPrecisionRequested(string photoId, string representationId,
                                   string sourcePath, string photoTitle,
-                                  string previewSource)
+                                  string previewSource, var captureMetadata)
     signal openLibraryManagementRequested()
     signal openMapProviderSettingsRequested()
     signal libraryScopeCommitted()
@@ -393,6 +395,32 @@ Item {
             if (Boolean(targets[index].isRemote))
                 return true
         }
+        return false
+    }
+
+    function requestExport(targets) {
+        const requestedTargets = targets || batchSelectionTargets()
+        let hasRemote = false
+        let needsDownload = false
+        for (let index = 0; index < requestedTargets.length; ++index) {
+            if (Boolean(requestedTargets[index].isRemote)) {
+                hasRemote = true
+                if (!Boolean(requestedTargets[index].remoteOriginalCached))
+                    needsDownload = true
+            }
+        }
+        if (!hasRemote) {
+            exportRequested(requestedTargets)
+            return true
+        }
+        precisionOpenStatus = needsDownload
+            ? qsTr("Downloading the original from the remote Library…")
+            : qsTr("Preparing the cached original…")
+        if (controller.prepareRemoteExport(requestedTargets))
+            return true
+        const failure = remoteOpenFailureMessage(controller.remoteLibraryStatusCode)
+        if (failure.length > 0)
+            precisionOpenStatus = failure
         return false
     }
 
@@ -603,7 +631,9 @@ Item {
         if (!canOpenSelectedPhoto)
             return
         if (selectedIsRemote) {
-            precisionOpenStatus = qsTr("Downloading the original RAW from the remote Library…")
+            precisionOpenStatus = selectedRemoteOriginalCached
+                ? qsTr("Preparing the cached original…")
+                : qsTr("Downloading the original from the remote Library…")
             controller.materializeRemotePhoto(selectedPhotoId)
             return
         }
@@ -615,7 +645,33 @@ Item {
             return
         }
         openPrecisionRequested(selectedPhotoId, selectedRepresentationId,
-                               selectedPath, selectedTitle, selectedVisualSource)
+                               selectedPath, selectedTitle, selectedVisualSource,
+                               selectedCaptureMetadata())
+    }
+
+    function selectedCaptureMetadata() {
+        return {
+            "representationId": selectedRepresentationId,
+            "pending": controller.scanning || controller.refreshing,
+            "available": selectedHasMetadata,
+            "cameraMake": selectedCameraMake,
+            "cameraModel": selectedCameraModel,
+            "lensMake": selectedLensMake,
+            "lensModel": selectedLensModel,
+            "isoSpeed": selectedIsoSpeed,
+            "exposureTimeSeconds": selectedExposureTimeSeconds,
+            "apertureFNumber": selectedApertureFNumber,
+            "focalLengthMm": selectedFocalLengthMm,
+            "hasFocusObservation": selectedHasFocusObservation,
+            "focusObservationSchemaVersion": selectedFocusObservationSchemaVersion,
+            "focusObservationSource": selectedFocusObservationSource,
+            "focusObservationCenterX": selectedFocusObservationCenterX,
+            "focusObservationCenterY": selectedFocusObservationCenterY,
+            "focusObservationWidth": selectedFocusObservationWidth,
+            "focusObservationHeight": selectedFocusObservationHeight,
+            "focusObservationConfirmed": selectedFocusObservationConfirmed,
+            "focusObservationConfidence": selectedFocusObservationConfidence
+        }
     }
 
     function reportPrecisionOpenFailure(message) {
@@ -629,6 +685,8 @@ Item {
             return qsTr("Connect to the remote Library in Settings, then try again.")
         case "remote-original-unavailable":
             return qsTr("The remote server does not currently allow this RAW to be downloaded.")
+        case "remote-server-offline":
+            return qsTr("The remote server is offline and this original is not cached locally.")
         case "remote-photo-unavailable":
             return qsTr("This remote photo is no longer available in the local mirror.")
         case "materialize-failed":
@@ -666,10 +724,23 @@ Item {
         function onSourceAvailabilityChanged(photoId, available) {
             selectionState.applySourceAvailabilityChanged(photoId, available)
         }
-        function onRemotePhotoReady(photoId, representationId, sourcePath, title) {
+        function onRemotePhotoReady(photoId, representationId, sourcePath, title,
+                                    captureMetadata) {
             review.precisionOpenStatus = ""
             review.openPrecisionRequested(
-                photoId, representationId, sourcePath, title, "")
+                photoId, representationId, sourcePath, title, "", captureMetadata)
+        }
+        function onRemoteInspectionChanged(photoId, inspection) {
+            selectionState.applyRemoteInspectionChanged(photoId, inspection)
+        }
+        function onRemoteExportReady(targets) {
+            review.precisionOpenStatus = ""
+            review.exportRequested(targets)
+        }
+        function onRemoteExportPreparationFailed(statusCode) {
+            const failure = review.remoteOpenFailureMessage(statusCode)
+            review.precisionOpenStatus = failure.length > 0 ? failure
+                : review.controller.remoteLibraryDiagnosticText
         }
         function onRemoteLibraryChanged() {
             if (review.controller.remoteLibraryMaterializing)
@@ -772,7 +843,7 @@ Item {
             onOpenMetadataRequested: metadataWindow.present()
             onSharedGradeRequested: anchorItem =>
                 sharedGradePicker.presentFrom(anchorItem)
-            onExportRequested: targets => review.exportRequested(targets)
+            onExportRequested: targets => review.requestExport(targets)
         }
 
         LibraryLocationCompletionGallery {

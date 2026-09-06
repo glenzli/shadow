@@ -275,7 +275,9 @@ mod ffi {
         preview_role: String,
         preview_width: u32,
         preview_height: u32,
+        preview_auto_transform: bool,
         preview_unavailable_reason: String,
+        metadata_schema_version: u32,
         has_captured_at: bool,
         captured_at_unix_seconds: i64,
         camera_make: String,
@@ -290,9 +292,21 @@ mod ffi {
         aperture_f_number: f64,
         has_focal_length: bool,
         focal_length_mm: f64,
+        has_focal_length_35mm: bool,
+        focal_length_35mm: f64,
         has_raw_dimensions: bool,
         raw_width: u32,
         raw_height: u32,
+        has_image_dimensions: bool,
+        image_width: u32,
+        image_height: u32,
+        has_orientation: bool,
+        orientation: i32,
+        has_coordinates: bool,
+        latitude_degrees: f64,
+        longitude_degrees: f64,
+        has_altitude: bool,
+        altitude_meters: f64,
         decision_flag: FfiDecisionFlag,
         decision_rating: u8,
         liked: bool,
@@ -319,7 +333,30 @@ mod ffi {
         page_count: u64,
         photo_count: u64,
         downloaded_previews: u64,
+        preview_failures: u64,
         removed: u64,
+    }
+
+    #[derive(Debug)]
+    struct FfiRemoteLibrarySyncStart {
+        job_id: u64,
+        snapshot: FfiRemoteLibrarySnapshot,
+    }
+
+    #[derive(Debug)]
+    struct FfiRemoteLibrarySyncStep {
+        job_id: u64,
+        snapshot: FfiRemoteLibrarySnapshot,
+        stage: String,
+        page_count: u64,
+        photo_count: u64,
+        preview_completed_count: u64,
+        downloaded_previews: u64,
+        preview_failures: u64,
+        removed: u64,
+        manifest_complete: bool,
+        complete: bool,
+        diagnostic: String,
     }
 
     /// Verified local edit admission for one remote original.
@@ -330,6 +367,37 @@ mod ffi {
         local_source_path: String,
         title: String,
         reused_existing: bool,
+        inspection_diagnostic: String,
+        metadata_schema_version: u32,
+        has_captured_at: bool,
+        captured_at_unix_seconds: i64,
+        camera_make: String,
+        camera_model: String,
+        lens_make: String,
+        lens_model: String,
+        has_iso_speed: bool,
+        iso_speed: f64,
+        has_exposure_time: bool,
+        exposure_time_seconds: f64,
+        has_aperture: bool,
+        aperture_f_number: f64,
+        has_focal_length: bool,
+        focal_length_mm: f64,
+        has_focal_length_35mm: bool,
+        focal_length_35mm: f64,
+        has_raw_dimensions: bool,
+        raw_width: u32,
+        raw_height: u32,
+        has_image_dimensions: bool,
+        image_width: u32,
+        image_height: u32,
+        has_orientation: bool,
+        orientation: i32,
+        has_coordinates: bool,
+        latitude_degrees: f64,
+        longitude_degrees: f64,
+        has_altitude: bool,
+        altitude_meters: f64,
     }
 
     /// Native-only configuration for this Mac's managed remote-Library listener.
@@ -353,6 +421,11 @@ mod ffi {
         cache_byte_len: u64,
         shared_root_count: u64,
         serves_originals: bool,
+        index_state: String,
+        discovered_file_count: u64,
+        inspection_completed_count: u64,
+        published_preview_count: u64,
+        index_diagnostic: String,
     }
 
     /// Low-frequency details for one exact selected `{photo, representation}`.
@@ -2349,6 +2422,17 @@ mod ffi {
             server_address: &str,
             authorization: &str,
         ) -> Result<FfiRemoteLibrarySyncResult>;
+        fn begin_remote_library_sync(
+            self: &DesktopSession,
+            connection_id: &str,
+            server_address: &str,
+            authorization: &str,
+        ) -> Result<FfiRemoteLibrarySyncStart>;
+        fn step_remote_library_sync(
+            self: &DesktopSession,
+            job_id: u64,
+        ) -> Result<FfiRemoteLibrarySyncStep>;
+        fn cancel_remote_library_sync(self: &DesktopSession, job_id: u64) -> Result<bool>;
         #[allow(clippy::too_many_arguments)]
         fn set_remote_library_review_state(
             self: &DesktopSession,

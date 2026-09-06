@@ -62,12 +62,14 @@ impl DecodeInspector for LibRawInspector {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum PreviewRoute {
     Public,
+    Raster,
     ProviderHost,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct LibraryServerPreviewInspector {
     public: LibRawInspector,
+    raster: PhotoInspector,
     provider_host: Option<PhotoInspector>,
     provider_version: String,
     proxy_variant_key: String,
@@ -75,40 +77,48 @@ pub(super) struct LibraryServerPreviewInspector {
 }
 
 impl LibraryServerPreviewInspector {
-    fn public_only() -> Self {
+    fn public_only() -> Result<Self> {
         let public = LibRawInspector::new();
-        Self {
+        let raster = PhotoInspector::new_with_isolated_proxy_cache(None)?;
+        Ok(Self {
             provider_version: format!(
-                "remote-library-preview-v1;public={}",
-                public.provider_version()
+                "remote-library-preview-v2;public={};raster={}",
+                public.provider_version(),
+                raster.provider_version()
             ),
             proxy_variant_key: format!(
-                "remote-library-preview-v1;public={}",
-                public.proxy_variant_key()
+                "remote-library-preview-v2;public={};raster={}",
+                public.proxy_variant_key(),
+                raster.proxy_variant_key()
             ),
             public,
+            raster,
             provider_host: None,
             active_source: None,
-        }
+        })
     }
 
-    fn with_provider_host(provider_host: PhotoInspector) -> Self {
+    fn with_provider_host(provider_host: PhotoInspector) -> Result<Self> {
         let public = LibRawInspector::new();
-        Self {
+        let raster = PhotoInspector::new_with_isolated_proxy_cache(None)?;
+        Ok(Self {
             provider_version: format!(
-                "remote-library-preview-v1;public={};provider-host={}",
+                "remote-library-preview-v2;public={};raster={};provider-host={}",
                 public.provider_version(),
+                raster.provider_version(),
                 provider_host.provider_version()
             ),
             proxy_variant_key: format!(
-                "remote-library-preview-v1;public={};provider-host={}",
+                "remote-library-preview-v2;public={};raster={};provider-host={}",
                 public.proxy_variant_key(),
+                raster.proxy_variant_key(),
                 provider_host.proxy_variant_key()
             ),
             public,
+            raster,
             provider_host: Some(provider_host),
             active_source: None,
-        }
+        })
     }
 
     fn normalize_snapshot(&self, mut snapshot: DecoderSnapshot) -> DecoderSnapshot {
@@ -127,6 +137,16 @@ impl LibraryServerPreviewInspector {
                     .to_owned()
             })
     }
+
+    fn is_supported_original_raster(&self, path: &Path) -> bool {
+        let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
+            return false;
+        };
+        self.raster
+            .supported_original_raster_extensions()
+            .iter()
+            .any(|supported| supported.eq_ignore_ascii_case(extension))
+    }
 }
 
 impl DecodeInspector for LibraryServerPreviewInspector {
@@ -138,8 +158,17 @@ impl DecodeInspector for LibraryServerPreviewInspector {
         &self.provider_version
     }
 
+    fn supported_original_raster_extensions(&self) -> Vec<String> {
+        self.raster.supported_original_raster_extensions()
+    }
+
     fn inspect(&mut self, path: &Path) -> Result<DecoderSnapshot, String> {
         self.active_source = None;
+        if self.is_supported_original_raster(path) {
+            let snapshot = self.raster.inspect(path)?;
+            self.active_source = Some((path.to_path_buf(), PreviewRoute::Raster));
+            return Ok(self.normalize_snapshot(snapshot));
+        }
         let public = self.public.inspect(path);
         if let Ok(snapshot) = &public
             && (snapshot.capabilities.embedded_previews.is_available()
@@ -174,12 +203,14 @@ impl DecodeInspector for LibraryServerPreviewInspector {
     fn extract_best_preview(&mut self, path: &Path) -> Result<Option<PreviewPayload>, String> {
         match self.active_route(path)? {
             PreviewRoute::Public => self.public.extract_best_preview(path).or(Ok(None)),
+            PreviewRoute::Raster => self.raster.extract_best_preview(path),
             PreviewRoute::ProviderHost => Ok(None),
         }
     }
 
     fn render_proxy(&mut self, path: &Path) -> Result<Option<ProxyPayload>, String> {
         match self.active_route(path)? {
+            PreviewRoute::Raster => self.raster.render_proxy(path),
             PreviewRoute::ProviderHost => self
                 .provider_host
                 .as_mut()
@@ -217,7 +248,7 @@ impl LibraryServerPreviewRuntime {
     pub(super) fn discover(cache_root: &Path) -> Result<Self> {
         let Some(helper_path) = configured_provider_host_path()? else {
             return Ok(Self {
-                inspector: LibraryServerPreviewInspector::public_only(),
+                inspector: LibraryServerPreviewInspector::public_only()?,
                 mode: ProviderHostMode::Absent,
             });
         };
@@ -229,7 +260,7 @@ impl LibraryServerPreviewRuntime {
         })?;
         if !inventory.private_provider_available {
             return Ok(Self {
-                inspector: LibraryServerPreviewInspector::public_only(),
+                inspector: LibraryServerPreviewInspector::public_only()?,
                 mode: ProviderHostMode::PublicOnly,
             });
         }
@@ -237,7 +268,7 @@ impl LibraryServerPreviewRuntime {
         let inspector =
             PhotoInspector::new_with_provider_host(runtime_cache, helper_path, &inventory)?;
         Ok(Self {
-            inspector: LibraryServerPreviewInspector::with_provider_host(inspector),
+            inspector: LibraryServerPreviewInspector::with_provider_host(inspector)?,
             mode: ProviderHostMode::Private,
         })
     }

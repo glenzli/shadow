@@ -23,7 +23,9 @@ pub use materializer::{
 };
 pub use mirror::{
     CachedRemotePreview, MirroredLocalSource, RemoteLibraryMirror, RemoteLibraryMirrorError,
-    RemoteLibraryMirrorSnapshot, RemotePhotoMirror, RemoteReviewFlag, RemoteReviewState,
+    RemoteLibraryMirrorSnapshot, RemoteMirrorSyncProgress, RemoteMirrorSyncSession,
+    RemoteMirrorSyncStep, RemoteMirrorSyncStepKind, RemotePhotoMirror, RemoteReviewFlag,
+    RemoteReviewState,
 };
 pub use presentation::{BrowseVisual, select_browse_visual};
 pub use server::{

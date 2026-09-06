@@ -23,16 +23,37 @@ ColumnLayout {
     function statusText(connection) {
         switch (String(connection.statusCode)) {
         case "offline-ready":
-            return connection.photoCount > 0 ? qsTr("Offline cache ready · %L1 photos").arg(connection.photoCount) : qsTr("Connected · no cached photos yet");
+            if (Number(connection.cachedOriginalCount) > 0)
+                return qsTr("Offline · %L1 cached originals · %L2 thumbnails")
+                    .arg(connection.cachedOriginalCount)
+                    .arg(connection.mirrorPhotoCount)
+            if (Number(connection.mirrorPhotoCount) > 0)
+                return qsTr("Offline · %L1 thumbnails · no cached originals")
+                    .arg(connection.mirrorPhotoCount)
+            return qsTr("Offline · no local cache")
         case "synchronizing":
-            return qsTr("Synchronizing…");
+            if (Number(connection.syncPageCount) === 0)
+                return qsTr("Connecting…");
+            return qsTr("Synchronizing · %L1 pages · %L2 photos · %L3 previews checked")
+                .arg(connection.syncPageCount)
+                .arg(connection.syncPhotoCount)
+                .arg(connection.syncPreviewCompletedCount);
         case "synchronized":
-            return qsTr("Up to date · %L1 photos").arg(connection.photoCount);
+            return qsTr("Online · %L1 photos · %L2 cached originals")
+                .arg(connection.mirrorPhotoCount)
+                .arg(connection.cachedOriginalCount);
+        case "synchronized-preview-limited":
+            return qsTr("Up to date · %L1 photos · %L2 previews unavailable")
+                .arg(connection.photoCount)
+                .arg(connection.syncPreviewFailureCount);
         case "connection-saved":
             return qsTr("Saved locally · synchronization queued");
         case "token-required":
             return qsTr("Access token unavailable · reconnect this Library");
         case "sync-failed":
+            if (Number(connection.cachedOriginalCount) > 0)
+                return qsTr("Offline · %L1 cached originals remain available")
+                    .arg(connection.cachedOriginalCount)
             return qsTr("Offline · cached thumbnails remain available");
         case "authorization-failed":
             return qsTr("Access token does not match this server · edit the connection");
@@ -42,8 +63,18 @@ ColumnLayout {
             return qsTr("Local proxy cache could not be opened");
         case "remote-original-unavailable":
             return qsTr("Browsing only · original downloads are disabled");
+        case "preparing-cached-original":
+            return qsTr("Preparing cached original…")
+        case "remote-server-offline":
+            return Number(connection.cachedOriginalCount) > 0
+                ? qsTr("Offline · cached originals remain available")
+                : qsTr("Offline · this original is not cached")
         default:
-            return connection.hasCachedServer ? qsTr("Offline cache · %L1 photos").arg(connection.photoCount) : qsTr("Ready to synchronize");
+            return connection.hasCachedServer
+                ? qsTr("Local mirror · %L1 photos · %L2 cached originals")
+                    .arg(connection.mirrorPhotoCount)
+                    .arg(connection.cachedOriginalCount)
+                : qsTr("Ready to synchronize");
         }
     }
 
@@ -51,7 +82,8 @@ ColumnLayout {
         const code = String(connection.statusCode);
         if (code.indexOf("failed") >= 0 || code === "token-required" || code === "server-busy")
             return Theme.dangerText;
-        if (code === "synchronized" || code === "offline-ready")
+        if (code === "synchronized" || code === "synchronized-preview-limited"
+                || code === "offline-ready")
             return Theme.successText;
         return Theme.textMuted;
     }

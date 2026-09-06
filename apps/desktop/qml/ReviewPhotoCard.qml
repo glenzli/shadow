@@ -42,6 +42,11 @@ Item {
     readonly property int visualWidth: Number(entry.visualWidth || 0)
     readonly property int visualHeight: Number(entry.visualHeight || 0)
     readonly property string visualSource: String(entry.visualSource || "")
+    readonly property bool visualAutoTransform: Boolean(entry.visualAutoTransform)
+    readonly property string localBackingPhotoId:
+        String(entry.localBackingPhotoId || "")
+    readonly property string localBackingRepresentationId:
+        String(entry.localBackingRepresentationId || "")
     readonly property bool visualLoadFailed: thumbnail.status === Image.Error
     readonly property bool remotePreviewUnavailable: isRemote
         && (visualSource.length === 0 || visualLoadFailed)
@@ -49,6 +54,8 @@ Item {
         && remoteConnectionId.length > 0
         && workspace.remoteLibraryConnectionOffline(remoteConnectionId)
     readonly property bool hasMetadata: Boolean(entry.hasMetadata)
+    readonly property int metadataSchemaVersion:
+        Number(entry.metadataSchemaVersion || 0)
     readonly property string cameraMake: String(entry.cameraMake || "")
     readonly property string cameraModel: String(entry.cameraModel || "")
     readonly property string lensMake: String(entry.lensMake || "")
@@ -61,6 +68,15 @@ Item {
     readonly property real focalLength35mm: Number(entry.focalLength35mm || 0)
     readonly property int rawWidth: Number(entry.rawWidth || 0)
     readonly property int rawHeight: Number(entry.rawHeight || 0)
+    readonly property int imageWidth: Number(entry.imageWidth || 0)
+    readonly property int imageHeight: Number(entry.imageHeight || 0)
+    readonly property bool hasOrientation: Boolean(entry.hasOrientation)
+    readonly property int orientation: Number(entry.orientation || 0)
+    readonly property bool hasCoordinates: Boolean(entry.hasCoordinates)
+    readonly property real latitude: Number(entry.latitude || 0)
+    readonly property real longitude: Number(entry.longitude || 0)
+    readonly property bool hasAltitude: Boolean(entry.hasAltitude)
+    readonly property real altitudeMeters: Number(entry.altitudeMeters || 0)
     readonly property int sensorBits: Number(entry.sensorBits || 0)
     readonly property string cfaPattern: String(entry.cfaPattern || "")
     readonly property string dngVersion: String(entry.dngVersion || "")
@@ -143,6 +159,7 @@ Item {
             anchors.bottom: caption.top
             anchors.bottomMargin: -card.surfaceRadius
             source: card.visualSource
+            autoTransform: card.visualAutoTransform
             radius: card.surfaceRadius
             // The card is an edge-to-edge browsing surface. Its geometry still
             // follows visualWidth/visualHeight, while crop avoids letterboxed

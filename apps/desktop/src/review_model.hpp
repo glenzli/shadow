@@ -55,6 +55,9 @@ struct ReviewItem final {
     /// Direct `file:` URL for a verified client-local remote proxy. Local
     /// Catalog rows continue to use the authenticated image-provider handle.
     QString visual_source_override;
+    /// True only when the encoded visual still carries an orientation transform
+    /// that the presentation image must apply.
+    bool visual_auto_transform = false;
     bool is_remote = false;
     /// The authoritative original remains remote even when a verified local
     /// cache object can satisfy editing without contacting its server.
@@ -66,6 +69,10 @@ struct ReviewItem final {
     QString remote_photo_id;
     QString remote_representation_id;
     QString remote_preview_unavailable_reason;
+    /// Export/edit backing identity. The remote presentation identity above
+    /// remains stable after materialization.
+    QString local_backing_photo_id;
+    QString local_backing_representation_id;
     quint64 decision_head_sequence = 0;
     QString decision_flag = QStringLiteral("unflagged");
     int decision_rating = 0;
@@ -82,6 +89,7 @@ struct ReviewItem final {
     std::uint32_t visual_height = 0;
     bool has_visual = false;
     bool has_metadata = false;
+    std::uint32_t metadata_schema_version = 0;
     QString camera_make;
     QString camera_model;
     QString lens_make;
@@ -99,6 +107,15 @@ struct ReviewItem final {
     double focal_length_35mm = 0.0;
     std::uint32_t raw_width = 0;
     std::uint32_t raw_height = 0;
+    std::uint32_t image_width = 0;
+    std::uint32_t image_height = 0;
+    bool has_orientation = false;
+    std::int32_t orientation = 0;
+    bool has_coordinates = false;
+    double latitude_degrees = 0.0;
+    double longitude_degrees = 0.0;
+    bool has_altitude = false;
+    double altitude_meters = 0.0;
     std::uint32_t sensor_bits = 0;
     QString cfa_pattern;
     QString dng_version;
@@ -138,7 +155,9 @@ class ReviewModel final : public QAbstractListModel {
         VisualWidthRole,
         VisualHeightRole,
         VisualSourceRole,
+        VisualAutoTransformRole,
         HasMetadataRole,
+        MetadataSchemaVersionRole,
         CameraMakeRole,
         CameraModelRole,
         LensMakeRole,
@@ -153,6 +172,15 @@ class ReviewModel final : public QAbstractListModel {
         FocalLength35mmRole,
         RawWidthRole,
         RawHeightRole,
+        ImageWidthRole,
+        ImageHeightRole,
+        HasOrientationRole,
+        OrientationRole,
+        HasCoordinatesRole,
+        LatitudeRole,
+        LongitudeRole,
+        HasAltitudeRole,
+        AltitudeMetersRole,
         SensorBitsRole,
         CfaPatternRole,
         DngVersionRole,
@@ -183,6 +211,8 @@ class ReviewModel final : public QAbstractListModel {
         RemotePhotoIdRole,
         RemoteRepresentationIdRole,
         RemotePreviewUnavailableReasonRole,
+        LocalBackingPhotoIdRole,
+        LocalBackingRepresentationIdRole,
     };
     Q_ENUM(Role)
 

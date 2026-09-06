@@ -51,6 +51,7 @@ Item {
         anchors.margins: 20
         anchors.bottomMargin: 16
         source: root.review.selectedVisualSource
+        autoTransform: root.review.selectedVisualAutoTransform
         fillMode: Image.PreserveAspectFit
         asynchronous: true
         cache: true
@@ -185,6 +186,7 @@ Item {
                 required property int visualWidth
                 required property int visualHeight
                 required property string visualSource
+                required property bool visualAutoTransform
                 required property bool hasMetadata
                 required property string cameraMake
                 required property string cameraModel
@@ -198,6 +200,18 @@ Item {
                 required property real focalLength35mm
                 required property int rawWidth
                 required property int rawHeight
+                required property int imageWidth
+                required property int imageHeight
+                required property bool hasOrientation
+                required property int orientation
+                required property bool hasCoordinates
+                required property real latitude
+                required property real longitude
+                required property bool hasAltitude
+                required property real altitudeMeters
+                required property int metadataSchemaVersion
+                required property string localBackingPhotoId
+                required property string localBackingRepresentationId
                 required property int sensorBits
                 required property string cfaPattern
                 required property string dngVersion
@@ -235,6 +249,7 @@ Item {
                 ShadowRoundedImage {
                     anchors.fill: parent
                     source: filmCard.visualSource
+                    autoTransform: filmCard.visualAutoTransform
                     radius: filmCard.radius
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true

@@ -1425,6 +1425,55 @@
     )
 
     add_executable(
+        shadow-precision-color-mixer-contract-test
+        tests/precision_color_mixer_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-color-mixer-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-precision-color-mixer-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test
+    )
+    qt_add_qml_module(
+        shadow-precision-color-mixer-contract-test
+        URI Shadow.PrecisionColorMixerContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/HueCurveEditor.qml
+            qml/PrecisionColorMixer.qml
+            qml/ShadowAdjustmentSection.qml
+            qml/ShadowIcon.qml
+            qml/ShadowIconButton.qml
+            qml/ShadowInlineSlider.qml
+            qml/ShadowSlider.qml
+            qml/ShadowTabButton.qml
+            qml/Theme.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-color-mixer-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-color-mixer-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-color-mixer-contract
+        COMMAND shadow-precision-color-mixer-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-color-mixer-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-precision-canvas-status-overlays-contract-test
         tests/precision_canvas_status_overlays_contract_test.cpp
     )

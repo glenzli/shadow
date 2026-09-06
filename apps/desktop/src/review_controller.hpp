@@ -537,6 +537,7 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void syncRemoteLibrary(const QString& connection_id);
     Q_INVOKABLE void syncAllRemoteLibraries();
     Q_INVOKABLE void materializeRemotePhoto(const QString& photo_id);
+    Q_INVOKABLE bool prepareRemoteExport(const QVariantList& targets);
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void refreshVisibleLibrary();
     Q_INVOKABLE void refreshLibraryFacets();
@@ -688,8 +689,12 @@ class ReviewController final : public QObject {
         const QString& photoId,
         const QString& representationId,
         const QString& sourcePath,
-        const QString& title
+        const QString& title,
+        const QVariantMap& captureMetadata
     );
+    void remoteInspectionChanged(const QString& photoId, const QVariantMap& inspection);
+    void remoteExportReady(const QVariantList& targets);
+    void remoteExportPreparationFailed(const QString& statusCode);
     void decisionUndone();
 
   private:

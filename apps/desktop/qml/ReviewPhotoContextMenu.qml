@@ -484,12 +484,12 @@ Popup {
             text: qsTr("Export photo")
             iconSource: "qrc:/icons/export.svg"
             actionEnabled: root.hasWorkspace
-                && !root.workspace.selectionContainsRemote()
                 && root.workspace.selectedPhotoCount > 0
+                && !root.workspace.controller.remoteLibraryBusy
             onActivated: {
                 if (!root.hasWorkspace)
                     return
-                root.workspace.exportRequested(root.workspace.batchSelectionTargets())
+                root.workspace.requestExport(root.workspace.batchSelectionTargets())
                 root.close()
             }
         }

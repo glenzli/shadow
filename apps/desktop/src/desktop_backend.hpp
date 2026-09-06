@@ -53,6 +53,14 @@ class DesktopBackend final {
         const QString& server_address,
         const QString& authorization
     ) const;
+    [[nodiscard]] BackendRemoteLibrarySyncStart beginRemoteLibrarySync(
+        const QString& connection_id,
+        const QString& server_address,
+        const QString& authorization
+    ) const;
+    [[nodiscard]] BackendRemoteLibrarySyncStep
+    stepRemoteLibrarySync(std::uint64_t job_id) const;
+    [[nodiscard]] bool cancelRemoteLibrarySync(std::uint64_t job_id) const;
     void setRemoteLibraryReviewState(
         const QString& connection_id,
         const QString& remote_photo_id,

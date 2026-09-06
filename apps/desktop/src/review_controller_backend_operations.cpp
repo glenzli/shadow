@@ -442,12 +442,26 @@ remote_library_operations(const std::shared_ptr<DesktopBackend>& backend) {
         .snapshot = [backend](
                         const QString& connection_id
                     ) { return backend->remoteLibrarySnapshot(connection_id); },
-        .sync =
+        .begin_sync =
             [backend](
                 const QString& connection_id,
                 const QString& server_address,
                 const QString& authorization
-            ) { return backend->syncRemoteLibrary(connection_id, server_address, authorization); },
+            ) {
+                return backend->beginRemoteLibrarySync(
+                    connection_id,
+                    server_address,
+                    authorization
+                );
+            },
+        .sync_step =
+            [backend](const std::uint64_t job_id) {
+                return backend->stepRemoteLibrarySync(job_id);
+            },
+        .cancel_sync =
+            [backend](const std::uint64_t job_id) {
+                return backend->cancelRemoteLibrarySync(job_id);
+            },
         .set_review_state =
             [backend](
                 const QString& connection_id,

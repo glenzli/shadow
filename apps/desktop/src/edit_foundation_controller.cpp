@@ -143,6 +143,8 @@ void EditController::setFoundationWhiteBalanceTemperature(
     const int temperature_kelvin
 ) {
     if (!active_ || interactionLocked()
+        || (grade_stack_.foundation.raw_white_balance_mode == 0U
+            && !grade_stack_.foundation.as_shot_white_balance_available)
         || temperature_kelvin < MIN_TEMPERATURE_KELVIN
         || temperature_kelvin > MAX_TEMPERATURE_KELVIN
         || (grade_stack_.foundation.raw_white_balance_mode == 1U
@@ -159,6 +161,8 @@ void EditController::setFoundationWhiteBalanceTemperature(
 
 void EditController::setFoundationWhiteBalanceTint(const int tint) {
     if (!active_ || interactionLocked() || tint < MIN_TINT || tint > MAX_TINT
+        || (grade_stack_.foundation.raw_white_balance_mode == 0U
+            && !grade_stack_.foundation.as_shot_white_balance_available)
         || (grade_stack_.foundation.raw_white_balance_mode == 1U
             && grade_stack_.foundation.tint == static_cast<std::int16_t>(tint))) {
         return;

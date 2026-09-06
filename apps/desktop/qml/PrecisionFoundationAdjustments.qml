@@ -72,6 +72,10 @@ ColumnLayout {
 
         ShadowSlider {
             objectName: "foundationWhiteBalanceTemperatureSlider"
+            visible: !foundation.editor.foundationWhiteBalanceAtCameraValue
+                || foundation.editor.foundationWhiteBalanceCameraValueAvailable
+            enabled: visible && foundation.editor.active
+                && !foundation.editor.stateBusy
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
@@ -99,6 +103,10 @@ ColumnLayout {
 
         ShadowSlider {
             objectName: "foundationWhiteBalanceTintSlider"
+            visible: !foundation.editor.foundationWhiteBalanceAtCameraValue
+                || foundation.editor.foundationWhiteBalanceCameraValueAvailable
+            enabled: visible && foundation.editor.active
+                && !foundation.editor.stateBusy
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14

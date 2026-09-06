@@ -10,8 +10,10 @@
 #include <QHash>
 #include <QObject>
 #include <QQueue>
+#include <QSet>
 #include <QString>
 #include <QVariantList>
+#include <QVariantMap>
 
 #include <cstdint>
 #include <functional>
@@ -29,9 +31,14 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
   public:
     struct Operations final {
         std::function<BackendRemoteLibrarySnapshot(const QString&)> snapshot;
-        std::function<
-            BackendRemoteLibrarySyncResult(const QString&, const QString&, const QString&)>
-            sync;
+        std::function<BackendRemoteLibrarySyncStart(
+            const QString&,
+            const QString&,
+            const QString&
+        )>
+            begin_sync;
+        std::function<BackendRemoteLibrarySyncStep(std::uint64_t)> sync_step;
+        std::function<bool(std::uint64_t)> cancel_sync;
         std::function<void(
             const QString&,
             const QString&,
@@ -71,6 +78,7 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     [[nodiscard]] bool materializing() const noexcept;
     [[nodiscard]] bool secureStorageAvailable() const noexcept;
     [[nodiscard]] bool tokenStored() const noexcept;
+    [[nodiscard]] bool connected() const noexcept;
     [[nodiscard]] QVariantList connections() const;
     [[nodiscard]] QString serverAddress() const;
     [[nodiscard]] bool hasServer() const noexcept;
@@ -94,6 +102,10 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     void syncAll();
     void reapplyRemoteItems();
     void materializeForEdit(const QString& presentation_photo_id);
+    /// Resolves a mixed local/remote selection into Catalog-authoritative local
+    /// export targets. Remote rows keep their presentation identity in the
+    /// model; only the emitted targets use the materialized backing identity.
+    [[nodiscard]] bool prepareExport(const QVariantList& targets);
     [[nodiscard]] bool
     setDecision(const QString& presentation_photo_id, BackendReviewDecisionFlag flag, int rating);
     [[nodiscard]] bool
@@ -106,21 +118,45 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
         const QString& photoId,
         const QString& representationId,
         const QString& sourcePath,
-        const QString& title
+        const QString& title,
+        const QVariantMap& captureMetadata
     );
+    void remoteInspectionChanged(const QString& photoId, const QVariantMap& inspection);
+    void exportReady(const QVariantList& targets);
+    void exportPreparationFailed(const QString& statusCode);
     void localLibraryRefreshRequested();
 
   private:
+    enum class MaterializationPurpose : std::uint8_t {
+        Edit,
+        Export,
+    };
+
     enum class SnapshotTaskKind : std::uint8_t {
         LoadCached,
-        Sync,
+        BeginSync,
+        SyncStep,
+    };
+
+    struct SyncProgress final {
+        std::uint64_t job_id = 0;
+        std::uint64_t page_count = 0;
+        std::uint64_t photo_count = 0;
+        std::uint64_t preview_completed_count = 0;
+        std::uint64_t downloaded_previews = 0;
+        std::uint64_t preview_failures = 0;
+        std::uint64_t removed = 0;
+        bool manifest_complete = false;
+        QString diagnostic;
     };
 
     struct SnapshotTaskResult final {
         SnapshotTaskKind kind = SnapshotTaskKind::LoadCached;
         QString connection_id;
         BackendRemoteLibrarySnapshot snapshot;
-        BackendRemoteLibrarySyncResult sync_result;
+        BackendRemoteLibrarySyncStart sync_start;
+        BackendRemoteLibrarySyncStep sync_step;
+        std::uint64_t sync_epoch = 0;
         QString error;
     };
 
@@ -153,7 +189,9 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
         SnapshotTaskKind kind,
         QString connection_id,
         QString server_address,
-        QString authorization
+        QString authorization,
+        std::uint64_t job_id,
+        std::uint64_t sync_epoch
     );
     [[nodiscard]] static MaterializeTaskResult runMaterializeTask(
         Operations operations,
@@ -170,7 +208,18 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     void finishSnapshotTask();
     void finishMaterializeTask();
     void finishMutationTask();
+    [[nodiscard]] bool startMaterialization(
+        const QString& presentation_photo_id,
+        MaterializationPurpose purpose
+    );
+    void continueExportPreparation();
+    void failExportPreparation(const QString& status_code);
     void startNextSnapshotTask();
+    void enqueueSyncStep(
+        const QString& connection_id,
+        std::uint64_t job_id,
+        std::uint64_t sync_epoch
+    );
     void startMutationIfIdle();
     void applySnapshot(const QString& connection_id, BackendRemoteLibrarySnapshot snapshot);
     [[nodiscard]] QVector<ReviewItem> projectedRemoteItems() const;
@@ -201,18 +250,28 @@ class ReviewRemoteLibraryCoordinator final : public QObject {
     QHash<QString, QString> photo_connection_ids_;
     QHash<QString, QString> connection_status_codes_;
     QHash<QString, QString> connection_diagnostics_;
+    QHash<QString, SyncProgress> sync_progress_;
+    QHash<QString, std::uint64_t> active_sync_job_ids_;
+    QHash<QString, std::uint64_t> latest_sync_epochs_;
+    QSet<QString> online_connection_ids_;
     QString status_code_;
     QString diagnostic_text_;
     QString active_snapshot_connection_id_;
     QString materializing_connection_id_;
     QString materializing_photo_id_;
+    MaterializationPurpose materialization_purpose_ = MaterializationPurpose::Edit;
+    QVariantList pending_export_targets_;
+    qsizetype pending_export_index_ = 0;
     bool mutation_task_active_ = false;
     bool started_ = false;
+    std::uint64_t next_sync_epoch_ = 0;
     struct SnapshotRequest final {
         SnapshotTaskKind kind = SnapshotTaskKind::LoadCached;
         QString connection_id;
         QString server_address;
         QString authorization;
+        std::uint64_t job_id = 0;
+        std::uint64_t sync_epoch = 0;
     };
     QQueue<SnapshotRequest> snapshot_queue_;
     QQueue<MutationRequest> mutation_queue_;

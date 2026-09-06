@@ -96,6 +96,9 @@ void append_role(QList<int>& roles, const int role) {
     if (current.visual_source_override != replacement.visual_source_override) {
         append_role(roles, ReviewModel::VisualSourceRole);
     }
+    if (current.visual_auto_transform != replacement.visual_auto_transform) {
+        append_role(roles, ReviewModel::VisualAutoTransformRole);
+    }
     if (current.is_remote != replacement.is_remote) {
         append_role(roles, ReviewModel::IsRemoteRole);
     }
@@ -118,6 +121,12 @@ void append_role(QList<int>& roles, const int role) {
         != replacement.remote_preview_unavailable_reason) {
         append_role(roles, ReviewModel::RemotePreviewUnavailableReasonRole);
         append_role(roles, ReviewModel::VisualErrorRole);
+    }
+    if (current.local_backing_photo_id != replacement.local_backing_photo_id) {
+        append_role(roles, ReviewModel::LocalBackingPhotoIdRole);
+    }
+    if (current.local_backing_representation_id != replacement.local_backing_representation_id) {
+        append_role(roles, ReviewModel::LocalBackingRepresentationIdRole);
     }
     if (current.title != replacement.title) {
         append_role(roles, ReviewModel::TitleRole);
@@ -143,6 +152,8 @@ void append_role(QList<int>& roles, const int role) {
     }
     if (current.has_metadata != replacement.has_metadata)
         append_role(roles, ReviewModel::HasMetadataRole);
+    if (current.metadata_schema_version != replacement.metadata_schema_version)
+        append_role(roles, ReviewModel::MetadataSchemaVersionRole);
     if (current.camera_make != replacement.camera_make)
         append_role(roles, ReviewModel::CameraMakeRole);
     if (current.camera_model != replacement.camera_model)
@@ -171,6 +182,24 @@ void append_role(QList<int>& roles, const int role) {
         append_role(roles, ReviewModel::RawWidthRole);
     if (current.raw_height != replacement.raw_height)
         append_role(roles, ReviewModel::RawHeightRole);
+    if (current.image_width != replacement.image_width)
+        append_role(roles, ReviewModel::ImageWidthRole);
+    if (current.image_height != replacement.image_height)
+        append_role(roles, ReviewModel::ImageHeightRole);
+    if (current.has_orientation != replacement.has_orientation)
+        append_role(roles, ReviewModel::HasOrientationRole);
+    if (current.orientation != replacement.orientation)
+        append_role(roles, ReviewModel::OrientationRole);
+    if (current.has_coordinates != replacement.has_coordinates)
+        append_role(roles, ReviewModel::HasCoordinatesRole);
+    if (current.latitude_degrees != replacement.latitude_degrees)
+        append_role(roles, ReviewModel::LatitudeRole);
+    if (current.longitude_degrees != replacement.longitude_degrees)
+        append_role(roles, ReviewModel::LongitudeRole);
+    if (current.has_altitude != replacement.has_altitude)
+        append_role(roles, ReviewModel::HasAltitudeRole);
+    if (current.altitude_meters != replacement.altitude_meters)
+        append_role(roles, ReviewModel::AltitudeMetersRole);
     if (current.sensor_bits != replacement.sensor_bits)
         append_role(roles, ReviewModel::SensorBitsRole);
     if (current.cfa_pattern != replacement.cfa_pattern)
@@ -304,8 +333,12 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
             generation_.load(std::memory_order_acquire),
             ReviewVisualLifetime::Grid
         );
+    case VisualAutoTransformRole:
+        return item.visual_auto_transform;
     case HasMetadataRole:
         return item.has_metadata;
+    case MetadataSchemaVersionRole:
+        return QVariant::fromValue(item.metadata_schema_version);
     case CameraMakeRole:
         return item.camera_make;
     case CameraModelRole:
@@ -334,6 +367,24 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return QVariant::fromValue(item.raw_width);
     case RawHeightRole:
         return QVariant::fromValue(item.raw_height);
+    case ImageWidthRole:
+        return QVariant::fromValue(item.image_width);
+    case ImageHeightRole:
+        return QVariant::fromValue(item.image_height);
+    case HasOrientationRole:
+        return item.has_orientation;
+    case OrientationRole:
+        return item.orientation;
+    case HasCoordinatesRole:
+        return item.has_coordinates;
+    case LatitudeRole:
+        return item.latitude_degrees;
+    case LongitudeRole:
+        return item.longitude_degrees;
+    case HasAltitudeRole:
+        return item.has_altitude;
+    case AltitudeMetersRole:
+        return item.altitude_meters;
     case SensorBitsRole:
         return QVariant::fromValue(item.sensor_bits);
     case CfaPatternRole:
@@ -394,6 +445,10 @@ QVariant ReviewModel::data(const QModelIndex& index, const int role) const {
         return item.remote_representation_id;
     case RemotePreviewUnavailableReasonRole:
         return item.remote_preview_unavailable_reason;
+    case LocalBackingPhotoIdRole:
+        return item.local_backing_photo_id;
+    case LocalBackingRepresentationIdRole:
+        return item.local_backing_representation_id;
     default:
         return {};
     }
@@ -417,7 +472,9 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {VisualWidthRole, "visualWidth"},
         {VisualHeightRole, "visualHeight"},
         {VisualSourceRole, "visualSource"},
+        {VisualAutoTransformRole, "visualAutoTransform"},
         {HasMetadataRole, "hasMetadata"},
+        {MetadataSchemaVersionRole, "metadataSchemaVersion"},
         {CameraMakeRole, "cameraMake"},
         {CameraModelRole, "cameraModel"},
         {LensMakeRole, "lensMake"},
@@ -432,6 +489,15 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {FocalLength35mmRole, "focalLength35mm"},
         {RawWidthRole, "rawWidth"},
         {RawHeightRole, "rawHeight"},
+        {ImageWidthRole, "imageWidth"},
+        {ImageHeightRole, "imageHeight"},
+        {HasOrientationRole, "hasOrientation"},
+        {OrientationRole, "orientation"},
+        {HasCoordinatesRole, "hasCoordinates"},
+        {LatitudeRole, "latitude"},
+        {LongitudeRole, "longitude"},
+        {HasAltitudeRole, "hasAltitude"},
+        {AltitudeMetersRole, "altitudeMeters"},
         {SensorBitsRole, "sensorBits"},
         {CfaPatternRole, "cfaPattern"},
         {DngVersionRole, "dngVersion"},
@@ -462,6 +528,8 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
         {RemotePhotoIdRole, "remotePhotoId"},
         {RemoteRepresentationIdRole, "remoteRepresentationId"},
         {RemotePreviewUnavailableReasonRole, "remotePreviewUnavailableReason"},
+        {LocalBackingPhotoIdRole, "localBackingPhotoId"},
+        {LocalBackingRepresentationIdRole, "localBackingRepresentationId"},
     };
 }
 

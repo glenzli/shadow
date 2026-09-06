@@ -347,6 +347,40 @@ int main(int argc, char* argv[]) {
         || !require(!progress->property("visible").toBool(), "idle state hides progress")) {
         return EXIT_FAILURE;
     }
+
+    editor.foundation_temperature = 5'500;
+    editor.foundation_tint = 0;
+    editor.foundation_at_camera = true;
+    editor.foundation_camera_value_available = false;
+    emit editor.valuesChanged();
+    drainBindings();
+    if (!require(
+            !temperature->property("visible").toBool() && !tint->property("visible").toBool(),
+            "an unavailable camera white balance exposes no placeholder absolute values"
+        )
+        || !require(
+            !temperature->property("enabled").toBool() && !tint->property("enabled").toBool(),
+            "an unavailable camera white balance cannot author placeholder Kelvin or tint"
+        )) {
+        return EXIT_FAILURE;
+    }
+    editor.foundation_at_camera = false;
+    emit editor.valuesChanged();
+    drainBindings();
+    if (!require(
+            temperature->property("visible").toBool() && tint->property("visible").toBool()
+                && temperature->property("enabled").toBool() && tint->property("enabled").toBool(),
+            "an existing authored absolute white balance remains editable without camera metadata"
+        )) {
+        return EXIT_FAILURE;
+    }
+    editor.foundation_temperature = 6'200;
+    editor.foundation_tint = -8;
+    editor.foundation_at_camera = true;
+    editor.foundation_camera_value_available = true;
+    emit editor.valuesChanged();
+    drainBindings();
+
     if (!require(
             QMetaObject::invokeMethod(automatic_white_balance, "clicked"),
             "automatic RAW white-balance button can be activated"

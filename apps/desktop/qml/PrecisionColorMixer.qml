@@ -95,9 +95,21 @@ ShadowAdjustmentSection {
         Layout.rightMargin: 14
         Layout.preferredHeight: visible ? 28 : 0
         background: Item {}
-        ShadowTabButton { text: qsTr("HUE"); compact: true }
-        ShadowTabButton { text: qsTr("CHROMA"); compact: true }
-        ShadowTabButton { text: qsTr("LIGHTNESS"); compact: true }
+        ShadowTabButton {
+            objectName: "colorMixerHueTab"
+            text: qsTr("HUE")
+            compact: true
+        }
+        ShadowTabButton {
+            objectName: "colorMixerChromaTab"
+            text: qsTr("CHROMA")
+            compact: true
+        }
+        ShadowTabButton {
+            objectName: "colorMixerLightnessTab"
+            text: qsTr("LIGHTNESS")
+            compact: true
+        }
     }
 
     Repeater {
@@ -109,6 +121,8 @@ ShadowAdjustmentSection {
             required property var modelData
             readonly property string component:
                 mixer.componentForTab(mixerTabs.currentIndex)
+            objectName: "colorMixerBandSlider_" + hueBandSlider.component
+                + "_" + hueBandSlider.index
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
@@ -128,16 +142,37 @@ ShadowAdjustmentSection {
             decimals: 0
             displayMultiplier: 100
             suffix: "%"
-            value: mixer.valueForBand(
-                hueBandSlider.index, hueBandSlider.component)
+            value: 0.0
+
+            function synchronizeFromEditor() {
+                if (hueBandSlider.gestureActive || hueBandSlider.valueEditing)
+                    return
+                hueBandSlider.value = mixer.valueForBand(
+                    hueBandSlider.index, hueBandSlider.component)
+            }
+
+            onComponentChanged: Qt.callLater(
+                hueBandSlider.synchronizeFromEditor)
+            Component.onCompleted: hueBandSlider.synchronizeFromEditor()
+
+            Connections {
+                target: mixer.editor
+                function onParametersChanged() {
+                    hueBandSlider.synchronizeFromEditor()
+                }
+            }
+
             onGestureStarted: mixer.editor.beginParameterEdit(
                 "color_mixer/" + hueBandSlider.component
                     + "/" + hueBandSlider.index)
             onEdited: value => mixer.editor.setColorMixerValue(
                 hueBandSlider.index, hueBandSlider.component, value)
-            onGestureFinished: mixer.editor.endParameterEdit(
-                "color_mixer/" + hueBandSlider.component
-                    + "/" + hueBandSlider.index)
+            onGestureFinished: {
+                mixer.editor.endParameterEdit(
+                    "color_mixer/" + hueBandSlider.component
+                        + "/" + hueBandSlider.index)
+                Qt.callLater(hueBandSlider.synchronizeFromEditor)
+            }
         }
     }
 

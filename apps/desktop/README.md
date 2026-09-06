@@ -178,8 +178,16 @@ Application startup is split from environment-driven automation:
   thin compatibility wrapper for focused component loading rather than a second policy owner.
 - [`src/review_remote_library_coordinator.*`](src/review_remote_library_coordinator.hpp) owns the
   complete desktop remote-Library lifecycle: multi-mirror loading, per-connection local-token routing,
-  background manifest synchronization, remote curation persistence, and verified on-demand
-  original materialization. [`src/remote_library_connection_store.*`](src/remote_library_connection_store.hpp)
+  local-first startup projection followed by a live progressive reachability/synchronization check,
+  page-wise background manifest synchronization with independent preview progress, remote curation
+  persistence, and verified on-demand
+  original materialization for editing or export. Materialization refreshes provider-neutral
+  metadata from the verified local source when inspection is available; inspection failure keeps
+  the verified original usable and retains manifest metadata with a diagnostic. Connection
+  presentation distinguishes mirrored thumbnails, resident originals, configuration, and current
+  reachability. Precision receives an edit-scoped metadata snapshot keyed to the materialized local
+  representation, so later Review selection changes cannot replace the active photo's capture data.
+  [`src/remote_library_connection_store.*`](src/remote_library_connection_store.hpp)
   owns ordered stable connection identities and migration from the former singleton setting;
   secrets never enter that registry. [`src/review_controller_remote_library.cpp`](src/review_controller_remote_library.cpp)
   is the thin QML facade routing owner. [`qml/LibraryRemoteConnectionsPane.qml`](qml/LibraryRemoteConnectionsPane.qml)
@@ -190,8 +198,10 @@ Application startup is split from environment-driven automation:
   A verified downloaded original remains a remote-origin card with explicit cached residency and
   can reopen offline from that cache; materialization never silently reclassifies it as a local
   folder asset.
-  Remote rows participate in locally mirrored curation filters but remain outside local-only
-  albums, keywords, shared-node application, export, and metadata-facet scopes until materialized.
+  Remote rows participate in locally mirrored curation filters. Albums, keywords, shared-node
+  application, and metadata facets remain local-only; export resolves each remote target to an
+  independently tracked local backing identity, materializing it first when necessary without
+  changing the remote presentation identity.
 - [`src/library_server_controller.*`](src/library_server_controller.hpp) owns the independent
   lifecycle for sharing this Mac's folders: durable configuration, user-private local authorization,
   asynchronous start/stop/rescan/cache-reset admission, and bounded
@@ -319,7 +329,7 @@ Its implementation follows the same navigation:
   conservative cache inventory/maintenance.
 - [`src/desktop_backend_remote_library.cpp`](src/desktop_backend_remote_library.cpp) owns the
   bounded Qt/CXX projection for cached remote snapshots, synchronization, review-state mutation,
-  and verified local original materialization.
+  verified local original materialization, and its bounded metadata/diagnostic result.
 - [`src/desktop_backend_history.cpp`](src/desktop_backend_history.cpp) and
   [`src/backend/history_projection.*`](src/backend/history_projection.hpp) own the bounded CXX/Qt
   projection for per-photo Recipe history, Library-wide commits, refs, keyset cursors, and semantic

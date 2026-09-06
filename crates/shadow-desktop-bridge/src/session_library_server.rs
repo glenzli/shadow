@@ -55,5 +55,10 @@ pub(crate) fn project_snapshot(snapshot: LibraryServerSnapshot) -> ffi::FfiLibra
         cache_byte_len: snapshot.cache_byte_len,
         shared_root_count: snapshot.shared_root_count,
         serves_originals: snapshot.serves_originals,
+        index_state: snapshot.index_state,
+        discovered_file_count: snapshot.discovered_file_count,
+        inspection_completed_count: snapshot.inspection_completed_count,
+        published_preview_count: snapshot.published_preview_count,
+        index_diagnostic: snapshot.index_diagnostic,
     }
 }

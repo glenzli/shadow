@@ -43,7 +43,9 @@ project_photo(const shadow::desktop::FfiRemoteLibraryPhoto& source) {
         .preview_role = qstring(source.preview_role),
         .preview_width = source.preview_width,
         .preview_height = source.preview_height,
+        .preview_auto_transform = source.preview_auto_transform,
         .preview_unavailable_reason = qstring(source.preview_unavailable_reason),
+        .metadata_schema_version = source.metadata_schema_version,
         .has_captured_at = source.has_captured_at,
         .captured_at_unix_seconds = source.captured_at_unix_seconds,
         .camera_make = qstring(source.camera_make),
@@ -58,9 +60,21 @@ project_photo(const shadow::desktop::FfiRemoteLibraryPhoto& source) {
         .aperture_f_number = source.aperture_f_number,
         .has_focal_length = source.has_focal_length,
         .focal_length_mm = source.focal_length_mm,
+        .has_focal_length_35mm = source.has_focal_length_35mm,
+        .focal_length_35mm = source.focal_length_35mm,
         .has_raw_dimensions = source.has_raw_dimensions,
         .raw_width = source.raw_width,
         .raw_height = source.raw_height,
+        .has_image_dimensions = source.has_image_dimensions,
+        .image_width = source.image_width,
+        .image_height = source.image_height,
+        .has_orientation = source.has_orientation,
+        .orientation = source.orientation,
+        .has_coordinates = source.has_coordinates,
+        .latitude_degrees = source.latitude_degrees,
+        .longitude_degrees = source.longitude_degrees,
+        .has_altitude = source.has_altitude,
+        .altitude_meters = source.altitude_meters,
         .decision_flag = decision_flag(source.decision_flag),
         .decision_rating = source.decision_rating,
         .liked = source.liked,
@@ -108,8 +122,48 @@ BackendRemoteLibrarySyncResult DesktopBackend::syncRemoteLibrary(
         .page_count = result.page_count,
         .photo_count = result.photo_count,
         .downloaded_previews = result.downloaded_previews,
+        .preview_failures = result.preview_failures,
         .removed = result.removed,
     };
+}
+
+BackendRemoteLibrarySyncStart DesktopBackend::beginRemoteLibrarySync(
+    const QString& connection_id,
+    const QString& server_address,
+    const QString& authorization
+) const {
+    const auto result = impl_->session->begin_remote_library_sync(
+        connection_id.toStdString(),
+        server_address.toStdString(),
+        authorization.toStdString()
+    );
+    return {
+        .job_id = result.job_id,
+        .snapshot = project_snapshot(result.snapshot),
+    };
+}
+
+BackendRemoteLibrarySyncStep
+DesktopBackend::stepRemoteLibrarySync(const std::uint64_t job_id) const {
+    const auto result = impl_->session->step_remote_library_sync(job_id);
+    return {
+        .job_id = result.job_id,
+        .snapshot = project_snapshot(result.snapshot),
+        .stage = qstring(result.stage),
+        .page_count = result.page_count,
+        .photo_count = result.photo_count,
+        .preview_completed_count = result.preview_completed_count,
+        .downloaded_previews = result.downloaded_previews,
+        .preview_failures = result.preview_failures,
+        .removed = result.removed,
+        .manifest_complete = result.manifest_complete,
+        .complete = result.complete,
+        .diagnostic = qstring(result.diagnostic),
+    };
+}
+
+bool DesktopBackend::cancelRemoteLibrarySync(const std::uint64_t job_id) const {
+    return impl_->session->cancel_remote_library_sync(job_id);
 }
 
 void DesktopBackend::setRemoteLibraryReviewState(
@@ -154,5 +208,36 @@ BackendRemoteLibraryMaterialization DesktopBackend::materializeRemoteLibraryPhot
         .local_source_path = qstring(result.local_source_path),
         .title = qstring(result.title),
         .reused_existing = result.reused_existing,
+        .inspection_diagnostic = qstring(result.inspection_diagnostic),
+        .metadata_schema_version = result.metadata_schema_version,
+        .has_captured_at = result.has_captured_at,
+        .captured_at_unix_seconds = result.captured_at_unix_seconds,
+        .camera_make = qstring(result.camera_make),
+        .camera_model = qstring(result.camera_model),
+        .lens_make = qstring(result.lens_make),
+        .lens_model = qstring(result.lens_model),
+        .has_iso_speed = result.has_iso_speed,
+        .iso_speed = result.iso_speed,
+        .has_exposure_time = result.has_exposure_time,
+        .exposure_time_seconds = result.exposure_time_seconds,
+        .has_aperture = result.has_aperture,
+        .aperture_f_number = result.aperture_f_number,
+        .has_focal_length = result.has_focal_length,
+        .focal_length_mm = result.focal_length_mm,
+        .has_focal_length_35mm = result.has_focal_length_35mm,
+        .focal_length_35mm = result.focal_length_35mm,
+        .has_raw_dimensions = result.has_raw_dimensions,
+        .raw_width = result.raw_width,
+        .raw_height = result.raw_height,
+        .has_image_dimensions = result.has_image_dimensions,
+        .image_width = result.image_width,
+        .image_height = result.image_height,
+        .has_orientation = result.has_orientation,
+        .orientation = result.orientation,
+        .has_coordinates = result.has_coordinates,
+        .latitude_degrees = result.latitude_degrees,
+        .longitude_degrees = result.longitude_degrees,
+        .has_altitude = result.has_altitude,
+        .altitude_meters = result.altitude_meters,
     };
 }

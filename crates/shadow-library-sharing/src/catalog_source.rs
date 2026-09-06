@@ -26,7 +26,8 @@ use crate::{
         MAX_ORIGINAL_CHUNK_BYTES, OriginalChunk, PreparedOriginal, PreviewUnavailableReason,
         RemoteError, RemoteErrorCode, RemoteOriginalIdentity, RemotePhotoManifest,
         RemotePhotoMetadata, RemotePhotoPage, RemotePreviewAvailability, RemotePreviewManifest,
-        RemotePreviewRole, RemoteRepresentationManifest, ServerCapabilities, ServerId, ServerInfo,
+        RemotePreviewPixelOrientation, RemotePreviewRole, RemoteRepresentationManifest,
+        ServerCapabilities, ServerId, ServerInfo,
     },
     server::{LibraryShareSource, remote_error},
 };
@@ -213,61 +214,45 @@ impl LibraryShareSource for CatalogShareSource {
         let mut source_cursor = after;
         let mut manifests = Vec::with_capacity(usize::from(limit));
         let mut allowed = Vec::new();
-        let next_source_cursor =
-            loop {
-                let remaining = usize::from(limit).saturating_sub(manifests.len());
-                if remaining == 0 {
-                    break source_cursor;
+        let next_source_cursor = loop {
+            let remaining = usize::from(limit).saturating_sub(manifests.len());
+            if remaining == 0 {
+                break source_cursor;
+            }
+            let page = catalog
+                .review_page(source_cursor.as_ref(), remaining)
+                .map_err(|error| catalog_remote_error(&error))?;
+            let page_next = page.next_cursor;
+            for item in page.items {
+                if !self.policy.allows_location(&item.location) {
+                    continue;
                 }
-                let page = catalog
-                    .review_page(source_cursor.as_ref(), remaining)
-                    .map_err(|error| catalog_remote_error(&error))?;
-                let page_next = page.next_cursor;
-                for item in page.items {
-                    if !self.policy.allows_location(&item.location) {
-                        continue;
-                    }
-                    let neutral_preview = neutral_preview(&catalog, &item)?;
-                    if let RemotePreviewAvailability::Available(manifest) = &neutral_preview {
-                        allowed.push((manifest.digest_blake3, manifest.clone()));
-                    }
-                    let metadata = item.metadata.as_ref().map_or_else(
-                        RemotePhotoMetadata::default,
-                        |metadata| RemotePhotoMetadata {
-                            captured_at_unix_seconds: nonzero_i64(
-                                metadata.captured_at_unix_seconds,
-                            ),
-                            camera_make: metadata.make.clone(),
-                            camera_model: metadata.model.clone(),
-                            lens_make: metadata.lens_make.clone(),
-                            lens_model: metadata.lens_model.clone(),
-                            iso_speed: positive_f64(metadata.iso_speed),
-                            exposure_time_seconds: positive_f64(metadata.exposure_time_seconds),
-                            aperture_f_number: positive_f64(metadata.aperture_f_number),
-                            focal_length_mm: positive_f64(metadata.focal_length_mm),
-                            raw_dimensions: (metadata.raw_dimensions.width != 0
-                                && metadata.raw_dimensions.height != 0)
-                                .then_some(metadata.raw_dimensions),
-                        },
-                    );
-                    let representations =
-                        remote_representations(&catalog, &self.policy, item.photo_id)?;
-                    manifests.push(RemotePhotoManifest {
-                        photo_id: item.photo_id,
-                        representation_id: item.representation_id,
-                        display_name: display_file_name(&item.location.display_path),
-                        source_byte_len: item.source.byte_len,
-                        source_modified_at_ms: item.source.modified_at_ms,
-                        metadata,
-                        preview: neutral_preview,
-                        representations,
-                    });
+                let neutral_preview = neutral_preview(&catalog, &item)?;
+                if let RemotePreviewAvailability::Available(manifest) = &neutral_preview {
+                    allowed.push((manifest.digest_blake3, manifest.clone()));
                 }
-                if manifests.len() == usize::from(limit) || page_next.is_none() {
-                    break page_next;
-                }
-                source_cursor = page_next;
-            };
+                let metadata = item
+                    .metadata
+                    .as_ref()
+                    .map_or_else(RemotePhotoMetadata::default, RemotePhotoMetadata::from);
+                let representations =
+                    remote_representations(&catalog, &self.policy, item.photo_id)?;
+                manifests.push(RemotePhotoManifest {
+                    photo_id: item.photo_id,
+                    representation_id: item.representation_id,
+                    display_name: display_file_name(&item.location.display_path),
+                    source_byte_len: item.source.byte_len,
+                    source_modified_at_ms: item.source.modified_at_ms,
+                    metadata,
+                    preview: neutral_preview,
+                    representations,
+                });
+            }
+            if manifests.len() == usize::from(limit) || page_next.is_none() {
+                break page_next;
+            }
+            source_cursor = page_next;
+        };
 
         let mut state = self.state.lock().map_err(lock_error)?;
         if state.cursors.len() >= MAXIMUM_CURSOR_LEASES {
@@ -586,6 +571,11 @@ fn remote_preview_manifest(record: &CachedArtifactRecord) -> RemotePreviewManife
         byte_len: record.artifact.blob_byte_len,
         codec: record.artifact.codec,
         dimensions: record.artifact.dimensions,
+        pixel_orientation: match record.artifact.role {
+            CachedArtifactRole::EmbeddedPreview => RemotePreviewPixelOrientation::EncodedMetadata,
+            CachedArtifactRole::GeneratedProxy => RemotePreviewPixelOrientation::DisplayOriented,
+            CachedArtifactRole::RecipePreview => unreachable!("Recipe previews are not shared"),
+        },
     }
 }
 
@@ -596,14 +586,6 @@ fn display_file_name(display_path: &str) -> String {
         .filter(|name| !name.is_empty())
         .unwrap_or("Photo")
         .to_owned()
-}
-
-fn positive_f64(value: f64) -> Option<f64> {
-    (value.is_finite() && value > 0.0).then_some(value)
-}
-
-const fn nonzero_i64(value: i64) -> Option<i64> {
-    if value == 0 { None } else { Some(value) }
 }
 
 fn native_path(location: &shadow_domain::AssetLocation) -> Result<PathBuf, RemoteError> {

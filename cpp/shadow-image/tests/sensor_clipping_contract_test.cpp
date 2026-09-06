@@ -107,6 +107,25 @@ void sensor_clipping_marks_sensor_endpoints_without_confusing_dark_content() {
         "a preview bin that is half terminal in every CFA colour retains fractional write "
         "ownership instead of becoming a binary clipped pixel"
     );
+
+    // A native-size cell owns only its target CFA site. Neighbouring colour
+    // evidence may describe how much of an already-clipped target footprint is
+    // shared, but it must never create write ownership for an unclipped site.
+    frame.descriptor.storage_dimensions = {3U, 3U};
+    frame.descriptor.active_dimensions = {3U, 3U};
+    frame.samples.assign(9U, 500U);
+    frame.samples[0U] = 1'000U;
+    frame.samples[1U] = 1'000U;
+    frame.samples[3U] = 1'000U;
+    frame.samples[8U] = 1'000U;
+    const auto native_neighbourhood = image::project_sensor_clipping_mask(frame, {3U, 3U});
+    expect(
+        native_neighbourhood.valid()
+            && (native_neighbourhood.samples[4U] & image::sensor_highlight_clipped) == 0U
+            && native_neighbourhood.shared_highlight_coverage_at(4U) == 0.0F
+            && (native_neighbourhood.samples[0U] & image::sensor_highlight_clipped) != 0U,
+        "native clipping coverage remains owned by the target CFA site"
+    );
 }
 
 void highlight_chroma_risk_marks_disagreement_and_shared_terminal_shoulder() {

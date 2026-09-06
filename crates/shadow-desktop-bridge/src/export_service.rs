@@ -21,15 +21,11 @@ use crate::isolated_proxy::{
 };
 use crate::{
     DesktopSession, ffi,
-    photo_provider::isolated_edit_raster,
     raw_foundation_render_source::{
         RawFoundationRenderSelection, load_raw_foundation_for_render,
         raw_foundation_ready_for_render,
     },
-    recipe_v1::{
-        ensure_foundation_allows_rgb_fallback, ensure_foundation_development_receipt,
-        resolve_recipe_render,
-    },
+    recipe_v1::{ensure_foundation_development_receipt, resolve_recipe_render},
     session_photo_source::catalog_native_path,
 };
 
@@ -141,64 +137,30 @@ fn open_export_session(
             Ok(session)
         }
         Err(public_decoder_error) => {
-            if !raw_plan.white_balance.is_as_shot() {
-                let helper_path = configured_helper_path().ok_or_else(|| {
-                    anyhow!(
-                        "manual Foundation RAW white balance requires the isolated Provider Host RawFrame route; public decoder could not prepare export for {}: {public_decoder_error}",
-                        native_path.display()
-                    )
-                })?;
-                let staging_root = cache_root.join("decode-helper").join("raw-frame-staging");
-                let staging = stage_isolated_raw_frame(
-                    &helper_path,
-                    &staging_root,
-                    native_path,
-                )
-                .with_context(|| {
-                    format!(
-                        "stage provider-neutral RawFrame for manual Foundation export after public decoder could not prepare {}: {public_decoder_error}",
-                        native_path.display()
-                    )
-                })?;
-                let session = PhotoEditDetailSession::open_with_staged_raw_development_plan(
-                    native_path,
-                    staging.manifest_path(),
-                    raw_plan,
-                    optics,
-                    requirements,
-                )
-                .with_context(|| {
-                    format!(
-                        "prepare manual Foundation export from the isolated RawFrame for {}",
-                        native_path.display()
-                    )
-                })?;
-                ensure_foundation_development_receipt(raw_plan, session.raw_pipeline_receipt())?;
-                return Ok(session);
-            }
-            if let Err(policy_error) = ensure_foundation_allows_rgb_fallback(raw_plan) {
-                return Err(anyhow!(
-                    "{policy_error}; public decoder could not prepare export for {}: {public_decoder_error}",
+            let helper_path = configured_helper_path().ok_or_else(|| {
+                anyhow!(
+                    "full-quality RAW export requires the isolated Provider Host RawFrame route; public decoder could not prepare export for {}: {public_decoder_error}",
                     native_path.display()
-                ));
-            }
-            let temporary_raster =
-                isolated_edit_raster(cache_root, native_path, 16_384).with_context(|| {
+                )
+            })?;
+            let staging_root = cache_root.join("decode-helper").join("raw-frame-staging");
+            let staging = stage_isolated_raw_frame(&helper_path, &staging_root, native_path)
+                .with_context(|| {
                     format!(
-                        "public decoder could not prepare export for {}; isolated decoder fallback could not start: {public_decoder_error}",
+                        "stage provider-neutral RawFrame for export after public decoder could not prepare {}: {public_decoder_error}",
                         native_path.display()
                     )
                 })?;
-            let isolated_result = PhotoEditDetailSession::open_with_requirements(
-                &temporary_raster,
+            let session = PhotoEditDetailSession::open_with_staged_raw_development_plan(
+                native_path,
+                staging.manifest_path(),
                 raw_plan,
                 optics,
                 requirements,
-            );
-            let _ = std::fs::remove_file(&temporary_raster);
-            let session = isolated_result.with_context(|| {
+            )
+            .with_context(|| {
                 format!(
-                    "public decoder could not prepare export for {}; isolated decoder fallback also failed: {public_decoder_error}",
+                    "prepare full-quality export from the isolated RawFrame for {}",
                     native_path.display()
                 )
             })?;

@@ -1,7 +1,9 @@
 use std::{fs, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use shadow_cache::ContentAddressedStore;
-use shadow_domain::{EntityId, ImageDimensions, PhotoId, PreviewCodec, RepresentationId};
+use shadow_domain::{
+    EntityId, GpsMetadataSnapshot, ImageDimensions, PhotoId, PreviewCodec, RepresentationId,
+};
 
 use crate::{
     AuthorizationToken, LibraryClient, LibraryClientConfig, LibraryServer, LibraryServerConfig,
@@ -10,7 +12,8 @@ use crate::{
         CapabilityAvailability, LIBRARY_PROTOCOL_REVISION, MAX_LIBRARY_PAGE_SIZE,
         MAX_ORIGINAL_CHUNK_BYTES, OriginalChunk, PreparedOriginal, RemoteError, RemoteErrorCode,
         RemotePhotoManifest, RemotePhotoMetadata, RemotePhotoPage, RemotePreviewAvailability,
-        RemotePreviewManifest, RemotePreviewRole, ServerCapabilities, ServerId, ServerInfo,
+        RemotePreviewManifest, RemotePreviewPixelOrientation, RemotePreviewRole,
+        ServerCapabilities, ServerId, ServerInfo,
     },
     server::remote_error,
 };
@@ -39,6 +42,13 @@ fn authenticated_manifest_proxy_and_original_round_trip() {
     assert_eq!(report.photo_count, 1);
     assert_eq!(report.downloaded_previews, 1);
     assert!(mirror.snapshot().photos[0].cached_preview.is_some());
+    let metadata = &mirror.snapshot().photos[0].manifest.metadata;
+    assert_eq!(metadata.orientation, Some(6));
+    assert_eq!(metadata.focal_length_35mm, Some(52.0));
+    assert_eq!(
+        metadata.gps.as_ref().map(|gps| gps.latitude_degrees),
+        Some(31.2304)
+    );
 
     let materializer = OriginalMaterializer::open(
         root.join("originals"),
@@ -103,6 +113,7 @@ impl FixtureSource {
                 width: 640,
                 height: 480,
             },
+            pixel_orientation: RemotePreviewPixelOrientation::EncodedMetadata,
         }
     }
 
@@ -158,6 +169,17 @@ impl LibraryShareSource for FixtureSource {
                 metadata: RemotePhotoMetadata {
                     camera_make: "Fixture".to_owned(),
                     camera_model: "Camera".to_owned(),
+                    orientation: Some(6),
+                    image_dimensions: Some(ImageDimensions {
+                        width: 480,
+                        height: 640,
+                    }),
+                    focal_length_35mm: Some(52.0),
+                    gps: Some(GpsMetadataSnapshot {
+                        latitude_degrees: 31.2304,
+                        longitude_degrees: 121.4737,
+                        altitude_meters: Some(18.5),
+                    }),
                     ..RemotePhotoMetadata::default()
                 },
                 preview: RemotePreviewAvailability::Available(self.preview_manifest()),

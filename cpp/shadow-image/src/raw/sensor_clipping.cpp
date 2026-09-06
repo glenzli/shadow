@@ -362,7 +362,8 @@ project_sensor_clipping_mask(const RawFrame& frame, const Dimensions target_dime
                     }
 
                     const bool shared_highlight =
-                        std::ranges::all_of(
+                        any_highlight
+                        && std::ranges::all_of(
                             channel_observed,
                             [](const std::uint32_t count) { return count > 0U; }
                         )
@@ -384,8 +385,12 @@ project_sensor_clipping_mask(const RawFrame& frame, const Dimensions target_dime
                             flags | sensor_highlight_clipped | sensor_shared_highlight_clipped
                         );
                     }
-                    const auto coverage =
-                        quantized_shared_highlight_coverage(channel_observed, channel_highlights);
+                    const auto coverage = any_highlight
+                                              ? quantized_shared_highlight_coverage(
+                                                    channel_observed,
+                                                    channel_highlights
+                                                )
+                                              : 0U;
                     output.samples
                         [static_cast<std::size_t>(target_y) * target_dimensions.width + target_x] =
                         static_cast<std::uint8_t>(

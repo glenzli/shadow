@@ -42,11 +42,13 @@ ScrollView {
     function statusMessage() {
         switch (String(controller.statusCode)) {
         case "refreshing": return qsTr("Checking the local server runtime…")
-        case "starting": return qsTr("Scanning shared folders and preparing previews…")
+        case "starting": return qsTr("Starting the Library server…")
         case "stopping": return qsTr("Stopping new connections…")
-        case "rescanning": return qsTr("Restarting the server and rescanning shared folders…")
+        case "rescanning": return qsTr("Restarting the Library server…")
         case "clearing-cache": return qsTr("Clearing rebuildable server previews…")
         case "running": return qsTr("This Mac is available to trusted Shadow clients.")
+        case "indexing": return qsTr("Sharing the previous completed index while shared folders update…")
+        case "indexing-failed": return qsTr("Sharing remains available from the previous completed index. Rescan to retry.")
         case "ready": return qsTr("The server is ready to start.")
         case "stopped": return qsTr("Library sharing has stopped.")
         case "cache-cleared": return qsTr("The server cache was cleared. It will be rebuilt on the next start.")
@@ -163,7 +165,7 @@ ScrollView {
                 }
 
                 BusyIndicator {
-                    visible: root.controller.busy
+                    visible: root.controller.busy || root.controller.indexing
                     running: visible
                     Layout.preferredWidth: 26
                     Layout.preferredHeight: 26
@@ -187,6 +189,7 @@ ScrollView {
                 text: root.statusMessage()
                 color: root.controller.statusCode === "operation-failed"
                     || root.controller.statusCode === "secret-store-failed"
+                    || root.controller.statusCode === "indexing-failed"
                     ? Theme.dangerText : Theme.textSecondary
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
@@ -197,6 +200,29 @@ ScrollView {
                 visible: root.controller.statusCode === "operation-failed"
                     && root.controller.diagnosticText.length > 0
                 text: root.controller.diagnosticText
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WrapAnywhere
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: root.controller.indexing
+                    || root.controller.statusCode === "indexing-failed"
+                text: qsTr("Discovered %L1 · inspected %L2 · published previews %L3")
+                    .arg(root.controller.discoveredFileCount)
+                    .arg(root.controller.inspectionCompletedCount)
+                    .arg(root.controller.publishedPreviewCount)
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: root.controller.statusCode === "indexing-failed"
+                    && root.controller.indexDiagnosticText.length > 0
+                text: root.controller.indexDiagnosticText
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WrapAnywhere
@@ -360,7 +386,7 @@ ScrollView {
 
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("%L1 indexed photos").arg(root.controller.photoCount)
+                    text: qsTr("%L1 published photos").arg(root.controller.photoCount)
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontMeta
                 }

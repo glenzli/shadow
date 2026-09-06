@@ -5,35 +5,49 @@
 //! admitted into the local Catalog, where ordinary Recipe previews become authoritative.
 
 use std::{
-    fs,
+    collections::HashMap,
+    fs::{self, File},
+    io::{BufReader, Read},
     net::{SocketAddr, ToSocketAddrs},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
 use shadow_cache::{BlobDigest, ContentAddressedStore};
-use shadow_catalog::{ContentIdentity, RegisterAsset, SetPhotoLibraryState};
-use shadow_core::{fingerprint_source, native_location};
+use shadow_catalog::{
+    ContentIdentity, RegisterAsset, RepresentationFingerprint, SetPhotoLibraryState,
+    TechnicalObservationRevision,
+};
+use shadow_core::{
+    DecodeInspectionActor, DecodeInspectionDiscardReason, DecodeInspectionOutcome,
+    DecodeInspectionRequest, DecodeInspector, fingerprint_source, native_location,
+    native_path_from_location,
+};
 use shadow_domain::{
     NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoFlag, PhotoId, RepresentationId,
     RepresentationKind,
 };
 use shadow_library_sharing::{
     AuthorizationToken, LibraryClient, LibraryClientConfig, MirroredLocalSource,
-    OriginalMaterializer, OriginalMaterializerPolicy, RemoteLibraryMirror, RemotePhotoMirror,
-    RemoteReviewFlag, RemoteReviewState,
+    OriginalMaterializer, OriginalMaterializerPolicy, RemoteLibraryMirror, RemoteMirrorSyncSession,
+    RemoteMirrorSyncStepKind, RemotePhotoMirror, RemoteReviewFlag, RemoteReviewState,
     protocol::{
-        PreviewUnavailableReason, RemotePreviewAvailability, RemotePreviewRole, ServerCapabilities,
-        ServerInfo,
+        PreviewUnavailableReason, RemotePhotoManifest, RemotePhotoMetadata,
+        RemotePreviewAvailability, RemotePreviewPixelOrientation, RemotePreviewRole,
+        ServerCapabilities, ServerInfo,
     },
 };
 
-use crate::CatalogHandle;
+use crate::{CatalogHandle, photo_provider::PhotoInspector};
 
 const CONNECTIONS_DIRECTORY: &str = "connections";
 const LEGACY_MIRROR_FILE: &str = "remote-library.json";
+const PREVIEW_BATCH_LIMIT: usize = 8;
 
 #[derive(Debug)]
 pub(crate) struct RemoteLibraryService {
@@ -41,7 +55,60 @@ pub(crate) struct RemoteLibraryService {
     mirror_root: PathBuf,
     preview_store: ContentAddressedStore,
     original_materializer: OriginalMaterializer,
+    inspection_runtime_cache_root: PathBuf,
     operation_lock: Mutex<()>,
+    sync_jobs: Mutex<RemoteSyncJobRegistry>,
+}
+
+#[derive(Debug, Default)]
+struct RemoteSyncJobRegistry {
+    next_job_id: u64,
+    jobs: HashMap<u64, Arc<ActiveRemoteSyncJob>>,
+    connection_jobs: HashMap<String, u64>,
+}
+
+#[derive(Debug)]
+struct ActiveRemoteSyncJob {
+    connection_id: String,
+    client: LibraryClient,
+    session: Mutex<RemoteMirrorSyncSession>,
+    cancelled: AtomicBool,
+}
+
+impl RemoteSyncJobRegistry {
+    fn insert(
+        &mut self,
+        connection_id: String,
+        client: LibraryClient,
+        session: RemoteMirrorSyncSession,
+    ) -> u64 {
+        if let Some(previous_job_id) = self.connection_jobs.remove(&connection_id) {
+            if let Some(previous) = self.jobs.remove(&previous_job_id) {
+                previous.cancelled.store(true, Ordering::Release);
+            }
+        }
+        self.next_job_id = self.next_job_id.saturating_add(1).max(1);
+        let job_id = self.next_job_id;
+        self.connection_jobs.insert(connection_id.clone(), job_id);
+        self.jobs.insert(
+            job_id,
+            Arc::new(ActiveRemoteSyncJob {
+                connection_id,
+                client,
+                session: Mutex::new(session),
+                cancelled: AtomicBool::new(false),
+            }),
+        );
+        job_id
+    }
+
+    fn remove(&mut self, job_id: u64) -> Option<Arc<ActiveRemoteSyncJob>> {
+        let job = self.jobs.remove(&job_id)?;
+        if self.connection_jobs.get(&job.connection_id) == Some(&job_id) {
+            self.connection_jobs.remove(&job.connection_id);
+        }
+        Some(job)
+    }
 }
 
 impl RemoteLibraryService {
@@ -61,7 +128,9 @@ impl RemoteLibraryService {
                 OriginalMaterializerPolicy::default(),
             )
             .context("open remote Library original cache")?,
+            inspection_runtime_cache_root: cache_root.to_owned(),
             operation_lock: Mutex::new(()),
+            sync_jobs: Mutex::new(RemoteSyncJobRegistry::default()),
         })
     }
 
@@ -80,20 +149,128 @@ impl RemoteLibraryService {
         server_address: &str,
         authorization: &str,
     ) -> Result<RemoteLibrarySyncResult> {
+        let start = self.begin_sync(connection_id, server_address, authorization)?;
+        loop {
+            let step = self.sync_step(start.job_id)?;
+            if step.complete {
+                return Ok(RemoteLibrarySyncResult {
+                    snapshot: step.snapshot,
+                    page_count: step.page_count,
+                    photo_count: step.photo_count,
+                    downloaded_previews: step.downloaded_previews,
+                    preview_failures: step.preview_failures,
+                    removed: step.removed,
+                });
+            }
+        }
+    }
+
+    pub(crate) fn begin_sync(
+        &self,
+        connection_id: &str,
+        server_address: &str,
+        authorization: &str,
+    ) -> Result<RemoteLibrarySyncStart> {
         let _operation = self
             .operation_lock
             .lock()
             .map_err(|_| anyhow!("remote Library operation lock was poisoned"))?;
         let client = client(server_address, authorization)?;
         let mut mirror = RemoteLibraryMirror::open(self.connection_mirror_root(connection_id)?)?;
-        let report = mirror.sync(&client, &self.preview_store)?;
-        Ok(RemoteLibrarySyncResult {
-            snapshot: self.project_snapshot(mirror.snapshot()),
-            page_count: report.page_count,
-            photo_count: report.photo_count,
-            downloaded_previews: report.downloaded_previews,
-            removed: report.removed,
-        })
+        let session = RemoteMirrorSyncSession::begin(&mut mirror, &client)?;
+        let snapshot = self.project_snapshot(mirror.snapshot());
+        let mut jobs = self
+            .sync_jobs
+            .lock()
+            .map_err(|_| anyhow!("remote Library sync-job lock was poisoned"))?;
+        let job_id = jobs.insert(connection_id.to_owned(), client, session);
+        Ok(RemoteLibrarySyncStart { job_id, snapshot })
+    }
+
+    pub(crate) fn sync_step(&self, job_id: u64) -> Result<RemoteLibrarySyncStep> {
+        let job = {
+            let jobs = self
+                .sync_jobs
+                .lock()
+                .map_err(|_| anyhow!("remote Library sync-job lock was poisoned"))?;
+            jobs.jobs.get(&job_id).cloned()
+        }
+        .ok_or_else(|| anyhow!("remote Library sync job {job_id} is no longer active"))?;
+        if job.cancelled.load(Ordering::Acquire) {
+            bail!("remote Library sync job {job_id} was cancelled");
+        }
+        let _operation = self
+            .operation_lock
+            .lock()
+            .map_err(|_| anyhow!("remote Library operation lock was poisoned"))?;
+        let mut mirror =
+            RemoteLibraryMirror::open(self.connection_mirror_root(&job.connection_id)?)?;
+        let mut session = job
+            .session
+            .lock()
+            .map_err(|_| anyhow!("remote Library sync-session lock was poisoned"))?;
+        let step_result = {
+            session.step_cancellable(
+                &mut mirror,
+                &job.client,
+                &self.preview_store,
+                PREVIEW_BATCH_LIMIT,
+                || job.cancelled.load(Ordering::Acquire),
+            )
+        };
+        let step = match step_result {
+            Ok(step) => step,
+            Err(error) => {
+                self.remove_sync_job(job_id)?;
+                return Err(error.into());
+            }
+        };
+        let snapshot = self.project_snapshot(mirror.snapshot());
+        let progress = step.progress;
+        let result = RemoteLibrarySyncStep {
+            job_id,
+            snapshot,
+            stage: match step.kind {
+                RemoteMirrorSyncStepKind::ManifestPage => "manifest".to_owned(),
+                RemoteMirrorSyncStepKind::PreviewBatch => "previews".to_owned(),
+                RemoteMirrorSyncStepKind::Complete => "complete".to_owned(),
+            },
+            page_count: progress.page_count,
+            photo_count: progress.photo_count,
+            preview_completed_count: progress.preview_completed_count,
+            downloaded_previews: progress.downloaded_previews,
+            preview_failures: progress.preview_failures,
+            removed: progress.removed,
+            manifest_complete: progress.manifest_complete,
+            complete: progress.complete,
+            diagnostic: step.diagnostic,
+        };
+        drop(session);
+        if result.complete {
+            self.remove_sync_job(job_id)?;
+        }
+        Ok(result)
+    }
+
+    pub(crate) fn cancel_sync(&self, job_id: u64) -> Result<bool> {
+        let mut jobs = self
+            .sync_jobs
+            .lock()
+            .map_err(|_| anyhow!("remote Library sync-job lock was poisoned"))?;
+        let Some(job) = jobs.remove(job_id) else {
+            return Ok(false);
+        };
+        job.cancelled.store(true, Ordering::Release);
+        Ok(true)
+    }
+
+    fn remove_sync_job(&self, job_id: u64) -> Result<()> {
+        let mut jobs = self
+            .sync_jobs
+            .lock()
+            .map_err(|_| anyhow!("remote Library sync-job lock was poisoned"))?;
+        jobs.remove(job_id);
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -161,21 +338,47 @@ impl RemoteLibraryService {
             .local_source
             .as_ref()
             .filter(|local| local.matches_remote_source(&remote.manifest))
-            .filter(|local| {
-                Path::new(&local.native_path)
-                    .metadata()
-                    .is_ok_and(|metadata| {
-                        metadata.is_file() && metadata.len() == remote.manifest.source_byte_len
-                    })
-            })
         {
-            return Ok(RemoteMaterialization {
-                local_photo_id: local.photo_id,
-                local_representation_id: local.representation_id,
-                native_path: PathBuf::from(&local.native_path),
-                title: remote.manifest.display_name,
-                reused_existing: true,
-            });
+            let native_path = PathBuf::from(&local.native_path);
+            if cached_original_matches(
+                &native_path,
+                remote.manifest.source_byte_len,
+                local.digest_blake3,
+            )
+            .unwrap_or(false)
+            {
+                let source = fingerprint_source(&native_path).with_context(|| {
+                    format!(
+                        "read cached remote source metadata {}",
+                        native_path.display()
+                    )
+                })?;
+                if self.catalog_materialization_is_current(local, &native_path, source)? {
+                    let (metadata, inspection_diagnostic) = self.inspect_metadata_or_manifest(
+                        local.representation_id,
+                        &native_path,
+                        source,
+                        &remote.manifest.metadata,
+                    );
+                    return Ok(RemoteMaterialization {
+                        local_photo_id: local.photo_id,
+                        local_representation_id: local.representation_id,
+                        native_path,
+                        title: remote.manifest.display_name,
+                        reused_existing: true,
+                        metadata,
+                        inspection_diagnostic,
+                    });
+                }
+                return self.register_verified_original(
+                    &mut mirror,
+                    &remote,
+                    native_path,
+                    local.digest_blake3,
+                    source,
+                    true,
+                );
+            }
         }
 
         let client = client(server_address, authorization)?;
@@ -193,37 +396,122 @@ impl RemoteLibraryService {
         if source.byte_len != original.manifest.byte_len {
             bail!("materialized remote source changed before Catalog registration");
         }
+        self.register_verified_original(
+            &mut mirror,
+            &remote,
+            original.path,
+            original.manifest.digest_blake3,
+            source,
+            original.reused_existing,
+        )
+    }
+
+    fn catalog_materialization_is_current(
+        &self,
+        local: &MirroredLocalSource,
+        path: &Path,
+        source: RepresentationFingerprint,
+    ) -> Result<bool> {
+        let revision =
+            TechnicalObservationRevision::current("remote-materialization-catalog-identity-v1");
+        let Some(record) =
+            self.catalog
+                .photo_inspection(local.photo_id, local.representation_id, &revision)?
+        else {
+            return Ok(false);
+        };
+        if record.source != source {
+            return Ok(false);
+        }
+        Ok(self
+            .catalog
+            .library_photo_original_locations(local.photo_id)?
+            .iter()
+            .any(|location| {
+                native_path_from_location(location).is_ok_and(|catalog_path| catalog_path == path)
+            }))
+    }
+
+    fn register_verified_original(
+        &self,
+        mirror: &mut RemoteLibraryMirror,
+        remote: &RemotePhotoMirror,
+        path: PathBuf,
+        digest_blake3: [u8; 32],
+        source: RepresentationFingerprint,
+        reused_existing: bool,
+    ) -> Result<RemoteMaterialization> {
         let now_ms = now_ms();
         let registered = self.catalog.register_asset_with_content_identity(
             &RegisterAsset {
-                kind: RepresentationKind::OriginalRaw,
-                location: native_location(&original.path),
+                kind: remote_representation_kind(&remote.manifest),
+                location: native_location(&path),
                 byte_len: source.byte_len,
                 modified_at_ms: source.modified_at_ms,
                 now_ms,
             },
-            &ContentIdentity::whole_file_blake3(original.manifest.digest_blake3),
+            &ContentIdentity::whole_file_blake3(digest_blake3),
         )?;
         self.migrate_review_state(registered.photo_id, &remote.review_state, now_ms)?;
-
+        let (metadata, inspection_diagnostic) = self.inspect_metadata_or_manifest(
+            registered.representation_id,
+            &path,
+            source,
+            &remote.manifest.metadata,
+        );
         mirror.mark_materialized(
-            remote_photo_id,
-            remote_representation_id,
+            remote.manifest.photo_id,
+            remote.manifest.representation_id,
             MirroredLocalSource::for_remote_manifest(
                 registered.photo_id,
                 registered.representation_id,
-                original.manifest.digest_blake3,
-                path_text(&original.path),
+                digest_blake3,
+                path_text(&path),
                 &remote.manifest,
             ),
         )?;
         Ok(RemoteMaterialization {
             local_photo_id: registered.photo_id,
             local_representation_id: registered.representation_id,
-            native_path: original.path,
-            title: remote.manifest.display_name,
-            reused_existing: original.reused_existing,
+            native_path: path,
+            title: remote.manifest.display_name.clone(),
+            reused_existing,
+            metadata,
+            inspection_diagnostic,
         })
+    }
+
+    fn inspect_metadata_or_manifest(
+        &self,
+        representation_id: RepresentationId,
+        path: &Path,
+        source: RepresentationFingerprint,
+        manifest_metadata: &RemotePhotoMetadata,
+    ) -> (RemotePhotoMetadata, String) {
+        match self.ensure_current_metadata_inspection(representation_id, path, source) {
+            Ok(metadata) => (metadata, String::new()),
+            Err(error) => (
+                manifest_metadata.clone(),
+                format!(
+                    "local metadata inspection unavailable for verified remote original: {error:#}"
+                ),
+            ),
+        }
+    }
+
+    /// Ensures the verified local source has a current provider-neutral
+    /// metadata snapshot. This actor intentionally has no preview cache: the
+    /// caller waits only for metadata persistence and never for proxy rendering.
+    fn ensure_current_metadata_inspection(
+        &self,
+        representation_id: RepresentationId,
+        path: &Path,
+        source: RepresentationFingerprint,
+    ) -> Result<RemotePhotoMetadata> {
+        let inspector = PhotoInspector::new_with_isolated_proxy_cache(Some(
+            self.inspection_runtime_cache_root.clone(),
+        ))?;
+        ensure_decode_inspection(&self.catalog, representation_id, path, source, inspector)
     }
 
     fn migrate_review_state(
@@ -335,7 +623,9 @@ impl RemoteLibraryService {
                     (String::new(), 0, 0, unavailable_reason_name(*reason))
                 }
             };
-        let metadata = &photo.manifest.metadata;
+        let metadata = cached_original
+            .and_then(|source| self.current_local_metadata(source.representation_id))
+            .unwrap_or_else(|| photo.manifest.metadata.clone());
         let original_digest_blake3 = photo
             .manifest
             .preferred_original_digest()
@@ -376,21 +666,130 @@ impl RemoteLibraryService {
             preview_width,
             preview_height,
             preview_unavailable_reason,
-            captured_at_unix_seconds: metadata.captured_at_unix_seconds,
-            camera_make: metadata.camera_make.clone(),
-            camera_model: metadata.camera_model.clone(),
-            lens_make: metadata.lens_make.clone(),
-            lens_model: metadata.lens_model.clone(),
-            iso_speed: metadata.iso_speed,
-            exposure_time_seconds: metadata.exposure_time_seconds,
-            aperture_f_number: metadata.aperture_f_number,
-            focal_length_mm: metadata.focal_length_mm,
-            raw_width: metadata.raw_dimensions.map(|value| value.width),
-            raw_height: metadata.raw_dimensions.map(|value| value.height),
+            preview_auto_transform: matches!(
+                &photo.manifest.preview,
+                RemotePreviewAvailability::Available(manifest)
+                    if manifest.pixel_orientation
+                        == RemotePreviewPixelOrientation::EncodedMetadata
+            ),
+            metadata,
             review_state: photo.review_state.clone(),
             local_source: cached_original.cloned(),
         }
     }
+
+    fn current_local_metadata(
+        &self,
+        representation_id: RepresentationId,
+    ) -> Option<RemotePhotoMetadata> {
+        let source = self
+            .catalog
+            .representation_fingerprint(representation_id)
+            .ok()?;
+        self.catalog
+            .decode_snapshots(representation_id)
+            .ok()?
+            .into_iter()
+            .filter(|record| record.source == source)
+            .max_by_key(|record| {
+                (
+                    record.snapshot.provider.id == "shadow-photo-router",
+                    record.inspected_at_ms,
+                )
+            })
+            .map(|record| RemotePhotoMetadata::from(&record.snapshot.metadata))
+    }
+}
+
+fn ensure_decode_inspection(
+    catalog: &CatalogHandle,
+    representation_id: RepresentationId,
+    path: &Path,
+    source: RepresentationFingerprint,
+    inspector: impl DecodeInspector,
+) -> Result<RemotePhotoMetadata> {
+    let provider_id = inspector.provider_id().to_owned();
+    let provider_version = inspector.provider_version().to_owned();
+    let current = catalog.is_decode_output_current(
+        representation_id,
+        &provider_id,
+        &provider_version,
+        source,
+        false,
+        inspector.proxy_variant_key(),
+        None,
+    )?;
+    if !current {
+        let actor = DecodeInspectionActor::spawn(catalog.clone(), inspector)?;
+        let ticket = actor.handle().submit(DecodeInspectionRequest {
+            representation_id,
+            path: path.to_owned(),
+            expected_source: source,
+        })?;
+        let result = ticket.wait();
+        let shutdown = actor.shutdown();
+        let outcome = result?;
+        shutdown?;
+        match outcome {
+            DecodeInspectionOutcome::Recorded { .. } => {}
+            DecodeInspectionOutcome::Discarded(reason) => {
+                let reason = match reason {
+                    DecodeInspectionDiscardReason::FilesystemChanged => "filesystem changed",
+                    DecodeInspectionDiscardReason::CatalogChanged => "Catalog changed",
+                    DecodeInspectionDiscardReason::Cancelled => "inspection was cancelled",
+                };
+                bail!("materialized remote source inspection was discarded: {reason}");
+            }
+        }
+    }
+    catalog
+        .decode_snapshots(representation_id)?
+        .into_iter()
+        .find(|record| {
+            record.source == source
+                && record.snapshot.provider.id == provider_id
+                && record.snapshot.provider.version == provider_version
+        })
+        .map(|record| RemotePhotoMetadata::from(&record.snapshot.metadata))
+        .ok_or_else(|| anyhow!("materialized remote source metadata snapshot is unavailable"))
+}
+
+fn cached_original_matches(
+    path: &Path,
+    expected_byte_len: u64,
+    expected_digest_blake3: [u8; 32],
+) -> Result<bool> {
+    let metadata = path
+        .metadata()
+        .with_context(|| format!("read cached remote original metadata {}", path.display()))?;
+    if !metadata.is_file() || metadata.len() != expected_byte_len {
+        return Ok(false);
+    }
+    let file = File::open(path)
+        .with_context(|| format!("open cached remote original {}", path.display()))?;
+    let mut reader = BufReader::with_capacity(256 * 1_024, file);
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = vec![0_u8; 256 * 1_024];
+    loop {
+        let count = reader
+            .read(&mut buffer)
+            .with_context(|| format!("hash cached remote original {}", path.display()))?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    Ok(hasher.finalize().as_bytes() == &expected_digest_blake3)
+}
+
+fn remote_representation_kind(manifest: &RemotePhotoManifest) -> RepresentationKind {
+    manifest
+        .representations
+        .iter()
+        .find(|representation| representation.representation_id == manifest.representation_id)
+        .map_or(RepresentationKind::OriginalRaw, |representation| {
+            representation.kind
+        })
 }
 
 /// Resolves only a cache object that still matches the persisted preview
@@ -439,17 +838,8 @@ pub(crate) struct RemoteLibraryPhoto {
     pub(crate) preview_width: u32,
     pub(crate) preview_height: u32,
     pub(crate) preview_unavailable_reason: String,
-    pub(crate) captured_at_unix_seconds: Option<i64>,
-    pub(crate) camera_make: String,
-    pub(crate) camera_model: String,
-    pub(crate) lens_make: String,
-    pub(crate) lens_model: String,
-    pub(crate) iso_speed: Option<f64>,
-    pub(crate) exposure_time_seconds: Option<f64>,
-    pub(crate) aperture_f_number: Option<f64>,
-    pub(crate) focal_length_mm: Option<f64>,
-    pub(crate) raw_width: Option<u32>,
-    pub(crate) raw_height: Option<u32>,
+    pub(crate) preview_auto_transform: bool,
+    pub(crate) metadata: RemotePhotoMetadata,
     pub(crate) review_state: RemoteReviewState,
     pub(crate) local_source: Option<MirroredLocalSource>,
 }
@@ -460,7 +850,30 @@ pub(crate) struct RemoteLibrarySyncResult {
     pub(crate) page_count: u64,
     pub(crate) photo_count: u64,
     pub(crate) downloaded_previews: u64,
+    pub(crate) preview_failures: u64,
     pub(crate) removed: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RemoteLibrarySyncStart {
+    pub(crate) job_id: u64,
+    pub(crate) snapshot: RemoteLibrarySnapshot,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RemoteLibrarySyncStep {
+    pub(crate) job_id: u64,
+    pub(crate) snapshot: RemoteLibrarySnapshot,
+    pub(crate) stage: String,
+    pub(crate) page_count: u64,
+    pub(crate) photo_count: u64,
+    pub(crate) preview_completed_count: u64,
+    pub(crate) downloaded_previews: u64,
+    pub(crate) preview_failures: u64,
+    pub(crate) removed: u64,
+    pub(crate) manifest_complete: bool,
+    pub(crate) complete: bool,
+    pub(crate) diagnostic: String,
 }
 
 #[derive(Debug, Clone)]
@@ -470,6 +883,8 @@ pub(crate) struct RemoteMaterialization {
     pub(crate) native_path: PathBuf,
     pub(crate) title: String,
     pub(crate) reused_existing: bool,
+    pub(crate) metadata: RemotePhotoMetadata,
+    pub(crate) inspection_diagnostic: String,
 }
 
 fn client(server_address: &str, authorization: &str) -> Result<LibraryClient> {

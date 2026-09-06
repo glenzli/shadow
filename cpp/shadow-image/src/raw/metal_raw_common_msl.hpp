@@ -279,7 +279,9 @@ inline uchar sensor_clipping_flags(
                         ? 1u : 0u;
             }
         }
-        const bool shared_highlight = channel_observed[0] > 0u && channel_observed[1] > 0u
+        const bool owns_highlight = (flags & 1u) != 0u;
+        const bool shared_highlight = owns_highlight && channel_observed[0] > 0u
+            && channel_observed[1] > 0u
             && channel_observed[2] > 0u && channel_observed[0] == channel_highlights[0]
             && channel_observed[1] == channel_highlights[1]
             && channel_observed[2] == channel_highlights[2];
@@ -287,7 +289,7 @@ inline uchar sensor_clipping_flags(
             flags |= 5u;
         }
         float shared_coverage = 0.0f;
-        if (channel_observed[0] > 0u && channel_observed[1] > 0u
+        if (owns_highlight && channel_observed[0] > 0u && channel_observed[1] > 0u
             && channel_observed[2] > 0u) {
             shared_coverage = min(
                 float(channel_highlights[0]) / float(channel_observed[0]),
@@ -340,7 +342,8 @@ inline uchar sensor_clipping_flags(
     if (any_highlight) {
         flags |= 1u;
     }
-    const bool shared_highlight = channel_observed[0] > 0u && channel_observed[1] > 0u
+    const bool shared_highlight = any_highlight && channel_observed[0] > 0u
+        && channel_observed[1] > 0u
         && channel_observed[2] > 0u && channel_observed[0] == channel_highlights[0]
         && channel_observed[1] == channel_highlights[1]
         && channel_observed[2] == channel_highlights[2];
@@ -348,7 +351,7 @@ inline uchar sensor_clipping_flags(
         flags |= 5u;
     }
     float shared_coverage = 0.0f;
-    if (channel_observed[0] > 0u && channel_observed[1] > 0u
+    if (any_highlight && channel_observed[0] > 0u && channel_observed[1] > 0u
         && channel_observed[2] > 0u) {
         shared_coverage = min(
             float(channel_highlights[0]) / float(channel_observed[0]),
