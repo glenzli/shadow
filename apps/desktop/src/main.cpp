@@ -2,6 +2,7 @@
 #include "amap_place_search_service.hpp"
 #include "cache_maintenance_controller.hpp"
 #include "cache_preferences.hpp"
+#include "catalog_startup_recovery.hpp"
 #include "desktop_backend.hpp"
 #include "desktop_smoke_harness.hpp"
 #include "edit_controller.hpp"
@@ -59,92 +60,6 @@
 #include <memory>
 
 namespace {
-
-[[nodiscard]] bool reset_local_development_catalog(
-    const QString& catalog_path,
-    const QString& cache_root,
-    QString* const error_message
-) {
-    const QStringList catalog_files{
-        catalog_path,
-        catalog_path + QStringLiteral("-wal"),
-        catalog_path + QStringLiteral("-shm"),
-    };
-    for (const QString& path : catalog_files) {
-        if (QFileInfo::exists(path) && !QFile::remove(path)) {
-            *error_message = QObject::tr("Could not remove %1.").arg(path);
-            return false;
-        }
-    }
-
-    QDir cache_directory(cache_root);
-    if (cache_directory.exists()) {
-        // Remote Library proxies have their own persisted mirror identity and
-        // remain valid across a local Catalog schema reset. Removing them while
-        // retaining that mirror produces offline white cards until the server
-        // next reconnects. Clear only Catalog/runtime-owned cache entries.
-        constexpr auto REMOTE_LIBRARY_PREVIEWS = "remote-library-previews";
-        const QFileInfoList entries = cache_directory.entryInfoList(
-            QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System
-        );
-        for (const QFileInfo& entry : entries) {
-            if (entry.fileName() == QString::fromLatin1(REMOTE_LIBRARY_PREVIEWS)) {
-                continue;
-            }
-            const bool removed = entry.isDir() && !entry.isSymLink()
-                                     ? QDir(entry.absoluteFilePath()).removeRecursively()
-                                     : QFile::remove(entry.absoluteFilePath());
-            if (!removed) {
-                *error_message = QObject::tr("Could not remove the local preview cache.");
-                return false;
-            }
-        }
-    }
-    const QString people_root =
-        QDir(QFileInfo(catalog_path).absolutePath()).filePath(QStringLiteral("people"));
-    QDir people_directory(people_root);
-    if (people_directory.exists() && !people_directory.removeRecursively()) {
-        *error_message = QObject::tr("Could not remove the local people data.");
-        return false;
-    }
-    return true;
-}
-
-[[nodiscard]] bool is_development_catalog_reset_error(const std::exception& error) {
-    return QString::fromUtf8(error.what())
-        .contains(QStringLiteral("development catalog reset required"));
-}
-
-[[nodiscard]] QMessageBox::StandardButton
-offer_development_catalog_reset(const std::exception& error) {
-    const QString detail = QString::fromUtf8(error.what());
-    const bool incompatible = is_development_catalog_reset_error(error);
-    const QString explanation =
-        incompatible
-            ? QObject::tr(
-                  "This local catalog belongs to an incompatible development build. "
-                  "Shadow does not migrate development schemas.\n\n"
-                  "Resetting removes the local photo index, edit history, people data, and preview "
-                  "cache. "
-                  "Your original photo files, LUT library, and UI preferences are not changed."
-              )
-            : QObject::tr(
-                  "Shadow could not open its local development catalog. You can reset it "
-                  "and start again with a fresh catalog v1.\n\n"
-                  "Resetting removes the local photo index, edit history, people data, and preview "
-                  "cache. "
-                  "Your original photo files, LUT library, and UI preferences are not changed.\n\n"
-                  "Technical detail: %1"
-              )
-                  .arg(detail);
-    return QMessageBox::warning(
-        nullptr,
-        QObject::tr("Reset local development catalog?"),
-        explanation,
-        QMessageBox::Reset | QMessageBox::Cancel,
-        QMessageBox::Reset
-    );
-}
 
 [[nodiscard]] QString initialScanFolder() {
     QString initial_folder = qEnvironmentVariable("SHADOW_DESKTOP_SCAN_FOLDER");
@@ -252,13 +167,20 @@ int main(int argc, char* argv[]) {
             backend = std::make_shared<DesktopBackend>(catalog_path, cache_root);
         } catch (const std::exception& error) {
             qCritical() << "Cannot start Shadow's local backend:" << error.what();
-            const bool reset_for_smoke =
-                headless_startup_smoke && is_development_catalog_reset_error(error);
+            const bool reset_for_smoke = headless_startup_smoke
+                                         && qEnvironmentVariableIsSet("SHADOW_DESKTOP_DATA_ROOT")
+                                         && is_development_catalog_reset_error(error);
             if (!reset_for_smoke && headless_startup_smoke) {
                 return EXIT_FAILURE;
             }
-            if (!reset_for_smoke && offer_development_catalog_reset(error) != QMessageBox::Reset) {
-                return EXIT_FAILURE;
+            if (!reset_for_smoke) {
+                const auto action = offer_development_catalog_reset(error, catalog_path);
+                if (action == QMessageBox::Retry) {
+                    continue;
+                }
+                if (action != QMessageBox::Reset) {
+                    return EXIT_FAILURE;
+                }
             }
 
             QString reset_error;
@@ -347,16 +269,20 @@ int main(int argc, char* argv[]) {
         [backend, infer_base_url, infer_credential_file](
             const QString& query,
             const QString& query_revision,
-            const QString& language
+            const QString& language,
+            std::uint64_t token
         ) {
             return backend->searchSemantics(
                 infer_base_url,
                 infer_credential_file,
                 query,
                 query_revision,
-                language
+                language,
+                token
             );
-        }
+        },
+        [backend]() { return backend->beginSemanticSearch(); },
+        [backend](std::uint64_t token) { backend->cancelSemanticSearch(token); }
     );
     SmartCategoryController smart_category_controller(
         [backend, infer_base_url, infer_credential_file](

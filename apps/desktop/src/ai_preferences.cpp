@@ -47,7 +47,6 @@ AiPreferences::AiPreferences(
     model_storage_path_(
         QDir::cleanPath(QDir(application_data_root).filePath(QStringLiteral("models")))
     ) {
-    QDir().mkpath(model_storage_path_);
     raw_denoise_execution_allowed_ =
         settings_
             ->value(QString::fromLatin1(raw_denoise_allowed_key), raw_denoise_execution_allowed_)

@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QJSValue>
 #include <QMouseEvent>
 #include <QObject>
 #include <QPointingDevice>
@@ -440,10 +441,9 @@ void sendMouse(
         {0.6044122869318181, 0.29978249289772724},
         {0.5840553977272728, 0.29978249289772724},
     };
-    const auto center = EditStrokeInput::normalizedBoundsCenter(std::span<const QPointF>(
-        points.constData(),
-        static_cast<std::size_t>(points.size())
-    ));
+    const auto center = EditStrokeInput::normalizedBoundsCenter(
+        std::span<const QPointF>(points.constData(), static_cast<std::size_t>(points.size()))
+    );
     const QPointF sampled_source{0.497607421875, 0.29353777521306815};
     constexpr double width = 1'536.0;
     constexpr double height = 1'024.0;
@@ -462,9 +462,8 @@ void sendMouse(
     };
     return require(
         std::abs(center->x() + offset_radii.x() * radius / width - sampled_source.x()) < 1.0e-12
-            && std::abs(
-                   center->y() + offset_radii.y() * radius / height - sampled_source.y()
-               ) < 1.0e-12,
+            && std::abs(center->y() + offset_radii.y() * radius / height - sampled_source.y())
+                   < 1.0e-12,
         "the visible sampled-source crosshair is the actual donor coverage anchor"
     );
 }
@@ -637,7 +636,8 @@ int main(int argc, char* argv[]) {
     drainBindings();
     if (!require(
             !sampled_source_marker->property("visible").toBool(),
-            "a selected authored repair shows only its exact donor overlay, not the next-source marker"
+            "a selected authored repair shows only its exact donor overlay, not the next-source "
+            "marker"
         )) {
         return EXIT_FAILURE;
     }
@@ -678,7 +678,44 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    sendMouse(window, QEvent::MouseButtonPress, QPointF{60, 80}, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(window, QEvent::MouseMove, QPointF{130, 95}, Qt::NoButton, Qt::LeftButton);
     picker->setProperty("interactionEnabled", false);
+    drainBindings();
+    sendMouse(window, QEvent::MouseButtonRelease, QPointF{180, 105}, Qt::LeftButton, Qt::NoButton);
+    if (!require(
+            editor.stroke_commit_count == 2,
+            "hiding the brush during a drag cancels without committing"
+        ))
+        return EXIT_FAILURE;
+
+    QObject* const input = picker->findChild<QObject*>(QStringLiteral("retouchStrokeInputArea"));
+    QVariantList points;
+    for (int i = 0; i < 700; ++i) {
+        points.push_back(QVariantMap{{"x", i / 1000.0}, {"y", 0.25}});
+    }
+    QVariant simplified;
+    if (!require(
+            input
+                && QMetaObject::invokeMethod(
+                    input,
+                    "compactPath",
+                    Q_RETURN_ARG(QVariant, simplified),
+                    Q_ARG(QVariant, QVariant(points))
+                ),
+            "invoke long-path contract"
+        ))
+        return EXIT_FAILURE;
+    const auto compacted = simplified.value<QJSValue>().isArray()
+                               ? simplified.value<QJSValue>().toVariant().toList()
+                               : simplified.toList();
+    if (!require(
+            compacted.size() == 2 && compacted.front().toMap() == points.front().toMap()
+                && compacted.back().toMap() == points.back().toMap(),
+            "long straight stroke keeps exact endpoints within error budget"
+        ))
+        return EXIT_FAILURE;
+
     QQmlComponent mask_component(&engine);
     mask_component.loadFromModule(
         QStringLiteral("Shadow.DirectStrokeContract"),

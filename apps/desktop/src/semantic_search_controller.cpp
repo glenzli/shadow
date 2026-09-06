@@ -13,45 +13,15 @@
 
 namespace {
 
-constexpr qsizetype MAXIMUM_HIGH_RELEVANCE_MATCHES = 4;
-constexpr qsizetype MAXIMUM_VISIBLE_MATCHES = 10;
-constexpr float HIGH_RELEVANCE_SCORE_WINDOW = 0.025F;
-constexpr float POSSIBLE_RELEVANCE_SCORE_WINDOW = 0.06F;
-
 struct RelevanceProjection final {
     qsizetype high_count = 0;
     qsizetype possible_count = 0;
 };
 
 RelevanceProjection classifyRelevance(const BackendSemanticSearchReport& report) {
-    if (report.matches.isEmpty()) {
-        return {};
-    }
-
-    const qsizetype match_count = report.matches.size();
-    const qsizetype high_rank_limit =
-        std::min(MAXIMUM_HIGH_RELEVANCE_MATCHES, std::max<qsizetype>(1, (match_count + 4) / 5));
-    const qsizetype visible_rank_limit =
-        std::min(MAXIMUM_VISIBLE_MATCHES, std::max<qsizetype>(1, (match_count + 1) / 2));
-    const float top_score = report.matches.front().cosine_similarity;
-
-    qsizetype high_count = 1;
-    while (high_count < high_rank_limit
-           && report.matches.at(high_count).cosine_similarity
-                  >= top_score - HIGH_RELEVANCE_SCORE_WINDOW) {
-        ++high_count;
-    }
-
-    qsizetype visible_count = high_count;
-    while (visible_count < visible_rank_limit
-           && report.matches.at(visible_count).cosine_similarity
-                  >= top_score - POSSIBLE_RELEVANCE_SCORE_WINDOW) {
-        ++visible_count;
-    }
-    return {
-        .high_count = high_count,
-        .possible_count = visible_count - high_count,
-    };
+    // The model supplies relative similarity, not calibrated relevance. Keep
+    // every ranked candidate visible without assigning any strong-match badge.
+    return {.high_count = 0, .possible_count = report.matches.size()};
 }
 
 QString relevanceTierForIndex(const qsizetype index, const RelevanceProjection projection) {
@@ -85,8 +55,14 @@ QStringList representationKeys(
 
 } // namespace
 
-SemanticSearchController::SemanticSearchController(Runner runner, QObject* const parent) :
-    QObject(parent), runner_(std::move(runner)) {
+SemanticSearchController::SemanticSearchController(
+    Runner runner,
+    Begin begin,
+    Cancel cancel,
+    QObject* const parent
+) :
+    QObject(parent), runner_(std::move(runner)), begin_(std::move(begin)),
+    cancel_(std::move(cancel)) {
     connect(
         &watcher_,
         &QFutureWatcher<SemanticSearchTaskResult>::finished,
@@ -96,11 +72,14 @@ SemanticSearchController::SemanticSearchController(Runner runner, QObject* const
 }
 
 SemanticSearchController::~SemanticSearchController() {
+    if (request_in_flight_ && cancel_) {
+        cancel_(active_token_);
+    }
     watcher_.waitForFinished();
 }
 
 bool SemanticSearchController::busy() const noexcept {
-    return watcher_.isRunning();
+    return request_in_flight_;
 }
 
 bool SemanticSearchController::hasResults() const noexcept {
@@ -202,14 +181,26 @@ bool SemanticSearchController::truncated() const noexcept {
 }
 
 void SemanticSearchController::search(const QString& query) {
-    if (watcher_.isRunning()) {
-        return;
-    }
     const QString normalized_query = query.trimmed();
     if (normalized_query.isEmpty()) {
         return;
     }
 
+    if (request_in_flight_) {
+        pending_query_ = normalized_query;
+        discard_result_ = true;
+        if (cancel_)
+            cancel_(active_token_);
+        return;
+    }
+    discard_result_ = false;
+    try {
+        active_token_ = begin_ ? begin_() : active_token_ + 1;
+    } catch (const std::exception&) {
+        state_ = State::Failed;
+        emit stateChanged();
+        return;
+    }
     const QString language = QLocale().bcp47Name();
     QByteArray revision_input = normalized_query.toUtf8();
     revision_input.push_back('\0');
@@ -225,12 +216,17 @@ void SemanticSearchController::search(const QString& query) {
     active_query_.clear();
     has_results_ = false;
     state_ = State::Running;
+    request_in_flight_ = true;
     watcher_.setFuture(
-        QtConcurrent::run([runner = runner_, normalized_query, query_revision, language]() {
+        QtConcurrent::run([runner = runner_,
+                           normalized_query,
+                           query_revision,
+                           language,
+                           token = active_token_]() {
             SemanticSearchTaskResult result;
             result.query = normalized_query;
             try {
-                result.report = runner(normalized_query, query_revision, language);
+                result.report = runner(normalized_query, query_revision, language, token);
             } catch (const std::exception& error) {
                 result.diagnostic = QString::fromUtf8(error.what());
             }
@@ -242,9 +238,10 @@ void SemanticSearchController::search(const QString& query) {
 }
 
 void SemanticSearchController::clearSessionResults() {
-    if (watcher_.isRunning()) {
-        return;
-    }
+    pending_query_.clear();
+    discard_result_ = true;
+    if (request_in_flight_ && cancel_)
+        cancel_(active_token_);
     report_ = {};
     active_query_.clear();
     has_results_ = false;
@@ -259,6 +256,15 @@ void SemanticSearchController::retranslateUi() {
 
 void SemanticSearchController::finishSearch() {
     const SemanticSearchTaskResult result = watcher_.result();
+    request_in_flight_ = false;
+    if (discard_result_) {
+        const QString pending = std::exchange(pending_query_, {});
+        state_ = State::Idle;
+        emit stateChanged();
+        if (!pending.isEmpty())
+            search(pending);
+        return;
+    }
     if (!result.diagnostic.isEmpty()) {
         qWarning().noquote() << "Semantic search failed:" << result.diagnostic;
         state_ = State::Failed;

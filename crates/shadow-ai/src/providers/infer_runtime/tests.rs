@@ -252,3 +252,20 @@ fn sdk_provenance(tokenizer: bool) -> SdkVisionProvenance {
         extra,
     }
 }
+
+#[test]
+fn cancellation_drops_an_in_flight_request_without_waiting_for_its_deadline() {
+    let credential = tempfile::NamedTempFile::new().expect("credential");
+    let client =
+        InferRuntimeClient::from_credential_file("http://127.0.0.1:9876", credential.path())
+            .expect("client");
+    let started = std::time::Instant::now();
+    let result = client
+        .block_on_cancellable(
+            std::future::pending::<Result<(), InferRuntimeClientError>>(),
+            &|| started.elapsed() >= std::time::Duration::from_millis(30),
+        )
+        .expect("cancel");
+    assert!(result.is_none());
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+}

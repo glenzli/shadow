@@ -177,6 +177,41 @@ pub trait FaceAnalysisProvider {
         landmarks: FaceLandmarks,
     ) -> Result<EmbeddedFace, InferRuntimeClientError>;
 
+    /// Runs detection with a cooperative cancellation boundary.
+    /// # Errors
+    /// Returns the underlying provider error.
+    fn detect_faces_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<DetectedFaceBatch>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        let result = self.detect_faces(image, media_type, source_revision)?;
+        Ok((!cancelled()).then_some(result))
+    }
+
+    /// Runs embedding with a cooperative cancellation boundary.
+    /// # Errors
+    /// Returns the underlying provider error.
+    fn embed_face_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        landmarks: FaceLandmarks,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<EmbeddedFace>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        let result = self.embed_face(image, media_type, source_revision, landmarks)?;
+        Ok((!cancelled()).then_some(result))
+    }
+
     /// Returns one full-image CelebAMask-HQ label map for the selected face.
     ///
     /// # Errors
@@ -351,6 +386,27 @@ impl InferRuntimeClient {
         &self.sdk
     }
 
+    fn block_on_cancellable<T>(
+        &self,
+        future: impl std::future::Future<Output = Result<T, InferRuntimeClientError>>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<T>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        self.runtime.block_on(async {
+            tokio::select! {
+                biased;
+                () = async {
+                    while !cancelled() {
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                } => Ok(None),
+                result = future => result.map(Some),
+            }
+        })
+    }
+
     fn block_on<T>(
         &self,
         future: impl std::future::Future<Output = Result<T, InferRuntimeClientError>>,
@@ -366,17 +422,9 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         media_type: &str,
         source_revision: &str,
     ) -> Result<DetectedFaceBatch, InferRuntimeClientError> {
-        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
-        let metadata = local_metadata("background", None);
-        let response = self.block_on(self.sdk.detect_faces(
-            staged.path(),
-            media_type,
-            source_revision,
-            &metadata,
-        ))?;
-        admit_face_detection(response, source_revision)
+        self.detect_faces_cancellable(image, media_type, source_revision, &|| false)?
+            .ok_or_else(|| InferRuntimeClientError::Input("face detection cancelled".into()))
     }
-
     fn embed_face(
         &self,
         image: &[u8],
@@ -384,6 +432,37 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         source_revision: &str,
         landmarks: FaceLandmarks,
     ) -> Result<EmbeddedFace, InferRuntimeClientError> {
+        self.embed_face_cancellable(image, media_type, source_revision, landmarks, &|| false)?
+            .ok_or_else(|| InferRuntimeClientError::Input("face embedding cancelled".into()))
+    }
+
+    fn detect_faces_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<DetectedFaceBatch>, InferRuntimeClientError> {
+        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
+        let metadata = local_metadata("background", None);
+        let response = self.block_on_cancellable(
+            self.sdk
+                .detect_faces(staged.path(), media_type, source_revision, &metadata),
+            cancelled,
+        )?;
+        response
+            .map(|value| admit_face_detection(value, source_revision))
+            .transpose()
+    }
+
+    fn embed_face_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        landmarks: FaceLandmarks,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<EmbeddedFace>, InferRuntimeClientError> {
         if landmarks
             .points()
             .iter()
@@ -393,14 +472,19 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         }
         let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
         let metadata = local_metadata("background", None);
-        let response = self.block_on(self.sdk.embed_face(
-            staged.path(),
-            media_type,
-            source_revision,
-            sdk_landmarks(landmarks),
-            &metadata,
-        ))?;
-        admit_face_embedding(response, source_revision)
+        let response = self.block_on_cancellable(
+            self.sdk.embed_face(
+                staged.path(),
+                media_type,
+                source_revision,
+                sdk_landmarks(landmarks),
+                &metadata,
+            ),
+            cancelled,
+        )?;
+        response
+            .map(|value| admit_face_embedding(value, source_revision))
+            .transpose()
     }
 
     fn parse_face(

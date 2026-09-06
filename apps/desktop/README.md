@@ -1422,3 +1422,18 @@ opacity/blend controls, clipping overlays, waveform/vectorscope, crop, full-reso
 and AI-authored stacks remain later vertical slices. Warm FIT preview and its analysis remain an
 interactive approximation for nonlinear curves; 100% detail is the full-resolution quality gate
 for the supported stack.
+
+## Startup recovery and semantic search lifecycle
+
+[`src/catalog_startup_recovery.cpp`](src/catalog_startup_recovery.cpp) owns startup
+failure presentation and preservation of an incompatible test Catalog. Supported
+migrations remain Catalog-owned. Creating a new test Catalog moves the old SQLite
+files, people data, and local cache into an adjacent recovery directory before
+retrying. Remote preview mirror payloads remain in place. The error dialog shows
+the executable and Catalog paths so a stale application build can be identified.
+
+[`src/semantic_search_controller.cpp`](src/semantic_search_controller.cpp) serializes
+one active search and one replaceable pending query. Clear and replacement cancel
+the active Rust request and reject late results. The core caches exact-source image
+vectors across queries; QML displays relative ranking and scan coverage without
+inventing strong-match confidence. Model files remain managed by Infer Runtime.

@@ -204,15 +204,25 @@ soft mask into the managed raster store before the Recipe references it.
 Cancellation, stale-result rejection, reversible invert/opacity/feather
 settings, and explicit apply/cancel boundaries remain application-owned.
 
-The first people-analysis slice is operator-facing rather than a desktop
-feature. `shadow-core` pages the Catalog's current Review visuals, verifies each
-content-addressed JPEG, calls infer-runtime's YuNet detection and SFace
-embedding endpoints, and rechecks the exact selected artifact before admitting
-the result. It currently returns an in-memory anonymous grouping report through
-`shadow-cli people-cluster`; embeddings, face observations, and clusters are
-not persisted or synchronized. This deliberately postpones durable biometric
-retention/deletion policy and user merge/split/name facts instead of silently
-putting vectors into the ordinary Catalog.
+People analysis is exposed in the desktop People workspace and through
+`shadow-cli people-cluster`. `shadow-core` verifies current Review JPEGs, calls
+Infer Runtime detection and embedding capabilities, and rejects stale inputs.
+The desktop owns explicit consent and a `PeopleLibraryStore` for anonymous
+photo references, groups, representative thumbnails, names, and merges. Face
+embedding vectors remain transient. Clearing people data removes the retained
+people artifacts without changing original photos or edits. Split corrections
+and durable correction history are not yet implemented.
+
+`shadow-core/src/vision_input.rs` prepares bounded local model inputs: semantic
+search uses a 2048-pixel maximum edge and face analysis uses 4096. Oversized
+embedded previews are resized with aspect ratio preserved; original photos and
+Catalog geometry are unchanged. Request identity includes the preparation policy.
+
+Semantic search uses cancellable requests and rebuildable image-vector records
+keyed by exact source revision, geometry, and embedding space. New text queries
+reuse valid image vectors. Desktop scanning uses an explicit coverage bound and
+shows skipped/truncated coverage; relative similarity is not a calibrated
+confidence score. The CLI keeps a smaller caller-controlled default budget.
 
 ## Deliberately not implemented
 
@@ -252,7 +262,7 @@ putting vectors into the ordinary Catalog.
   boundaries.
 - [`../shadow-core/src/people_analysis.rs`](../shadow-core/src/people_analysis.rs)
   owns Catalog/cache selection, source-revision binding, stale-result rejection,
-  and the bounded transient people-analysis workflow.
+  and the bounded, cancellable people-analysis proposal workflow.
 - [`src/generated.rs`](src/generated.rs) owns typed generated outputs and
   [`src/derived_raster.rs`](src/derived_raster.rs) owns the managed-store
   promotion transaction boundary.

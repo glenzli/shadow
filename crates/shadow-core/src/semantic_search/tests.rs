@@ -297,3 +297,38 @@ impl Drop for Fixture {
         std::fs::remove_dir_all(&self.root).expect("remove fixture");
     }
 }
+
+#[test]
+fn second_query_reuses_image_vectors_and_cancelled_query_never_runs_inference() {
+    let fixture = Fixture::new();
+    fixture.add_photo(1, "/photos/a.dng", b"first-jpeg");
+    let provider = FakeSemanticProvider::new();
+    for query in ["first", "second"] {
+        let report = search_review_semantics(
+            &fixture.catalog,
+            &fixture.cache_root,
+            &provider,
+            query,
+            query,
+            None,
+            SemanticSearchPolicy::default(),
+        )
+        .expect("search");
+        assert_eq!(report.matches.len(), 1);
+    }
+    assert_eq!(provider.image_calls.get(), 1);
+    assert!(matches!(
+        search_review_semantics_with_control(
+            &fixture.catalog,
+            &fixture.cache_root,
+            &provider,
+            "cancelled",
+            "cancelled",
+            None,
+            SemanticSearchPolicy::default(),
+            &|| true
+        ),
+        Err(SemanticSearchError::Cancelled)
+    ));
+    assert_eq!(provider.image_calls.get(), 1);
+}

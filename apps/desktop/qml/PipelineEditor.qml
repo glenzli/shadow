@@ -10,6 +10,7 @@ ApplicationWindow {
 
     required property var editor
     required property var editPreviewPresentation
+    required property var opticsProfileLibrary
     required property var lutLibrary
     required property var pipeline
 
@@ -59,14 +60,25 @@ ApplicationWindow {
         }
     }
 
+    LutManagerWindow {
+        id: lutManager
+        lutLibrary: window.lutLibrary
+    }
+
+    OpticsProfileManagerWindow {
+        id: opticsProfileManager
+        editor: window.editor
+        opticsProfileLibrary: window.opticsProfileLibrary
+    }
+
     PrecisionWorkspace {
         anchors.fill: parent
         editor: window.editor
         editPreviewPresentation: window.editPreviewPresentation
         lutLibrary: window.lutLibrary
         captureMetadata: ({})
-        onOpenLutLibraryRequested: {}
-        onOpenOpticsProfileLibraryRequested: {}
+        onOpenLutLibraryRequested: lutManager.openManager()
+        onOpenOpticsProfileLibraryRequested: opticsProfileManager.openManager()
         onReturnToReviewRequested: window.pipeline.cancel()
     }
 }

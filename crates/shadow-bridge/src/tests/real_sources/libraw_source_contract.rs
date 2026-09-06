@@ -36,6 +36,8 @@ fn real_dng_snapshot_crosses_the_bridge() {
 fn real_dng_embedded_preview_crosses_the_bridge() {
     let path =
         std::env::var_os("SHADOW_TEST_DNG_WITH_PREVIEW").expect("SHADOW_TEST_DNG_WITH_PREVIEW");
+    let inspected = inspect_libraw(Path::new(&path)).expect("inspect preview source");
+    assert_eq!(inspected.provider.version, crate::libraw_provider_version());
     let preview = extract_best_libraw_preview(Path::new(&path))
         .expect("extract local DNG preview")
         .expect("fixture contains a preview");

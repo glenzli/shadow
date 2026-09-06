@@ -438,7 +438,7 @@ ScrollView {
 
         SettingsCard {
             Label {
-                text: qsTr("Model storage")
+                text: qsTr("Models managed by Infer Runtime")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontBody
                 font.weight: Font.DemiBold
@@ -446,22 +446,10 @@ ScrollView {
 
             Label {
                 Layout.fillWidth: true
-                text: root.aiPreferences.modelStoragePath
+                text: qsTr("Install and manage models in Infer Runtime. Shadow does not load models from its own folder. A listed capability still needs an available model and a successful request before it is ready for use.")
                 color: Theme.textMuted
-                font.family: "Menlo"
                 font.pixelSize: Theme.fontMeta
-                elide: Text.ElideMiddle
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-
-                ShadowButton {
-                    text: qsTr("Show Model Folder")
-                    onClicked: Qt.openUrlExternally(root.aiPreferences.modelStorageUrl)
-                }
-
-                Item { Layout.fillWidth: true }
+                wrapMode: Text.WordWrap
             }
         }
 

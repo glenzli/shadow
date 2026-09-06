@@ -20,7 +20,7 @@ Item {
 
     function submit(query) {
         const normalizedQuery = String(query || "").trim()
-        if (normalizedQuery.length === 0 || semantic.busy)
+        if (normalizedQuery.length === 0)
             return
         draftQuery = normalizedQuery
         workspace.galleryPresentation = ReviewWorkspace.JustifiedGrid
@@ -28,8 +28,6 @@ Item {
     }
 
     function clearSearch() {
-        if (semantic.busy)
-            return
         draftQuery = ""
         semantic.clearSessionResults()
         compactPopup.close()
@@ -38,12 +36,11 @@ Item {
     function resultSummary() {
         if (!semantic.hasResults)
             return ""
-        const visible = qsTr("%1 strong · %2 possible").arg(
-            semantic.highRelevanceCount).arg(semantic.possibleRelevanceCount)
-        return semantic.hiddenLowRelevanceCount > 0
-            ? visible + qsTr(" · %1 weak hidden").arg(
-                semantic.hiddenLowRelevanceCount)
-            : visible
+        const summary = qsTr("%1 ranked photos · %2 checked · %3 skipped").arg(
+            semantic.shownResultCount).arg(semantic.consideredPhotos).arg(semantic.skippedItems)
+        return summary + (semantic.truncated
+            ? qsTr(" · Library coverage is incomplete") : qsTr(" · Current Library scan complete"))
+            + qsTr(". Similarity order is not a confidence score.")
     }
 
     component SearchField: Rectangle {
@@ -96,7 +93,7 @@ Item {
                 color: Theme.textPrimary
                 placeholderTextColor: Theme.textPlaceholder
                 font.pixelSize: 11
-                visible: !field.owner.semantic.busy
+                visible: true
                 selectByMouse: true
                 background: Item {}
                 onTextEdited: field.owner.draftQuery = text
@@ -105,7 +102,7 @@ Item {
 
             Label {
                 objectName: "semanticSearchWaitingText"
-                visible: field.owner.semantic.busy
+                visible: false
                 Layout.fillWidth: true
                 text: qsTr("Matching locally…")
                 color: Theme.accent
@@ -123,8 +120,7 @@ Item {
 
             ShadowIconButton {
                 objectName: "semanticSearchSubmitButton"
-                visible: !field.owner.semantic.busy
-                    && field.owner.draftQuery.trim().length > 0
+                visible: field.owner.draftQuery.trim().length > 0
                     && (!field.owner.semantic.hasResults
                         || field.owner.draftQuery.trim()
                             !== field.owner.semantic.activeQuery)
@@ -138,13 +134,13 @@ Item {
 
             ShadowIconButton {
                 objectName: "semanticSearchClearButton"
-                visible: !field.owner.semantic.busy
-                    && (field.owner.draftQuery.length > 0
+                visible: field.owner.semantic.busy
+                    || (field.owner.draftQuery.length > 0
                         || field.owner.semantic.hasResults)
                 buttonSize: 20
                 iconSize: 11
                 source: "qrc:/icons/clear.svg"
-                toolTipText: qsTr("Clear semantic filter")
+                toolTipText: field.owner.semantic.busy ? qsTr("Cancel semantic search") : qsTr("Clear semantic filter")
                 accessibleName: toolTipText
                 onClicked: field.owner.clearSearch()
             }
@@ -173,7 +169,7 @@ Item {
         objectName: "semanticSearchCompactButton"
         anchors.centerIn: parent
         visible: !control.expanded
-        enabled: !control.semantic.busy
+        enabled: true
         selected: compactPopup.visible || control.semantic.hasResults
         variant: selected ? ShadowIconButton.Tinted : ShadowIconButton.Ghost
         source: "qrc:/icons/zoom.svg"

@@ -650,3 +650,10 @@
         NAME shadow-desktop-review-source-health-backend-contract
         COMMAND shadow-review-source-health-backend-contract-test
     )
+
+    add_executable(shadow-catalog-startup-recovery-test
+        tests/catalog_startup_recovery_test.cpp src/catalog_startup_recovery.cpp src/catalog_startup_recovery.hpp)
+    target_compile_features(shadow-catalog-startup-recovery-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-catalog-startup-recovery-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-catalog-startup-recovery-test PRIVATE Qt6::Core Qt6::Widgets)
+    add_test(NAME shadow-desktop-catalog-startup-recovery COMMAND shadow-catalog-startup-recovery-test)

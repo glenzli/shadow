@@ -1,14 +1,34 @@
 //! Desktop-session projection for transient `SigLIP` semantic search.
 
-use std::path::Path;
+use std::{path::Path, sync::atomic::Ordering};
 
 use anyhow::{Context, Result as AnyResult};
 use shadow_ai::InferRuntimeClient;
-use shadow_core::{SemanticSearchPolicy, SemanticSearchReport, search_review_semantics};
+use shadow_core::{
+    MAX_SEMANTIC_SEARCH_PHOTOS, SemanticSearchPolicy, SemanticSearchReport,
+    search_review_semantics_with_control,
+};
 
 use super::{DesktopSession, ffi};
 
 impl DesktopSession {
+    pub(crate) fn begin_semantic_search(&self) -> AnyResult<u64> {
+        self.semantic_search_token
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                value.checked_add(1)
+            })
+            .map(|value| value + 1)
+            .map_err(|_| anyhow::anyhow!("semantic search token exhausted"))
+    }
+    pub(crate) fn cancel_semantic_search(&self, token: u64) {
+        let _ = self.semantic_search_token.compare_exchange(
+            token,
+            token.saturating_add(1),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
     pub(crate) fn search_semantics(
         &self,
         infer_base_url: &str,
@@ -16,20 +36,24 @@ impl DesktopSession {
         query: &str,
         query_revision: &str,
         language: &str,
+        token: u64,
     ) -> AnyResult<ffi::FfiSemanticSearchReport> {
         let provider = InferRuntimeClient::from_credential_file_with_discovery(
             (!infer_base_url.is_empty()).then_some(infer_base_url),
             Path::new(credential_file),
         )
         .context("configure local semantic-search provider")?;
-        let report = search_review_semantics(
+        let report = search_review_semantics_with_control(
             &self.catalog,
             &self.cache_root,
             &provider,
             query,
             query_revision,
             (!language.is_empty()).then_some(language),
-            SemanticSearchPolicy::default(),
+            SemanticSearchPolicy {
+                maximum_photos: MAX_SEMANTIC_SEARCH_PHOTOS,
+            },
+            &|| self.semantic_search_token.load(Ordering::Acquire) != token,
         )
         .context("search current Library visuals by meaning")?;
         ffi_semantic_search_report(report)

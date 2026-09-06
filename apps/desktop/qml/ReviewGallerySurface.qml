@@ -73,8 +73,8 @@ Rectangle {
             if (semantic.possibleRepresentationKeys.length > 0) {
                 sections.push({
                     key: "semantic-possible",
-                    title: qsTr("Possibly related"),
-                    subtitle: qsTr("Broader matches worth reviewing"),
+                    title: qsTr("Similarity order"),
+                    subtitle: qsTr("Relative similarity for your query; review the photos to confirm"),
                     representationKeys: semantic.possibleRepresentationKeys
                 })
             }

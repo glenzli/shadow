@@ -1989,6 +1989,237 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
+    <name>EditInterchangeController</name>
+    <message>
+        <source>The file contains different values for the same field.</source>
+        <translation>文件中同一字段包含不同的值。</translation>
+    </message>
+    <message>
+        <source>The value is not a valid finite number.</source>
+        <translation>该值不是有效的有限数值。</translation>
+    </message>
+    <message>
+        <source>The value is outside the supported range.</source>
+        <translation>该值超出支持范围。</translation>
+    </message>
+    <message>
+        <source>This is not a readable XMP document: %1</source>
+        <translation>无法读取此 XMP 文档：%1</translation>
+    </message>
+    <message>
+        <source>No supported Camera Raw develop adjustments were found.</source>
+        <translation>未找到受支持的 Camera Raw 调整。</translation>
+    </message>
+    <message>
+        <source>The selected file is unavailable.</source>
+        <translation>所选文件不可用。</translation>
+    </message>
+    <message>
+        <source>The XMP file is larger than 4 MB.</source>
+        <translation>XMP 文件大于 4 MB。</translation>
+    </message>
+    <message>
+        <source>The selected file could not be opened.</source>
+        <translation>无法打开所选文件。</translation>
+    </message>
+    <message>
+        <source>Resolve the XMP preview before importing.</source>
+        <translation>请先处理 XMP 预览中的问题，再进行导入。</translation>
+    </message>
+    <message>
+        <source>Open a photo before importing XMP adjustments.</source>
+        <translation>请先打开照片，再导入 XMP 调整。</translation>
+    </message>
+    <message>
+        <source>Wait for the current edit operation to finish.</source>
+        <translation>请等待当前编辑操作完成。</translation>
+    </message>
+    <message>
+        <source>This photo already contains the maximum of 16 Grade Nodes.</source>
+        <translation>这张照片已包含最多 16 个调色节点。</translation>
+    </message>
+    <message>
+        <source>Shadow could not create the destination Grade Node.</source>
+        <translation>Shadow 无法创建用于导入的调色节点。</translation>
+    </message>
+    <message>
+        <source>Exposure</source>
+        <translation>曝光</translation>
+    </message>
+    <message>
+        <source>Contrast</source>
+        <translation>对比度</translation>
+    </message>
+    <message>
+        <source>Highlights</source>
+        <translation>高光</translation>
+    </message>
+    <message>
+        <source>Shadows</source>
+        <translation>阴影</translation>
+    </message>
+    <message>
+        <source>Whites</source>
+        <translation>白色色阶</translation>
+    </message>
+    <message>
+        <source>Blacks</source>
+        <translation>黑色色阶</translation>
+    </message>
+    <message>
+        <source>Texture</source>
+        <translation>纹理</translation>
+    </message>
+    <message>
+        <source>Clarity</source>
+        <translation>清晰度</translation>
+    </message>
+    <message>
+        <source>Dehaze</source>
+        <translation>去朦胧</translation>
+    </message>
+    <message>
+        <source>Vibrance</source>
+        <translation>自然饱和度</translation>
+    </message>
+    <message>
+        <source>Chroma</source>
+        <translation>色度</translation>
+    </message>
+    <message>
+        <source>%1 EV</source>
+        <translation>%1 EV</translation>
+    </message>
+    <message>
+        <source>%1×</source>
+        <translation>%1×</translation>
+    </message>
+    <message>
+        <source>%1%</source>
+        <translation>%1%</translation>
+    </message>
+    <message>
+        <source>Absolute source white balance has no reliable Grade Node equivalent.</source>
+        <translation>源文件的绝对白平衡无法可靠映射为调色节点参数。</translation>
+    </message>
+    <message>
+        <source>This structured adjustment is outside the controlled mapping.</source>
+        <translation>此结构化调整不在受控映射范围内。</translation>
+    </message>
+    <message>
+        <source>This field is outside the controlled mapping.</source>
+        <translation>此字段不在受控映射范围内。</translation>
+    </message>
+    <message>
+        <source>%1 managed-mask Grade Nodes will be imported disabled. Their source-photo pixels are never reused.</source>
+        <translation>%1 个含托管蒙版的调色节点将以停用状态导入；不会复用源照片的蒙版像素。</translation>
+    </message>
+    <message>
+        <source>%1 path-bound LUT references will be omitted because this file does not contain LUT resources.</source>
+        <translation>此文件不包含 LUT 资源，将略去 %1 个与本机路径绑定的 LUT 引用。</translation>
+    </message>
+    <message>
+        <source>%1 semantic managed masks will be omitted; their Grade Nodes remain disabled.</source>
+        <translation>将略去 %1 个语义托管蒙版；对应调色节点保持停用。</translation>
+    </message>
+    <message>
+        <source>%1 shared Grade Node links will become independent local nodes.</source>
+        <translation>%1 个共享调色节点链接将转为独立的本地节点。</translation>
+    </message>
+    <message>
+        <source>%1 source-photo AI completion regions will not be imported.</source>
+        <translation>不会导入源照片上的 %1 个 AI 补全区域。</translation>
+    </message>
+    <message>
+        <source>%1 source-photo Liquify strokes will not be imported.</source>
+        <translation>不会导入源照片上的 %1 个液化笔画。</translation>
+    </message>
+    <message>
+        <source>%1 source-photo repair regions will not be imported.</source>
+        <translation>不会导入源照片上的 %1 个修复区域。</translation>
+    </message>
+    <message>
+        <source>Choose a local destination for the Shadow Recipe.</source>
+        <translation>请选择 Shadow Recipe 的本地保存位置。</translation>
+    </message>
+    <message>
+        <source>Choose a valid Shadow Recipe before importing.</source>
+        <translation>请选择有效的 Shadow Recipe 后再导入。</translation>
+    </message>
+    <message>
+        <source>Adapt the semantic masks before importing this Shadow Recipe.</source>
+        <translation>请先适配语义蒙版，再导入此 Shadow Recipe。</translation>
+    </message>
+    <message>
+        <source>Check Infer Runtime and the local models, then retry.</source>
+        <translation>请检查 Infer Runtime 和本地模型后重试。</translation>
+    </message>
+    <message>
+        <source>No matching subject was found in this photo.</source>
+        <translation>未在此照片中找到匹配的主体。</translation>
+    </message>
+    <message>
+        <source>Preview this Shadow Recipe again before adapting it.</source>
+        <translation>请重新预览此 Shadow Recipe 后再进行适配。</translation>
+    </message>
+    <message>
+        <source>Shadow could not adapt this Recipe: %1</source>
+        <translation>Shadow 无法适配此配方：%1</translation>
+    </message>
+    <message>
+        <source>This Shadow Recipe does not contain a semantic mask to adapt.</source>
+        <translation>此 Shadow Recipe 不包含可适配的语义蒙版。</translation>
+    </message>
+    <message>
+        <source>Crop, orientation, and perspective remain unchanged on this photo.</source>
+        <translation>此照片的裁剪、方向和透视保持不变。</translation>
+    </message>
+    <message>
+        <source>Open a photo before exporting a Shadow Recipe.</source>
+        <translation>请先打开照片，再导出 Shadow Recipe。</translation>
+    </message>
+    <message>
+        <source>Shadow could not create this Recipe: %1</source>
+        <translation>Shadow 无法创建此配方：%1</translation>
+    </message>
+    <message>
+        <source>Shadow could not read this Recipe: %1</source>
+        <translation>Shadow 无法读取此配方：%1</translation>
+    </message>
+    <message>
+        <source>Source development and AI RAW Denoise remain unchanged on this photo.</source>
+        <translation>此照片的源文件开发和 AI RAW 降噪保持不变。</translation>
+    </message>
+    <message>
+        <source>The Shadow Recipe could not be published atomically.</source>
+        <translation>无法安全完成 Shadow Recipe 文件的保存。</translation>
+    </message>
+    <message>
+        <source>The Shadow Recipe destination could not be opened.</source>
+        <translation>无法打开 Shadow Recipe 的保存位置。</translation>
+    </message>
+    <message>
+        <source>The Shadow Recipe file is larger than 16 MB.</source>
+        <translation>Shadow Recipe 文件大于 16 MB。</translation>
+    </message>
+    <message>
+        <source>The complete Shadow Recipe could not be written.</source>
+        <translation>无法完整写入 Shadow Recipe。</translation>
+    </message>
+    <message>
+        <source>The open photo changed after this Recipe was previewed. Preview it again.</source>
+        <translation>预览此配方后，当前照片已发生变化。请重新预览。</translation>
+    </message>
+    <message>
+        <source>The selected Shadow Recipe file could not be opened.</source>
+        <translation>无法打开所选 Shadow Recipe 文件。</translation>
+    </message>
+    <message>
+        <source>The selected Shadow Recipe file is unavailable.</source>
+        <translation>所选 Shadow Recipe 文件不可用。</translation>
+    </message>
+</context>
+<context>
     <name>EditVersionModel</name>
     <message>
         <location filename="../src/edit_version_presentation.cpp" line="17"/>
@@ -5294,8 +5525,8 @@ R %2 · G %3 · B %4</translation>
         <translation>为人物命名</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="153"/>
-        <source>Names stay in this device's local People data.</source>
+        <location filename="../qml/PeopleWorkspace.qml" line="155"/>
+        <source>Names stay in this device&apos;s local People data.</source>
         <translation>姓名仅保存在本机的人物数据中。</translation>
     </message>
     <message>
@@ -5680,6 +5911,11 @@ R %2 · G %3 · B %4</translation>
 </context>
 <context>
     <name>PrecisionCanvasPickerInput</name>
+    <message>
+        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="352"/>
+        <source>Stroke limit reached. Release, then continue with a new stroke.</source>
+        <translation>已达到单笔上限。松开后，请用新笔画继续。</translation>
+    </message>
     <message>
         <location filename="../qml/PrecisionCanvasPickerInput.qml" line="352"/>
         <location filename="../qml/PrecisionCanvasPickerInput.qml" line="421"/>
@@ -8793,48 +9029,6 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../src/main.cpp" line="74"/>
-        <source>Could not remove %1.</source>
-        <translation>无法移除 %1。</translation>
-    </message>
-    <message>
-        <location filename="../src/main.cpp" line="97"/>
-        <source>Could not remove the local preview cache.</source>
-        <translation>无法移除本地预览缓存。</translation>
-    </message>
-    <message>
-        <location filename="../src/main.cpp" line="106"/>
-        <source>Could not remove the local people data.</source>
-        <translation>无法移除本地人物数据。</translation>
-    </message>
-    <message>
-        <location filename="../src/main.cpp" line="123"/>
-        <source>This local catalog belongs to an incompatible development build. Shadow does not migrate development schemas.
-
-Resetting removes the local photo index, edit history, people data, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.</source>
-        <translation>此本地 catalog 属于不兼容的开发版本。Shadow 不迁移开发阶段的 schema。
-
-重置将移除本地照片索引、编辑历史、人物数据和预览缓存。原始照片文件、LUT 库和界面偏好不会改变。</translation>
-    </message>
-    <message>
-        <location filename="../src/main.cpp" line="129"/>
-        <source>Shadow could not open its local development catalog. You can reset it and start again with a fresh catalog v1.
-
-Resetting removes the local photo index, edit history, people data, and preview cache. Your original photo files, LUT library, and UI preferences are not changed.
-
-Technical detail: %1</source>
-        <translation>Shadow 无法打开本地开发 catalog。你可以重置并从新的 catalog v1 开始。
-
-重置将移除本地照片索引、编辑历史、人物数据和预览缓存。原始照片文件、LUT 库和界面偏好不会改变。
-
-技术详情：%1</translation>
-    </message>
-    <message>
-        <location filename="../src/main.cpp" line="139"/>
-        <source>Reset local development catalog?</source>
-        <translation>重置本地开发 catalog？</translation>
-    </message>
-    <message>
         <location filename="../src/main.cpp" line="269"/>
         <source>Catalog reset failed</source>
         <translation>catalog 重置失败</translation>
@@ -8858,6 +9052,54 @@ Technical detail: %1</source>
         <location filename="../src/server_manager/main.cpp" line="89"/>
         <source>Use the existing Shadow Server window to manage Library sharing.</source>
         <translation>请使用已打开的 Shadow Server 窗口管理图库共享。</translation>
+    </message>
+    <message>
+        <location filename="../src/catalog_startup_recovery.cpp" line="17"/>
+        <source>Shadow could not open this catalog. Supported older catalogs are upgraded automatically. If another version created it, open a compatible Shadow build. Your existing catalog has not been reset.
+
+Application: %1
+Catalog: %2
+Details: %3</source>
+        <translation>Shadow 无法打开此目录数据库。受支持的旧版数据库会自动升级。如果数据库由其他版本创建，请使用兼容的 Shadow 版本打开。现有数据库尚未重置。
+
+应用程序：%1
+数据库：%2
+详细信息：%3</translation>
+    </message>
+    <message>
+        <location filename="../src/catalog_startup_recovery.cpp" line="22"/>
+        <source>Could not open catalog</source>
+        <translation>无法打开目录数据库</translation>
+    </message>
+    <message>
+        <location filename="../src/catalog_startup_recovery.cpp" line="25"/>
+        <source>Create a new test catalog…</source>
+        <translation>新建测试数据库…</translation>
+    </message>
+    <message>
+        <location filename="../src/catalog_startup_recovery.cpp" line="33"/>
+        <source>Preserve catalog and start again?</source>
+        <translation>保留数据库并重新开始？</translation>
+    </message>
+    <message>
+        <location filename="../src/catalog_startup_recovery.cpp" line="34"/>
+        <source>The existing catalog, its Library locations, edit history, people data, and cache will be kept in a recovery folder beside the catalog. A new empty test catalog will be created. Original photos are not changed.</source>
+        <translation>现有数据库及其中的图库位置、编辑历史、人物数据和缓存将保存在数据库旁的恢复文件夹中。随后会创建一个空的测试数据库。原始照片不会改变。</translation>
+    </message>
+    <message>
+        <location filename="../src/catalog_startup_recovery.cpp" line="47"/>
+        <source>Could not create the catalog recovery folder.</source>
+        <translation>无法创建数据库恢复文件夹。</translation>
+    </message>
+    <message>
+        <location filename="../src/catalog_startup_recovery.cpp" line="71"/>
+        <source>Could not preserve %1. The existing catalog was retained.</source>
+        <translation>无法保留 %1。现有数据库已保留。</translation>
+    </message>
+    <message>
+        <location filename="../src/catalog_startup_recovery.cpp" line="72"/>
+        <source>Recovery could not finish. Preserved files remain in %1.</source>
+        <translation>恢复操作未能完成。已保留的文件位于 %1。</translation>
     </message>
 </context>
 <context>
@@ -10163,19 +10405,34 @@ Technical detail: %1</source>
         <translation>描述你想找的照片…</translation>
     </message>
     <message>
-        <location filename="../qml/SemanticSearchControl.qml" line="41"/>
-        <source>%1 strong · %2 possible</source>
-        <translation>%1 个强相关 · %2 个可能相关</translation>
+        <location filename="../qml/SemanticSearchControl.qml" line="39"/>
+        <source>%1 ranked photos · %2 checked · %3 skipped</source>
+        <translation>已排序 %1 张 · 已检查 %2 张 · 已跳过 %3 张</translation>
     </message>
     <message>
-        <location filename="../qml/SemanticSearchControl.qml" line="44"/>
-        <source> · %1 weak hidden</source>
-        <translation> · 已隐藏 %1 个弱相关结果</translation>
+        <location filename="../qml/SemanticSearchControl.qml" line="42"/>
+        <source> · Library coverage is incomplete</source>
+        <translation> · 尚未覆盖全部图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/SemanticSearchControl.qml" line="42"/>
+        <source> · Current Library scan complete</source>
+        <translation> · 当前图库扫描完成</translation>
+    </message>
+    <message>
+        <location filename="../qml/SemanticSearchControl.qml" line="43"/>
+        <source>. Similarity order is not a confidence score.</source>
+        <translation>。相似度排序不代表置信度。</translation>
     </message>
     <message>
         <location filename="../qml/SemanticSearchControl.qml" line="134"/>
         <source>Search by description</source>
         <translation>按描述搜索</translation>
+    </message>
+    <message>
+        <location filename="../qml/SemanticSearchControl.qml" line="143"/>
+        <source>Cancel semantic search</source>
+        <translation>取消语义搜索</translation>
     </message>
     <message>
         <location filename="../qml/SemanticSearchControl.qml" line="181"/>
@@ -11116,13 +11373,13 @@ Technical detail: %1</source>
     </message>
     <message>
         <location filename="../qml/ReviewGallerySurface.qml" line="76"/>
-        <source>Possibly related</source>
-        <translation>可能相关</translation>
+        <source>Similarity order</source>
+        <translation>按相似度排序</translation>
     </message>
     <message>
         <location filename="../qml/ReviewGallerySurface.qml" line="77"/>
-        <source>Broader matches worth reviewing</source>
-        <translation>值得进一步查看的扩展结果</translation>
+        <source>Relative similarity for your query; review the photos to confirm</source>
+        <translation>按查询内容的相对相似度排列，请查看照片确认</translation>
     </message>
     <message>
         <location filename="../qml/ReviewGallerySurface.qml" line="261"/>
@@ -12137,6 +12394,16 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>自动应用 AI 关键词建议</translation>
     </message>
     <message>
+        <location filename="../qml/SettingsAiPane.qml" line="441"/>
+        <source>Models managed by Infer Runtime</source>
+        <translation>模型由 Infer Runtime 管理</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsAiPane.qml" line="449"/>
+        <source>Install and manage models in Infer Runtime. Shadow does not load models from its own folder. A listed capability still needs an available model and a successful request before it is ready for use.</source>
+        <translation>请在 Infer Runtime 中安装和管理模型。Shadow 不从自己的文件夹加载模型。能力列表中的功能仍需有可用模型，并成功完成请求后才能确认可用。</translation>
+    </message>
+    <message>
         <location filename="../qml/SettingsAiPane.qml" line="294"/>
         <source>Pause</source>
         <translation>暂停</translation>
@@ -12165,16 +12432,6 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/SettingsAiPane.qml" line="413"/>
         <source>AI-owned keyword assignments may be refreshed when the model or image changes. Manually created and imported assignments are never removed.</source>
         <translation>模型或照片变化时，可以刷新由 AI 管理的关键词关联；手动创建和导入的关联绝不会被移除。</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsAiPane.qml" line="422"/>
-        <source>Model storage</source>
-        <translation>模型存储</translation>
-    </message>
-    <message>
-        <location filename="../qml/SettingsAiPane.qml" line="441"/>
-        <source>Show Model Folder</source>
-        <translation>显示模型文件夹</translation>
     </message>
 </context>
 <context>
@@ -12798,6 +13055,149 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
 </context>
 <context>
+    <name>ShadowRecipeInterchangeDialog</name>
+    <message>
+        <source>%1 of %2 ready</source>
+        <translation>已就绪 %1 / %2</translation>
+    </message>
+    <message>
+        <source>%1 Grade Nodes · %2 portable masks</source>
+        <translation>%1 个调色节点 · %2 个可移植蒙版</translation>
+    </message>
+    <message>
+        <source>Adapt and Import</source>
+        <translation>适配并导入</translation>
+    </message>
+    <message>
+        <source>Adapting…</source>
+        <translation>正在适配…</translation>
+    </message>
+    <message>
+        <source>All files (*)</source>
+        <translation>所有文件 (*)</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Cancel adaptation</source>
+        <translation>取消适配</translation>
+    </message>
+    <message>
+        <source>Cancelled</source>
+        <translation>已取消</translation>
+    </message>
+    <message>
+        <source>Check Infer Runtime and the local models, then retry.</source>
+        <translation>请检查 Infer Runtime 和本地模型，然后重试。</translation>
+    </message>
+    <message>
+        <source>Choose a Shadow Recipe</source>
+        <translation>选择 Shadow Recipe</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Close Shadow Recipe import</source>
+        <translation>关闭 Shadow Recipe 导入</translation>
+    </message>
+    <message>
+        <source>Creating mask</source>
+        <translation>正在生成蒙版</translation>
+    </message>
+    <message>
+        <source>Export Shadow Recipe</source>
+        <translation>导出 Shadow Recipe</translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation>失败</translation>
+    </message>
+    <message>
+        <source>Finding subject</source>
+        <translation>正在定位主体</translation>
+    </message>
+    <message>
+        <source>IMPORT NOTES</source>
+        <translation>导入说明</translation>
+    </message>
+    <message>
+        <source>Import Shadow Recipe</source>
+        <translation>导入 Shadow Recipe</translation>
+    </message>
+    <message>
+        <source>Import adapted Recipe</source>
+        <translation>导入已适配配方</translation>
+    </message>
+    <message>
+        <source>Import available nodes</source>
+        <translation>导入可用节点</translation>
+    </message>
+    <message>
+        <source>Import replaces the current Grade Node list in one undoable step. Source development, repairs, AI completion, Liquify, and crop remain attached to this photo.</source>
+        <translation>导入会在一次可撤销操作中替换当前调色节点列表。源文件开发调整、修复、AI 补全、液化和裁剪仍保留在此照片上。</translation>
+    </message>
+    <message>
+        <source>JSON documents (*.json)</source>
+        <translation>JSON 文档 (*.json)</translation>
+    </message>
+    <message>
+        <source>Not found</source>
+        <translation>未找到</translation>
+    </message>
+    <message>
+        <source>Preparing</source>
+        <translation>正在准备</translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation>已就绪</translation>
+    </message>
+    <message>
+        <source>Replace Grade Nodes</source>
+        <translation>替换调色节点</translation>
+    </message>
+    <message>
+        <source>Retry failed items</source>
+        <translation>重试失败项</translation>
+    </message>
+    <message>
+        <source>SEMANTIC MASK ADAPTATION</source>
+        <translation>语义蒙版适配</translation>
+    </message>
+    <message>
+        <source>Semantic mask adaptation progress</source>
+        <translation>语义蒙版适配进度</translation>
+    </message>
+    <message>
+        <source>Semantic subject: %1</source>
+        <translation>语义主体：%1</translation>
+    </message>
+    <message>
+        <source>Shadow Recipe was not exported</source>
+        <translation>未导出 Shadow Recipe</translation>
+    </message>
+    <message>
+        <source>Shadow Recipes (*.shadowrecipe)</source>
+        <translation>Shadow Recipe (*.shadowrecipe)</translation>
+    </message>
+    <message>
+        <source>Some Grade Nodes could not be adapted. Retry those items, or explicitly import only the available nodes. Unavailable nodes are excluded as complete Grade Nodes.</source>
+        <translation>部分调色节点未能完成适配。可重试这些项目，或明确仅导入可用节点。不可用内容会按完整调色节点排除。</translation>
+    </message>
+    <message>
+        <source>Unavailable</source>
+        <translation>不可用</translation>
+    </message>
+    <message>
+        <source>Waiting</source>
+        <translation>等待中</translation>
+    </message>
+</context>
+<context>
     <name>ShadowSlider</name>
     <message>
         <location filename="../qml/ShadowSlider.qml" line="51"/>
@@ -12949,380 +13349,6 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/ToneCurveEditor.qml" line="457"/>
         <source>Reset curve</source>
         <translation>重置曲线</translation>
-    </message>
-</context>
-<context>
-    <name>EditInterchangeController</name>
-    <message>
-        <source>The file contains different values for the same field.</source>
-        <translation>文件中同一字段包含不同的值。</translation>
-    </message>
-    <message>
-        <source>The value is not a valid finite number.</source>
-        <translation>该值不是有效的有限数值。</translation>
-    </message>
-    <message>
-        <source>The value is outside the supported range.</source>
-        <translation>该值超出支持范围。</translation>
-    </message>
-    <message>
-        <source>This is not a readable XMP document: %1</source>
-        <translation>无法读取此 XMP 文档：%1</translation>
-    </message>
-    <message>
-        <source>No supported Camera Raw develop adjustments were found.</source>
-        <translation>未找到受支持的 Camera Raw 调整。</translation>
-    </message>
-    <message>
-        <source>The selected file is unavailable.</source>
-        <translation>所选文件不可用。</translation>
-    </message>
-    <message>
-        <source>The XMP file is larger than 4 MB.</source>
-        <translation>XMP 文件大于 4 MB。</translation>
-    </message>
-    <message>
-        <source>The selected file could not be opened.</source>
-        <translation>无法打开所选文件。</translation>
-    </message>
-    <message>
-        <source>Resolve the XMP preview before importing.</source>
-        <translation>请先处理 XMP 预览中的问题，再进行导入。</translation>
-    </message>
-    <message>
-        <source>Open a photo before importing XMP adjustments.</source>
-        <translation>请先打开照片，再导入 XMP 调整。</translation>
-    </message>
-    <message>
-        <source>Wait for the current edit operation to finish.</source>
-        <translation>请等待当前编辑操作完成。</translation>
-    </message>
-    <message>
-        <source>This photo already contains the maximum of 16 Grade Nodes.</source>
-        <translation>这张照片已包含最多 16 个调色节点。</translation>
-    </message>
-    <message>
-        <source>Shadow could not create the destination Grade Node.</source>
-        <translation>Shadow 无法创建用于导入的调色节点。</translation>
-    </message>
-    <message>
-        <source>Exposure</source>
-        <translation>曝光</translation>
-    </message>
-    <message>
-        <source>Contrast</source>
-        <translation>对比度</translation>
-    </message>
-    <message>
-        <source>Highlights</source>
-        <translation>高光</translation>
-    </message>
-    <message>
-        <source>Shadows</source>
-        <translation>阴影</translation>
-    </message>
-    <message>
-        <source>Whites</source>
-        <translation>白色色阶</translation>
-    </message>
-    <message>
-        <source>Blacks</source>
-        <translation>黑色色阶</translation>
-    </message>
-    <message>
-        <source>Texture</source>
-        <translation>纹理</translation>
-    </message>
-    <message>
-        <source>Clarity</source>
-        <translation>清晰度</translation>
-    </message>
-    <message>
-        <source>Dehaze</source>
-        <translation>去朦胧</translation>
-    </message>
-    <message>
-        <source>Vibrance</source>
-        <translation>自然饱和度</translation>
-    </message>
-    <message>
-        <source>Chroma</source>
-        <translation>色度</translation>
-    </message>
-    <message>
-        <source>%1 EV</source>
-        <translation>%1 EV</translation>
-    </message>
-    <message>
-        <source>%1×</source>
-        <translation>%1×</translation>
-    </message>
-    <message>
-        <source>%1%</source>
-        <translation>%1%</translation>
-    </message>
-    <message>
-        <source>Absolute source white balance has no reliable Grade Node equivalent.</source>
-        <translation>源文件的绝对白平衡无法可靠映射为调色节点参数。</translation>
-    </message>
-    <message>
-        <source>This structured adjustment is outside the controlled mapping.</source>
-        <translation>此结构化调整不在受控映射范围内。</translation>
-    </message>
-    <message>
-        <source>This field is outside the controlled mapping.</source>
-        <translation>此字段不在受控映射范围内。</translation>
-    </message>
-    <message>
-        <source>%1 managed-mask Grade Nodes will be imported disabled. Their source-photo pixels are never reused.</source>
-        <translation>%1 个含托管蒙版的调色节点将以停用状态导入；不会复用源照片的蒙版像素。</translation>
-    </message>
-    <message>
-        <source>%1 path-bound LUT references will be omitted because this file does not contain LUT resources.</source>
-        <translation>此文件不包含 LUT 资源，将略去 %1 个与本机路径绑定的 LUT 引用。</translation>
-    </message>
-    <message>
-        <source>%1 semantic managed masks will be omitted; their Grade Nodes remain disabled.</source>
-        <translation>将略去 %1 个语义托管蒙版；对应调色节点保持停用。</translation>
-    </message>
-    <message>
-        <source>%1 shared Grade Node links will become independent local nodes.</source>
-        <translation>%1 个共享调色节点链接将转为独立的本地节点。</translation>
-    </message>
-    <message>
-        <source>%1 source-photo AI completion regions will not be imported.</source>
-        <translation>不会导入源照片上的 %1 个 AI 补全区域。</translation>
-    </message>
-    <message>
-        <source>%1 source-photo Liquify strokes will not be imported.</source>
-        <translation>不会导入源照片上的 %1 个液化笔画。</translation>
-    </message>
-    <message>
-        <source>%1 source-photo repair regions will not be imported.</source>
-        <translation>不会导入源照片上的 %1 个修复区域。</translation>
-    </message>
-    <message>
-        <source>Choose a local destination for the Shadow Recipe.</source>
-        <translation>请选择 Shadow Recipe 的本地保存位置。</translation>
-    </message>
-    <message>
-        <source>Choose a valid Shadow Recipe before importing.</source>
-        <translation>请选择有效的 Shadow Recipe 后再导入。</translation>
-    </message>
-    <message>
-        <source>Adapt the semantic masks before importing this Shadow Recipe.</source>
-        <translation>请先适配语义蒙版，再导入此 Shadow Recipe。</translation>
-    </message>
-    <message>
-        <source>Check Infer Runtime and the local models, then retry.</source>
-        <translation>请检查 Infer Runtime 和本地模型后重试。</translation>
-    </message>
-    <message>
-        <source>No matching subject was found in this photo.</source>
-        <translation>未在此照片中找到匹配的主体。</translation>
-    </message>
-    <message>
-        <source>Preview this Shadow Recipe again before adapting it.</source>
-        <translation>请重新预览此 Shadow Recipe 后再进行适配。</translation>
-    </message>
-    <message>
-        <source>Shadow could not adapt this Recipe: %1</source>
-        <translation>Shadow 无法适配此配方：%1</translation>
-    </message>
-    <message>
-        <source>This Shadow Recipe does not contain a semantic mask to adapt.</source>
-        <translation>此 Shadow Recipe 不包含可适配的语义蒙版。</translation>
-    </message>
-    <message>
-        <source>Crop, orientation, and perspective remain unchanged on this photo.</source>
-        <translation>此照片的裁剪、方向和透视保持不变。</translation>
-    </message>
-    <message>
-        <source>Open a photo before exporting a Shadow Recipe.</source>
-        <translation>请先打开照片，再导出 Shadow Recipe。</translation>
-    </message>
-    <message>
-        <source>Shadow could not create this Recipe: %1</source>
-        <translation>Shadow 无法创建此配方：%1</translation>
-    </message>
-    <message>
-        <source>Shadow could not read this Recipe: %1</source>
-        <translation>Shadow 无法读取此配方：%1</translation>
-    </message>
-    <message>
-        <source>Source development and AI RAW Denoise remain unchanged on this photo.</source>
-        <translation>此照片的源文件开发和 AI RAW 降噪保持不变。</translation>
-    </message>
-    <message>
-        <source>The Shadow Recipe could not be published atomically.</source>
-        <translation>无法安全完成 Shadow Recipe 文件的保存。</translation>
-    </message>
-    <message>
-        <source>The Shadow Recipe destination could not be opened.</source>
-        <translation>无法打开 Shadow Recipe 的保存位置。</translation>
-    </message>
-    <message>
-        <source>The Shadow Recipe file is larger than 16 MB.</source>
-        <translation>Shadow Recipe 文件大于 16 MB。</translation>
-    </message>
-    <message>
-        <source>The complete Shadow Recipe could not be written.</source>
-        <translation>无法完整写入 Shadow Recipe。</translation>
-    </message>
-    <message>
-        <source>The open photo changed after this Recipe was previewed. Preview it again.</source>
-        <translation>预览此配方后，当前照片已发生变化。请重新预览。</translation>
-    </message>
-    <message>
-        <source>The selected Shadow Recipe file could not be opened.</source>
-        <translation>无法打开所选 Shadow Recipe 文件。</translation>
-    </message>
-    <message>
-        <source>The selected Shadow Recipe file is unavailable.</source>
-        <translation>所选 Shadow Recipe 文件不可用。</translation>
-    </message>
-</context>
-<context>
-    <name>ShadowRecipeInterchangeDialog</name>
-    <message>
-        <source>%1 of %2 ready</source>
-        <translation>已就绪 %1 / %2</translation>
-    </message>
-    <message>
-        <source>%1 Grade Nodes · %2 portable masks</source>
-        <translation>%1 个调色节点 · %2 个可移植蒙版</translation>
-    </message>
-    <message>
-        <source>Adapt and Import</source>
-        <translation>适配并导入</translation>
-    </message>
-    <message>
-        <source>Adapting…</source>
-        <translation>正在适配…</translation>
-    </message>
-    <message>
-        <source>All files (*)</source>
-        <translation>所有文件 (*)</translation>
-    </message>
-    <message>
-        <source>Cancel</source>
-        <translation>取消</translation>
-    </message>
-    <message>
-        <source>Cancel adaptation</source>
-        <translation>取消适配</translation>
-    </message>
-    <message>
-        <source>Cancelled</source>
-        <translation>已取消</translation>
-    </message>
-    <message>
-        <source>Check Infer Runtime and the local models, then retry.</source>
-        <translation>请检查 Infer Runtime 和本地模型，然后重试。</translation>
-    </message>
-    <message>
-        <source>Choose a Shadow Recipe</source>
-        <translation>选择 Shadow Recipe</translation>
-    </message>
-    <message>
-        <source>Close</source>
-        <translation>关闭</translation>
-    </message>
-    <message>
-        <source>Close Shadow Recipe import</source>
-        <translation>关闭 Shadow Recipe 导入</translation>
-    </message>
-    <message>
-        <source>Creating mask</source>
-        <translation>正在生成蒙版</translation>
-    </message>
-    <message>
-        <source>Export Shadow Recipe</source>
-        <translation>导出 Shadow Recipe</translation>
-    </message>
-    <message>
-        <source>Failed</source>
-        <translation>失败</translation>
-    </message>
-    <message>
-        <source>Finding subject</source>
-        <translation>正在定位主体</translation>
-    </message>
-    <message>
-        <source>IMPORT NOTES</source>
-        <translation>导入说明</translation>
-    </message>
-    <message>
-        <source>Import Shadow Recipe</source>
-        <translation>导入 Shadow Recipe</translation>
-    </message>
-    <message>
-        <source>Import adapted Recipe</source>
-        <translation>导入已适配配方</translation>
-    </message>
-    <message>
-        <source>Import available nodes</source>
-        <translation>导入可用节点</translation>
-    </message>
-    <message>
-        <source>Import replaces the current Grade Node list in one undoable step. Source development, repairs, AI completion, Liquify, and crop remain attached to this photo.</source>
-        <translation>导入会在一次可撤销操作中替换当前调色节点列表。源文件开发调整、修复、AI 补全、液化和裁剪仍保留在此照片上。</translation>
-    </message>
-    <message>
-        <source>JSON documents (*.json)</source>
-        <translation>JSON 文档 (*.json)</translation>
-    </message>
-    <message>
-        <source>Not found</source>
-        <translation>未找到</translation>
-    </message>
-    <message>
-        <source>Preparing</source>
-        <translation>正在准备</translation>
-    </message>
-    <message>
-        <source>Ready</source>
-        <translation>已就绪</translation>
-    </message>
-    <message>
-        <source>Replace Grade Nodes</source>
-        <translation>替换调色节点</translation>
-    </message>
-    <message>
-        <source>Retry failed items</source>
-        <translation>重试失败项</translation>
-    </message>
-    <message>
-        <source>SEMANTIC MASK ADAPTATION</source>
-        <translation>语义蒙版适配</translation>
-    </message>
-    <message>
-        <source>Semantic mask adaptation progress</source>
-        <translation>语义蒙版适配进度</translation>
-    </message>
-    <message>
-        <source>Semantic subject: %1</source>
-        <translation>语义主体：%1</translation>
-    </message>
-    <message>
-        <source>Shadow Recipe was not exported</source>
-        <translation>未导出 Shadow Recipe</translation>
-    </message>
-    <message>
-        <source>Shadow Recipes (*.shadowrecipe)</source>
-        <translation>Shadow Recipe (*.shadowrecipe)</translation>
-    </message>
-    <message>
-        <source>Some Grade Nodes could not be adapted. Retry those items, or explicitly import only the available nodes. Unavailable nodes are excluded as complete Grade Nodes.</source>
-        <translation>部分调色节点未能完成适配。可重试这些项目，或明确仅导入可用节点。不可用内容会按完整调色节点排除。</translation>
-    </message>
-    <message>
-        <source>Unavailable</source>
-        <translation>不可用</translation>
-    </message>
-    <message>
-        <source>Waiting</source>
-        <translation>等待中</translation>
     </message>
 </context>
 <context>

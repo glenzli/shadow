@@ -127,6 +127,7 @@ Item {
 
     MouseArea {
         id: inputArea
+        objectName: "retouchStrokeInputArea"
         anchors.fill: parent
         z: 2
         hoverEnabled: true
@@ -143,6 +144,55 @@ Item {
         property real lastRetouchStrokeY: -1
         property var retouchPressPoint: null
         property var retouchDraftPoints: []
+        property var retouchRawPoints: []
+        property bool strokeLimitReached: false
+
+        // Iterative RDP in source pixels. Every retained segment is checked against
+        // the original samples, so repeated compaction cannot accumulate error.
+        function compactPath(points) {
+            if (points.length <= 2) return points.slice()
+            const tolerance = Math.max(0.1, Number(pickerInput.editor.retouchBrushRadius) * 0.08)
+            const keep = new Set([0, points.length - 1])
+            const pending = [[0, points.length - 1]]
+            while (pending.length > 0) {
+                const range = pending.pop()
+                const a = points[range[0]], b = points[range[1]]
+                const dx = (b.x - a.x) * pickerInput.levelZeroWidth
+                const dy = (b.y - a.y) * pickerInput.levelZeroHeight
+                const length2 = dx * dx + dy * dy
+                let farthest = -1, distance2 = tolerance * tolerance
+                for (let i = range[0] + 1; i < range[1]; ++i) {
+                    const x = (points[i].x - a.x) * pickerInput.levelZeroWidth
+                    const y = (points[i].y - a.y) * pickerInput.levelZeroHeight
+                    const t = length2 > 0 ? Math.max(0, Math.min(1, (x * dx + y * dy) / length2)) : 0
+                    const ex = x - t * dx, ey = y - t * dy
+                    const d = ex * ex + ey * ey
+                    if (d > distance2) { distance2 = d; farthest = i }
+                }
+                if (farthest >= 0) {
+                    keep.add(farthest)
+                    if (keep.size > 512) return points
+                    pending.push([range[0], farthest], [farthest, range[1]])
+                }
+            }
+            const result = []
+            for (let i = 0; i < points.length; ++i)
+                if (keep.has(i)) result.push(points[i])
+            return result
+        }
+
+        function redrawDraft() {
+            activeRetouchCoverage.clearStroke()
+            let previous = null
+            for (const p of retouchDraftPoints) {
+                const position = pickerInput.previewItem.mapToItem(inputArea,
+                    pickerInput.previewContentRect.x + p.x * pickerInput.previewContentRect.width,
+                    pickerInput.previewContentRect.y + p.y * pickerInput.previewContentRect.height)
+                if (previous === null) activeRetouchCoverage.beginStroke(position.x, position.y)
+                else activeRetouchCoverage.appendSegment(previous.x, previous.y, position.x, position.y)
+                previous = position
+            }
+        }
 
         function retouchBrushDiameter() {
             // Coverage follows the level-zero radius that will be authored on
@@ -155,15 +205,7 @@ Item {
         }
 
         function appendRetouchDraftPoint(mouse, force) {
-            if (retouchDraftPoints.length >= 512) {
-                const compacted = []
-                for (let index = 0;
-                     index < retouchDraftPoints.length;
-                     index += 2) {
-                    compacted.push(retouchDraftPoints[index])
-                }
-                retouchDraftPoints = compacted
-            }
+            if (strokeLimitReached) return
             const normalized = pickerInput.normalizedContentPoint(
                 inputArea, mouse.x, mouse.y)
             if (normalized === null)
@@ -180,18 +222,17 @@ Item {
                     ) < minimumSpacing) {
                 return
             }
-            if (lastRetouchStrokeX >= 0) {
-                activeRetouchCoverage.appendSegment(
-                    lastRetouchStrokeX,
-                    lastRetouchStrokeY,
-                    mouse.x,
-                    mouse.y
-                )
+            const raw = retouchRawPoints.concat([{ "x": normalized.x, "y": normalized.y }])
+            if (raw.length > 8192) { strokeLimitReached = true; return }
+            const compacted = raw.length > 512 ? compactPath(raw) : raw
+            if (compacted.length > 512) { strokeLimitReached = true; return }
+            retouchRawPoints = raw
+            retouchDraftPoints = compacted
+            if (raw.length > 512) {
+                redrawDraft()
+            } else if (lastRetouchStrokeX >= 0) {
+                activeRetouchCoverage.appendSegment(lastRetouchStrokeX, lastRetouchStrokeY, mouse.x, mouse.y)
             }
-            retouchDraftPoints.push({
-                "x": normalized.x,
-                "y": normalized.y
-            })
             lastRetouchStrokeX = mouse.x
             lastRetouchStrokeY = mouse.y
         }
@@ -199,7 +240,7 @@ Item {
         function finishRetouchGesture(mouse, canceled) {
             if (!retouchGestureActive)
                 return
-            if (retouchStrokeActive) {
+            if (retouchStrokeActive && !canceled) {
                 if (mouse !== undefined && mouse !== null)
                     appendRetouchDraftPoint(mouse, true)
                 if (retouchDraftPoints.length > 0) {
@@ -223,6 +264,9 @@ Item {
                     Math.max(1, Math.round(pickerInput.levelZeroWidth)),
                     Math.max(1, Math.round(pickerInput.levelZeroHeight)))
             }
+            activeRetouchCoverage.clearStroke()
+            retouchRawPoints = []
+            strokeLimitReached = false
             retouchGestureActive = false
             retouchStrokeActive = false
             retouchPressPoint = null
@@ -254,6 +298,7 @@ Item {
                     "x": retouchPressPoint.x,
                     "y": retouchPressPoint.y
                 }]
+                retouchRawPoints = retouchDraftPoints.slice()
                 activeRetouchCoverage.beginStroke(
                     retouchPressX, retouchPressY)
             }
@@ -289,12 +334,25 @@ Item {
         }
         onReleased: mouse => finishRetouchGesture(mouse, false)
         onCanceled: finishRetouchGesture(null, true)
+        onEnabledChanged: { if (!enabled) finishRetouchGesture(null, true) }
+        onVisibleChanged: { if (!visible) finishRetouchGesture(null, true) }
         onClicked: mouse => {
             if (!pickerInput.editor.retouchPickerActive) {
                 pickerInput.pickPreviewColor(
                     inputArea, mouse.x, mouse.y)
             }
         }
+    }
+
+    Label {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 16
+        visible: inputArea.strokeLimitReached
+        text: qsTr("Stroke limit reached. Release, then continue with a new stroke.")
+        color: Theme.warningText
+        padding: 8
+        background: Rectangle { color: Theme.panel; radius: 6 }
     }
 
     // Sampling has to leave an immediately manipulable object on the canvas:

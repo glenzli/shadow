@@ -11,6 +11,7 @@
 #include "export_task_runner.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
+#include "optics_profile_library.hpp"
 #include "ui_preferences.hpp"
 
 #include <QApplication>
@@ -266,6 +267,9 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
             settings_path,
             QDir(runtime_root.path()).filePath(QStringLiteral("luts"))
         );
+        OpticsProfileLibrary optics_profile_library(
+            QDir(runtime_root.path()).filePath(QStringLiteral("optics-profiles"))
+        );
         auto preview_store = std::make_shared<EditPreviewStore>();
         auto preview_context = std::make_shared<EditPreviewPresentationContext>();
         EditPreviewPresentationRegistry preview_presentation(preview_store, preview_context);
@@ -289,6 +293,7 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
             {QStringLiteral("editor"), QVariant::fromValue(&editor)},
             {QStringLiteral("editPreviewPresentation"), QVariant::fromValue(&preview_presentation)},
             {QStringLiteral("lutLibrary"), QVariant::fromValue(&lut_library)},
+            {QStringLiteral("opticsProfileLibrary"), QVariant::fromValue(&optics_profile_library)},
             {QStringLiteral("pipeline"), QVariant::fromValue(&pipeline)},
         });
         engine.loadFromModule("Shadow.App", "PipelineEditor");

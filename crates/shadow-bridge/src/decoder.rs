@@ -24,7 +24,11 @@ pub fn inspect_libraw(path: &Path) -> Result<DecoderSnapshot, BridgeError> {
     let handle = open_libraw(path)?;
     let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
 
-    Ok(snapshot(handle))
+    let mut inspected = snapshot(handle);
+    // Catalog inspectors and generated proxies use the complete bridge identity,
+    // including source-render/profile policy, rather than only native LibRaw ABI.
+    inspected.provider.version = super::libraw_provider_version();
+    Ok(inspected)
 }
 
 /// Inspects a supported photo through Shadow's source-neutral decoder router.

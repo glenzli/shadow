@@ -30,6 +30,7 @@ ColumnLayout {
         anchors.centerIn: parent
         width: Math.min(500, parent.width - 48)
         modal: true
+        implicitHeight: Math.max(230, localExecutionExplanation.implicitHeight + 124)
         title: qsTr("Allow local AI Completion?")
         standardButtons: Dialog.Cancel | Dialog.Ok
         onAccepted: {
@@ -37,8 +38,9 @@ ColumnLayout {
             tools.editor.generateImageCompletion()
         }
 
-        Label {
-            width: Math.min(440, localExecutionDialog.width - 48)
+        contentItem: Label {
+            id: localExecutionExplanation
+            width: localExecutionDialog.availableWidth
             text: qsTr("Shadow will send a bounded crop of this photo and your painted selection to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI & Models settings.")
             color: Theme.textPrimary
             wrapMode: Text.WordWrap

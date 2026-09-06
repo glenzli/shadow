@@ -111,9 +111,8 @@ pub struct PeopleAnalysisProgress {
 
 /// Cooperative lifecycle boundary for one bounded people-analysis job.
 ///
-/// Provider calls are synchronous. Cancellation is therefore observed before
-/// and after each call, never represented as interrupting an in-flight model
-/// request.
+/// The Infer Runtime provider drops an in-flight request on cancellation. Other
+/// providers retain a default before/after cooperative boundary.
 pub trait PeopleAnalysisControl: Send + Sync {
     fn cancellation_requested(&self) -> bool;
     fn publish(&self, progress: PeopleAnalysisProgress);
@@ -214,12 +213,23 @@ pub fn analyze_review_people_with_control(
                 continue;
             }
             let image = read_verified_visual(&cache, &record)?;
-            let source_revision = source_revision(item.photo_id, &record);
+            let source_revision = format!(
+                "{}/input:jpeg4096q90v1",
+                source_revision(item.photo_id, &record)
+            );
+            let prepared =
+                crate::vision_input::bounded_jpeg(&image, record.artifact.dimensions, 4096)
+                    .map_err(PeopleAnalysisError::InputPreparation)?;
+            let image = prepared.bytes;
             ensure_active(control)?;
-            let detection = provider.detect_faces(&image, "image/jpeg", &source_revision)?;
+            let detection = provider
+                .detect_faces_cancellable(&image, "image/jpeg", &source_revision, &|| {
+                    control.cancellation_requested()
+                })?
+                .ok_or(PeopleAnalysisError::Cancelled)?;
             ensure_active(control)?;
-            if detection.width != record.artifact.dimensions.width
-                || detection.height != record.artifact.dimensions.height
+            if detection.width != prepared.dimensions.width
+                || detection.height != prepared.dimensions.height
             {
                 return Err(PeopleAnalysisError::ProviderGeometryMismatch);
             }
@@ -245,13 +255,15 @@ pub fn analyze_review_people_with_control(
                     break 'pages;
                 }
                 ensure_active(control)?;
-                let embedded = match provider.embed_face(
+                let embedded = match provider.embed_face_cancellable(
                     &image,
                     "image/jpeg",
                     &source_revision,
                     face.landmarks,
+                    &|| control.cancellation_requested(),
                 ) {
-                    Ok(embedded) => embedded,
+                    Ok(Some(embedded)) => embedded,
+                    Ok(None) => return Err(PeopleAnalysisError::Cancelled),
                     Err(InferRuntimeClientError::Api { status, .. }) if status.as_u16() == 400 => {
                         skipped.ineligible_embedding += 1;
                         continue;
@@ -278,8 +290,8 @@ pub fn analyze_review_people_with_control(
                 if !thumbnail_decode_attempted {
                     thumbnail_decode_attempted = true;
                     if thumbnail::source_dimensions_admitted(
-                        record.artifact.dimensions.width,
-                        record.artifact.dimensions.height,
+                        prepared.dimensions.width,
+                        prepared.dimensions.height,
                     ) {
                         thumbnail_source = image::load_from_memory(&image).ok();
                     }
@@ -464,6 +476,8 @@ pub enum PeopleAnalysisError {
     InvalidPolicy,
     #[error("infer-runtime image geometry disagrees with the selected Catalog artifact")]
     ProviderGeometryMismatch,
+    #[error("could not prepare local vision input: {0}")]
+    InputPreparation(String),
     #[error("unsupported cached blob algorithm: {0}")]
     UnsupportedBlobAlgorithm(String),
     #[error("cached visual byte length disagrees with Catalog metadata")]

@@ -17,73 +17,53 @@
 
 namespace {
 
-class GradeStackPersistence final
-    : public std::enable_shared_from_this<GradeStackPersistence> {
-public:
-    static void start(
-        QCoreApplication& application,
-        EditController& editor
-    ) {
-        const auto smoke = std::shared_ptr<GradeStackPersistence>(
-            new GradeStackPersistence(application, editor)
-        );
+class GradeStackPersistence final : public std::enable_shared_from_this<GradeStackPersistence> {
+  public:
+    static void start(QCoreApplication& application, EditController& editor) {
+        const auto smoke =
+            std::shared_ptr<GradeStackPersistence>(new GradeStackPersistence(application, editor));
         smoke->connectSignals();
     }
 
-private:
+  private:
     enum class Stage : std::uint8_t {
         AwaitInitialPreview,
         AwaitAdjustedPreview,
         Saving,
+        Closing,
         Reopening,
         Verifying,
         Finished,
         Failed,
     };
 
-    GradeStackPersistence(
-        QCoreApplication& application,
-        EditController& editor
-    )
-        : application_(application), editor_(editor) {}
+    GradeStackPersistence(QCoreApplication& application, EditController& editor) :
+        application_(application), editor_(editor) {}
 
-    [[nodiscard]] static QString gradeNodeId(
-        const QVariantList& grade_nodes,
-        const qsizetype index
-    ) {
-        return grade_nodes.at(index)
-            .toMap()
-            .value(QStringLiteral("gradeNodeId"))
-            .toString();
+    [[nodiscard]] static QString
+    gradeNodeId(const QVariantList& grade_nodes, const qsizetype index) {
+        return grade_nodes.at(index).toMap().value(QStringLiteral("gradeNodeId")).toString();
     }
 
-    [[nodiscard]] static bool gradeNodeEnabled(
-        const QVariantList& grade_nodes,
-        const qsizetype index
-    ) {
-        return grade_nodes.at(index)
-            .toMap()
-            .value(QStringLiteral("enabled"))
-            .toBool();
+    [[nodiscard]] static bool
+    gradeNodeEnabled(const QVariantList& grade_nodes, const qsizetype index) {
+        return grade_nodes.at(index).toMap().value(QStringLiteral("enabled")).toBool();
     }
 
     void connectSignals() {
         const auto self = shared_from_this();
-        QObject::connect(
-            &editor_,
-            &EditController::previewSourceChanged,
-            &application_,
-            [self]() { self->previewChanged(); }
-        );
-        QObject::connect(
-            &editor_,
-            &EditController::stateBusyChanged,
-            &application_,
-            [self]() { self->stateBusyChanged(); }
-        );
-        QTimer::singleShot(0, &application_, [self]() {
+        QObject::connect(&editor_, &EditController::previewSourceChanged, &application_, [self]() {
             self->previewChanged();
         });
+        QObject::connect(&editor_, &EditController::stateBusyChanged, &application_, [self]() {
+            self->stateBusyChanged();
+        });
+        QObject::connect(&editor_, &EditController::activeChanged, &application_, [self]() {
+            if (self->stage_ == Stage::Closing && !self->editor_.active()) {
+                QTimer::singleShot(0, &self->application_, [self]() { self->reopen(); });
+            }
+        });
+        QTimer::singleShot(0, &application_, [self]() { self->previewChanged(); });
         QTimer::singleShot(30'000, &application_, [self]() {
             if (self->stage_ != Stage::Finished) {
                 self->fail(QStringLiteral("timed out after 30 seconds"));
@@ -122,9 +102,7 @@ private:
                         || self->editor_.statusText().startsWith(
                             QStringLiteral("Version operation failed")
                         ))) {
-                    self->fail(
-                        QStringLiteral("the saved photo could not be reloaded")
-                    );
+                    self->fail(QStringLiteral("the saved photo could not be reloaded"));
                 }
             });
         }
@@ -136,8 +114,7 @@ private:
         source_path_ = editor_.sourcePath();
         title_ = editor_.title();
         if (!expect(
-                !photo_id_.isEmpty() && !representation_id_.isEmpty()
-                    && !source_path_.isEmpty(),
+                !photo_id_.isEmpty() && !representation_id_.isEmpty() && !source_path_.isEmpty(),
                 QStringLiteral("active photo identity is incomplete")
             )) {
             return;
@@ -152,18 +129,12 @@ private:
             return;
         }
         const QString initial_id = gradeNodeId(initial_grade_nodes, 0);
-        if (!expect(
-                !initial_id.isEmpty(),
-                QStringLiteral("initial Grade Node has no ID")
-            )) {
+        if (!expect(!initial_id.isEmpty(), QStringLiteral("initial Grade Node has no ID"))) {
             return;
         }
 
         editor_.addGradeNode();
-        if (!expect(
-                editor_.gradeNodes().size() == 2,
-                QStringLiteral("add Grade Node failed")
-            )) {
+        if (!expect(editor_.gradeNodes().size() == 2, QStringLiteral("add Grade Node failed"))) {
             return;
         }
         const QString added_id = editor_.selectedGradeNodeId();
@@ -177,12 +148,9 @@ private:
         }
         const QString duplicate_id = editor_.selectedGradeNodeId();
         if (!expect(
-                !added_id.isEmpty() && !duplicate_id.isEmpty()
-                    && added_id != initial_id && duplicate_id != initial_id
-                    && duplicate_id != added_id,
-                QStringLiteral(
-                    "new Grade Nodes did not receive unique stable IDs"
-                )
+                !added_id.isEmpty() && !duplicate_id.isEmpty() && added_id != initial_id
+                    && duplicate_id != initial_id && duplicate_id != added_id,
+                QStringLiteral("new Grade Nodes did not receive unique stable IDs")
             )) {
             return;
         }
@@ -224,18 +192,19 @@ private:
         }
         if (!expect(
                 !editor_.stateBusy() && !editor_.dirty()
-                    && !editor_.statusText().startsWith(
-                        QStringLiteral("Version operation failed")
-                    ),
+                    && !editor_.statusText().startsWith(QStringLiteral("Version operation failed")),
                 QStringLiteral("immutable version was not saved")
             )) {
             return;
         }
+        stage_ = Stage::Closing;
         editor_.closePhoto();
-        if (!expect(
-                !editor_.active(),
-                QStringLiteral("saved photo could not close")
-            )) {
+    }
+
+    void reopen() {
+        if (stage_ != Stage::Closing)
+            return;
+        if (!expect(!editor_.active(), QStringLiteral("saved photo could not close"))) {
             return;
         }
         stage_ = Stage::Reopening;
@@ -260,16 +229,14 @@ private:
         }
         for (qsizetype index = 0; index < expected_grade_node_ids_.size(); ++index) {
             if (!expect(
-                    gradeNodeId(grade_nodes, index)
-                        == expected_grade_node_ids_.at(index),
+                    gradeNodeId(grade_nodes, index) == expected_grade_node_ids_.at(index),
                     QStringLiteral("stable Grade Node order changed after reopen")
                 )) {
                 return;
             }
         }
         if (!expect(
-                !gradeNodeEnabled(grade_nodes, 0)
-                    && gradeNodeEnabled(grade_nodes, 2),
+                !gradeNodeEnabled(grade_nodes, 0) && gradeNodeEnabled(grade_nodes, 2),
                 QStringLiteral("bypass state changed after reopen")
             )) {
             return;

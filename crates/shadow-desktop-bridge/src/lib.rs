@@ -2719,6 +2719,8 @@ mod ffi {
         ) -> Result<FfiPeopleAnalysisReport>;
         fn undo_people_merge(self: &DesktopSession) -> Result<FfiPeopleAnalysisReport>;
         fn clear_people_data(self: &DesktopSession) -> Result<()>;
+        fn begin_semantic_search(self: &DesktopSession) -> Result<u64>;
+        fn cancel_semantic_search(self: &DesktopSession, token: u64);
         fn search_semantics(
             self: &DesktopSession,
             infer_base_url: &str,
@@ -2726,6 +2728,7 @@ mod ffi {
             query: &str,
             query_revision: &str,
             language: &str,
+            token: u64,
         ) -> Result<FfiSemanticSearchReport>;
         fn classify_smart_categories_batch(
             self: &DesktopSession,
@@ -3224,6 +3227,7 @@ struct DesktopSession {
     edit_preview_render_tokens: PreviewRenderRegistry,
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
+    semantic_search_token: AtomicU64,
     people_analyses: people_analysis_service::PeopleAnalysisService,
     people_library: people_library_store::PeopleLibraryStore,
     subject_masks: subject_mask_service::SubjectMaskService,
@@ -3342,6 +3346,7 @@ fn open_desktop_session_at(
         edit_preview_render_tokens: PreviewRenderRegistry::default(),
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
+        semantic_search_token: AtomicU64::new(0),
         people_analyses: people_analysis_service::PeopleAnalysisService::new(),
         people_library: people_library_store::PeopleLibraryStore::open(people_library_root)?,
         subject_masks,

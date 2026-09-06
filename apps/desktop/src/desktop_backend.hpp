@@ -58,8 +58,7 @@ class DesktopBackend final {
         const QString& server_address,
         const QString& authorization
     ) const;
-    [[nodiscard]] BackendRemoteLibrarySyncStep
-    stepRemoteLibrarySync(std::uint64_t job_id) const;
+    [[nodiscard]] BackendRemoteLibrarySyncStep stepRemoteLibrarySync(std::uint64_t job_id) const;
     [[nodiscard]] bool cancelRemoteLibrarySync(std::uint64_t job_id) const;
     void setRemoteLibraryReviewState(
         const QString& connection_id,
@@ -325,12 +324,15 @@ class DesktopBackend final {
     void clearPeopleData() const;
     /// Executes bounded SigLIP text-to-image ranking over the current Review
     /// prefix. Results and exact visual tickets are session-only.
+    [[nodiscard]] std::uint64_t beginSemanticSearch() const;
+    void cancelSemanticSearch(std::uint64_t token) const;
     [[nodiscard]] BackendSemanticSearchReport searchSemantics(
         const QString& infer_base_url,
         const QString& credential_file,
         const QString& query,
         const QString& query_revision,
-        const QString& language
+        const QString& language,
+        std::uint64_t token
     ) const;
     [[nodiscard]] BackendSmartClassificationBatch classifySmartCategoriesBatch(
         const QString& infer_base_url,

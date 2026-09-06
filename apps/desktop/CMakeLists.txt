@@ -460,6 +460,8 @@ qt_add_executable(
     src/history_model.hpp
     src/image_understanding_controller.cpp
     src/image_understanding_controller.hpp
+    src/catalog_startup_recovery.cpp
+    src/catalog_startup_recovery.hpp
     src/main.cpp
     src/pipeline_launch.cpp
     src/pipeline_launch.hpp

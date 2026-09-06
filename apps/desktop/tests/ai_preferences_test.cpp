@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
             || !expect(preferences.imageUnderstandingAutoApplyKeywords())
             || !expect(preferences.rawDenoiseDefaultAmount() == 68)
             || !expect(preferences.modelStoragePath().endsWith(QStringLiteral("models")))
-            || !expect(QDir(preferences.modelStoragePath()).exists())
+            || !expect(!QDir(preferences.modelStoragePath()).exists())
             || !expect(preferences.modelStorageUrl().isLocalFile())) {
             return EXIT_FAILURE;
         }
