@@ -19,7 +19,7 @@
 namespace {
 
 constexpr qint64 MAXIMUM_XMP_BYTES = 4 * 1024 * 1024;
-constexpr qint64 MAXIMUM_SHADOW_RECIPE_BYTES = 16 * 1024 * 1024;
+constexpr qint64 MAXIMUM_SHADOW_RECIPE_BYTES = 64 * 1024 * 1024;
 
 [[nodiscard]] QString number(const double value) {
     return QLocale().toString(value, 'f', 2);
@@ -61,6 +61,20 @@ EditInterchangeController::EditInterchangeController(
     EditController& editor,
     QObject* const parent
 ) : QObject(parent), backend_(backend), editor_(editor) {
+    connect(&recipe_read_watcher_, &QFutureWatcher<RecipeReadResult>::finished,
+        this, &EditInterchangeController::finishRecipeRead);
+    connect(&recipe_export_watcher_, &QFutureWatcher<RecipeExportResult>::finished, this, [this] {
+        recipe_export_busy_ = false;
+        const auto result = recipe_export_watcher_.result();
+        setRecipeExportError(result.error);
+        if (result.error.isEmpty()) {
+            if (editor_.photoId() == result.photo_id) {
+                editor_.reportShadowRecipeExported(QFileInfo(result.path).fileName());
+            }
+            emit shadowRecipeExported(result.path);
+        }
+        emit recipeExportStateChanged();
+    });
     connect(
         &recipe_adaptation_watcher_,
         &QFutureWatcher<RecipeAdaptationResult>::finished,
@@ -109,6 +123,11 @@ EditInterchangeController::EditInterchangeController(
 }
 
 EditInterchangeController::~EditInterchangeController() {
+    ++recipe_file_generation_;
+    disconnect(&recipe_read_watcher_, nullptr, this, nullptr);
+    recipe_read_watcher_.waitForFinished();
+    if (recipe_reading_) { finishRecipeRead(); }
+    recipe_export_watcher_.waitForFinished();
     cancelShadowRecipeAdaptation();
     recipe_adaptation_watcher_.waitForFinished();
     closeRecipePlan();
@@ -471,6 +490,7 @@ bool EditInterchangeController::applyXmp() {
 }
 
 void EditInterchangeController::clearShadowRecipe() {
+    ++recipe_file_generation_;
     cancelShadowRecipeAdaptation();
     recipe_adaptation_watcher_.waitForFinished();
     closeRecipePlan();
@@ -491,45 +511,67 @@ void EditInterchangeController::clearShadowRecipe() {
 
 void EditInterchangeController::previewShadowRecipe(const QUrl& file_url) {
     clearShadowRecipe();
+    if (recipe_reading_) {
+        recipe_preview_error_ = tr("Wait for the current Recipe file to finish reading.");
+        emit recipePreviewChanged();
+        return;
+    }
     const QString path = file_url.toLocalFile();
-    const QFileInfo info(path);
-    recipe_source_name_ = info.fileName();
-    if (path.isEmpty() || !info.isFile()) {
+    recipe_source_name_ = QFileInfo(path).fileName();
+    if (path.isEmpty()) {
         recipe_preview_error_ = tr("The selected Shadow Recipe file is unavailable.");
         emit recipePreviewChanged();
         return;
     }
-    if (info.size() > MAXIMUM_SHADOW_RECIPE_BYTES) {
-        recipe_preview_error_ = tr("The Shadow Recipe file is larger than 16 MB.");
-        emit recipePreviewChanged();
-        return;
-    }
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        recipe_preview_error_ = tr("The selected Shadow Recipe file could not be opened.");
-        emit recipePreviewChanged();
-        return;
-    }
-    try {
-        recipe_preview_ = backend_.previewShadowRecipe(file.readAll());
-        recipe_target_photo_id_ = editor_.photoId();
-        recipe_target_source_path_ = editor_.sourcePath();
-        recipe_target_base_commit_id_ = editor_.editBaseCommitId();
-        recipe_target_working_commit_id_ = editor_.durableWorkingCommitId();
-        recipe_target_grade_stack_ = editor_.gradeStackForInterchange();
-        file.seek(0);
-        recipe_import_plan_ = backend_.prepareSemanticRecipeImport(
-            recipe_target_photo_id_,
-            recipe_target_source_path_,
-            recipe_target_base_commit_id_,
-            recipe_target_working_commit_id_,
-            recipe_target_grade_stack_,
-            file.readAll()
-        );
-        recipe_ready_ = true;
-    } catch (const std::exception& error) {
-        recipe_preview_error_ =
-            tr("Shadow could not read this Recipe: %1").arg(QString::fromUtf8(error.what()));
+    recipe_target_photo_id_ = editor_.photoId();
+    recipe_target_source_path_ = editor_.sourcePath();
+    recipe_target_base_commit_id_ = editor_.editBaseCommitId();
+    recipe_target_working_commit_id_ = editor_.durableWorkingCommitId();
+    recipe_target_grade_stack_ = editor_.gradeStackForInterchange();
+    recipe_reading_ = true;
+    recipe_read_watcher_.setFuture(QtConcurrent::run([
+        backend = &backend_, path, generation = recipe_file_generation_,
+        photo = recipe_target_photo_id_, source = recipe_target_source_path_,
+        base = recipe_target_base_commit_id_, working = recipe_target_working_commit_id_,
+        stack = recipe_target_grade_stack_
+    ] {
+        RecipeReadResult result{.generation = generation};
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            result.error = tr("The selected Shadow Recipe file could not be opened.");
+            return result;
+        }
+        const QByteArray bytes = file.read(MAXIMUM_SHADOW_RECIPE_BYTES + 1);
+        if (bytes.size() > MAXIMUM_SHADOW_RECIPE_BYTES) {
+            result.error = tr("The Shadow Recipe file is larger than 64 MB.");
+            return result;
+        }
+        try {
+            result.preview = backend->previewShadowRecipe(bytes);
+            result.plan = backend->prepareSemanticRecipeImport(photo, source, base, working, stack, bytes);
+        } catch (const std::exception& error) {
+            result.error = tr("Shadow could not read this Recipe: %1").arg(QString::fromUtf8(error.what()));
+        }
+        return result;
+    }));
+    emit recipePreviewChanged();
+}
+
+void EditInterchangeController::finishRecipeRead() {
+    if (!recipe_reading_) { return; }
+    recipe_reading_ = false;
+    auto result = recipe_read_watcher_.result();
+    if (result.generation != recipe_file_generation_) {
+        if (result.plan.plan_token != 0) {
+            try { backend_.closeSemanticRecipeImport(result.plan.plan_token); } catch (...) {}
+        }
+    } else {
+        recipe_preview_error_ = result.error;
+        if (result.error.isEmpty()) {
+            recipe_preview_ = std::move(result.preview);
+            recipe_import_plan_ = std::move(result.plan);
+            recipe_ready_ = true;
+        }
     }
     emit recipePreviewChanged();
 }
@@ -767,7 +809,8 @@ void EditInterchangeController::closeRecipePlan() noexcept {
     recipe_import_plan_.plan_token = 0;
 }
 
-bool EditInterchangeController::exportShadowRecipe(const QUrl& file_url, const QString& label) {
+bool EditInterchangeController::exportShadowRecipe(const QUrl& file_url, const QString& label, bool selected_only) {
+    if (recipe_export_busy_) { return false; }
     setRecipeExportError({});
     if (!editor_.active()) {
         setRecipeExportError(tr("Open a photo before exporting a Shadow Recipe."));
@@ -778,46 +821,45 @@ bool EditInterchangeController::exportShadowRecipe(const QUrl& file_url, const Q
         return false;
     }
     QString path = file_url.toLocalFile();
-    if (path.isEmpty()) {
-        setRecipeExportError(tr("Choose a local destination for the Shadow Recipe."));
+    if (!path.isEmpty() && QFileInfo(path).suffix().isEmpty()) { path += QStringLiteral(".shadowrecipe"); }
+    if (path.isEmpty() || QFileInfo(path).suffix().compare(QStringLiteral("shadowrecipe"), Qt::CaseInsensitive) != 0) {
+        setRecipeExportError(tr("Choose a local .shadowrecipe destination."));
         return false;
     }
-    if (QFileInfo(path).suffix().isEmpty()) {
-        path += QStringLiteral(".shadowrecipe");
+    auto stack = editor_.gradeStackForInterchange();
+    if (selected_only) {
+        if (editor_.selectedRecipeNodeKind() != QStringLiteral("grade")) {
+            setRecipeExportError(tr("Select a Grade Node before exporting it."));
+            return false;
+        }
+        const QString id = editor_.selectedGradeNodeId();
+        stack.grade_nodes.removeIf([&id](const BackendGradeNode& node) { return node.grade_node_id != id; });
     }
-
-    QByteArray document;
-    try {
-        document = backend_.exportShadowRecipe(
-            editor_.photoId(),
-            editor_.sourcePath(),
-            editor_.editBaseCommitId(),
-            editor_.gradeStackForInterchange(),
-            label.trimmed()
-        );
-    } catch (const std::exception& error) {
-        setRecipeExportError(
-            tr("Shadow could not create this Recipe: %1").arg(QString::fromUtf8(error.what()))
-        );
-        return false;
-    }
-
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly)) {
-        setRecipeExportError(tr("The Shadow Recipe destination could not be opened."));
-        return false;
-    }
-    if (file.write(document) != document.size()) {
-        file.cancelWriting();
-        setRecipeExportError(tr("The complete Shadow Recipe could not be written."));
-        return false;
-    }
-    if (!file.commit()) {
-        setRecipeExportError(tr("The Shadow Recipe could not be published atomically."));
-        return false;
-    }
-    editor_.reportShadowRecipeExported(QFileInfo(path).fileName());
-    emit shadowRecipeExported(path);
+    recipe_export_busy_ = true;
+    recipe_export_watcher_.setFuture(QtConcurrent::run([
+        backend = &backend_, path, label = label.trimmed(), stack,
+        photo = editor_.photoId(), source = editor_.sourcePath(), base = editor_.editBaseCommitId()
+    ] {
+        RecipeExportResult result{.path = path, .photo_id = photo};
+        QByteArray document;
+        try {
+            document = backend->exportShadowRecipe(photo, source, base, stack, label);
+        } catch (const std::exception& error) {
+            result.error = tr("Shadow could not create this Recipe: %1").arg(QString::fromUtf8(error.what()));
+            return result;
+        }
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly)) {
+            result.error = tr("The Shadow Recipe destination could not be opened.");
+        } else if (file.write(document) != document.size()) {
+            file.cancelWriting();
+            result.error = tr("The complete Shadow Recipe could not be written.");
+        } else if (!file.commit()) {
+            result.error = tr("The Shadow Recipe could not be published atomically.");
+        }
+        return result;
+    }));
+    emit recipeExportStateChanged();
     return true;
 }
 
@@ -845,6 +887,12 @@ QString EditInterchangeController::targetName(const XmpDevelopTarget target) {
         return tr("Vibrance");
     case XmpDevelopTarget::SaturationFactor:
         return tr("Chroma");
+    case XmpDevelopTarget::MixerHue:
+        return tr("Color Mixer · Hue");
+    case XmpDevelopTarget::MixerSaturation:
+        return tr("Color Mixer · Chroma");
+    case XmpDevelopTarget::MixerLightness:
+        return tr("Color Mixer · Lightness");
     }
     return {};
 }

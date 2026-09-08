@@ -11,6 +11,7 @@ Item {
 
     required property var editor
     required property var interchangeController
+    property var lutExportController: null
     required property var editPreviewPresentation
     required property var lutLibrary
     required property var captureMetadata
@@ -242,6 +243,7 @@ Item {
             Layout.fillHeight: true
             editor: precision.editor
             interchangeController: precision.interchangeController
+            lutExportController: precision.lutExportController
             panel: precision.panel
             panelRaised: precision.panelRaised
             borderColor: precision.border

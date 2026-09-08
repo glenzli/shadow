@@ -44,16 +44,48 @@ fn format_version_and_label_are_fail_closed() {
     let document = ShadowRecipeDocument::new(None, RecipeSnapshot::empty()).expect("document");
     let mut json: Value =
         serde_json::from_slice(&document.to_pretty_json().expect("encode")).expect("JSON");
-    json["document_version"] = Value::from(2_u32);
+    json["document_version"] = Value::from(3_u32);
     assert!(matches!(
         ShadowRecipeDocument::from_json(&serde_json::to_vec(&json).expect("JSON")),
-        Err(ShadowRecipeDocumentError::UnsupportedDocumentVersion(2))
+        Err(ShadowRecipeDocumentError::UnsupportedDocumentVersion(3))
     ));
 
     assert!(matches!(
         ShadowRecipeDocument::new(Some(" invalid "), RecipeSnapshot::empty()),
         Err(ShadowRecipeDocumentError::InvalidLabel)
     ));
+}
+
+#[test]
+fn legacy_v1_documents_remain_readable_without_resources() {
+    let document = ShadowRecipeDocument::new(None, RecipeSnapshot::empty()).expect("document");
+    let mut json: Value = serde_json::from_slice(&document.to_pretty_json().unwrap()).unwrap();
+    json["document_version"] = 1.into();
+    let decoded = ShadowRecipeDocument::from_json(&serde_json::to_vec(&json).unwrap()).unwrap();
+    assert!(decoded.lut_resources().is_empty());
+    assert_eq!(decoded.snapshot(), document.snapshot());
+}
+
+#[test]
+fn bundled_lut_text_is_digest_checked_and_duplicate_ids_are_rejected() {
+    let resource = ShadowRecipeLutResource::new("a".repeat(64), "LUT_3D_SIZE 2\n".into()).unwrap();
+    let document = ShadowRecipeDocument::new(None, RecipeSnapshot::empty())
+        .unwrap()
+        .with_lut_resources(vec![resource.clone()])
+        .unwrap();
+    let bytes = document.to_pretty_json().unwrap();
+    assert_eq!(ShadowRecipeDocument::from_json(&bytes).unwrap(), document);
+    let mut json: Value = serde_json::from_slice(&bytes).unwrap();
+    json["lut_resources"][0]["document"] = "modified LUT".into();
+    assert!(matches!(
+        ShadowRecipeDocument::from_json(&serde_json::to_vec(&json).unwrap()),
+        Err(ShadowRecipeDocumentError::InvalidLutResources)
+    ));
+    assert!(
+        document
+            .with_lut_resources(vec![resource.clone(), resource])
+            .is_err()
+    );
 }
 
 #[test]

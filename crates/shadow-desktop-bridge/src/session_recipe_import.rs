@@ -1,5 +1,6 @@
 //! DesktopSession orchestration for adaptive semantic Shadow Recipe import.
 
+use crate::recipe_lut_resources::install_lut_resources;
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_ai::{RasterExtent, SoftMaskEncoding};
 use shadow_domain::ShadowRecipeDocument;
@@ -38,7 +39,8 @@ impl DesktopSession {
         self.validated_photo_source(photo_id, source_path)?;
         let document = ShadowRecipeDocument::from_json(document_bytes)
             .context("decode semantic Shadow Recipe import document")?;
-        let plan = RecipeImportPlan::from_document(&document)?;
+        let installed = install_lut_resources(&document, &self.recipe_lut_store()?)?;
+        let plan = RecipeImportPlan::from_document_with_luts(&document, &installed)?;
         let target = recipe_import_target(
             photo_id,
             source_path,

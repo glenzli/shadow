@@ -14,6 +14,7 @@ mod decoder;
 mod detail_session;
 mod display_luma;
 mod error;
+mod lut_baking;
 mod one_shot;
 mod optics;
 mod preview_analysis;
@@ -34,6 +35,9 @@ pub use display_luma::{
     decode_jpeg_display_luma,
 };
 pub use error::BridgeError;
+pub use lut_baking::{
+    BakedCubeLut, LutBakeCancellation, bake_adjustment_lut, validate_cube_lut_document,
+};
 pub use one_shot::*;
 pub use optics::*;
 pub use preview_analysis::*;
@@ -672,6 +676,13 @@ mod ffi {
         diagnostic: String,
     }
 
+    struct FfiBakedCubeLut {
+        document: Vec<u8>,
+        maximum_absolute_error: f64,
+        root_mean_square_error: f64,
+        probe_count: u32,
+    }
+
     unsafe extern "C++" {
         include!("shadow/image/cxx_bridge.hpp");
 
@@ -680,6 +691,13 @@ mod ffi {
         type EditPreviewCancellationHandle;
         type InteractiveEditPreviewFrameHandle;
         type FullEditDetailHandle;
+
+        fn validate_cube_lut_document(document: &[u8]) -> Result<()>;
+        fn bake_adjustment_cube_lut(
+            request: &FfiAdjustmentRenderRequest,
+            size: u16,
+            cancellation: &EditPreviewCancellationHandle,
+        ) -> Result<FfiBakedCubeLut>;
 
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
         fn open_photo_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;

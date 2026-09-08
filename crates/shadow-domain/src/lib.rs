@@ -79,8 +79,8 @@ pub use recipe::{
     RecipeHistory, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot,
     RecipeValidationError, RetouchMode, RetouchPoint, RetouchSpot, RetouchStroke,
     SEMANTIC_MASK_INTENT_CONTRACT_VERSION, SHADOW_RECIPE_FORMAT, SemanticMaskAggregation,
-    SemanticMaskIntent, ShadowRecipeDocument, ShadowRecipeDocumentError, UnitInterval, VersionName,
-    canonical_recipe_snapshot_digest, local_detail_reference_response,
+    SemanticMaskIntent, ShadowRecipeDocument, ShadowRecipeDocumentError, ShadowRecipeLutResource,
+    UnitInterval, VersionName, canonical_recipe_snapshot_digest, local_detail_reference_response,
 };
 pub use recipe_diff::{
     GraphDiff, IndexedLayer, LayerContentDiff, LayerContentKind, LayerInstanceDiff,

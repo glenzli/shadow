@@ -85,7 +85,7 @@ pub use photo_structural_nodes::{PhotoStructuralNodeRef, PhotoStructuralNodes};
 pub use portable::{
     CURRENT_SHADOW_RECIPE_DOCUMENT_VERSION, MAX_SHADOW_RECIPE_DOCUMENT_BYTES,
     MAX_SHADOW_RECIPE_LABEL_BYTES, SHADOW_RECIPE_FORMAT, ShadowRecipeDocument,
-    ShadowRecipeDocumentError,
+    ShadowRecipeDocumentError, ShadowRecipeLutResource,
 };
 pub use raw_foundation_denoise::{
     RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT, RawFoundationDenoise, RawFoundationDenoiseModel,

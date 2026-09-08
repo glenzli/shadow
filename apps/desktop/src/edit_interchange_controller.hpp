@@ -32,6 +32,8 @@ class EditInterchangeController final : public QObject {
     Q_PROPERTY(QString errorText READ errorText NOTIFY previewChanged)
     Q_PROPERTY(QString applyErrorText READ applyErrorText NOTIFY applyErrorChanged)
     Q_PROPERTY(bool recipeReady READ recipeReady NOTIFY recipePreviewChanged)
+    Q_PROPERTY(bool recipeReading READ recipeReading NOTIFY recipePreviewChanged)
+    Q_PROPERTY(bool recipeExportBusy READ recipeExportBusy NOTIFY recipeExportStateChanged)
     Q_PROPERTY(bool recipeCanApply READ recipeCanApply NOTIFY recipePreviewChanged)
     Q_PROPERTY(QString recipeSourceName READ recipeSourceName NOTIFY recipePreviewChanged)
     Q_PROPERTY(QString recipeLabel READ recipeLabel NOTIFY recipePreviewChanged)
@@ -88,6 +90,8 @@ class EditInterchangeController final : public QObject {
     [[nodiscard]] QString errorText() const;
     [[nodiscard]] QString applyErrorText() const;
     [[nodiscard]] bool recipeReady() const noexcept;
+    [[nodiscard]] bool recipeReading() const noexcept { return recipe_reading_; }
+    [[nodiscard]] bool recipeExportBusy() const noexcept { return recipe_export_busy_; }
     [[nodiscard]] bool recipeCanApply() const noexcept;
     [[nodiscard]] QString recipeSourceName() const;
     [[nodiscard]] QString recipeLabel() const;
@@ -117,7 +121,7 @@ class EditInterchangeController final : public QObject {
     Q_INVOKABLE void cancelShadowRecipeAdaptation();
     Q_INVOKABLE bool retryFailedShadowRecipeItems();
     Q_INVOKABLE bool applyAvailableShadowRecipeNodes();
-    Q_INVOKABLE bool exportShadowRecipe(const QUrl& file_url, const QString& label);
+    Q_INVOKABLE bool exportShadowRecipe(const QUrl& file_url, const QString& label, bool selected_only = false);
 
   signals:
     void previewChanged();
@@ -126,6 +130,7 @@ class EditInterchangeController final : public QObject {
     void recipePreviewChanged();
     void recipeApplyErrorChanged();
     void recipeExportErrorChanged();
+    void recipeExportStateChanged();
     void shadowRecipeApplied();
     void shadowRecipeExported(QString path);
 
@@ -137,6 +142,7 @@ class EditInterchangeController final : public QObject {
     void setRecipeApplyError(QString error);
     void setRecipeExportError(QString error);
     void finishRecipeAdaptation();
+    void finishRecipeRead();
     void closeRecipePlan() noexcept;
     [[nodiscard]] bool recipeTargetIsCurrent() const noexcept;
 
@@ -171,6 +177,22 @@ class EditInterchangeController final : public QObject {
     QString recipe_target_working_commit_id_;
     BackendGradeStack recipe_target_grade_stack_;
     QFutureWatcher<RecipeAdaptationResult> recipe_adaptation_watcher_;
+    struct RecipeReadResult final {
+        BackendShadowRecipeImportPreview preview;
+        BackendRecipeImportPlan plan;
+        QString error;
+        std::uint64_t generation = 0;
+    };
+    struct RecipeExportResult final {
+        QString path;
+        QString photo_id;
+        QString error;
+    };
+    QFutureWatcher<RecipeReadResult> recipe_read_watcher_;
+    QFutureWatcher<RecipeExportResult> recipe_export_watcher_;
+    std::uint64_t recipe_file_generation_ = 0;
+    bool recipe_reading_ = false;
+    bool recipe_export_busy_ = false;
     std::atomic<std::uint64_t> recipe_controller_generation_{0};
     mutable std::mutex recipe_job_mutex_;
     QString recipe_active_item_id_;

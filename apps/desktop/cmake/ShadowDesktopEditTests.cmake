@@ -1,5 +1,18 @@
 # Precision edit-session, preview/detail transport, tool interaction, and
 # packaged edit-component contracts.
+    qt_add_executable(shadow-lut-export-controller-test
+        tests/lut_export_controller_test.cpp
+        src/lut_export_controller.cpp src/lut_export_controller.hpp)
+    target_compile_features(shadow-lut-export-controller-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-lut-export-controller-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-lut-export-controller-test PRIVATE Qt6::Quick Qt6::Qml Qt6::Concurrent)
+    qt_add_qml_module(shadow-lut-export-controller-test
+        URI Shadow.LutExportContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/LutExportDialog.qml qml/ShadowButton.qml qml/Theme.qml)
+    add_test(NAME shadow-desktop-lut-export-controller COMMAND shadow-lut-export-controller-test)
+    set_tests_properties(shadow-desktop-lut-export-controller PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30 LABELS "desktop;grading")
+
     add_executable(
         shadow-xmp-develop-import-test
         tests/xmp_develop_import_test.cpp

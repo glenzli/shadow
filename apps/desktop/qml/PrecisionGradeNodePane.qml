@@ -12,6 +12,7 @@ Rectangle {
 
     required property var editor
     required property var interchangeController
+    property var lutExportController: null
     required property color panel
     required property color panelRaised
     required property color borderColor
@@ -31,6 +32,7 @@ Rectangle {
         id: gradeNodeMenus
         editor: pane.editor
         interchangeController: pane.interchangeController
+        lutExportController: pane.lutExportController
         onCropGeometryRequested: pane.cropToolRequested()
         onRepairRequested: pane.repairToolRequested()
         onLiquifyRequested: pane.liquifyToolRequested()
@@ -177,6 +179,15 @@ Rectangle {
                 accessibleName: qsTr("Add node")
                 onClicked: gradeNodeMenus.openAdd(addGradeNodeButton)
             }
+        }
+
+        ShadowButton {
+            id: gradingExchangeButton
+            objectName: "gradingExchangeButton"
+            Layout.fillWidth: true
+            text: qsTr("Import / export grading…")
+            enabled: pane.editor.active && !pane.editor.stateBusy
+            onClicked: gradeNodeMenus.openExchange(gradingExchangeButton)
         }
 
         StructuralNodeRow {

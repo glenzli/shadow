@@ -131,7 +131,7 @@ DesktopBackend::previewShadowRecipe(const QByteArray& document) const {
         reinterpret_cast<const std::uint8_t*>(document.constData()),
         static_cast<std::size_t>(document.size())
     );
-    const auto preview = shadow::desktop::preview_shadow_recipe_document(bytes);
+    const auto preview = impl_->session->preview_shadow_recipe_document(bytes);
     return {
         .label = qstring(preview.label),
         .portable_grade_stack = grade_stack(preview.portable_settings),

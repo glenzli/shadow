@@ -23,6 +23,7 @@ src/edit/adjustment_graph.cpp
 src/edit/adjustment_node_diagnostics.cpp
 src/edit/adjustment_execution.cpp
 src/edit/cube_lut.cpp
+src/edit/lut_baking.cpp
 src/edit/cpu_reference.cpp
 src/edit/creative_detail_grading.cpp
 src/edit/edit_execution_validation.cpp

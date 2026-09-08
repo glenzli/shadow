@@ -51,6 +51,7 @@ mod session_preview_store;
 mod edit_version_diff;
 mod image_completion_runtime;
 mod image_completion_service;
+mod lut_export;
 mod raw_foundation_noise_assessment;
 mod raw_foundation_render_source;
 mod raw_foundation_runtime;
@@ -58,6 +59,7 @@ mod raw_foundation_service;
 mod recipe_import_plan;
 mod recipe_import_service;
 mod recipe_interchange;
+mod recipe_lut_resources;
 mod recipe_v1;
 mod session_edit_history;
 mod session_image_completion;
@@ -107,9 +109,12 @@ use edit_preview::{OwnedEditedPreview, WarmEditPreviewSessionCache};
 use history_service::HistoryService;
 use library_server_host::{LibraryServerHost, open_library_server_host_ffi};
 use location_reference_service::LocationReferenceService;
+use lut_export::{
+    LutExportCancellation, LutExportPlan, bake_lut_export, cancel_lut_export, lut_export_preview,
+    new_lut_export_cancellation, prepare_lut_export,
+};
 use photo_inspection_service::PhotoInspectionService;
 use preview_render_registry::PreviewRenderRegistry;
-use recipe_interchange::preview_shadow_recipe_document;
 use recipe_v1::new_basic_grade_node;
 
 #[cxx::bridge(namespace = "shadow::desktop")]
@@ -1642,6 +1647,24 @@ mod ffi {
         geometry: FfiPhotoGeometry,
     }
 
+    struct FfiLutExportOmission {
+        node_label: String,
+        reason: String,
+    }
+
+    struct FfiLutExportPreview {
+        included_nodes: Vec<String>,
+        omissions: Vec<FfiLutExportOmission>,
+        can_bake: bool,
+    }
+
+    struct FfiLutExportResult {
+        document: Vec<u8>,
+        maximum_absolute_error: f64,
+        root_mean_square_error: f64,
+        probe_count: u32,
+    }
+
     /// A validated, destination-safe projection of one Shadow Recipe file.
     ///
     /// The file retains its complete immutable Recipe snapshot, but desktop
@@ -2355,6 +2378,21 @@ mod ffi {
         type DesktopSession;
         type LibraryServerHost;
         type OwnedEditedPreview;
+        type LutExportPlan;
+        type LutExportCancellation;
+
+        fn prepare_lut_export(
+            settings: &FfiEditSettings,
+            selected_node_id: &str,
+        ) -> Result<Box<LutExportPlan>>;
+        fn lut_export_preview(plan: &LutExportPlan) -> FfiLutExportPreview;
+        fn new_lut_export_cancellation() -> Result<Box<LutExportCancellation>>;
+        fn cancel_lut_export(cancellation: &LutExportCancellation);
+        fn bake_lut_export(
+            plan: &LutExportPlan,
+            size: u16,
+            cancellation: &LutExportCancellation,
+        ) -> Result<FfiLutExportResult>;
 
         /// Descriptor projection for one retained edit-preview owner.
         ///
@@ -2375,7 +2413,6 @@ mod ffi {
         fn interactive_retained_bytes(self: &OwnedEditedPreview) -> usize;
 
         fn new_basic_grade_node(label: &str) -> Result<FfiGradeNode>;
-        fn preview_shadow_recipe_document(bytes: &[u8]) -> Result<FfiShadowRecipeImportPreview>;
 
         #[cxx_name = "open_desktop_session"]
         fn open_desktop_session_ffi(
@@ -2877,6 +2914,10 @@ mod ffi {
             settings: &FfiEditSettings,
             label: &str,
         ) -> Result<Vec<u8>>;
+        fn preview_shadow_recipe_document(
+            self: &DesktopSession,
+            bytes: &[u8],
+        ) -> Result<FfiShadowRecipeImportPreview>;
         /// Discards this photo's obsolete development Recipe history after an
         /// explicit UI confirmation, then returns a neutral current-v1 state.
         fn reset_incompatible_photo_edit_history(

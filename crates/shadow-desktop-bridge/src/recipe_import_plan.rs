@@ -8,6 +8,7 @@
 
 use std::{collections::HashSet, fmt};
 
+use crate::recipe_lut_resources::{InstalledRecipeLuts, restore_lut};
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_domain::{
     EntityId, LayerInstanceId, MaskComponentId, MaskComponentOperation, MaskDefinition,
@@ -128,7 +129,15 @@ enum PlannedLeaf {
 impl RecipeImportPlan {
     /// Builds one bounded destination plan without retaining source raster
     /// references or source graph/component identities.
+    #[cfg(test)]
     pub(crate) fn from_document(document: &ShadowRecipeDocument) -> AnyResult<Self> {
+        Self::from_document_with_luts(document, &InstalledRecipeLuts::new())
+    }
+
+    pub(crate) fn from_document_with_luts(
+        document: &ShadowRecipeDocument,
+        installed: &InstalledRecipeLuts,
+    ) -> AnyResult<Self> {
         let label = document.label().unwrap_or_default().to_owned();
         let mut draft = decode_grade_stack_draft_from_recipe_v1_snapshot(document.snapshot())
             .context("project Shadow Recipe into destination import plan")?;
@@ -143,7 +152,9 @@ impl RecipeImportPlan {
         for node in &mut draft.grade_nodes {
             node.recipe_v1_identity = GradeNodeRecipeV1Identity::new();
             node.shared = None;
-            node.fine.lut = LutEditParameters::default();
+            if !restore_lut(&mut node.fine.lut, installed) {
+                node.fine.lut = LutEditParameters::default();
+            }
             let grade_node_id = node.recipe_v1_identity.grade_node_id;
             let mask = take_planned_mask(node, grade_node_id, &mut pending_semantic_leaves)?;
             if let Some(mask) = &mask {

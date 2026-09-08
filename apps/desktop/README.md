@@ -1133,20 +1133,33 @@ accepted values as one new photo-local Grade Node. The preview separates mapped,
 ignored, and invalid fields before mutation. This is an approximate format
 mapping, not XMP round-trip support: absolute source white balance, curves,
 profiles, structured masks, and other parameters without a stable local
-equivalent remain explicit non-imported fields.
+equivalent remain explicit non-imported fields. The scalar subset includes eight-band HSL
+fields, mapped approximately to Shadow's perceptual Color Mixer; Adobe color-wheel and curve
+semantics are not treated as equivalent.
 
 [`src/edit_interchange_controller.*`](src/edit_interchange_controller.hpp) also owns the
 versioned `.shadowrecipe` file boundary. Export serializes the complete current immutable Recipe
-snapshot and publishes the JSON document atomically; referenced managed masks, AI completion
-patches, and LUT resources remain local dependencies rather than embedded payloads. Import first
+snapshot (or a selected Grade Node) and publishes the JSON document atomically. Version 2 embeds
+bounded, content-verified LUT text; managed masks and AI completion patches remain local dependencies.
+File reading, resource validation, and export packaging run off the GUI thread. Import first
 validates the document digest and current desktop Recipe shape, then previews a conservative
 cross-photo projection. Applying replaces only the destination photo's Grade Node list as one
 undoable transaction. It keeps portable normalized masks, assigns fresh independent node
-identities, detaches shared-library links, omits path-bound LUTs, and leaves the destination's
+identities, detaches shared-library links, installs bundled LUTs into the destination's managed
+store, omits unbundled path-bound LUTs from legacy files, and leaves the destination's
 Foundation, RAW denoise, Repair, Completion, Liquify, and Canvas stages unchanged. A managed-raster
 node is imported bypassed rather than turning its local adjustment into a global adjustment; its
 source pixels are never reused. The dialog reports each omitted or disabled category before the
 user accepts the replacement. QML never interprets Recipe JSON or mutates the edit stack directly.
+
+The **Import / export grading** menu also opens [`qml/LutExportDialog.qml`](qml/LutExportDialog.qml).
+[`src/lut_export_controller.*`](src/lut_export_controller.hpp) owns a frozen grading snapshot,
+cancellable background generation, loss acknowledgement, and atomic `.cube` saving. The exporter
+keeps unmasked color operations in node order with their node strength. It explicitly omits spatial
+and source operations, including the spatial controls that share the Color Grading execution pass.
+17³/33³/65³ tables use linear-sRGB input and output over the input domain [0, 1]; output values retain
+negative and super-white headroom. Independent RGB probes report interpolation errors for included
+operations only. They neither measure omitted effects nor establish a worst-case error bound.
 
 When an imported Recipe contains semantic masks, the same dialog first adapts those masks to the
 destination photo. It presents overall and per-item progress, keeps cancellation and retry visible,
@@ -1463,10 +1476,9 @@ path, intensity, and a stable LUT render-op identity. Warm preview and full-deta
 parse the exact managed `.cube`, apply trilinear interpolation in processed working RGB, and blend
 the result by intensity; an unselected slot is an exact no-op. Only 3D `.cube` is supported, and
 the file itself cannot declare whether it expects log, display-encoded, or another input space, so
-the first contract deliberately treats it as a working-RGB LUT. Arbitrary Render Ops or
-connections, shared Grade Node revisions, masks,
-opacity/blend controls, clipping overlays, waveform/vectorscope, crop, full-resolution export,
-and AI-authored stacks remain later vertical slices. Warm FIT preview and its analysis remain an
+the contract explicitly uses linear sRGB for both input and output. Library thumbnails decode their
+sRGB reference, apply the same native LUT executor, and use the normal display transform; Log and
+display-encoded LUTs require conversion before import. Warm FIT preview and its analysis remain an
 interactive approximation for nonlinear curves; 100% detail is the full-resolution quality gate
 for the supported stack.
 

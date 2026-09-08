@@ -13,6 +13,7 @@ ApplicationWindow {
     required property var reviewGalleryGrouping
     required property var editor
     required property var editInterchangeController
+    property var lutExportController: null
     required property var editPreviewPresentation
     required property var compositionController
     required property var exportController
@@ -379,6 +380,7 @@ ApplicationWindow {
             Layout.fillHeight: true
             editor: window.editor
             interchangeController: window.editInterchangeController
+            lutExportController: window.lutExportController
             editPreviewPresentation: window.editPreviewPresentation
             lutLibrary: window.lutLibrary
             captureMetadata: window.precisionCaptureMetadata

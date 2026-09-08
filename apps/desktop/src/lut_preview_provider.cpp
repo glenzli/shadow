@@ -1,8 +1,10 @@
 #include "lut_preview_provider.hpp"
 
+#include <shadow/image/lut_baking.hpp>
 #include <shadow/image/lut.hpp>
 
 #include <QByteArrayView>
+#include <QColorSpace>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -23,7 +25,7 @@ namespace {
 constexpr int preview_width = 360;
 constexpr int preview_height = 240;
 constexpr qint64 maximum_cube_bytes = 16LL * 1'024LL * 1'024LL;
-constexpr auto preview_renderer_version = "lut-preview-v1";
+constexpr auto preview_renderer_version = "lut-preview-linear-srgb-v2";
 
 [[nodiscard]] bool is_content_id(const QString& id) {
     if (id.size() != 64) {
@@ -52,20 +54,26 @@ constexpr auto preview_renderer_version = "lut-preview-v1";
     const shadow::image::CubeLut3D& lut
 ) {
     QImage result = reference.copy();
+    std::vector<float> samples;
+    samples.reserve(static_cast<std::size_t>(result.width() * result.height()) * 3U);
     for (int row = 0; row < result.height(); ++row) {
-        auto* const pixels = result.scanLine(row);
+        const auto* pixels = result.constScanLine(row);
         for (int column = 0; column < result.width(); ++column) {
-            auto* const pixel = pixels + static_cast<qsizetype>(column) * 4;
-            const auto sampled = shadow::image::sample_cube_lut(lut, {
-                static_cast<float>(pixel[0]) / 255.0F,
-                static_cast<float>(pixel[1]) / 255.0F,
-                static_cast<float>(pixel[2]) / 255.0F,
-            });
-            for (std::size_t channel = 0; channel < 3; ++channel) {
-                pixel[channel] = static_cast<uchar>(std::lround(
-                    std::clamp(sampled[channel], 0.0F, 1.0F) * 255.0F
-                ));
+            for (int channel = 0; channel < 3; ++channel) {
+                samples.push_back(static_cast<float>(pixels[column * 4 + channel]) / 255.0F);
             }
+        }
+    }
+    const auto rendered = shadow::image::render_cube_lut_reference(
+        lut,
+        {static_cast<std::uint32_t>(result.width()), static_cast<std::uint32_t>(result.height())},
+        samples
+    );
+    for (int row = 0; row < result.height(); ++row) {
+        auto* pixels = result.scanLine(row);
+        const auto* rgb = rendered.bytes.data() + static_cast<std::size_t>(row) * rendered.row_stride_bytes;
+        for (int column = 0; column < result.width(); ++column) {
+            std::copy_n(rgb + column * 3, 3, pixels + column * 4);
         }
     }
     return result;
@@ -86,6 +94,10 @@ LutPreviewProvider::LutPreviewProvider(
       preview_cache_root_(QDir::cleanPath(std::move(preview_cache_root))) {
     QImage source(std::move(reference_path));
     if (!source.isNull()) {
+        if (!source.colorSpace().isValid()) {
+            source.setColorSpace(QColorSpace::SRgb);
+        }
+        source.convertToColorSpace(QColorSpace::SRgb);
         reference_ = source.scaled(
             preview_width,
             preview_height,

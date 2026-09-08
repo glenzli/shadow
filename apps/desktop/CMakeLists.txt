@@ -297,6 +297,10 @@ qt_add_executable(
     src/desktop_backend_raw_foundation.cpp
     src/desktop_backend_cache.cpp
     src/desktop_backend_edit.cpp
+    src/desktop_backend_lut_export.cpp
+    src/backend/lut_export_types.hpp
+    src/lut_export_controller.cpp
+    src/lut_export_controller.hpp
     src/desktop_backend_history.cpp
     src/desktop_backend_image_understanding.cpp
     src/desktop_backend_library.cpp
@@ -666,6 +670,7 @@ qt_add_resources(
         icons/scopes.svg
         icons/settings.svg
         icons/shared-link.svg
+        icons/source-available.svg
         icons/source-missing.svg
         icons/source-stack.svg
         icons/slot-left.svg
@@ -814,6 +819,7 @@ qt_add_qml_module(
         qml/LibrarySourceHealthPane.qml
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
+        qml/LutExportDialog.qml
         qml/ApplicationSettingsDialog.qml
         qml/SettingsGeneralPane.qml
         qml/SettingsLibraryPane.qml

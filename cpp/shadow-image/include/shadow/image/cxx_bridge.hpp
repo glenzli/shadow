@@ -246,6 +246,12 @@ query_raw_white_balance_presentation_for_metadata(const FfiMetadataSnapshot& met
 [[nodiscard]] rust::String photo_provider_version();
 [[nodiscard]] rust::String edit_preview_generator_implementation_identity();
 [[nodiscard]] std::shared_ptr<EditPreviewCancellationHandle> new_edit_preview_cancellation();
+void validate_cube_lut_document(rust::Slice<const std::uint8_t> document);
+[[nodiscard]] FfiBakedCubeLut bake_adjustment_cube_lut(
+    const FfiAdjustmentRenderRequest& request,
+    std::uint16_t size,
+    const EditPreviewCancellationHandle& cancellation
+);
 [[nodiscard]] rust::Vec<rust::String> photo_supported_raster_extensions();
 [[nodiscard]] rust::String raw_development_plan_identity(const FfiRawDevelopmentPlan& plan);
 [[nodiscard]] FfiEncodedProxy

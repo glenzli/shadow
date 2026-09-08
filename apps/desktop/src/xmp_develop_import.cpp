@@ -18,6 +18,7 @@ struct Mapping final {
     XmpDevelopTarget target;
     double minimum;
     double maximum;
+    int color_band = -1;
 };
 
 constexpr auto MAPPINGS = std::to_array<Mapping>({
@@ -33,6 +34,31 @@ constexpr auto MAPPINGS = std::to_array<Mapping>({
     {"Vibrance", XmpDevelopTarget::Vibrance, -100.0, 100.0},
     {"Saturation", XmpDevelopTarget::SaturationFactor, -100.0, 100.0},
 });
+
+[[nodiscard]] QVector<Mapping> scalar_mappings() {
+    QVector<Mapping> result(MAPPINGS.begin(), MAPPINGS.end());
+    // Camera Raw's named HSL bands map to the corresponding perceptual Color
+    // Mixer bands, with normalized control amounts. Their response functions
+    // differ; this is deliberately an approximate, editable mapping.
+    static constexpr auto HUE = std::to_array<const char*>({
+        "HueAdjustmentRed", "HueAdjustmentOrange", "HueAdjustmentYellow", "HueAdjustmentGreen",
+        "HueAdjustmentAqua", "HueAdjustmentBlue", "HueAdjustmentPurple", "HueAdjustmentMagenta",
+    });
+    static constexpr auto SATURATION = std::to_array<const char*>({
+        "SaturationAdjustmentRed", "SaturationAdjustmentOrange", "SaturationAdjustmentYellow", "SaturationAdjustmentGreen",
+        "SaturationAdjustmentAqua", "SaturationAdjustmentBlue", "SaturationAdjustmentPurple", "SaturationAdjustmentMagenta",
+    });
+    static constexpr auto LIGHTNESS = std::to_array<const char*>({
+        "LuminanceAdjustmentRed", "LuminanceAdjustmentOrange", "LuminanceAdjustmentYellow", "LuminanceAdjustmentGreen",
+        "LuminanceAdjustmentAqua", "LuminanceAdjustmentBlue", "LuminanceAdjustmentPurple", "LuminanceAdjustmentMagenta",
+    });
+    for (std::size_t band = 0; band < HUE.size(); ++band) {
+        result.push_back({HUE[band], XmpDevelopTarget::MixerHue, -100.0, 100.0, static_cast<int>(band)});
+        result.push_back({SATURATION[band], XmpDevelopTarget::MixerSaturation, -100.0, 100.0, static_cast<int>(band)});
+        result.push_back({LIGHTNESS[band], XmpDevelopTarget::MixerLightness, -100.0, 100.0, static_cast<int>(band)});
+    }
+    return result;
+}
 
 [[nodiscard]] double map_value(const XmpDevelopTarget target, const double source) {
     switch (target) {
@@ -50,6 +76,9 @@ constexpr auto MAPPINGS = std::to_array<Mapping>({
     case XmpDevelopTarget::Clarity:
     case XmpDevelopTarget::Dehaze:
     case XmpDevelopTarget::Vibrance:
+    case XmpDevelopTarget::MixerHue:
+    case XmpDevelopTarget::MixerSaturation:
+    case XmpDevelopTarget::MixerLightness:
         return source / 100.0;
     }
     return 0.0;
@@ -133,7 +162,7 @@ XmpDevelopImport parseXmpDevelopImport(const QByteArray& document) {
         already_applied.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0
         || already_applied == QStringLiteral("1");
 
-    for (const Mapping& mapping : MAPPINGS) {
+    for (const Mapping& mapping : scalar_mappings()) {
         const QString name = QString::fromLatin1(mapping.source_name);
         const auto field = fields.find(name);
         if (field == fields.end()) {
@@ -172,6 +201,7 @@ XmpDevelopImport parseXmpDevelopImport(const QByteArray& document) {
             .source_value = source_value,
             .target = mapping.target,
             .target_value = map_value(mapping.target, source_value),
+            .color_band = mapping.color_band,
         });
     }
 

@@ -16,6 +16,9 @@ enum class XmpDevelopTarget {
     Dehaze,
     Vibrance,
     SaturationFactor,
+    MixerHue,
+    MixerSaturation,
+    MixerLightness,
 };
 
 struct XmpDevelopAdjustment final {
@@ -23,6 +26,7 @@ struct XmpDevelopAdjustment final {
     double source_value = 0.0;
     XmpDevelopTarget target = XmpDevelopTarget::ExposureStops;
     double target_value = 0.0;
+    int color_band = -1;
 };
 
 enum class XmpDevelopIgnoredReason {

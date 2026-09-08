@@ -121,6 +121,19 @@ bool EditController::applyXmpDevelopImport(
         case XmpDevelopTarget::Vibrance:
             node.fine.vibrance = value;
             break;
+        case XmpDevelopTarget::MixerHue:
+        case XmpDevelopTarget::MixerSaturation:
+        case XmpDevelopTarget::MixerLightness: {
+            if (adjustment.color_band < 0
+                || adjustment.color_band >= static_cast<int>(BACKEND_COLOR_MIXER_BAND_COUNT)) {
+                return fail(tr("The XMP adjustments cannot be applied to the current photo."));
+            }
+            auto& values = adjustment.target == XmpDevelopTarget::MixerHue
+                ? node.fine.mixer_hue : adjustment.target == XmpDevelopTarget::MixerSaturation
+                ? node.fine.mixer_saturation : node.fine.mixer_lightness;
+            values[static_cast<std::size_t>(adjustment.color_band)] = value;
+            break;
+        }
         }
     }
     finishActiveGesture();

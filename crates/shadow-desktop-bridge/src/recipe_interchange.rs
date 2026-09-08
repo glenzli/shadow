@@ -15,6 +15,9 @@ use shadow_domain::{
 
 use crate::{
     DesktopSession, ffi,
+    recipe_lut_resources::{
+        InstalledRecipeLuts, collect_lut_resources, install_lut_resources, restore_lut,
+    },
     recipe_v1::{
         GradeNodeDraft, GradeNodeRecipeV1Identity, GradeStackDraft, LutEditParameters,
         MaskComponentDraftDefinition, decode_grade_stack_draft_from_recipe_v1_snapshot,
@@ -57,20 +60,47 @@ impl DesktopSession {
         let label = (!label.is_empty()).then_some(label);
         ShadowRecipeDocument::new(label, snapshot)
             .context("create Shadow Recipe document")?
+            .with_lut_resources(collect_lut_resources(&draft)?)?
             .to_pretty_json()
             .context("encode Shadow Recipe document")
     }
+
+    pub(crate) fn preview_shadow_recipe_document(
+        &self,
+        bytes: &[u8],
+    ) -> AnyResult<ffi::FfiShadowRecipeImportPreview> {
+        let document =
+            ShadowRecipeDocument::from_json(bytes).context("decode Shadow Recipe document")?;
+        let installed = install_lut_resources(&document, &self.recipe_lut_store()?)?;
+        preview_document(&document, &installed)
+    }
+
+    pub(crate) fn recipe_lut_store(&self) -> AnyResult<std::path::PathBuf> {
+        Ok(self
+            .cache_root
+            .parent()
+            .context("resolve application LUT store")?
+            .join("lut-store"))
+    }
 }
 
+#[cfg(test)]
 pub(crate) fn preview_shadow_recipe_document(
     bytes: &[u8],
 ) -> AnyResult<ffi::FfiShadowRecipeImportPreview> {
     let document =
         ShadowRecipeDocument::from_json(bytes).context("decode Shadow Recipe document")?;
+    preview_document(&document, &InstalledRecipeLuts::new())
+}
+
+fn preview_document(
+    document: &ShadowRecipeDocument,
+    installed: &InstalledRecipeLuts,
+) -> AnyResult<ffi::FfiShadowRecipeImportPreview> {
     let label = document.label().unwrap_or_default().to_owned();
     let mut draft = decode_grade_stack_draft_from_recipe_v1_snapshot(document.snapshot())
         .context("project Shadow Recipe into the current editable Grade Stack")?;
-    let counts = make_destination_safe(&mut draft)?;
+    let counts = make_destination_safe_with_luts(&mut draft, installed)?;
     validate_grade_stack_draft_recipe_v1(&draft)
         .context("validate destination-safe Shadow Recipe projection")?;
     let portable_settings = encode_grade_stack_draft_recipe_v1(draft)
@@ -110,7 +140,15 @@ struct ImportCounts {
     canvas_omitted: bool,
 }
 
+#[cfg(test)]
 fn make_destination_safe(draft: &mut GradeStackDraft) -> AnyResult<ImportCounts> {
+    make_destination_safe_with_luts(draft, &InstalledRecipeLuts::new())
+}
+
+fn make_destination_safe_with_luts(
+    draft: &mut GradeStackDraft,
+    installed: &InstalledRecipeLuts,
+) -> AnyResult<ImportCounts> {
     let mut counts = ImportCounts {
         grade_node_count: bounded_count(draft.grade_nodes.len(), "Grade Nodes")?,
         excluded_retouch_region_count: bounded_count(
@@ -157,9 +195,10 @@ fn make_destination_safe(draft: &mut GradeStackDraft) -> AnyResult<ImportCounts>
 
         make_destination_mask_safe(node, &mut counts)?;
 
-        if !node.fine.lut.resource_id.is_empty()
+        if (!node.fine.lut.resource_id.is_empty()
             || !node.fine.lut.title.is_empty()
-            || !node.fine.lut.managed_path.is_empty()
+            || !node.fine.lut.managed_path.is_empty())
+            && !restore_lut(&mut node.fine.lut, installed)
         {
             node.fine.lut = LutEditParameters::default();
             counts.removed_lut_count += 1;

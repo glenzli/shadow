@@ -18,6 +18,7 @@
 #include "image_understanding_controller.hpp"
 #include "justified_review_layout_model.hpp"
 #include "lut_library.hpp"
+#include "lut_export_controller.hpp"
 #include "lut_preview_provider.hpp"
 #include "map/library_web_map_controller.hpp"
 #include "map_provider_preferences.hpp"
@@ -483,6 +484,29 @@ int main(int argc, char* argv[]) {
     EditController
         editor(backend, edit_preview_store, edit_preview_presentation_context, &ai_preferences);
     EditInterchangeController edit_interchange_controller(*backend, editor);
+    LutExportController lut_export_controller([&](bool selected_only) {
+        if (!editor.active() || editor.stateBusy()
+            || (selected_only && editor.selectedRecipeNodeKind() != QStringLiteral("grade"))) {
+            return BackendLutExportSnapshot{};
+        }
+        auto snapshot = backend->prepareLutExport(editor.gradeStackForInterchange(),
+            selected_only ? editor.selectedGradeNodeId() : QString{});
+        const auto display_nodes = editor.gradeNodes();
+        const auto display_label = [&display_nodes](const QString& raw_label) {
+            for (const auto& value : display_nodes) {
+                const auto node = value.toMap();
+                if (node.value(QStringLiteral("rawLabel")).toString() == raw_label) {
+                    return node.value(QStringLiteral("label")).toString();
+                }
+            }
+            return raw_label;
+        };
+        for (auto& label : snapshot.included_nodes) { label = display_label(label); }
+        for (auto& omission : snapshot.omissions) {
+            omission.node_label = display_label(omission.node_label);
+        }
+        return snapshot;
+    });
     HistoryCoordinator history({
         .photo_page = [backend](
                           const QString& photo_id,
@@ -549,6 +573,7 @@ int main(int argc, char* argv[]) {
     );
     engine.setInitialProperties({
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
+        {QStringLiteral("lutExportController"), QVariant::fromValue(&lut_export_controller)},
         {QStringLiteral("compositionController"), QVariant::fromValue(&composition_controller)},
         {
             QStringLiteral("justifiedReviewLayout"),

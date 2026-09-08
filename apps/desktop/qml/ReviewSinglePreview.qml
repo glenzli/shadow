@@ -12,6 +12,19 @@ Item {
     required property var review
     required property var model
 
+    property bool selectingFromFilmstrip: false
+
+    function selectFilmstripPhoto(photo, modifiers) {
+        // Keep the pointer target stationary through successive clicks and the
+        // second click of a double-click, including partially visible cards.
+        selectingFromFilmstrip = true
+        try {
+            review.selectPhoto(photo, modifiers)
+        } finally {
+            selectingFromFilmstrip = false
+        }
+    }
+
     function forceGalleryFocus() {
         filmstrip.forceActiveFocus()
     }
@@ -141,9 +154,7 @@ Item {
             cacheBuffer: 560
             model: root.model
             focus: root.visible
-            highlightRangeMode: ListView.ApplyRange
-            preferredHighlightBegin: Math.max(0, width * 0.4)
-            preferredHighlightEnd: Math.max(0, width * 0.6)
+            highlightRangeMode: ListView.NoHighlightRange
 
             function syncCurrentSelection() {
                 for (let index = 0; index < count; ++index) {
@@ -327,9 +338,9 @@ Item {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: mouse =>
-                        root.review.selectPhoto(filmCard, mouse.modifiers)
+                        root.selectFilmstripPhoto(filmCard, mouse.modifiers)
                     onDoubleClicked: {
-                        root.review.selectPhoto(filmCard, 0)
+                        root.selectFilmstripPhoto(filmCard, 0)
                         root.review.openSelectedPhoto()
                     }
                 }
@@ -340,10 +351,12 @@ Item {
     Connections {
         target: root.review
         function onSelectedPhotoIdChanged() {
-            Qt.callLater(filmstrip.syncCurrentSelection)
+            if (!root.selectingFromFilmstrip)
+                Qt.callLater(filmstrip.syncCurrentSelection)
         }
         function onSelectedRepresentationIdChanged() {
-            Qt.callLater(filmstrip.syncCurrentSelection)
+            if (!root.selectingFromFilmstrip)
+                Qt.callLater(filmstrip.syncCurrentSelection)
         }
     }
 }

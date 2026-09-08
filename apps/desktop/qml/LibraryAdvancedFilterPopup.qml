@@ -332,6 +332,14 @@ Popup {
             wrapMode: Text.WordWrap
         }
 
+        CheckBox {
+            objectName: "hideOfflineUncachedButton"
+            Layout.fillWidth: true
+            checked: root.controller.filterHideOfflineUncached
+            text: qsTr("Hide offline photos without a local preview or original")
+            onToggled: root.controller.filterHideOfflineUncached = checked
+        }
+
         LibraryPlaceResolutionStatus {
             controller: root.controller
         }

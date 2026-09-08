@@ -101,43 +101,14 @@ Rectangle {
             color: Theme.border
         }
 
-        ShadowButton {
-            objectName: "hideOfflineUncachedButton"
-            anchors.verticalCenter: parent.verticalCenter
-            compact: true
-            checkable: true
-            checked: filterBar.controller.filterHideOfflineUncached
-            variant: filterBar.controller.filterHideOfflineUncached ? ShadowButton.Secondary : ShadowButton.Ghost
-            text: qsTr("Hide offline uncached")
-            toolTipText: qsTr("Hide offline photos only when neither a preview nor an original is cached locally")
-            onCheckedChanged: {
-                if (checked !== filterBar.controller.filterHideOfflineUncached)
-                    filterBar.controller.filterHideOfflineUncached = checked
-            }
-        }
-
-        ShadowButton {
-            objectName: "onlyEditableButton"
-            anchors.verticalCenter: parent.verticalCenter
-            compact: true
-            checkable: true
-            checked: filterBar.controller.filterOnlyEditable
-            variant: filterBar.controller.filterOnlyEditable ? ShadowButton.Secondary : ShadowButton.Ghost
-            text: qsTr("Editable only")
-            toolTipText: qsTr("Show photos with a local original or an available online original")
-            onCheckedChanged: {
-                if (checked !== filterBar.controller.filterOnlyEditable)
-                    filterBar.controller.filterOnlyEditable = checked
-            }
-        }
-
         ShadowIconButton {
             anchors.verticalCenter: parent.verticalCenter
             source: "qrc:/icons/filter.svg"
             buttonSize: 24
             iconSize: 14
             variant: ShadowIconButton.Ghost
-            selected: filterBar.controller.filterExcludedFlag !== "all"
+            selected: filterBar.controller.filterHideOfflineUncached
+                || filterBar.controller.filterExcludedFlag !== "all"
                 || filterBar.controller.filterExcludedColorLabel !== "all"
                 || filterBar.controller.filterChineseLunarMonth > 0
                 || filterBar.controller.filterChineseLunarDay > 0
@@ -171,6 +142,19 @@ Rectangle {
             toolTipText: qsTranslate("Main", "Clear all Library filters")
             accessibleName: toolTipText
             onClicked: filterBar.controller.clearFilters()
+        }
+
+        ShadowIconButton {
+            objectName: "originalAvailableButton"
+            anchors.verticalCenter: parent.verticalCenter
+            source: "qrc:/icons/source-available.svg"
+            buttonSize: 24
+            iconSize: 17
+            checkable: true
+            checked: filterBar.controller.filterOnlyEditable
+            accessibleName: qsTr("Original available")
+            toolTipText: qsTr("Show only photos whose original is available locally or can be retrieved online")
+            onToggled: filterBar.controller.filterOnlyEditable = checked
         }
 
         Repeater {

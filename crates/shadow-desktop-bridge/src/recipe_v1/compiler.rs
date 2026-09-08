@@ -80,7 +80,6 @@ const RECIPE_V1_IMAGE_COMPLETION_NODE_ID: &str = "recipe-v1-photo-ai-completion"
 /// order. Recipe `LayerInstance` vector order is the Grade Node execution
 /// order; graph bindings and the explicit output node define the private
 /// render-operation order within each Grade Node.
-#[cfg(test)]
 pub(crate) fn compile_recipe_render_plan(
     snapshot: &RecipeSnapshot,
 ) -> AnyResult<AdjustmentRenderPlan> {

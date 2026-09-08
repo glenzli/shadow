@@ -11,6 +11,11 @@ Dialog {
 
     required property var editor
     required property var interchangeController
+    property bool exportSelectedOnly: false
+    onClosed: {
+        if (interchangeController.recipeReading === true)
+            interchangeController.clearShadowRecipe()
+    }
     parent: Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(640, Math.max(0, (parent ? parent.width : 688) - 48))
@@ -92,7 +97,8 @@ Dialog {
         recipeFileDialog.open()
     }
 
-    function chooseExportFile() {
+    function chooseExportFile(selectedOnly) {
+        exportSelectedOnly = selectedOnly === true
         interchangeController.clearShadowRecipe()
         recipeExportFileDialog.open()
     }
@@ -153,6 +159,15 @@ Dialog {
         ColumnLayout {
             width: previewScroll.availableWidth
             spacing: 14
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                visible: dialog.interchangeController.recipeReading === true
+                text: qsTr("Reading Recipe and validating bundled LUTs…")
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+            }
             Label {
                 Layout.fillWidth: true
                 Layout.leftMargin: 20
@@ -487,9 +502,36 @@ Dialog {
         nameFilters: [qsTr("Shadow Recipes (*.shadowrecipe)")]
         onAccepted: {
             if (!dialog.interchangeController.exportShadowRecipe(
-                    selectedFile, dialog.editor.title)) {
+                    selectedFile, dialog.editor.title, dialog.exportSelectedOnly)) {
                 exportErrorDialog.open()
+            } else {
+                exportProgressDialog.open()
             }
+        }
+    }
+
+    Connections {
+        target: dialog.interchangeController
+        ignoreUnknownSignals: true
+        function onRecipeExportStateChanged() {
+            if (!dialog.interchangeController.recipeExportBusy) {
+                exportProgressDialog.close()
+                if (dialog.interchangeController.recipeExportErrorText.length > 0)
+                    exportErrorDialog.open()
+            }
+        }
+    }
+
+    Dialog {
+        id: exportProgressDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        title: qsTr("Exporting Shadow Recipe")
+        Label {
+            text: qsTr("Packaging the captured Recipe and its LUT resources…")
+            color: Theme.textSecondary
         }
     }
 

@@ -871,6 +871,14 @@ red-fastest storage order, rejects 1D/malformed files, and provides clamped-doma
 sampling. LUT resource ownership and Grade Node persistence remain outside this image-kernel
 format/parser boundary.
 
+[`include/shadow/image/lut_baking.hpp`](include/shadow/image/lut_baking.hpp) and
+[`src/edit/lut_baking.cpp`](src/edit/lut_baking.cpp) sample an explicitly color-only layer stack
+through the CPU executor, preserving node order and opacity. Spatial controls, including texture,
+clarity and local contrast within the Color Grading pass, fail closed. The bounded 17³/33³/65³
+linear-sRGB lattice checks cancellation between chunks and layers and measures interpolation error
+at 4096 independent RGB probes. It excludes RAW and display transforms. The same owner renders
+bounded LUT Library reference images through sRGB decoding, native LUT execution and display output.
+
 ## Display-luma analysis boundary
 
 `include/shadow/image/display_luma.hpp` names the complete preprocessing contract returned with

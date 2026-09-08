@@ -85,9 +85,19 @@ ShadowAdjustmentSection {
     Layout.fillWidth: true
     title: qsTr("LUT")
     summary: editor.hasLut ? editor.lutTitle : qsTr("None")
-    toolTipText: qsTr("Apply a managed .cube LUT to this adjustment node. The library button opens LUT management.")
+    toolTipText: qsTr("Apply a 3D .cube LUT in linear sRGB. External LUTs must expect this input space. The library button opens LUT management.")
     resetAvailable: true
     onResetRequested: editor.resetSelectedAdjustmentSection("lut")
+
+    Label {
+        Layout.fillWidth: true
+        Layout.leftMargin: 14
+        Layout.rightMargin: 14
+        text: qsTr("Input / output: linear sRGB")
+        color: lutSection.textMuted
+        font.pixelSize: 10
+        wrapMode: Text.WordWrap
+    }
 
     RowLayout {
         Layout.fillWidth: true

@@ -6,6 +6,7 @@ use std::{
 
 const BRIDGE_SOURCES: &[&str] = &[
     "src/bridge/adjustment_render_wire.cpp",
+    "src/bridge/lut_baking_wire.cpp",
     "src/bridge/cxx_bridge.cpp",
     "src/bridge/cxx_handle.cpp",
     "src/bridge/cxx_preview_frame.cpp",
@@ -30,6 +31,7 @@ const BRIDGE_ADDITIONAL_INPUTS: &[&str] = &[
     "include/shadow/image/full_edit_detail.hpp",
     "include/shadow/image/focus_observation.hpp",
     "include/shadow/image/lut.hpp",
+    "include/shadow/image/lut_baking.hpp",
     "include/shadow/image/optics.hpp",
     "include/shadow/image/photo_geometry.hpp",
     "include/shadow/image/photo_liquify.hpp",

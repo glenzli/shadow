@@ -6,6 +6,7 @@
 #include "backend/image_understanding_types.hpp"
 #include "backend/library_server_types.hpp"
 #include "backend/library_types.hpp"
+#include "backend/lut_export_types.hpp"
 #include "backend/people_analysis_types.hpp"
 #include "backend/remote_library_types.hpp"
 #include "backend/review_types.hpp"
@@ -31,6 +32,10 @@ class DesktopBackend final {
         QString source_path;
         QString title;
     };
+
+    [[nodiscard]] BackendLutExportSnapshot prepareLutExport(
+        const BackendGradeStack& grade_stack, const QString& selected_node_id
+    ) const;
 
     DesktopBackend(const QString& catalog_path, const QString& cache_root);
     ~DesktopBackend();

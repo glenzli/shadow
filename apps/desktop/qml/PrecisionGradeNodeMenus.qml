@@ -12,6 +12,14 @@ Item {
 
     required property var editor
     required property var interchangeController
+    property var lutExportController: null
+
+    function openExchange(anchorItem) {
+        const point = anchorItem.mapToItem(exchangePopup.parent, 0, anchorItem.height + 5)
+        exchangePopup.x = point.x
+        exchangePopup.y = point.y
+        exchangePopup.open()
+    }
 
     signal cropGeometryRequested
     signal repairRequested
@@ -158,34 +166,6 @@ Item {
                 onClicked: {
                     addGradeNodePopup.close()
                     menus.editor.addGradeNode()
-                }
-            }
-
-            PopupAction {
-                text: qsTr("Import Shadow Recipe…")
-                enabled: menus.editor.active && !menus.editor.stateBusy
-                onClicked: {
-                    addGradeNodePopup.close()
-                    shadowRecipeDialog.chooseImportFile()
-                }
-            }
-
-            PopupAction {
-                text: qsTr("Export current Recipe…")
-                enabled: menus.editor.active && !menus.editor.stateBusy
-                onClicked: {
-                    addGradeNodePopup.close()
-                    shadowRecipeDialog.chooseExportFile()
-                }
-            }
-
-            PopupAction {
-                text: qsTr("Import XMP adjustments…")
-                enabled: menus.editor.active && menus.editor.canAddGradeNode
-                    && !menus.editor.stateBusy
-                onClicked: {
-                    addGradeNodePopup.close()
-                    xmpImportDialog.chooseFile()
                 }
             }
 
@@ -364,6 +344,56 @@ Item {
                 }
             }
         }
+    }
+
+    Popup {
+        id: exchangePopup
+        parent: Overlay.overlay
+        width: 280
+        padding: 7
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle {
+            radius: 8
+            color: Theme.panelRaised
+            border.color: Theme.borderStrong
+        }
+        contentItem: Column {
+            spacing: 2
+            PopupAction {
+                text: qsTr("Import Shadow Recipe…")
+                onClicked: { exchangePopup.close(); shadowRecipeDialog.chooseImportFile() }
+            }
+            PopupAction {
+                text: qsTr("Import XMP adjustments…")
+                enabled: menus.editor.canAddGradeNode
+                onClicked: { exchangePopup.close(); xmpImportDialog.chooseFile() }
+            }
+            PopupAction {
+                text: qsTr("Export current Recipe…")
+                onClicked: { exchangePopup.close(); shadowRecipeDialog.chooseExportFile(false) }
+            }
+            PopupAction {
+                text: qsTr("Export selected Grade Node…")
+                enabled: menus.editor.selectedRecipeNodeKind === "grade"
+                onClicked: { exchangePopup.close(); shadowRecipeDialog.chooseExportFile(true) }
+            }
+            PopupAction {
+                text: qsTr("Export grading as LUT…")
+                enabled: menus.lutExportController !== null
+                onClicked: { exchangePopup.close(); lutExportDialog.present(false) }
+            }
+            PopupAction {
+                text: qsTr("Export selected node as LUT…")
+                enabled: menus.lutExportController !== null
+                    && menus.editor.selectedRecipeNodeKind === "grade"
+                onClicked: { exchangePopup.close(); lutExportDialog.present(true) }
+            }
+        }
+    }
+
+    LutExportDialog {
+        id: lutExportDialog
+        controller: menus.lutExportController
     }
 
     XmpImportDialog {

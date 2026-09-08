@@ -96,6 +96,30 @@ int main(int argc, char** argv) {
     require(!malformed.document_error.isEmpty(), "malformed XML fails closed");
     require(!malformed.canApply(), "malformed XML cannot apply");
 
+    const auto mixer = parseXmpDevelopImport(R"XMP(
+      <x xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+         crs:HueAdjustmentOrange="-35" crs:SaturationAdjustmentBlue="50"
+         crs:LuminanceAdjustmentMagenta="-20" crs:ColorGradeMidtoneHue="180">
+         <crs:ToneCurvePV2012><rdf:Seq xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+           <rdf:li>0, 0</rdf:li><rdf:li>255, 255</rdf:li>
+         </rdf:Seq></crs:ToneCurvePV2012>
+      </x>)XMP");
+    require(mixer.canApply() && mixer.adjustments.size() == 3 && mixer.ignored_fields.size() == 2,
+        "HSL is mapped while non-equivalent curves and color wheels remain explicit");
+    require(mixer.adjustments[0].target == XmpDevelopTarget::MixerHue
+            && mixer.adjustments[0].color_band == 1
+            && close_to(mixer.adjustments[0].target_value, -0.35),
+        "orange hue was mapped to the wrong band or amount");
+    require(mixer.adjustments[1].color_band == 5
+            && mixer.adjustments[2].color_band == 7,
+        "blue and magenta mapping lost band identity");
+    const auto conflicting = parseXmpDevelopImport(R"XMP(
+      <x xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:HueAdjustmentRed="5">
+        <crs:HueAdjustmentRed>6</crs:HueAdjustmentRed>
+      </x>)XMP");
+    require(!conflicting.canApply() && conflicting.invalid_fields.size() == 1,
+        "conflicting HSL values did not block import");
+
     std::cout << "XMP develop import contract passed\n";
     return EXIT_SUCCESS;
 }

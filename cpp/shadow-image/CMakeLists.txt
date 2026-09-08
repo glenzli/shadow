@@ -823,6 +823,12 @@ if(BUILD_TESTING)
     shadow_image_enable_warnings(shadow-image-lut-tests)
     add_test(NAME shadow-image-lut-contract COMMAND shadow-image-lut-tests)
 
+    shadow_image_add_contract(
+        shadow-image-lut-baking-tests
+        shadow-image-lut-baking-contract
+        tests/lut_baking_contract_test.cpp
+    )
+
     add_executable(shadow-image-source-rendering-tests tests/source_rendering_contract_test.cpp)
     target_link_libraries(shadow-image-source-rendering-tests PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-source-rendering-tests)

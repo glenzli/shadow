@@ -208,7 +208,7 @@ ApplicationWindow {
                         anchors.centerIn: parent
                         visible: parent.count === 0
                         width: parent.width - 24
-                        text: qsTr("Add one or more folders. Shadow scans subfolders for .cube LUTs.")
+                        text: qsTr("Add folders containing 3D .cube LUTs. Shadow applies them in linear sRGB; Log and display-encoded LUTs need conversion before use.")
                         color: Theme.textMuted
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
