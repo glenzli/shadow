@@ -580,6 +580,9 @@ Precision presentation follows the same responsibility tree:
   setting formatting instead of making the Inspector composition root interpret camera fields.
 - [`qml/PrecisionCanvas.qml`](qml/PrecisionCanvas.qml) owns the preview viewport, zoom/detail
   transport, tool/comparison surface composition, and their stable workspace-facing state.
+- [`qml/PrecisionViewportState.qml`](qml/PrecisionViewportState.qml) owns synchronous pan/zoom
+  transforms and shared comparison anchors. [`qml/PrecisionDetailSurface.qml`](qml/PrecisionDetailSurface.qml)
+  swaps full-detail pixels together with their source-coordinate rectangle after image readiness.
 - [`qml/PrecisionDetailLoupe.qml`](qml/PrecisionDetailLoupe.qml) presents one non-persistent
   focus/manual picture-in-picture viewport from the existing full-detail tile transport; camera
   AF metadata selects its initial center. [`qml/PrecisionDetailLoupeState.qml`](qml/PrecisionDetailLoupeState.qml)
@@ -714,7 +717,9 @@ Review presentation keeps the workspace focused on selection and orchestration:
   summary and undo.
 - [`qml/ReviewPhotoCard.qml`](qml/ReviewPhotoCard.qml) and
   [`qml/ReviewSinglePreview.qml`](qml/ReviewSinglePreview.qml) own grid-card and filmstrip
-  geometry. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
+  geometry. [`qml/ReviewPreviewViewport.qml`](qml/ReviewPreviewViewport.qml) owns the filmstrip
+  hero image's display-only zoom, pan, and selection reset, reusing the Precision view transform
+  and gesture components. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
   evidence and [`qml/ShadowRoundedImage.qml`](qml/ShadowRoundedImage.qml) for true rounded image
   clipping, so both browsing modes use edge-to-edge cropped thumbnails without sharing interaction
   state. [`qml/ReviewRemoteSourceIndicator.qml`](qml/ReviewRemoteSourceIndicator.qml) owns the

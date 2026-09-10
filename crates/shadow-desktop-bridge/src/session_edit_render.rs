@@ -89,7 +89,10 @@ impl DesktopSession {
             requirements,
         )?;
         self.ensure_current_edit_detail_render(request.render_token)?;
-        let full_dimensions = session.session.dimensions();
+        let full_dimensions = recipe
+            .plan
+            .geometry
+            .output_dimensions(session.session.dimensions())?;
         let rects = detail_viewport_rects(
             full_dimensions,
             request.center_x,

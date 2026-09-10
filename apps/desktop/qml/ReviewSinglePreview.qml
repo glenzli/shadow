@@ -55,7 +55,7 @@ Item {
         color: Theme.photoCanvas
     }
 
-    Image {
+    ReviewPreviewViewport {
         id: heroImage
         anchors.left: parent.left
         anchors.right: parent.right
@@ -65,13 +65,8 @@ Item {
         anchors.bottomMargin: 16
         source: root.review.selectedVisualSource
         autoTransform: root.review.selectedVisualAutoTransform
-        fillMode: Image.PreserveAspectFit
-        asynchronous: true
-        cache: true
-        smooth: true
-        mipmap: true
-        sourceSize.width: 2048
-        sourceSize.height: 2048
+        selectionKey: root.review.selectedPhotoId.length > 0
+            ? root.review.selectedPhotoId + "/" + root.review.selectedRepresentationId : ""
     }
 
     Label {

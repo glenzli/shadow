@@ -1404,3 +1404,25 @@
         shadow-desktop-review-travel-collections
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+
+# Filmstrip preview interaction uses the same packaged view/gesture owners as Precision.
+add_executable(shadow-review-preview-viewport-contract-test
+    tests/review_preview_viewport_contract_test.cpp)
+target_compile_features(shadow-review-preview-viewport-contract-test PRIVATE cxx_std_20)
+target_link_libraries(shadow-review-preview-viewport-contract-test
+    PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+qt_add_qml_module(shadow-review-preview-viewport-contract-test
+    URI Shadow.ReviewPreviewContract
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+        qml/ReviewPreviewViewport.qml
+        qml/PrecisionViewportState.qml
+        qml/PrecisionCanvasZoomInput.qml
+        qml/ShadowButton.qml
+        qml/Theme.qml)
+add_test(NAME shadow-desktop-review-preview-viewport-contract
+    COMMAND shadow-review-preview-viewport-contract-test)
+set_tests_properties(shadow-desktop-review-preview-viewport-contract
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

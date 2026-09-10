@@ -843,6 +843,8 @@ qt_add_qml_module(
         qml/PersonalLivingPlacesEditor.qml
         qml/PeopleWorkspace.qml
         qml/PrecisionCanvas.qml
+        qml/PrecisionViewportState.qml
+        qml/PrecisionDetailSurface.qml
         qml/PrecisionDetailLoupe.qml
         qml/PrecisionDetailLoupeState.qml
         qml/PrecisionActiveStrokeCoverage.qml
@@ -929,6 +931,7 @@ qt_add_qml_module(
         qml/ReviewSelectionInspectionPane.qml
         qml/ReviewPhotoSummary.qml
         qml/ReviewSinglePreview.qml
+        qml/ReviewPreviewViewport.qml
         qml/ShadowButton.qml
         qml/ShadowCheckBox.qml
         qml/ShadowColorLabelButton.qml

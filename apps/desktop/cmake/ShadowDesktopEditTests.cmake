@@ -1611,3 +1611,19 @@
         shadow-desktop-precision-point-color-section-contract
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+
+# Precision view transforms and asynchronous detail presentation own these
+# focused contracts independently of the RAW/render implementation.
+foreach(contract IN ITEMS viewport detail_surface zoom_input)
+    add_executable(shadow-precision-${contract}-contract-test
+        tests/precision_${contract}_contract_test.cpp)
+    target_compile_features(shadow-precision-${contract}-contract-test PRIVATE cxx_std_20)
+    target_compile_definitions(shadow-precision-${contract}-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(shadow-precision-${contract}-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+    add_test(NAME shadow-desktop-precision-${contract}-contract
+        COMMAND shadow-precision-${contract}-contract-test)
+    set_tests_properties(shadow-desktop-precision-${contract}-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()

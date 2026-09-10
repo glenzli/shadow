@@ -103,31 +103,35 @@ Item {
 
     PinchHandler {
         id: trackpadPinch
+        objectName: "canvasTrackpadPinch"
 
         enabled: zoomInput.interactionEnabled
         target: null
-        minimumScale: 0.05
-        maximumScale: 20.0
+        scaleAxis.minimum: 0.001
+        scaleAxis.maximum: 1000.0
 
         onActiveChanged: {
             if (active) {
                 zoomInput.pinchStartZoom = zoomInput.fitView
                     ? zoomInput.fitZoomFactor : zoomInput.zoomFactor
+                persistentScale = 1.0
                 zoomInput.continuousZoomStarted()
             } else {
                 zoomInput.continuousZoomFinished()
             }
         }
-        onUpdated: zoomInput.continuousZoomRequested(
-            centroid.position.x,
-            centroid.position.y,
-            zoomInput.pinchStartZoom * scale)
+        onScaleChanged: delta => {
+            if (active && delta !== 1.0)
+                zoomInput.continuousZoomRequested(
+                    centroid.position.x, centroid.position.y,
+                    zoomInput.pinchStartZoom * activeScale)
+        }
     }
 
     WheelHandler {
         id: trackpadWheelZoom
 
-        enabled: zoomInput.interactionEnabled
+        enabled: zoomInput.interactionEnabled && !trackpadPinch.active
         target: null
         acceptedModifiers: Qt.ControlModifier
         blocking: true

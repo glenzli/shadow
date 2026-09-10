@@ -2,6 +2,7 @@
 #include "warm_edit_gpu_parity_fixture.hpp"
 
 #include <shadow/image/adjustment_execution.hpp>
+#include <shadow/image/cpu_edit_reference.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
@@ -30,6 +31,69 @@ void expect(const bool condition, const std::string_view message) {
     if (!condition) {
         std::cerr << "FAILED: " << message << '\n';
         ++failures;
+    }
+}
+
+void isolated_denoise_has_progressive_noise_reduction() {
+    auto source = make_random_image(96U, 64U, false);
+    for (std::size_t pixel = 0; pixel < source.dimensions.pixel_count(); ++pixel) {
+        const float base = pixel % 96U < 48U ? 0.18F : 0.55F;
+        const float noise = source.samples[pixel * 3U] * 0.04F - 0.042F;
+        for (std::size_t channel = 0; channel < 3U; ++channel)
+            source.samples[pixel * 3U + channel] = base + noise;
+    }
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+               "isolated denoise requires a resident Metal session");
+        return;
+    }
+    const auto noise_rms = [](const image::FloatRgbImage& raster) {
+        double square = 0.0;
+        for (std::size_t y = 8; y < 56; ++y)
+            for (std::size_t x = 8; x < 40; ++x) {
+                const double delta = raster.samples[(y * 96U + x) * 3U] - 0.18;
+                square += delta * delta;
+            }
+        return std::sqrt(square / (48.0 * 32.0));
+    };
+    const double baseline = noise_rms(source);
+    double previous_gpu = baseline;
+    double previous_cpu = baseline;
+    for (const double strength : {0.25, 0.5, 1.0}) {
+        const std::array nodes{image::AdjustmentNode{
+            .node_id = "isolated-denoise",
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::technical_detail_implementation_version,
+            .parameters = image::SharpenAdjustment{
+                .execution_pass = image::DetailEffectsExecutionPass::technical_detail,
+                .denoise_luminance = strength,
+                .denoise_detail = 0.5,
+            },
+        }};
+        const auto cpu = image::execute_adjustment_nodes(source, nodes);
+        const auto gpu = preparation.session->render(nodes, image::compile_edit_execution_plan(nodes), true);
+        expect(gpu.output && gpu.output->analyzed_linear, "isolated GPU denoise publishes pixels");
+        if (!gpu.output || !gpu.output->analyzed_linear) return;
+        const double cpu_noise = noise_rms(cpu);
+        const double gpu_noise = noise_rms(*gpu.output->analyzed_linear);
+        std::cout << "Denoise strength=" << strength << " CPU residual=" << cpu_noise / baseline
+                  << " Metal residual=" << gpu_noise / baseline << '\n';
+        expect(cpu_noise < previous_cpu && gpu_noise < previous_gpu,
+               "each denoise strength reduces noise with all other edits neutral");
+        expect(std::abs(cpu_noise - gpu_noise) < baseline * 0.10,
+               "GPU denoise strength tracks the CPU noise-reduction oracle");
+        double edge_contrast = 0.0;
+        for (std::size_t y = 8; y < 56; ++y)
+            edge_contrast += gpu.output->analyzed_linear->samples[(y * 96U + 48U) * 3U]
+                - gpu.output->analyzed_linear->samples[(y * 96U + 47U) * 3U];
+        expect(edge_contrast / 48.0 > 0.28,
+               "noise reduction preserves the adjacent real luminance edge");
+        if (strength == 1.0)
+            expect(cpu_noise < baseline * 0.5 && gpu_noise < baseline * 0.5,
+                   "maximum denoise removes more than half of flat-field noise RMS");
+        previous_cpu = cpu_noise;
+        previous_gpu = gpu_noise;
     }
 }
 
@@ -235,6 +299,7 @@ void resident_gpu_dehaze_and_defringe_is_complete_or_declines() {
 
 int run_resident_gpu_technical_detail_contract() {
     failures = 0;
+    isolated_denoise_has_progressive_noise_reduction();
     resident_gpu_technical_detail_is_complete_or_declines();
     return failures;
 }

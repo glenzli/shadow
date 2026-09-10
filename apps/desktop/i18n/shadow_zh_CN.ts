@@ -14171,4 +14171,23 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>所有文件 (*)</translation>
     </message>
 </context>
+<context>
+    <name>ReviewPreviewViewport</name>
+    <message>
+        <source>Zoom out preview</source>
+        <translation>缩小预览</translation>
+    </message>
+    <message>
+        <source>Zoom in preview</source>
+        <translation>放大预览</translation>
+    </message>
+    <message>
+        <source>Fit</source>
+        <translation>适合窗口</translation>
+    </message>
+    <message>
+        <source>Fit preview to window</source>
+        <translation>使预览适合窗口</translation>
+    </message>
+</context>
 </TS>

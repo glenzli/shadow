@@ -956,7 +956,8 @@ class EditController final : public QObject {
         double center_x,
         double center_y,
         int viewport_width_pixels,
-        int viewport_height_pixels
+        int viewport_height_pixels,
+        bool retain_pan_margin = false
     );
     Q_INVOKABLE void leaveDetailMode();
     Q_INVOKABLE void saveVersion(const QString& version_name);
@@ -1237,6 +1238,7 @@ class EditController final : public QObject {
     QVariantList detail_tiles_;
     double detail_center_x_ = 0.5;
     double detail_center_y_ = 0.5;
+    bool detail_retain_pan_margin_ = false;
     std::uint32_t detail_viewport_width_ = 1;
     std::uint32_t detail_viewport_height_ = 1;
     bool active_ = false;

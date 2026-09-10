@@ -84,20 +84,23 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
         result.denoise = WarmDenoiseParameters{
             .width = dimensions.width,
             .height = dimensions.height,
-            .radius =
-                static_cast<std::uint32_t>(std::clamp(std::ceil(1.0 + 3.0 * authority), 1.0, 4.0)),
-            // A single edge-aware pass gives the normal interactive controls a light hand. At
-            // the top end, run the exact same bilateral stage once more while both rasters are
-            // already resident. This keeps a 100% request visibly decisive without widening a
-            // single support enough to bleed across the mast, horizon, or specular highlights.
-            .passes = authority >= 0.70 ? 2U : 1U,
+            // Both passes must fit the technical-detail owner's declared halo
+            // (ceil(2 + 5 * authority)); tile edges must match a complete render.
+            .radius = static_cast<std::uint32_t>(
+                std::clamp(std::floor(std::ceil(2.0 + 5.0 * authority) / 2.0), 1.0, 4.0)
+            ),
+            // Keep the two resident passes at every nonzero strength. Switching to
+            // two only at the maximum made the slider response abrupt; each pass
+            // already blends by the requested strength and protects real edges.
+            .passes = 2U,
             .luminance_strength = static_cast<float>(detail->denoise_luminance),
             .color_strength = static_cast<float>(detail->denoise_color),
             .spatial_sigma = static_cast<float>(0.90 + 0.52 * authority),
-            // A high ISO warm proxy needs enough range tolerance to identify independent
-            // pixel noise as a flat region, while the luma edge term still protects real
-            // subject boundaries. This mirrors the CPU path's epsilon authority mapping.
-            .edge_sigma = static_cast<float>(0.010 + 0.085 * authority),
+            // Epsilon is a variance in the CPU guided filter. Convert that variance
+            // to a standard deviation for the bilateral range kernel. Applying the
+            // squared slider authority directly to sigma made low/mid strengths
+            // reject ordinary noise as edges and almost reproduce the input.
+            .edge_sigma = static_cast<float>(std::sqrt(0.0003 + 0.006 * authority)),
             .red_luminance = static_cast<float>(working_space.luminance_coefficients[0]),
             .green_luminance = static_cast<float>(working_space.luminance_coefficients[1]),
             .blue_luminance = static_cast<float>(working_space.luminance_coefficients[2]),

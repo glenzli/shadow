@@ -589,7 +589,7 @@ std::string edit_preview_generator_implementation_identity() {
            + std::string(display_output_backend_identity(DisplayOutputBackend::cpu))
            + ";display-metal="
            + std::string(display_output_backend_identity(DisplayOutputBackend::metal))
-           + ";warm-fused-metal=v1;features=resident-source,double-slot,"
+           + ";warm-denoise-range=v2;warm-fused-metal=v1;features=resident-source,double-slot,"
              "immutable-color-resources,technical-detail,texture,clarity,optics,"
              "adjustment,display"
            + ";display-contract=" + std::to_string(display_srgb8_output_transform_version)
