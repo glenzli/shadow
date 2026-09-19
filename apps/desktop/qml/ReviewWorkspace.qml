@@ -725,6 +725,15 @@ Item {
 
     Connections {
         target: review.controller
+        function onFiltersChanged() {
+            Qt.callLater(selectionState.reconcileSelection)
+        }
+        function onRefreshingChanged() {
+            Qt.callLater(selectionState.reconcileSelection)
+        }
+        function onScanningChanged() {
+            Qt.callLater(selectionState.reconcileSelection)
+        }
         function onItemCountChanged() {
             if (review.controller.itemCount === 0)
                 review.clearSelection()

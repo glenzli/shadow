@@ -157,18 +157,23 @@ Item {
 
         Repeater {
             model: root.includeColorLabels
-                ? ["red", "yellow", "green", "blue", "purple"] : []
+                ? [{ "value": "red", "name": qsTr("Red") },
+                   { "value": "yellow", "name": qsTr("Yellow") },
+                   { "value": "green", "name": qsTr("Green") },
+                   { "value": "blue", "name": qsTr("Blue") },
+                   { "value": "purple", "name": qsTr("Purple") }] : []
 
             delegate: ShadowColorLabelButton {
-                required property string modelData
-                labelColor: Theme.colorLabel(modelData)
-                selected: root.review.selectedColorLabel === modelData
-                toolTipText: qsTr("Set color label: %1").arg(modelData)
+                required property var modelData
+                labelColor: Theme.colorLabel(modelData.value)
+                selected: root.review.selectedColorLabel === modelData.value
+                toolTipText: qsTr("Set color label: %1").arg(modelData.name)
                 accessibleName: toolTipText
                 enabled: root.decisionEnabled
                 onClicked: root.review.controller.setPhotoColorLabel(
                     root.review.selectedPhotoId,
-                    root.review.selectedColorLabel === modelData ? "none" : modelData)
+                    root.review.selectedColorLabel === modelData.value
+                        ? "none" : modelData.value)
             }
         }
     }

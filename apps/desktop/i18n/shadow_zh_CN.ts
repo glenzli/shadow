@@ -10320,6 +10320,26 @@ Details: %3</source>
 <context>
     <name>ReviewDecisionToolbar</name>
     <message>
+        <source>Red</source>
+        <translation>红色</translation>
+    </message>
+    <message>
+        <source>Yellow</source>
+        <translation>黄色</translation>
+    </message>
+    <message>
+        <source>Green</source>
+        <translation>绿色</translation>
+    </message>
+    <message>
+        <source>Blue</source>
+        <translation>蓝色</translation>
+    </message>
+    <message>
+        <source>Purple</source>
+        <translation>紫色</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewDecisionToolbar.qml" line="50"/>
         <source>Clear pick flag</source>
         <translation>清除入选标记</translation>

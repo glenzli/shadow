@@ -2,11 +2,26 @@
 
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QSet>
 
 #include <algorithm>
 #include <exception>
 
 // Library import, paging, range projection, and filter-query routing.
+
+namespace {
+
+QVariantMap selectionTarget(const QAbstractItemModel& model, const int row) {
+    const QModelIndex index = model.index(row, 0);
+    QVariantMap result;
+    const auto roles = model.roleNames();
+    for (auto role = roles.cbegin(); role != roles.cend(); ++role) {
+        result.insert(QString::fromUtf8(role.value()), model.data(index, role.key()));
+    }
+    return result;
+}
+
+} // namespace
 
 void ReviewController::scanFolder(const QUrl& folder_url) {
     const bool admitted = !scanning() && !query_coordinator_.pageRunning()
@@ -95,6 +110,29 @@ void ReviewController::loadMore() {
     static_cast<void>(query_coordinator_.loadMore(admitted));
 }
 
+QVariantList ReviewController::currentSelectionTargets(const QVariantList& targets) const {
+    QSet<QPair<QString, QString>> identities;
+    for (const QVariant& value : targets) {
+        const QVariantMap target = value.toMap();
+        identities.insert(
+            {target.value(QStringLiteral("photoId")).toString(),
+             target.value(QStringLiteral("representationId")).toString()}
+        );
+    }
+    QVariantList current;
+    for (int row = 0; row < filtered_model_.rowCount() && !identities.isEmpty(); ++row) {
+        const QModelIndex index = filtered_model_.index(row, 0);
+        const QPair<QString, QString> identity{
+            filtered_model_.data(index, ReviewModel::PhotoIdRole).toString(),
+            filtered_model_.data(index, ReviewModel::RepresentationIdRole).toString(),
+        };
+        if (identities.remove(identity)) {
+            current.push_back(selectionTarget(filtered_model_, row));
+        }
+    }
+    return current;
+}
+
 QVariantList ReviewController::selectionRangeTargets(
     const QString& anchor_photo_id,
     const QString& anchor_representation_id,
@@ -132,37 +170,7 @@ QVariantList ReviewController::selectionRangeTargets(
     QVariantList targets;
     targets.reserve(last - first + 1);
     for (int row = first; row <= last; ++row) {
-        const QModelIndex index = filtered_model_.index(row, 0);
-        targets.push_back(
-            QVariantMap{
-                {QStringLiteral("photoId"),
-                 filtered_model_.data(index, ReviewModel::PhotoIdRole).toString()},
-                {QStringLiteral("representationId"),
-                 filtered_model_.data(index, ReviewModel::RepresentationIdRole).toString()},
-                {QStringLiteral("locationId"),
-                 filtered_model_.data(index, ReviewModel::LocationIdRole).toString()},
-                {QStringLiteral("visualHandle"),
-                 filtered_model_.data(index, ReviewModel::VisualHandleRole).toString()},
-                {QStringLiteral("sourcePath"),
-                 filtered_model_.data(index, ReviewModel::SourcePathRole).toString()},
-                {QStringLiteral("sourceAvailable"),
-                 filtered_model_.data(index, ReviewModel::SourceAvailableRole).toBool()},
-                {QStringLiteral("title"),
-                 filtered_model_.data(index, ReviewModel::TitleRole).toString()},
-                {QStringLiteral("isRemote"),
-                 filtered_model_.data(index, ReviewModel::IsRemoteRole).toBool()},
-                {QStringLiteral("remoteOriginalCached"),
-                 filtered_model_.data(index, ReviewModel::RemoteOriginalCachedRole).toBool()},
-                {QStringLiteral("visualRole"),
-                 filtered_model_.data(index, ReviewModel::VisualRole).toString()},
-                {QStringLiteral("visualSource"),
-                 filtered_model_.data(index, ReviewModel::VisualSourceRole).toString()},
-                {QStringLiteral("visualWidth"),
-                 filtered_model_.data(index, ReviewModel::VisualWidthRole).toInt()},
-                {QStringLiteral("visualHeight"),
-                 filtered_model_.data(index, ReviewModel::VisualHeightRole).toInt()},
-            }
-        );
+        targets.push_back(selectionTarget(filtered_model_, row));
     }
     return targets;
 }

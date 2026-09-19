@@ -523,6 +523,9 @@ class ReviewController final : public QObject {
         const QString& photo_id,
         const QString& representation_id
     ) const;
+    /// Refreshes only identities still present in the filtered presentation.
+    /// Selection must not retain removed sources or hidden batch targets.
+    Q_INVOKABLE QVariantList currentSelectionTargets(const QVariantList& targets) const;
     Q_INVOKABLE QVariantMap
     prepareComparison(const QString& left_visual_handle, const QString& right_visual_handle);
     Q_INVOKABLE bool confirmComparisonReady(

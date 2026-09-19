@@ -291,6 +291,8 @@ QtObject {
     function updatePrimaryPhoto(card) {
         const identityChanged = selectedPhotoId !== card.photoId
             || selectedRepresentationId !== card.representationId
+        const retainedRemoteInspection = !identityChanged && selectedIsRemote
+            ? selectedRemoteInspection : null
         selectedPhotoId = card.photoId
         selectedRepresentationId = card.representationId
         selectedVisualHandle = card.visualHandle
@@ -309,7 +311,7 @@ QtObject {
         selectedRemoteConnectionId = String(card.remoteConnectionId || "")
         selectedRemotePreviewUnavailableReason =
             String(card.remotePreviewUnavailableReason || "")
-        selectedRemoteInspection = selectedIsRemote ? {
+        const remoteSnapshot = selectedIsRemote ? {
             "available": true,
             "photoId": card.photoId,
             "representationId": card.representationId,
@@ -336,6 +338,8 @@ QtObject {
             "hasOrientation": Boolean(card.hasOrientation),
             "orientation": Number(card.orientation || 0)
         } : ({})
+        selectedRemoteInspection = retainedRemoteInspection
+            ? Object.assign({}, remoteSnapshot, retainedRemoteInspection) : remoteSnapshot
         selectedRole = card.visualRole
         selectedVisualSource = card.visualSource
         selectedVisualAutoTransform = Boolean(card.visualAutoTransform)
@@ -393,7 +397,7 @@ QtObject {
                 selectedPhotoTargets = updated
                 if (selectedPhotoId === card.photoId
                         && selectedRepresentationId === card.representationId)
-                    clearPrimaryPhoto()
+                    selectRemainingPrimary()
                 return
             }
         }
@@ -462,6 +466,39 @@ QtObject {
         selectionAnchorPhotoId = ""
         selectionAnchorRepresentationId = ""
         clearPrimaryPhoto()
+    }
+
+    function selectRemainingPrimary() {
+        const keys = Object.keys(selectedPhotoTargets)
+        if (keys.length === 0) {
+            clearPrimaryPhoto()
+            return
+        }
+        updatePrimaryPhoto(selectedPhotoTargets[keys[keys.length - 1]])
+    }
+
+    function reconcileSelection() {
+        // A reset keeps the previous page until its replacement arrives. Do
+        // not interpret the intermediate page as the settled query result.
+        if (controller.refreshing || controller.scanning || selectedPhotoCount === 0)
+            return
+        const current = controller.currentSelectionTargets(batchSelectionTargets())
+        const updated = ({})
+        for (let index = 0; index < current.length; ++index) {
+            const target = snapshotForCard(current[index])
+            updated[selectionKey(target.photoId, target.representationId)] = target
+        }
+        selectedPhotoTargets = updated
+        const primary = updated[selectionKey(selectedPhotoId, selectedRepresentationId)]
+        if (primary !== undefined)
+            updatePrimaryPhoto(primary)
+        else
+            selectRemainingPrimary()
+        if (updated[selectionKey(selectionAnchorPhotoId,
+                                 selectionAnchorRepresentationId)] === undefined) {
+            selectionAnchorPhotoId = selectedPhotoId
+            selectionAnchorRepresentationId = selectedRepresentationId
+        }
     }
 
     function applyDecisionChanged(photoId, headSequence, flag, rating) {

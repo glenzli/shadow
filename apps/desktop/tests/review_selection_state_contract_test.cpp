@@ -19,6 +19,8 @@ class FakeInspectionController final : public QObject {
     Q_PROPERTY(QVariantMap photoInspection READ photoInspection NOTIFY photoInspectionChanged)
     Q_PROPERTY(bool photoInspectionBusy READ photoInspectionBusy NOTIFY photoInspectionChanged)
     Q_PROPERTY(bool photoInspectionFailed READ photoInspectionFailed NOTIFY photoInspectionChanged)
+    Q_PROPERTY(bool refreshing MEMBER refreshing_)
+    Q_PROPERTY(bool scanning MEMBER scanning_)
 
   public:
     using QObject::QObject;
@@ -64,6 +66,16 @@ class FakeInspectionController final : public QObject {
     Q_INVOKABLE void retryPhotoInspection() {
         ++retry_count_;
     }
+
+    Q_INVOKABLE QVariantList currentSelectionTargets(const QVariantList& targets) {
+        last_selection_query_ = targets;
+        return current_targets_;
+    }
+
+    bool refreshing_ = false;
+    bool scanning_ = false;
+    QVariantList current_targets_;
+    QVariantList last_selection_query_;
 
     void publish(QVariantMap inspection) {
         inspection_ = std::move(inspection);
@@ -287,8 +299,7 @@ int main(int argc, char* argv[]) {
                 QVariantMap{
                     {QStringLiteral("available"), true},
                     {QStringLiteral("photoId"), QStringLiteral("remote-photo")},
-                    {QStringLiteral("representationId"),
-                     QStringLiteral("remote-representation")},
+                    {QStringLiteral("representationId"), QStringLiteral("remote-representation")},
                     {QStringLiteral("hasMetadata"), true},
                     {QStringLiteral("cameraMake"), QStringLiteral("Inspected camera")},
                 }
@@ -301,12 +312,89 @@ int main(int argc, char* argv[]) {
             "the selected remote inspection refreshes without reselecting the photo"
         )
         || !require(
+            invoke(selection.get(), "updatePrimaryPhoto", remote_card.get())
+                && selection->property("selectedCameraMake").toString()
+                       == QStringLiteral("Inspected camera"),
+            "refreshing the same remote selection retains its richer inspected metadata"
+        )
+        || !require(
             QMetaObject::invokeMethod(selection.get(), "clearPrimaryPhoto"),
             "production clear function is invokable"
         )
         || !require(
             controller.clear_count_ == 2,
             "clearing selection clears the independent inspection request"
+        )) {
+        return EXIT_FAILURE;
+    }
+    FakeReviewCard first;
+    FakeReviewCard second;
+    second.photo_id = QStringLiteral("photo-b");
+    second.representation_id = QStringLiteral("representation-b");
+    const auto select = [&selection](QObject* target, int modifiers) {
+        return QMetaObject::invokeMethod(
+            selection.get(),
+            "selectPhoto",
+            Q_ARG(QVariant, QVariant::fromValue(target)),
+            Q_ARG(QVariant, modifiers)
+        );
+    };
+    if (!require(
+            select(&first, 0) && select(&second, Qt::ControlModifier),
+            "two photos can be selected"
+        )
+        || !require(select(&second, Qt::ControlModifier), "primary can be deselected")
+        || !require(
+            selection->property("selectedPhotoCount").toInt() == 1
+                && selection->property("selectedPhotoId").toString() == first.photo_id,
+            "deselecting the primary retains a usable remaining selection"
+        )) {
+        return EXIT_FAILURE;
+    }
+    if (!require(select(&second, Qt::ControlModifier), "second photo can be reselected")) {
+        return EXIT_FAILURE;
+    }
+    controller.refreshing_ = true;
+    QMetaObject::invokeMethod(selection.get(), "reconcileSelection");
+    if (!require(
+            selection->property("selectedPhotoCount").toInt() == 2
+                && controller.last_selection_query_.isEmpty(),
+            "an in-flight query must not discard selection from a temporary page"
+        )) {
+        return EXIT_FAILURE;
+    }
+    controller.refreshing_ = false;
+    controller.current_targets_ = {QVariantMap{
+        {QStringLiteral("photoId"), first.photo_id},
+        {QStringLiteral("representationId"), first.representation_id},
+        {QStringLiteral("sourcePath"), QStringLiteral("/relinked/selected.nef")},
+        {QStringLiteral("title"), QStringLiteral("Relinked")},
+        {QStringLiteral("visualHandle"), QStringLiteral("fresh-visual")},
+        {QStringLiteral("visualSource"), QStringLiteral("image://shadow/fresh")},
+        {QStringLiteral("decisionRating"), 4},
+        {QStringLiteral("liked"), true},
+    }};
+    QMetaObject::invokeMethod(selection.get(), "reconcileSelection");
+    if (!require(
+            controller.last_selection_query_.size() == 2
+                && selection->property("selectedPhotoCount").toInt() == 1
+                && selection->property("selectedPhotoId").toString() == first.photo_id
+                && selection->property("selectedPath").toString()
+                       == QStringLiteral("/relinked/selected.nef")
+                && selection->property("selectedVisualHandle").toString()
+                       == QStringLiteral("fresh-visual")
+                && selection->property("selectedDecisionRating").toInt() == 4,
+            "settled filtering removes hidden batch targets and refreshes the survivor"
+        )) {
+        return EXIT_FAILURE;
+    }
+    controller.current_targets_.clear();
+    QMetaObject::invokeMethod(selection.get(), "reconcileSelection");
+    if (!require(
+            selection->property("selectedPhotoCount").toInt() == 0
+                && selection->property("selectedPhotoId").toString().isEmpty()
+                && selection->property("selectionAnchorPhotoId").toString().isEmpty(),
+            "removing the selected source clears inspector, batch targets and range anchor"
         )) {
         return EXIT_FAILURE;
     }
