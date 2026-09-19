@@ -28,6 +28,13 @@ Window {
     color: Theme.window
     flags: Qt.Window
 
+    Shortcut {
+        sequences: [StandardKey.Close]
+        context: Qt.WindowShortcut
+        enabled: root.visible
+        onActivated: root.close()
+    }
+
     function present() {
         if (root.photoId.length > 0)
             root.controller.requestLibraryMetadata(root.photoId)

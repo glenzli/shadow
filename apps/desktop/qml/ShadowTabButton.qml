@@ -9,6 +9,7 @@ TabButton {
     property bool active: checked
     property url iconSource
     property int iconSize: 17
+    property bool showLabelWithIcon: false
     property string toolTipText: ""
     property string accessibleName: text.length > 0 ? text : toolTipText
     property int minimumTabWidth: 54
@@ -41,12 +42,15 @@ TabButton {
                 : control.hovered ? Theme.textPrimary : Theme.textMuted
 
     contentItem: Item {
-        implicitWidth: control.iconSource.toString().length > 0
-            ? control.iconSize : tabLabel.implicitWidth
+        implicitWidth: (tabIcon.visible ? control.iconSize : 0)
+            + (tabLabel.visible ? tabLabel.implicitWidth : 0)
+            + (tabIcon.visible && tabLabel.visible ? 7 : 0)
         implicitHeight: Math.max(control.iconSize, tabLabel.implicitHeight)
 
         ShadowIcon {
-            anchors.centerIn: parent
+            id: tabIcon
+            anchors.verticalCenter: parent.verticalCenter
+            x: tabLabel.visible ? 0 : (parent.width - width) / 2
             visible: control.iconSource.toString().length > 0
             source: control.iconSource
             color: control.resolvedContentColor
@@ -55,8 +59,12 @@ TabButton {
 
         Label {
             id: tabLabel
-            anchors.fill: parent
-            visible: control.iconSource.toString().length === 0
+            anchors.left: tabIcon.visible ? tabIcon.right : parent.left
+            anchors.leftMargin: tabIcon.visible ? 7 : 0
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            visible: !tabIcon.visible || control.showLabelWithIcon
             text: control.text
             color: control.resolvedContentColor
             font.pixelSize: Theme.fontSection

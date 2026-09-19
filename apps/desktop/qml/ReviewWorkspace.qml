@@ -169,6 +169,7 @@ Item {
     property string precisionOpenStatus: ""
 
     readonly property bool canMutateDecision: selectedPhotoId.length > 0
+        && selectedPhotoCount === 1
         && !locationCompletionActive
         && !comparison.compareMode
         && !culling.arenaActive

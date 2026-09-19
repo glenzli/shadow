@@ -39,6 +39,7 @@ ColumnLayout {
         }
 
         Label {
+            visible: pane.review.selectedHasFocusObservation
             text: pane.review.controller.focusDetailReady
                 ? qsTr("100%") : qsTr("PROXY")
             color: pane.review.controller.focusDetailReady
@@ -52,7 +53,8 @@ ColumnLayout {
         id: detailFrame
 
         Layout.fillWidth: true
-        Layout.preferredHeight: Math.min(width, 238)
+        Layout.preferredHeight: pane.review.selectedHasFocusObservation
+            ? Math.min(width, 238) : Math.max(40, noFocusLabel.implicitHeight + 20)
         radius: 7
         color: Theme.photoCanvas
         border.width: 1
@@ -66,7 +68,7 @@ ColumnLayout {
                 && !pane.review.controller.focusDetailReady
             asynchronous: true
             cache: true
-            source: pane.review.selectedVisualSource
+            source: visible ? pane.review.selectedVisualSource : ""
             fillMode: Image.PreserveAspectFit
             readonly property real proxyScale: Math.max(
                 1, detailFrame.width / Math.max(1, pane.review.selectedWidth),
@@ -83,7 +85,7 @@ ColumnLayout {
             visible: pane.review.controller.focusDetailReady
             asynchronous: true
             cache: false
-            source: pane.review.controller.focusDetailImageSource
+            source: visible ? pane.review.controller.focusDetailImageSource : ""
             width: implicitWidth
             height: implicitHeight
             x: Math.round((detailFrame.width - width) / 2)
@@ -102,6 +104,7 @@ ColumnLayout {
         }
 
         Label {
+            id: noFocusLabel
             anchors.centerIn: parent
             width: parent.width - 28
             visible: !pane.review.selectedHasFocusObservation

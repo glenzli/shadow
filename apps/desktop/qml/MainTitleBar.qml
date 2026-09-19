@@ -73,6 +73,7 @@ ToolBar {
         }
 
         Row {
+            id: branding
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             spacing: 10
@@ -93,72 +94,85 @@ ToolBar {
             }
         }
 
-        Row {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.verticalCenter: parent.verticalCenter
-            height: titleBar.availableHeight
-            spacing: 10
+        Item {
+            id: navigationArea
+            anchors.left: branding.right
+            anchors.right: windowActions.left
+            anchors.leftMargin: 14
+            anchors.rightMargin: 14
+            height: parent.height
 
-            ShadowTabButton {
-                height: parent.height
-                active: titleBar.workspaceIndex
-                    === titleBar.reviewWorkspaceIndex
-                iconSource: "qrc:/icons/review-grid.svg"
-                iconSize: 18
-                minimumTabWidth: 46
-                underlineInset: 22
-                underlineBottomMargin: -titleBar.bottomPadding
-                text: qsTr("REVIEW")
-                toolTipText: text
-                onClicked: titleBar.reviewRequested()
-            }
+            Row {
+                anchors.centerIn: parent
+                height: titleBar.availableHeight
+                spacing: 10
 
-            ShadowTabButton {
-                height: parent.height
-                active: titleBar.workspaceIndex
-                    === titleBar.precisionWorkspaceIndex
-                iconSource: "qrc:/icons/edit.svg"
-                iconSize: 18
-                minimumTabWidth: 46
-                underlineInset: 22
-                underlineBottomMargin: -titleBar.bottomPadding
-                text: qsTr("PRECISION")
-                toolTipText: text
-                enabled: titleBar.editor.active || titleBar.editor.busy
-                    || titleBar.canOpenSelectedPhoto
-                onClicked: titleBar.precisionRequested()
-            }
+                ShadowTabButton {
+                    height: parent.height
+                    active: titleBar.workspaceIndex
+                        === titleBar.reviewWorkspaceIndex
+                    iconSource: "qrc:/icons/review-grid.svg"
+                    iconSize: 18
+                    showLabelWithIcon: navigationArea.width >= 410
+                    minimumTabWidth: 46
+                    underlineInset: 22
+                    underlineBottomMargin: -titleBar.bottomPadding
+                    text: qsTr("REVIEW")
+                    toolTipText: text
+                    onClicked: titleBar.reviewRequested()
+                }
 
-            ShadowTabButton {
-                height: parent.height
-                active: titleBar.workspaceIndex
-                    === titleBar.mapWorkspaceIndex
-                iconSource: "qrc:/icons/map.svg"
-                iconSize: 18
-                minimumTabWidth: 46
-                underlineInset: 22
-                underlineBottomMargin: -titleBar.bottomPadding
-                text: qsTr("MAP")
-                toolTipText: text
-                onClicked: titleBar.mapRequested()
-            }
+                ShadowTabButton {
+                    height: parent.height
+                    active: titleBar.workspaceIndex
+                        === titleBar.precisionWorkspaceIndex
+                    iconSource: "qrc:/icons/edit.svg"
+                    iconSize: 18
+                    showLabelWithIcon: navigationArea.width >= 410
+                    minimumTabWidth: 46
+                    underlineInset: 22
+                    underlineBottomMargin: -titleBar.bottomPadding
+                    text: qsTr("PRECISION")
+                    toolTipText: text
+                    enabled: titleBar.editor.active || titleBar.editor.busy
+                        || titleBar.canOpenSelectedPhoto
+                    onClicked: titleBar.precisionRequested()
+                }
 
-            ShadowTabButton {
-                height: parent.height
-                active: titleBar.workspaceIndex
-                    === titleBar.peopleWorkspaceIndex
-                iconSource: "qrc:/icons/people.svg"
-                iconSize: 18
-                minimumTabWidth: 46
-                underlineInset: 22
-                underlineBottomMargin: -titleBar.bottomPadding
-                text: qsTr("PEOPLE")
-                toolTipText: text
-                onClicked: titleBar.peopleRequested()
+                ShadowTabButton {
+                    height: parent.height
+                    active: titleBar.workspaceIndex
+                        === titleBar.mapWorkspaceIndex
+                    iconSource: "qrc:/icons/map.svg"
+                    iconSize: 18
+                    showLabelWithIcon: navigationArea.width >= 410
+                    minimumTabWidth: 46
+                    underlineInset: 22
+                    underlineBottomMargin: -titleBar.bottomPadding
+                    text: qsTr("MAP")
+                    toolTipText: text
+                    onClicked: titleBar.mapRequested()
+                }
+
+                ShadowTabButton {
+                    height: parent.height
+                    active: titleBar.workspaceIndex
+                        === titleBar.peopleWorkspaceIndex
+                    iconSource: "qrc:/icons/people.svg"
+                    iconSize: 18
+                    showLabelWithIcon: navigationArea.width >= 410
+                    minimumTabWidth: 46
+                    underlineInset: 22
+                    underlineBottomMargin: -titleBar.bottomPadding
+                    text: qsTr("PEOPLE")
+                    toolTipText: text
+                    onClicked: titleBar.peopleRequested()
+                }
             }
         }
 
         Row {
+            id: windowActions
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             spacing: 4
