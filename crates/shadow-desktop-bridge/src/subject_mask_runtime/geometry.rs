@@ -31,11 +31,7 @@ pub(crate) fn map_output_prompt_to_original(
     );
     let oriented_width = if transposed { crop_height } else { crop_width };
     let oriented_height = if transposed { crop_width } else { crop_height };
-    let (output_width, output_height) = auto_crop_extent(
-        oriented_width,
-        oriented_height,
-        geometry.straighten_degrees(),
-    );
+    let (output_width, output_height) = output_canvas_extent(geometry, original_extent);
 
     let angle = geometry.straighten_degrees().to_radians();
     let cosine = angle.cos();
@@ -79,6 +75,27 @@ pub(crate) fn map_output_prompt_to_original(
         y: AiUnitInterval::new(normalized_y).expect("clamped original-space prompt y is valid"),
         polarity: point.polarity,
     }
+}
+
+/// Display-canvas dimensions, using the same crop rounding and orientation as
+/// prompt projection. Brush radii are relative to the shorter display edge.
+pub(crate) fn output_canvas_extent(geometry: PhotoGeometry, extent: RasterExtent) -> (f64, f64) {
+    let width = f64::from(extent.width);
+    let height = f64::from(extent.height);
+    let crop_width = crop_end(width, geometry.crop_right().get())
+        - crop_start(width, geometry.crop_left().get());
+    let crop_height = crop_end(height, geometry.crop_bottom().get())
+        - crop_start(height, geometry.crop_top().get());
+    let transposed = matches!(
+        geometry.quarter_turn(),
+        PhotoQuarterTurn::Clockwise90 | PhotoQuarterTurn::Clockwise270
+    );
+    let (width, height) = if transposed {
+        (crop_height, crop_width)
+    } else {
+        (crop_width, crop_height)
+    };
+    auto_crop_extent(width, height, geometry.straighten_degrees())
 }
 
 /// Resamples an original-space Gray8 mask into the normalized final-canvas

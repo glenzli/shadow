@@ -146,12 +146,10 @@ impl ImageCompletionRuntime {
         {
             return Err(ImageCompletionRuntimeError::MalformedRuntimeRaster);
         }
+        let alpha =
+            feather_completion_alpha(&invocation.prepared_mask_gray8, evidence.raster_extent);
         let mut rgba8 = Vec::with_capacity(pixel_count * 4);
-        for (rgb, alpha) in evidence
-            .rgb8
-            .chunks_exact(3)
-            .zip(&invocation.prepared_mask_gray8)
-        {
+        for (rgb, alpha) in evidence.rgb8.chunks_exact(3).zip(&alpha) {
             rgba8.extend_from_slice(rgb);
             rgba8.push(*alpha);
         }
@@ -226,6 +224,26 @@ impl ImageCompletionRuntime {
             .scratch_root
             .join(format!("image-completion-{role}-{token}.{extension}")))
     }
+}
+
+/// Feather inward only: unselected and erased pixels always remain untouched.
+/// The model still receives the exact binary selection; this is a one-time
+/// candidate publication step, shared by preview, detail, and export.
+fn feather_completion_alpha(mask: &[u8], extent: RasterExtent) -> Vec<u8> {
+    let image = image::GrayImage::from_raw(extent.width, extent.height, mask.to_vec())
+        .expect("validated completion mask dimensions");
+    let softened = image::imageops::blur(&image, 3.0);
+    mask.iter()
+        .zip(softened.as_raw())
+        .map(|(original, blurred)| {
+            if *original == 0 {
+                0
+            } else {
+                u8::try_from(u16::from(blurred.saturating_sub(128)) * 255 / 127)
+                    .expect("bounded feather alpha")
+            }
+        })
+        .collect()
 }
 
 fn validate_input(

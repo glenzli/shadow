@@ -18,7 +18,7 @@ use super::{
     image_completion_service::{ImageCompletionCompletion, ImageCompletionPlacement},
     recipe_v1::{decode_grade_stack_draft_recipe_v1, resolve_recipe_render},
     subject_mask_runtime::geometry::{
-        map_output_prompt_to_original, project_rgba8_patch_to_output,
+        map_output_prompt_to_original, output_canvas_extent, project_rgba8_patch_to_output,
     },
     wall_clock::current_time_ms,
 };
@@ -303,6 +303,8 @@ fn original_brush_points(
     geometry: shadow_domain::PhotoGeometry,
     extent: RasterExtent,
 ) -> AnyResult<Vec<OriginalBrushPoint>> {
+    let (width, height) = output_canvas_extent(geometry, extent);
+    let shorter_edge = width.min(height);
     points
         .iter()
         .enumerate()
@@ -330,17 +332,27 @@ fn original_brush_points(
                 )
             };
             let center = map(point.x, point.y);
-            let horizontal = map((point.x + point.radius).min(1.0), point.y);
-            let vertical = map(point.x, (point.y + point.radius).min(1.0));
+            let radius_x = point.radius * shorter_edge / width;
+            let radius_y = point.radius * shorter_edge / height;
+            // Sample inward near canvas edges. Use both components of the
+            // mapped basis so quarter turns cannot collapse the brush radius.
+            let horizontal = map(
+                point.x + if point.x > 0.5 { -radius_x } else { radius_x },
+                point.y,
+            );
+            let vertical = map(
+                point.x,
+                point.y + if point.y > 0.5 { -radius_y } else { radius_y },
+            );
             Ok(OriginalBrushPoint {
                 x: center.x.get(),
                 y: center.y.get(),
                 radius_x: (horizontal.x.get() - center.x.get())
-                    .abs()
-                    .max(MIN_BRUSH_RADIUS),
-                radius_y: (vertical.y.get() - center.y.get())
-                    .abs()
-                    .max(MIN_BRUSH_RADIUS),
+                    .hypot(vertical.x.get() - center.x.get())
+                    .max(f64::EPSILON),
+                radius_y: (horizontal.y.get() - center.y.get())
+                    .hypot(vertical.y.get() - center.y.get())
+                    .max(f64::EPSILON),
                 erase: point.erase,
                 stroke_id: point.stroke_id,
             })

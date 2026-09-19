@@ -29,12 +29,14 @@ Item {
 
     Canvas {
         id: selectionCanvas
+        visible: !overlay.editor.imageCompletionHasCandidate
         anchors.fill: parent
         z: 2
         renderTarget: Canvas.FramebufferObject
 
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
+        onVisibleChanged: if (visible) requestPaint()
         onPaint: {
             const context = getContext("2d")
             context.reset()
