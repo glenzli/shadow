@@ -11,6 +11,15 @@ Rectangle {
     id: comparisonView
 
     required property var review
+    property bool linkedViews: true
+
+    function synchronizeView(paneIndex, transform) {
+        if (!linkedViews)
+            return
+        const otherPane = comparisonPanes.itemAt(1 - paneIndex)
+        if (otherPane)
+            otherPane.viewport.applyView(transform)
+    }
 
     anchors.fill: parent
     anchors.margins: 18
@@ -59,9 +68,21 @@ Rectangle {
                 }
 
                 Label {
-                    text: qsTr("Switch either pane independently. Comparing photos does not change ratings or selections.")
+                    text: qsTr("Preview comparison · double-click to zoom, drag to pan. Use Precision for original detail.")
                     color: comparisonView.review.textMuted
                     font.pixelSize: Theme.fontMeta
+                }
+            }
+
+            ShadowCheckBox {
+                objectName: "comparisonLinkViews"
+                text: qsTr("Link zoom and pan")
+                checked: comparisonView.linkedViews
+                onToggled: {
+                    comparisonView.linkedViews = checked
+                    const leftPane = comparisonPanes.itemAt(0)
+                    if (checked && leftPane)
+                        comparisonView.synchronizeView(0, leftPane.viewport.currentView())
                 }
             }
 
@@ -86,6 +107,7 @@ Rectangle {
             spacing: 12
 
             Repeater {
+                id: comparisonPanes
                 model: [0, 1]
 
                 delegate: Rectangle {
@@ -93,6 +115,7 @@ Rectangle {
 
                     required property int modelData
                     readonly property int paneIndex: modelData
+                    property alias viewport: comparisonViewport
                     readonly property var snapshot: paneIndex === 0
                         ? comparisonView.review.comparison.leftComparisonSnapshot
                         : comparisonView.review.comparison.rightComparisonSnapshot
@@ -157,8 +180,8 @@ Rectangle {
                             border.color: Theme.imageBorder
                             clip: true
 
-                            Image {
-                                id: comparisonImage
+                            ReviewPreviewViewport {
+                                id: comparisonViewport
                                 objectName: comparisonPane.paneIndex === 0
                                     ? "ordinaryComparisonLeftImage"
                                     : "ordinaryComparisonRightImage"
@@ -167,24 +190,19 @@ Rectangle {
                                 source: comparisonPane.snapshot
                                     ? String(comparisonPane.snapshot.visualSource || "")
                                     : ""
-                                fillMode: Image.PreserveAspectFit
-                                asynchronous: true
-                                cache: true
-                                smooth: true
-                                mipmap: true
-                                sourceSize.width: 2048
-                                sourceSize.height: 2048
+                                autoTransform: false
+                                selectionKey: source.toString()
+                                onViewChanged: transform => comparisonView.synchronizeView(
+                                    comparisonPane.paneIndex, transform)
                             }
 
                             Label {
                                 anchors.centerIn: parent
-                                visible: comparisonImage.status !== Image.Ready
-                                text: comparisonImage.status === Image.Error
-                                    ? qsTr("IMAGE LOAD FAILED")
-                                    : qsTr("LOADING PHOTO…")
-                                color: comparisonImage.status === Image.Error
-                                    ? Theme.errorText
-                                    : comparisonView.review.textMuted
+                                visible: !comparisonViewport.imageReady
+                                text: comparisonViewport.imageFailed
+                                    ? qsTr("IMAGE LOAD FAILED") : qsTr("LOADING PHOTO…")
+                                color: comparisonViewport.imageFailed
+                                    ? Theme.errorText : comparisonView.review.textMuted
                                 font.pixelSize: Theme.fontMeta
                                 font.weight: Font.DemiBold
                             }

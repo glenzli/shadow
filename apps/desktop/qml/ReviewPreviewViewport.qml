@@ -15,12 +15,50 @@ Item {
     readonly property bool fitView: view.fitView
     readonly property real zoomFactor: view.zoomFactor
     readonly property bool imageReady: preview.status === Image.Ready
+    readonly property bool imageFailed: preview.status === Image.Error
+    readonly property real centerX: view.centerX
+    readonly property real centerY: view.centerY
+    property bool applyingLinkedView: false
+    property var pendingLinkedView: null
 
-    function resetView() { view.reset() }
+    signal viewChanged(var transform)
+
+    function currentView() {
+        return { fitView: view.fitView, zoomFactor: view.zoomFactor,
+            centerX: view.normalizedX(width / 2), centerY: view.normalizedY(height / 2) }
+    }
+    function publishView() {
+        if (!applyingLinkedView && !view.applyingTransform)
+            viewChanged(currentView())
+    }
+    function applyView(transform) {
+        if (!transform)
+            return
+        // Keep only the latest transform if this pane's preview is still loading.
+        pendingLinkedView = imageReady ? null : transform
+        if (!imageReady)
+            return
+        applyingLinkedView = true
+        pan.cancelFlick()
+        if (transform.fitView) {
+            view.reset()
+        } else {
+            view.zoomAt(width / 2, height / 2, transform.zoomFactor)
+            view.place(transform.centerX, transform.centerY, width / 2, height / 2)
+        }
+        applyingLinkedView = false
+    }
+
+    function resetView() {
+        pendingLinkedView = null
+        view.reset()
+        publishView()
+    }
     function zoomAt(x, y, value) {
         if (!imageReady)
             return
         view.zoomAt(x, y, value)
+        publishView()
     }
     function zoomBy(factor) {
         const value = (view.fitView ? view.fitScale : view.zoomFactor) * factor
@@ -37,6 +75,10 @@ Item {
     }
 
     onSelectionKeyChanged: resetView()
+    onImageReadyChanged: {
+        if (imageReady && pendingLinkedView)
+            applyView(pendingLinkedView)
+    }
     onVisibleChanged: if (!visible) resetView()
     Keys.onPressed: event => {
         if (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal) {
@@ -67,6 +109,11 @@ Item {
         contentHeight: view.contentHeight
         boundsBehavior: Flickable.StopAtBounds
         interactive: viewport.imageReady && !view.fitView && !view.continuousZoomActive
+        // Only a user's drag/flick publishes position. Layout and linked writes
+        // may update content offsets after bindings settle; never echo those.
+        onContentXChanged: if (moving) viewport.publishView()
+        onContentYChanged: if (moving) viewport.publishView()
+        onMovementEnded: viewport.publishView()
 
         Image {
             id: preview
@@ -138,6 +185,14 @@ Item {
             toolTipText: accessibleName
             enabled: viewport.imageReady && (viewport.fitView || viewport.zoomFactor < 4)
             onClicked: viewport.zoomBy(1.5)
+        }
+        ShadowButton {
+            objectName: "reviewPreviewActualSize"
+            text: qsTr("Preview 100%")
+            compact: true
+            toolTipText: qsTr("Show preview pixels at 100%; use Precision for original detail")
+            enabled: viewport.imageReady
+            onClicked: viewport.zoomAt(viewport.width / 2, viewport.height / 2, 1)
         }
         ShadowButton {
             objectName: "reviewPreviewFit"

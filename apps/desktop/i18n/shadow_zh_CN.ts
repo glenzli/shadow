@@ -12362,8 +12362,12 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/ReviewComparisonView.qml" line="62"/>
-        <source>Switch either pane independently. Comparing photos does not change ratings or selections.</source>
-        <translation>两侧可独立切换。比较照片不会更改评分或选择。</translation>
+        <source>Preview comparison · double-click to zoom, drag to pan. Use Precision for original detail.</source>
+        <translation>预览比较 · 双击缩放，拖动平移。原图细节请在精修中查看。</translation>
+    </message>
+    <message>
+        <source>Link zoom and pan</source>
+        <translation>联动缩放与平移</translation>
     </message>
     <message>
         <location filename="../qml/ReviewComparisonView.qml" line="70"/>
@@ -14204,6 +14208,14 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 </context>
 <context>
     <name>ReviewPreviewViewport</name>
+    <message>
+        <source>Preview 100%</source>
+        <translation>预览 100%</translation>
+    </message>
+    <message>
+        <source>Show preview pixels at 100%; use Precision for original detail</source>
+        <translation>以 100% 显示预览像素；原图细节请在精修中查看</translation>
+    </message>
     <message>
         <source>Zoom out preview</source>
         <translation>缩小预览</translation>

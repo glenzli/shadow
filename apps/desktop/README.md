@@ -718,8 +718,12 @@ Review presentation keeps the workspace focused on selection and orchestration:
 - [`qml/ReviewPhotoCard.qml`](qml/ReviewPhotoCard.qml) and
   [`qml/ReviewSinglePreview.qml`](qml/ReviewSinglePreview.qml) own grid-card and filmstrip
   geometry. [`qml/ReviewPreviewViewport.qml`](qml/ReviewPreviewViewport.qml) owns the filmstrip
-  hero image's display-only zoom, pan, and selection reset, reusing the Precision view transform
-  and gesture components. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
+  and ordinary comparison's display-only zoom, pan, and selection reset, reusing the Precision
+  view transform and gesture components. Comparison optionally links magnification and normalized
+  image centers; a loading peer retains only the latest transform. Gestures reuse the same bounded
+  preview request and Qt texture: no source rebind, Recipe invalidation, image request, or additional
+  host/device image transfer is introduced. The 100% control refers to preview pixels; original
+  detail remains a Precision workflow. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
   evidence and [`qml/ShadowRoundedImage.qml`](qml/ShadowRoundedImage.qml) for true rounded image
   clipping, so both browsing modes use edge-to-edge cropped thumbnails without sharing interaction
   state. [`qml/ReviewRemoteSourceIndicator.qml`](qml/ReviewRemoteSourceIndicator.qml) owns the
