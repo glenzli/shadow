@@ -43,9 +43,7 @@ impl RawFoundationRuntimePaths {
             infer_base_url_override,
             infer_credential_file: override_path(&environment, INFER_CREDENTIAL_OVERRIDE)
                 .unwrap_or_else(|| {
-                    application_data_root
-                        .join("credentials")
-                        .join("infer-runtime-shadow.token")
+                    crate::infer_runtime_credentials::default_credential_file(application_data_root)
                 }),
         })
     }

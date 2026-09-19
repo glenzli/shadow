@@ -50,6 +50,7 @@ mod session_preview_store;
 // Non-destructive edit contracts and shared Grade Node application.
 mod edit_version_diff;
 mod image_completion_runtime;
+mod infer_runtime_credentials;
 mod image_completion_service;
 mod lut_export;
 mod raw_foundation_noise_assessment;

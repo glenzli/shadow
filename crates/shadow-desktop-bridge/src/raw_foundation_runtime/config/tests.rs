@@ -26,6 +26,23 @@ fn default_layout_keeps_shadow_cache_and_infer_credentials_separate() {
 }
 
 #[test]
+fn qt_nested_layout_reuses_credentials_without_relocating_raw_caches() {
+    let root = Path::new("/Users/test/Library/Application Support/Shadow/Shadow/cache");
+    let paths = RawFoundationRuntimePaths::discover_with(root, |_| None).unwrap();
+    assert_eq!(paths.foundation_store_root, root.join("ai/raw-foundations"));
+    assert_eq!(
+        paths.raw_frame_staging_root,
+        root.join("ai/raw-frame-staging")
+    );
+    assert_eq!(
+        paths.infer_credential_file,
+        Path::new(
+            "/Users/test/Library/Application Support/Shadow/credentials/infer-runtime-shadow.token"
+        )
+    );
+}
+
+#[test]
 fn infer_consumer_reuses_the_shared_overrides() {
     let paths = RawFoundationRuntimePaths::discover_with(
         Path::new("/Users/test/Library/Application Support/Shadow/cache"),
