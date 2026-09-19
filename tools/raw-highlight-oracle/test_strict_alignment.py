@@ -120,6 +120,45 @@ class StrictAlignmentTests(unittest.TestCase):
             "reference-zero-shadow-positive",
         )
 
+    def test_zero_reference_survives_complete_report_and_json_publication(self) -> None:
+        for empty_candidates in (False, True):
+            with self.subTest(empty_candidates=empty_candidates), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                manifest = self._manifest(root)
+                normal = root / "normal.json"
+                normal.write_bytes(manifest.read_bytes())
+                payload = json.loads(manifest.read_text())
+                evidence = payload["adapters"][0]["evidence"]
+                evidence["highlight_reference.changed_photosites"] = "0"
+                if empty_candidates:
+                    evidence["highlight_reference.clipped_photosites"] = "0"
+                for channel in strict_alignment.CHANNELS:
+                    evidence[f"highlight_reference.channel.{channel}.changed_photosites"] = "0"
+                    if empty_candidates:
+                        evidence[f"highlight_reference.channel.{channel}.clipped_photosites"] = "0"
+                manifest.write_text(json.dumps(payload))
+                output = strict_alignment.write_report(
+                    [("normal", normal), ("zero-reference", manifest)], root / "runs", "zero"
+                )
+                report = json.loads(output.read_text())
+                self.assertIsNone(report["aggregate"]["maximum_write_count_relative_delta"])
+                self.assertEqual(
+                    report["fixtures"][1]["totals"]["write_count_alignment"],
+                    "reference-zero-shadow-positive",
+                )
+                self.assertEqual(report["fixtures"][1]["totals"]["shadow_raised_photosites"], 31)
+                if empty_candidates:
+                    self.assertIsNone(report["aggregate"]["maximum_candidate_count_relative_delta"])
+                else:
+                    self.assertIsNotNone(report["aggregate"]["maximum_candidate_count_relative_delta"])
+
+    def test_invalid_report_does_not_reserve_an_empty_run_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            with self.assertRaisesRegex(ValueError, "at least one"):
+                strict_alignment.write_report([], root, "invalid")
+            self.assertFalse((root / "invalid").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

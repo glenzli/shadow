@@ -12,8 +12,8 @@ import tempfile
 from typing import Iterable
 
 
-REPORT_SCHEMA = "shadow.raw-highlight-strict-alignment.v1"
-REPORT_VERSION = "20260826.2"
+REPORT_SCHEMA = "shadow.raw-highlight-strict-alignment.20260920.1"
+REPORT_VERSION = "20260920.1"
 ORACLE_MANIFEST_SCHEMA = "shadow.raw-highlight-oracle-run.v1"
 STRICT_ADAPTER_ID = "shadow-cfa-opposed"
 STRICT_COMPARISON_CLASS = "same-decoded-cfa-reference"
@@ -290,6 +290,14 @@ def build_report(fixtures: Iterable[tuple[str, pathlib.Path]]) -> dict[str, obje
     fixture_results = [analyze_fixture(identifier, path) for identifier, path in fixtures]
     if not fixture_results:
         raise ValueError("at least one strict oracle manifest is required")
+
+    def maximum_relative_delta(key: str) -> float | None:
+        values = [fixture["totals"][key] for fixture in fixture_results]
+        # A positive Shadow count against a zero reference has no finite
+        # relative delta. Dropping that fixture would hide the strongest
+        # disagreement behind an apparently small aggregate ratio.
+        return None if any(value is None for value in values) else max(map(float, values))
+
     return {
         "schema": REPORT_SCHEMA,
         "version": REPORT_VERSION,
@@ -297,13 +305,11 @@ def build_report(fixtures: Iterable[tuple[str, pathlib.Path]]) -> dict[str, obje
         "fixtures": fixture_results,
         "aggregate": {
             "fixture_count": len(fixture_results),
-            "maximum_candidate_count_relative_delta": max(
-                float(fixture["totals"]["candidate_count_relative_delta"])
-                for fixture in fixture_results
+            "maximum_candidate_count_relative_delta": maximum_relative_delta(
+                "candidate_count_relative_delta"
             ),
-            "maximum_write_count_relative_delta": max(
-                float(fixture["totals"]["write_count_relative_delta"])
-                for fixture in fixture_results
+            "maximum_write_count_relative_delta": maximum_relative_delta(
+                "write_count_relative_delta"
             ),
             "maximum_linear_absolute_difference": max(
                 float(fixture["linear_output"]["maximum_absolute_difference"])
@@ -331,9 +337,9 @@ def write_report(
     run_directory = output_root.expanduser().resolve() / run_name
     if run_directory.exists():
         raise ValueError(f"alignment run already exists: {run_directory}")
+    report = build_report(fixtures)
     run_directory.mkdir(parents=True)
     output = run_directory / "alignment.json"
-    report = build_report(fixtures)
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", dir=run_directory, delete=False
     ) as temporary:

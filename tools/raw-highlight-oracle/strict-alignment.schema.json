@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://shadow.local/schemas/raw-highlight-strict-alignment-v1.json",
+  "$id": "https://shadow.local/schemas/raw-highlight-strict-alignment-20260920.1.json",
   "title": "Shadow RAW highlight strict alignment receipt",
   "type": "object",
   "required": [
@@ -13,7 +13,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "shadow.raw-highlight-strict-alignment.v1"
+      "const": "shadow.raw-highlight-strict-alignment.20260920.1"
     },
     "version": {
       "type": "string",
@@ -40,8 +40,8 @@
       ],
       "properties": {
         "fixture_count": { "type": "integer", "minimum": 1 },
-        "maximum_candidate_count_relative_delta": { "type": "number", "minimum": 0 },
-        "maximum_write_count_relative_delta": { "type": "number", "minimum": 0 },
+        "maximum_candidate_count_relative_delta": { "$ref": "#/$defs/relativeDelta" },
+        "maximum_write_count_relative_delta": { "$ref": "#/$defs/relativeDelta" },
         "maximum_linear_absolute_difference": { "type": "number", "minimum": 0 }
       },
       "additionalProperties": false
