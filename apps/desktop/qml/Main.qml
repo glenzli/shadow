@@ -233,8 +233,7 @@ ApplicationWindow {
     }
 
     function showPrecision() {
-        if ((workspaceIndex === reviewWorkspacePage
-                || workspaceIndex === mapWorkspacePage)
+        if (workspaceIndex !== precisionWorkspacePage
                 && reviewWorkspace.canOpenSelectedPhoto) {
             if (editor.active
                     && editor.photoId === reviewWorkspace.selectedPhotoId
