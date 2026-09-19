@@ -17,6 +17,7 @@ Item {
     property bool allowAssignment: false
     property bool allowFiltering: true
     property bool manageTaxonomy: false
+    property bool allowCreation: manageTaxonomy
     property bool showHeading: true
     property string searchText: ""
 
@@ -129,7 +130,7 @@ Item {
             }
 
             ShadowButton {
-                visible: root.manageTaxonomy
+                visible: root.allowCreation
                 compact: true
                 variant: ShadowButton.Ghost
                 text: qsTr("New keyword")

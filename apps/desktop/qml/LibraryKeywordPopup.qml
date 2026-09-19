@@ -39,6 +39,7 @@ Popup {
         primaryPhotoId: root.workspace.selectedPhotoId
         allowAssignment: true
         allowFiltering: true
+        allowCreation: true
         manageTaxonomy: false
     }
 }
