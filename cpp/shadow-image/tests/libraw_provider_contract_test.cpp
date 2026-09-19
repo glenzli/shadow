@@ -3,6 +3,7 @@
 #include "processed_rgb_session_fixture.hpp"
 
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/display_output.hpp>
 #include <shadow/image/edited_proxy_rendering.hpp>
 #include <shadow/image/libraw_development_settings.hpp>
 #include <shadow/image/proxy_rendering.hpp>
@@ -62,7 +63,8 @@ void provider_identity_versions_shadow_pixel_contracts() {
         "provider identity versions display-oriented embedded-preview geometry"
     );
     expect(
-        version.find(";d=2") != std::string_view::npos,
+        version.find(";d=" + std::to_string(image::display_srgb8_output_transform_version) + ";")
+            != std::string_view::npos,
         "provider identity versions the display output transform for cache "
         "invalidation"
     );

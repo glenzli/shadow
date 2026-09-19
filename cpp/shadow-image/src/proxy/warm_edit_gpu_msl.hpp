@@ -676,12 +676,14 @@ inline float2 warm_retouch_source_position(
 ) {
     const float2 anchor = float2(parameters.source_anchor_x, parameters.source_anchor_y);
     const float2 delta = target - anchor;
-    return anchor + float2(parameters.donor_offset_x, parameters.donor_offset_y)
+    // Express the affine correction relative to the target so an untranslated
+    // identity matrix cannot introduce anchor-dependent interpolation error.
+    return target + float2(parameters.donor_offset_x, parameters.donor_offset_y)
         + float2(
-            parameters.source_matrix_xx * delta.x
+            (parameters.source_matrix_xx - 1.0f) * delta.x
                 + parameters.source_matrix_xy * delta.y,
             parameters.source_matrix_yx * delta.x
-                + parameters.source_matrix_yy * delta.y
+                + (parameters.source_matrix_yy - 1.0f) * delta.y
         );
 }
 

@@ -190,7 +190,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
             static_cast<float>(descriptor.white_levels[site] - descriptor.black_levels[site]);
         parameters.linear_response_minus_black[site] = static_cast<float>(
             (descriptor.has_linear_response_limits ? descriptor.linear_response_limits[site]
-                                                    : descriptor.white_levels[site])
+                                                   : descriptor.white_levels[site])
             - descriptor.black_levels[site]
         );
     }
@@ -401,6 +401,7 @@ struct MetalResidentRawSource::Impl final {
     RawFrameLinearTransform transform;
     RawDevelopmentPlan development_plan;
     RawBayerDenoiseReceipt raw_denoise_receipt;
+    bool camera_profile_applied = false;
     std::unique_ptr<detail::MetalDcpColorEncoding> dcp_encoding;
     std::size_t dcp_resource_bytes = 0U;
     id<MTLDevice> device = nil;
@@ -588,7 +589,7 @@ RawDemosaicReceipt MetalResidentRawSource::demosaic_receipt() const noexcept {
 }
 
 bool MetalResidentRawSource::dcp_applied() const noexcept {
-    return implementation_->dcp_encoding != nullptr;
+    return implementation_->camera_profile_applied;
 }
 
 bool MetalResidentRawSource::valid() const noexcept {
@@ -993,6 +994,9 @@ ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
                                                 : RawBayerDenoiseBackend::cpu
         );
         implementation->dcp_resource_bytes = dcp_resource_bytes;
+        // Matrix-only DCPs are fused into the Bayer transform and need no
+        // post-matrix encoder, but their profile still executes on Metal.
+        implementation->camera_profile_applied = camera_profile != nullptr;
         implementation->dcp_encoding = std::move(dcp_encoding);
         implementation->device = [device retain];
         implementation->queue = [static_cast<id<MTLCommandQueue>>(queue.get()) retain];

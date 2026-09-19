@@ -195,11 +195,12 @@ class OversizedDescriptorFrame final : public BackendEditPreviewFrame {
 [[nodiscard]] QString mask_provider_request(const MaskCoverageGeneration generation) {
     return QStringLiteral(
                "scope/mask/current?photo=%1&recipe=%2&target=%3"
-               "&selection=%4&preview=%5"
+               "&component=%4&selection=%5&preview=%6"
     )
         .arg(generation.photo)
         .arg(generation.recipe_revision)
         .arg(generation.target_layer_index)
+        .arg(generation.target_component_index)
         .arg(generation.selection_revision)
         .arg(generation.paired_preview_generation);
 }
@@ -599,9 +600,7 @@ void stale_result_rules_are_kind_specific() {
     static_assert(edit_preview_admits_durable_cache(EditPreviewPolicy::PresentationCommit));
     static_assert(!edit_preview_admits_durable_cache(EditPreviewPolicy::NeutralBefore));
     static_assert(!edit_preview_requires_durable_publication(EditPreviewPolicy::Settled));
-    static_assert(
-        edit_preview_requires_durable_publication(EditPreviewPolicy::PresentationCommit)
-    );
+    static_assert(edit_preview_requires_durable_publication(EditPreviewPolicy::PresentationCommit));
     static_assert(!edit_preview_requires_display_diagnostics(EditPreviewPolicy::Interactive));
     static_assert(edit_preview_terminal_admits_publication(EditPreviewTerminal::Completed));
     static_assert(!edit_preview_terminal_admits_publication(EditPreviewTerminal::Cancelled));

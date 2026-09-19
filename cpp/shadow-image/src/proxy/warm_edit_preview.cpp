@@ -592,7 +592,8 @@ std::string edit_preview_generator_implementation_identity() {
            + ";warm-denoise-range=v2;warm-fused-metal=v1;features=resident-source,double-slot,"
              "immutable-color-resources,technical-detail,texture,clarity,optics,"
              "adjustment,display"
-           + ";display-contract=" + std::to_string(display_srgb8_output_transform_version)
+           + ";warm-retouch-donor=20260920.1;display-contract="
+           + std::to_string(display_srgb8_output_transform_version)
            + ";jpeg-444=" + std::to_string(edit_preview_jpeg_444_contract_version);
 }
 
@@ -709,9 +710,8 @@ std::optional<RawWhiteBalancePresentation> WarmEditPreviewSession::pick_raw_whit
 
 std::optional<RawWhiteBalancePresentation>
 WarmEditPreviewSession::auto_raw_white_balance() const noexcept {
-    return raw_rebinding_source_ != nullptr
-               ? raw_rebinding_source_->auto_raw_white_balance()
-               : std::nullopt;
+    return raw_rebinding_source_ != nullptr ? raw_rebinding_source_->auto_raw_white_balance()
+                                            : std::nullopt;
 }
 
 raw_pipeline_detail::RawPreviewRebindingTelemetry
