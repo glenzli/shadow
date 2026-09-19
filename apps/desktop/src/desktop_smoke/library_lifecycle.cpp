@@ -7,6 +7,7 @@
 #include <QAbstractItemModel>
 #include <QApplication>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QMetaObject>
 #include <QModelIndex>
 #include <QQmlApplicationEngine>
@@ -172,6 +173,9 @@ void startStreamingScanLifecycle(
     auto succeeded = std::make_shared<bool>(false);
     auto evaluate = std::make_shared<std::function<void()>>();
     auto observe_justified_grid = std::make_shared<std::function<void()>>();
+    auto first_page_ms = std::make_shared<qint64>(-1);
+    auto clock = std::make_shared<QElapsedTimer>();
+    clock->start();
     *evaluate = [&application,
                  &controller,
                  &engine,
@@ -179,6 +183,7 @@ void startStreamingScanLifecycle(
                  early_qml_visible,
                  early_edit_attempted,
                  early_edit_accepted,
+                 first_page_ms,
                  succeeded]() {
         if (*succeeded || controller.scanning() || controller.refreshing()
             || controller.reviewModel()->rowCount() == 0 || reviewGridCount(engine) == 0
@@ -195,14 +200,48 @@ void startStreamingScanLifecycle(
         // false-negative acceptance failure.
         qInfo() << "Streaming import smoke loaded a usable Library"
                 << "first page during scan" << (*early_model_visible && *early_qml_visible)
-                << "Precision accepted during scan"
+                << "first page ms" << *first_page_ms << "Precision accepted during scan"
                 << (*early_edit_attempted && *early_edit_accepted);
         QTimer::singleShot(50, &application, &QCoreApplication::quit);
     };
-    *observe_justified_grid = [&controller, &engine, early_qml_visible, evaluate]() {
-        if (controller.scanning() && controller.reviewModel()->rowCount() > 0
-            && reviewGridCount(engine) > 0) {
-            *early_qml_visible = true;
+    *observe_justified_grid =
+        [&controller, &engine, early_qml_visible, first_page_ms, clock, evaluate]() {
+            if (controller.scanning() && controller.reviewModel()->rowCount() > 0
+                && reviewGridCount(engine) > 0) {
+                *early_qml_visible = true;
+                if (*first_page_ms < 0) {
+                    *first_page_ms = clock->elapsed();
+                }
+            }
+            (*evaluate)();
+        };
+    const auto observe_published_rows = [&application,
+                                         &controller,
+                                         &editor,
+                                         &engine,
+                                         early_model_visible,
+                                         early_edit_attempted,
+                                         early_edit_accepted,
+                                         observe_justified_grid,
+                                         evaluate]() {
+        if (controller.scanning() && controller.reviewModel()->rowCount() > 0) {
+            *early_model_visible = true;
+            if (!*early_edit_attempted) {
+                *early_edit_attempted = true;
+                *early_edit_accepted = openFirstPublishedPhoto(engine, controller, editor);
+                if (!*early_edit_accepted) {
+                    qCritical() << "Streaming import exposed a row but "
+                                   "Precision rejected it";
+                    application.exit(EXIT_FAILURE);
+                    return;
+                }
+            }
+            QTimer::singleShot(0, &application, [observe_justified_grid]() {
+                (*observe_justified_grid)();
+            });
+            QTimer::singleShot(50, &application, [observe_justified_grid]() {
+                (*observe_justified_grid)();
+            });
         }
         (*evaluate)();
     };
@@ -210,36 +249,25 @@ void startStreamingScanLifecycle(
         &controller,
         &ReviewController::itemCountChanged,
         &application,
-        [&application,
-         &controller,
-         &editor,
-         &engine,
-         early_model_visible,
-         early_edit_attempted,
-         early_edit_accepted,
-         observe_justified_grid,
-         evaluate]() {
-            if (controller.scanning() && controller.reviewModel()->rowCount() > 0) {
-                *early_model_visible = true;
-                if (!*early_edit_attempted) {
-                    *early_edit_attempted = true;
-                    *early_edit_accepted = openFirstPublishedPhoto(engine, controller, editor);
-                    if (!*early_edit_accepted) {
-                        qCritical() << "Streaming import exposed a row but "
-                                       "Precision rejected it";
-                        application.exit(EXIT_FAILURE);
-                        return;
-                    }
-                }
-                QTimer::singleShot(0, &application, [observe_justified_grid]() {
-                    (*observe_justified_grid)();
-                });
-                QTimer::singleShot(50, &application, [observe_justified_grid]() {
-                    (*observe_justified_grid)();
-                });
-            }
-            (*evaluate)();
-        }
+        observe_published_rows
+    );
+    // Counts are a separate asynchronous query and are not refreshed for a
+    // streaming prefix. Observe the actual presentation rows; otherwise a
+    // long, responsive import is falsely reported as having no early page.
+    const auto defer_observation = [&application, observe_published_rows]() {
+        QTimer::singleShot(0, &application, observe_published_rows);
+    };
+    QObject::connect(
+        controller.reviewModel(),
+        &QAbstractItemModel::modelReset,
+        &application,
+        defer_observation
+    );
+    QObject::connect(
+        controller.reviewModel(),
+        &QAbstractItemModel::rowsInserted,
+        &application,
+        [defer_observation](const QModelIndex&, int, int) { defer_observation(); }
     );
     QObject::connect(&controller, &ReviewController::scanningChanged, &application, [evaluate]() {
         (*evaluate)();
