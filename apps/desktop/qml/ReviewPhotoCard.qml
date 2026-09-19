@@ -445,6 +445,7 @@ Item {
             cursorShape: Qt.PointingHandCursor
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onClicked: mouse => {
+                card.workspace.focusGallery()
                 const preserveSelection = mouse.button === Qt.RightButton
                     && card.selected
                 if (!preserveSelection)

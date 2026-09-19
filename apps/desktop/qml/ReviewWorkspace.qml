@@ -515,6 +515,10 @@ Item {
         selectionState.selectPhoto(card, modifiers)
     }
 
+    function focusGallery() {
+        gallerySurface.forceGalleryFocus()
+    }
+
     function selectMapPhoto(cluster) {
         selectionState.selectPhoto({
             "photoId": String(cluster.photoId || ""),
