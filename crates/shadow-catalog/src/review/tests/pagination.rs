@@ -1,10 +1,31 @@
-use shadow_domain::{AssetLocation, Platform, RepresentationKind};
+use shadow_domain::{AssetLocation, EntityId, Platform, RepresentationKind};
 
 use crate::{Catalog, RegisterAsset};
 
 #[test]
 fn review_query_pages_with_a_stable_path_and_id_cursor() {
     let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    for (path, state) in [
+        ("/photos/aa.dng", "archived"),
+        ("/photos/bb.dng", "trashed"),
+    ] {
+        let asset = catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(Platform::MacOs, path.as_bytes().to_vec(), path),
+                byte_len: 4096,
+                modified_at_ms: Some(123),
+                now_ms: 100,
+            })
+            .expect("register inactive photo");
+        catalog
+            .connection
+            .execute(
+                "UPDATE photos SET lifecycle_state = ?1 WHERE id = ?2",
+                rusqlite::params![state, asset.photo_id.as_bytes().as_slice()],
+            )
+            .expect("set lifecycle fixture");
+    }
     for path in ["/photos/c.dng", "/photos/a.dng", "/photos/b.dng"] {
         catalog
             .register_asset(&RegisterAsset {

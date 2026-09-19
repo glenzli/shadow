@@ -340,7 +340,7 @@ pub(super) fn review_item_count(connection: &rusqlite::Connection) -> Result<u64
     let count = connection.query_row(
         "SELECT COUNT(*)
          FROM photos p
-         WHERE EXISTS (
+         WHERE p.lifecycle_state = 'active' AND EXISTS (
              SELECT 1 FROM representations r
              WHERE r.photo_id = p.id
                AND r.kind IN ('original_raw', 'original_raster')
