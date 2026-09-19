@@ -116,9 +116,8 @@ fn local_metadata_is_offline_and_has_no_fallback_or_candidate_vocabulary() {
     assert!(metadata.values().all(|value| !value.contains("candidate")));
 }
 
-#[test]
-fn sdk_face_fixture_is_admitted_only_after_shadow_geometry_checks() {
-    let response = FaceDetectionResponse {
+fn sdk_face_response() -> FaceDetectionResponse {
+    FaceDetectionResponse {
         id: "face-job".into(),
         object: "vision.face_detection".into(),
         created_at: 1,
@@ -146,10 +145,32 @@ fn sdk_face_fixture_is_admitted_only_after_shadow_geometry_checks() {
             confidence: 0.95,
         }],
         provenance: sdk_provenance(false),
-    };
+    }
+}
+
+#[test]
+fn sdk_face_fixture_is_admitted_only_after_shadow_geometry_checks() {
+    let response = sdk_face_response();
     let admitted = admit_face_detection(response, "source-v1").expect("face evidence");
     assert_eq!(admitted.detections.len(), 1);
     assert_eq!(admitted.provenance.job_id, "vision-job");
+}
+
+#[test]
+fn detector_clipped_landmarks_are_bounded_evidence_not_batch_failure() {
+    let mut response = sdk_face_response();
+    response.detections[0].landmarks.left_eye = Point { x: 32.0, y: 24.0 };
+    let admitted = admit_face_detection(response, "source-v1").expect("closed detector extent");
+    assert_eq!(admitted.detections.len(), 1);
+    assert_eq!(admitted.detections[0].landmarks.left_eye.x, 32.0);
+    for x in [-0.1, 32.1, f32::NAN, f32::INFINITY] {
+        let mut response = sdk_face_response();
+        response.detections[0].landmarks.left_eye.x = x;
+        assert!(admit_face_detection(response, "source-v1").is_err());
+    }
+    let mut response = sdk_face_response();
+    response.detections[0].bounding_box.width = 40.0;
+    assert!(admit_face_detection(response, "source-v1").is_err());
 }
 
 #[test]

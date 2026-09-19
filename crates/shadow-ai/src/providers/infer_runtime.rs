@@ -785,8 +785,11 @@ fn valid_detection(detection: &DetectedFace, width: u32, height: u32) -> bool {
                 && point.y.is_finite()
                 && point.x >= 0.0
                 && point.y >= 0.0
-                && f64::from(point.x) < width
-                && f64::from(point.y) < height
+                // YuNet clips detection landmarks to the closed image extent.
+                // SFace separately checks strict interior/alignment eligibility;
+                // one clipped face must not invalidate the whole detection batch.
+                && f64::from(point.x) <= width
+                && f64::from(point.y) <= height
         })
 }
 
