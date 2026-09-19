@@ -790,6 +790,10 @@ admission, background execution, preset persistence, and backend publication:
   projection retranslates in place when the application language changes.
 - [`src/export_task_runner.cpp`](src/export_task_runner.cpp) owns the durable background drain:
   recovery, queue claims, cancellation, item execution, progress receipts, and terminal results.
+  [`qml/ExportActivityButton.qml`](qml/ExportActivityButton.qml) keeps progress and the terminal
+  result reachable from every workspace. Closing [`qml/ExportDialog.qml`](qml/ExportDialog.qml)
+  returns to editing without cancelling the job; reopening a running job preserves its targets
+  and settings. Cancellation remains an explicit action in the dialog.
 - [`src/export_preset_store.cpp`](src/export_preset_store.cpp) owns preset identity, normalization,
   settings persistence, identity-preserving custom edits, and runtime retranslation of built-in
   names while preserving user names. [`src/export_watermark_store.cpp`](src/export_watermark_store.cpp)

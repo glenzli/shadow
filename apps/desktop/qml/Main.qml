@@ -306,6 +306,7 @@ ApplicationWindow {
     header: MainTitleBar {
         hostWindow: window
         editor: window.editor
+        exportController: window.exportController
         settingsDialog: applicationSettingsDialog
         personalProfile: window.personalProfile
         personalProfileDialog: personalProfileDialog
@@ -321,6 +322,7 @@ ApplicationWindow {
         onPrecisionRequested: window.showPrecision()
         onMapRequested: window.showMap()
         onPeopleRequested: window.showPeople()
+        onExportActivityRequested: exportDialog.open()
         onHistoryRequested: {
             if (historyDrawer.opened) {
                 historyDrawer.close()

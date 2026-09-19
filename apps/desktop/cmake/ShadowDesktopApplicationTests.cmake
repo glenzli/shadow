@@ -1,5 +1,18 @@
 # Application-shell and Qt/backend boundary contracts: startup, history,
 # export, folder import, and production-linked backend projection.
+    add_executable(shadow-export-workflow-contract-test
+        tests/export_workflow_contract_test.cpp)
+    target_compile_features(shadow-export-workflow-contract-test PRIVATE cxx_std_20)
+    target_compile_definitions(shadow-export-workflow-contract-test PRIVATE
+        SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(shadow-export-workflow-contract-test PRIVATE
+        Qt6::Quick Qt6::Qml Qt6::Test)
+    add_test(NAME shadow-desktop-export-workflow-contract
+        COMMAND shadow-export-workflow-contract-test)
+    set_tests_properties(shadow-desktop-export-workflow-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+        LABELS "desktop;qml;export" TIMEOUT 30)
+
     add_test(
         NAME shadow-desktop-qml-startup
         COMMAND $<TARGET_FILE:shadow-desktop>

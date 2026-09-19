@@ -787,6 +787,7 @@ qt_add_qml_module(
         qml/EditScopeData.qml
         qml/EditScopeToolbar.qml
         qml/ExportDialog.qml
+        qml/ExportActivityButton.qml
         qml/ExportPresetMenus.qml
         qml/ExportPresetSidebar.qml
         qml/ExportSettingsPane.qml

@@ -11,6 +11,7 @@ ToolBar {
 
     required property var hostWindow
     required property var editor
+    required property var exportController
     required property var settingsDialog
     required property var personalProfile
     required property var personalProfileDialog
@@ -28,6 +29,7 @@ ToolBar {
     signal mapRequested()
     signal peopleRequested()
     signal historyRequested()
+    signal exportActivityRequested()
 
     objectName: "titleToolBar"
     Accessible.name: descriptiveTitle
@@ -215,6 +217,12 @@ ToolBar {
                         && !titleBar.editor.stateBusy
                     onClicked: titleBar.editor.redo()
                 }
+            }
+
+            ExportActivityButton {
+                anchors.verticalCenter: parent.verticalCenter
+                exportController: titleBar.exportController
+                onClicked: titleBar.exportActivityRequested()
             }
 
             ShadowIconButton {

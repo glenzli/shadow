@@ -20,11 +20,14 @@ Popup {
     modal: true
     dim: true
     focus: true
-    closePolicy: exportController.busy ? Popup.NoAutoClose : Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    // Closing only hides this surface. The controller owns the durable job.
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     function present(exportTargets) {
-        targets = exportTargets || [];
-        presetSidebar.resetSelection();
+        if (!exportController.busy) {
+            targets = exportTargets || [];
+            presetSidebar.resetSelection();
+        }
         open();
     }
 
@@ -63,7 +66,8 @@ Popup {
                     font.letterSpacing: 1.0
                 }
                 Label {
-                    text: qsTr("%L1 selected photos").arg(dialog.targets.length)
+                    text: qsTr("%L1 selected photos").arg(dialog.exportController.busy
+                        ? dialog.exportController.totalCount : dialog.targets.length)
                     color: Theme.textMuted
                     font.pixelSize: 10
                 }
@@ -80,7 +84,6 @@ Popup {
                 source: "qrc:/icons/clear.svg"
                 toolTipText: qsTr("Close")
                 accessibleName: toolTipText
-                enabled: !dialog.exportController.busy
                 onClicked: dialog.close()
             }
         }
@@ -238,6 +241,15 @@ Popup {
             }
 
             ShadowButton {
+                objectName: "exportBackgroundButton"
+                visible: dialog.exportController.busy
+                text: qsTr("CONTINUE EDITING")
+                variant: ShadowButton.Ghost
+                onClicked: dialog.close()
+            }
+
+            ShadowButton {
+                objectName: "exportCancelButton"
                 text: qsTr("CANCEL")
                 variant: ShadowButton.Ghost
                 enabled: !dialog.exportController.cancellationRequested
@@ -258,11 +270,4 @@ Popup {
         }
     }
 
-    Connections {
-        target: dialog.exportController
-        function onExportFinished(completed, failed, cancelled, paths, errors) {
-            if (!cancelled && failed === 0 && completed > 0)
-                dialog.close();
-        }
-    }
 }
