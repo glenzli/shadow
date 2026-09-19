@@ -17,6 +17,34 @@ ColumnLayout {
 
     signal aspectRatioRequested(real ratio)
 
+    function croppedOutputAspect() {
+        // The crop canvas displays the complete oriented source, while the
+        // controller's centered-crop operation expects the current rectangle.
+        // Passing the full-image aspect repeatedly shrinks the wrong axis.
+        const crop = inspector.editor.photoGeometry
+        const width = Number(crop.cropRight) - Number(crop.cropLeft)
+        const height = Number(crop.cropBottom) - Number(crop.cropTop)
+        const oddTurn = Number(crop.quarterTurn || 0) % 2 !== 0
+        return inspector.currentPhotoAspect
+            * (oddTurn ? height / width : width / height)
+    }
+
+    // A quarter turn preserves the source-space crop, so its output aspect
+    // reciprocates. Keep the next handle gesture in that same output space,
+    // including rotations reached through Undo/Redo.
+    property int observedQuarterTurn: 0
+    Component.onCompleted: observedQuarterTurn = Number(inspector.editor.photoGeometry.quarterTurn || 0)
+    Connections {
+        target: geometry.inspector.editor
+        function onParametersChanged() {
+            const turn = Number(geometry.inspector.editor.photoGeometry.quarterTurn || 0)
+            const transposed = Math.abs(turn - geometry.observedQuarterTurn) % 2 === 1
+            geometry.observedQuarterTurn = turn
+            if (transposed && geometry.aspectRatioLock > 0)
+                geometry.aspectRatioRequested(1 / geometry.aspectRatioLock)
+        }
+    }
+
     spacing: 0
 
     ShadowAdjustmentSection {
@@ -350,21 +378,27 @@ ColumnLayout {
 
                 delegate: ShadowButton {
                     required property var modelData
+                    readonly property bool inverted: modelData.aspect > 0
+                        && Math.abs(geometry.aspectRatioLock - 1 / modelData.aspect) < 0.0001
+                    readonly property real effectiveAspect: inverted
+                        ? 1 / modelData.aspect : modelData.aspect
 
+                    objectName: "cropAspect" + modelData.label
                     Layout.fillWidth: true
                     compact: true
                     minimumButtonWidth: 38
                     variant: ShadowButton.Ghost
-                    text: modelData.label
+                    text: inverted ? String(modelData.label).split(":").reverse().join(":")
+                        : modelData.label
                     selected: Math.abs(
-                        geometry.aspectRatioLock - modelData.aspect) < 0.0001
+                        geometry.aspectRatioLock - effectiveAspect) < 0.0001
                     enabled: geometry.inspector.previewFrameReady
                     onClicked: {
-                        geometry.aspectRatioRequested(modelData.aspect)
-                        if (modelData.aspect > 0) {
+                        geometry.aspectRatioRequested(effectiveAspect)
+                        if (effectiveAspect > 0) {
                             geometry.inspector.editor.setCenteredPhotoCropAspectRatio(
-                                modelData.aspect,
-                                geometry.inspector.currentPhotoAspect)
+                                effectiveAspect,
+                                geometry.croppedOutputAspect())
                         }
                     }
                 }

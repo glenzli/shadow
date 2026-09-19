@@ -37,6 +37,23 @@ Item {
     property string observedRecipeNodeKind: ""
     property string observedGradeNodeId: ""
     property int observedGradeNodeIndex: -1
+    property string lastAdjustmentNodeId: ""
+    property string observedVariantId: ""
+
+    function restoreAdjustmentSelection() {
+        if (editor.hasSelectedGradeNode || !editor.active)
+            return
+        const nodes = editor.gradeNodes
+        let index = 0
+        for (let i = 0; i < nodes.length; ++i) {
+            if (String(nodes[i].gradeNodeId) === lastAdjustmentNodeId) {
+                index = i
+                break
+            }
+        }
+        if (nodes.length > 0)
+            editor.selectGradeNode(index)
+    }
 
     readonly property bool proxyActive: editor.active
         && precisionCanvas.visiblePreviewSource.length > 0
@@ -69,6 +86,12 @@ Item {
     function setActiveSpecialTool(requestedTool) {
         const nextTool = activeSpecialTool === requestedTool
             ? toolNone : requestedTool
+
+        if (nextTool === toolNone) {
+            leaveSpecialTool()
+            restoreAdjustmentSelection()
+            return
+        }
 
         if (nextTool === toolCrop) {
             editor.addCanvasNode()
@@ -128,6 +151,8 @@ Item {
         observedRecipeNodeKind = nextKind
         observedGradeNodeId = nextId
         observedGradeNodeIndex = nextIndex
+        if (editor.hasSelectedGradeNode)
+            lastAdjustmentNodeId = nextId
         if (selectionChanged)
             leaveSpecialTool()
     }
@@ -150,6 +175,7 @@ Item {
             return
         }
         leaveSpecialTool()
+        restoreAdjustmentSelection()
     }
 
     function selectRetouchRegion(continuous, index) {
@@ -165,6 +191,8 @@ Item {
         }
 
         function onSourceIdentityChanged() {
+            precision.lastAdjustmentNodeId = ""
+            precision.cropAspectRatioLock = 0
             precision.selectedRetouchContinuous = true
             precision.selectedRetouchIndex = -1
             precision.leaveSpecialTool()
@@ -173,6 +201,15 @@ Item {
         function onActiveChanged() {
             if (!precision.editor.active)
                 precision.leaveSpecialTool()
+        }
+
+        function onPhotoVariantsChanged() {
+            const variantId = String(precision.editor.activeVariantId || "")
+            if (variantId !== precision.observedVariantId) {
+                precision.observedVariantId = variantId
+                precision.cropAspectRatioLock = 0
+                precision.leaveSpecialTool()
+            }
         }
 
         function onImageCompletionChanged() {
@@ -188,6 +225,9 @@ Item {
         observedRecipeNodeKind = String(editor.selectedRecipeNodeKind || "")
         observedGradeNodeId = String(editor.selectedGradeNodeId || "")
         observedGradeNodeIndex = Number(editor.selectedGradeNodeIndex)
+        observedVariantId = String(editor.activeVariantId || "")
+        if (editor.hasSelectedGradeNode)
+            lastAdjustmentNodeId = observedGradeNodeId
     }
 
     Shortcut {

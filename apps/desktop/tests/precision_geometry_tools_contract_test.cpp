@@ -4,6 +4,8 @@
 #include <QObject>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQmlExpression>
+#include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QString>
@@ -55,10 +57,11 @@ class FakeGeometryEditor final : public QObject {
     [[nodiscard]] QVariantMap photoGeometry() const {
         return {
             {QStringLiteral("identity"), true},
+            {QStringLiteral("quarterTurn"), quarter_turn_},
             {QStringLiteral("cropLeft"), 0.0},
             {QStringLiteral("cropTop"), 0.0},
-            {QStringLiteral("cropRight"), 1.0},
-            {QStringLiteral("cropBottom"), 1.0},
+            {QStringLiteral("cropRight"), crop_width_},
+            {QStringLiteral("cropBottom"), crop_height_},
             {QStringLiteral("straightenDegrees"), 0.0},
             {QStringLiteral("perspectiveVertical"), 0.0},
             {QStringLiteral("perspectiveHorizontal"), 0.0},
@@ -125,18 +128,37 @@ class FakeGeometryEditor final : public QObject {
     Q_INVOKABLE void endParameterEdit(const QString&) {}
     Q_INVOKABLE void setPhotoStraightenDegrees(double) {}
     Q_INVOKABLE void setPhotoPerspective(double, double) {}
-    Q_INVOKABLE void setCenteredPhotoCropAspectRatio(double, double) {}
+    Q_INVOKABLE void setCenteredPhotoCropAspectRatio(const double target, const double current) {
+        requested_aspect = target;
+        supplied_crop_aspect = current;
+    }
+
+    void setCropExtent(const double width, const double height) {
+        crop_width_ = width;
+        crop_height_ = height;
+        emit parametersChanged();
+    }
+
+    void setQuarterTurn(const int turn) {
+        quarter_turn_ = turn;
+        emit parametersChanged();
+    }
 
     int analysis_count = 0;
     int last_analysis_mode = -1;
     int accept_count = 0;
     int cancel_count = 0;
+    double requested_aspect = 0;
+    double supplied_crop_aspect = 0;
 
   signals:
     void parametersChanged();
     void autoGeometryChanged();
 
   private:
+    int quarter_turn_ = 0;
+    double crop_width_ = 1;
+    double crop_height_ = 1;
     bool has_proposal_ = false;
     bool preview_ready_ = false;
 };
@@ -157,7 +179,8 @@ class FakeGeometryInspector final : public QObject {
         return true;
     }
     [[nodiscard]] double currentPhotoAspect() const noexcept {
-        return 1.5;
+        const auto crop = editor_->property("photoGeometry").toMap();
+        return crop.value(QStringLiteral("quarterTurn")).toInt() % 2 == 0 ? 1.5 : 2.0 / 3.0;
     }
 
   private:
@@ -183,6 +206,16 @@ void drainBindings() {
         std::cerr << "Precision geometry-tools contract failed: " << message << '\n';
     }
     return condition;
+}
+
+QQuickItem* findVisualItem(QQuickItem* item, const QString& name) {
+    if (item->objectName() == name)
+        return item;
+    for (auto* child : item->childItems()) {
+        if (auto* found = findVisualItem(child, name))
+            return found;
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -228,6 +261,58 @@ int main(int argc, char* argv[]) {
     }
 
     drainBindings();
+    // Wire the real output-space lock just as the workspace does. Rotation
+    // preserves the crop instead of fitting a new centered rectangle.
+    QQmlExpression connect_aspect(
+        QQmlEngine::contextForObject(tools.get()), tools.get(),
+        QStringLiteral("aspectRatioRequested.connect(function(r) { aspectRatioLock = r })")
+    );
+    connect_aspect.evaluate();
+    tools->setProperty("aspectRatioLock", 0.8);
+    drainBindings();
+    auto* const portrait_button = findVisualItem(root_item, QStringLiteral("cropAspect4:5"));
+    editor.setQuarterTurn(1);
+    drainBindings();
+    if (!require(
+            portrait_button && tools->property("aspectRatioLock").toDouble() == 1.25
+                && portrait_button->property("text").toString() == QStringLiteral("5:4")
+                && portrait_button->property("selected").toBool(),
+            "quarter turn reciprocates the handle lock and displays the actual output aspect"
+        )) {
+        return EXIT_FAILURE;
+    }
+    editor.setQuarterTurn(0);
+    drainBindings();
+    if (!require(
+            tools->property("aspectRatioLock").toDouble() == 0.8
+                && portrait_button->property("text").toString() == QStringLiteral("4:5")
+                && portrait_button->property("selected").toBool(),
+            "undoing a quarter turn restores the portrait constraint"
+        )) {
+        return EXIT_FAILURE;
+    }
+    tools->setProperty("aspectRatioLock", 0.0);
+    editor.setQuarterTurn(3);
+    drainBindings();
+    if (!require(tools->property("aspectRatioLock").toDouble() == 0.0,
+                 "freeform stays freeform across counterclockwise rotation")) {
+        return EXIT_FAILURE;
+    }
+    editor.setQuarterTurn(0);
+    editor.setCropExtent(0.6, 0.5);
+    drainBindings();
+    if (!require(click(*portrait_button) && editor.requested_aspect == 0.8
+                     && qAbs(editor.supplied_crop_aspect - 1.8) < 0.000001,
+                 "repeated aspect choice supplies the existing crop ratio, not the full image")) {
+        return EXIT_FAILURE;
+    }
+    editor.setQuarterTurn(1);
+    drainBindings();
+    if (!require(click(*portrait_button) && editor.requested_aspect == 1.25
+                     && qAbs(editor.supplied_crop_aspect - 1.0 / 1.8) < 0.000001,
+                 "a rotated existing crop supplies its oriented rectangle ratio")) {
+        return EXIT_FAILURE;
+    }
     if (!require(
             click(*automatic_button) && editor.analysis_count == 1
                 && editor.last_analysis_mode == 0,
