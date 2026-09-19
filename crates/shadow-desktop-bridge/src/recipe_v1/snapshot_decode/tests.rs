@@ -46,6 +46,7 @@ fn persisted_but_unexecutable_conditions_fail_before_qt_projection() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // One legacy mask crosses draft, Qt and Recipe with refinements.
 fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
     let digest = "cd".repeat(32);
     let raster = ManagedRasterMask::new(
@@ -121,6 +122,29 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
     assert_eq!(*feather_percent, 31);
     assert!(*invert, "opaque Qt projection may still toggle inversion");
     assert_eq!(reopened_intent.as_ref(), Some(&semantic_intent));
+
+    let qt = encode_grade_stack_draft_recipe_v1(reopened).expect("project legacy raster to Qt");
+    let mut projected = decode_grade_stack_draft_recipe_v1(&qt).expect("decode typed Base marker");
+    let restored = grade_stack_recipe_v1_snapshot(&projected, Some(&snapshot))
+        .expect("recover a single legacy raster through the component-based UI");
+    assert_eq!(restored, round_trip);
+    assert!(grade_stack_recipe_v1_snapshot(&projected, None).is_err());
+
+    let components = &mut projected.grade_nodes[0]
+        .composite_mask
+        .as_mut()
+        .expect("Qt component draft")
+        .components;
+    let mut unknown = components[0].clone();
+    unknown.id = MaskComponentId::from_uuid(uuid::Uuid::from_u128(0x99));
+    unknown.operation = MaskComponentOperation::Add;
+    components.push(unknown);
+    assert!(
+        grade_stack_recipe_v1_snapshot(&projected, Some(&snapshot))
+            .expect_err("an added opaque component cannot borrow the legacy Base raster")
+            .to_string()
+            .contains("cannot recover opaque managed mask component")
+    );
 }
 
 #[test]
@@ -203,6 +227,20 @@ fn composite_managed_raster_round_trips_through_qt_with_stable_component_identit
         panic!("expected recovered managed raster")
     };
     assert_eq!(raster.content_blake3(), digest);
+
+    let mut mismatched = projected;
+    mismatched.grade_nodes[0]
+        .composite_mask
+        .as_mut()
+        .expect("composite draft")
+        .components[1]
+        .id = MaskComponentId::from_uuid(uuid::Uuid::from_u128(0x99));
+    assert!(
+        grade_stack_recipe_v1_snapshot(&mismatched, Some(&snapshot))
+            .expect_err("composite rasters still require their exact persisted component ID")
+            .to_string()
+            .contains("cannot recover opaque managed mask component")
+    );
 }
 
 #[test]

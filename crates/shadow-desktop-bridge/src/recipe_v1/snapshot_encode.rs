@@ -43,9 +43,9 @@ use shadow_domain::operation::{
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph,
     FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskComponent,
-    MaskDefinition, MaskRevision, NodeId, NodeInput, OperationDescriptor, OperationId,
-    ParameterBlock, ParameterKey, ParameterValue, PhotoStructuralNodes, PortType, ProcessingStage,
-    RecipeSnapshot,
+    MaskComponentId, MaskComponentOperation, MaskDefinition, MaskRevision, NodeId, NodeInput,
+    OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
+    PhotoStructuralNodes, PortType, ProcessingStage, RecipeSnapshot,
 };
 
 use super::{
@@ -159,13 +159,9 @@ fn materialize_preserved_managed_rasters(
                         MaskComponentDraftDefinition::Definition(definition) => definition,
                         MaskComponentDraftDefinition::PreservedManagedRaster(settings) => {
                             let definition = template_definition
-                                .and_then(MaskDefinition::composite_definition)
                                 .and_then(|base| {
-                                    base.components()
-                                        .iter()
-                                        .find(|candidate| candidate.id() == component.id)
+                                    preserved_component_definition(base, component.id, component.operation)
                                 })
-                                .map(MaskComponent::definition)
                                 .ok_or_else(|| {
                                     anyhow::anyhow!(
                                         "Grade Node {} cannot recover opaque managed mask component {} from its base Recipe",
@@ -238,6 +234,27 @@ fn materialize_preserved_managed_rasters(
         grade_node.preserved_managed_raster = None;
     }
     Ok(effective)
+}
+
+fn preserved_component_definition(
+    base: &MaskDefinition,
+    component_id: MaskComponentId,
+    operation: MaskComponentOperation,
+) -> Option<&MaskDefinition> {
+    match base {
+        MaskDefinition::Composite { composite } => composite
+            .components()
+            .iter()
+            .find(|candidate| candidate.id() == component_id)
+            .map(MaskComponent::definition),
+        // A single enabled Base is persisted as its legacy leaf byte shape.
+        // Qt gives that leaf a transient component ID; recover it only as the
+        // Base of the exact Grade Node whose template was already resolved.
+        MaskDefinition::ManagedRaster { .. } if operation == MaskComponentOperation::Base => {
+            Some(base)
+        }
+        _ => None,
+    }
 }
 
 fn managed_raster_with_settings(
