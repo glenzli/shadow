@@ -8,6 +8,11 @@
 pub(crate) mod config;
 mod infer_materialization;
 
+/// Exact execution implementation admitted by the configured Infer consumer.
+/// Keep its provenance distinct from the native reference implementation.
+pub(crate) const INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION: &str =
+    "rawnind-public-bayer-foundation-ort127-exp1";
+
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, TryLockError},

@@ -36,7 +36,7 @@ use thiserror::Error;
 use self::alias_store::{InferCacheAliasError, InferCacheAliasExpectation, InferCacheAliasStore};
 use crate::isolated_proxy::IsolatedRawFrameStaging;
 
-const IMPLEMENTATION_REVISION: &str = "rawnind-public-bayer-foundation-ort127-exp1";
+const IMPLEMENTATION_REVISION: &str = super::INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION;
 const EXECUTION_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const PLANNING_PROGRESS: u16 = 1_000;
 const RUNNING_PROGRESS: u16 = 4_000;

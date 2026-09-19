@@ -17,7 +17,9 @@ use shadow_core::fingerprint_source;
 use shadow_domain::{ImageDimensions, RawFoundationDenoise, RawFoundationDenoiseModel};
 
 use crate::{
-    raw_foundation_runtime::{RawFoundationReady, RawFoundationRuntime},
+    raw_foundation_runtime::{
+        INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION, RawFoundationReady, RawFoundationRuntime,
+    },
     raw_foundation_service::RawFoundationService,
 };
 
@@ -56,8 +58,12 @@ impl RawFoundationRenderIdentity {
         ensure!(
             provenance.model_package_sha256() == model.package_sha256()
                 && provenance.model_graph_sha256() == model.graph_sha256()
-                && provenance.implementation_revision() == model.implementation_revision()
-                && provenance.implementation_revision() == RAW_FOUNDATION_IMPLEMENTATION_REVISION,
+                && model.implementation_revision() == RAW_FOUNDATION_IMPLEMENTATION_REVISION
+                && matches!(
+                    provenance.implementation_revision(),
+                    RAW_FOUNDATION_IMPLEMENTATION_REVISION
+                        | INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION
+                ),
             "ready RAW foundation does not implement the Recipe-selected model"
         );
         Ok(Self {
