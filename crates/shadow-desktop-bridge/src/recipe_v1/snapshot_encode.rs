@@ -42,9 +42,9 @@ use shadow_domain::operation::{
 };
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph,
-    FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskComponent,
-    MaskComponentId, MaskComponentOperation, MaskDefinition, MaskRevision, NodeId, NodeInput,
-    OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
+    FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerInstanceId, LayerRevisionSelector,
+    MaskComponent, MaskComponentId, MaskComponentOperation, MaskDefinition, MaskRevision, NodeId,
+    NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
     PhotoStructuralNodes, PortType, ProcessingStage, RecipeSnapshot,
 };
 
@@ -142,15 +142,6 @@ fn materialize_preserved_managed_rasters(
                     grade_node.recipe_v1_identity.grade_node_id
                 );
             }
-            let template_definition = template.and_then(|snapshot| {
-                snapshot
-                    .layers()
-                    .iter()
-                    .find(|layer| layer.id() == grade_node.recipe_v1_identity.grade_node_id)
-                    .and_then(LayerInstance::mask)
-                    .and_then(|reference| snapshot.resolve_mask(reference))
-                    .map(MaskRevision::definition)
-            });
             let components = composite
                 .components
                 .into_iter()
@@ -158,10 +149,12 @@ fn materialize_preserved_managed_rasters(
                     let definition = match component.definition {
                         MaskComponentDraftDefinition::Definition(definition) => definition,
                         MaskComponentDraftDefinition::PreservedManagedRaster(settings) => {
-                            let definition = template_definition
-                                .and_then(|base| {
-                                    preserved_component_definition(base, component.id, component.operation)
-                                })
+                            let definition = preserved_component_definition(
+                                    template,
+                                    grade_node.recipe_v1_identity.grade_node_id,
+                                    component.id,
+                                    component.operation,
+                                )
                                 .ok_or_else(|| {
                                     anyhow::anyhow!(
                                         "Grade Node {} cannot recover opaque managed mask component {} from its base Recipe",
@@ -237,10 +230,19 @@ fn materialize_preserved_managed_rasters(
 }
 
 fn preserved_component_definition(
-    base: &MaskDefinition,
+    template: Option<&RecipeSnapshot>,
+    grade_node_id: LayerInstanceId,
     component_id: MaskComponentId,
     operation: MaskComponentOperation,
 ) -> Option<&MaskDefinition> {
+    let snapshot = template?;
+    let base = snapshot
+        .layers()
+        .iter()
+        .find(|layer| layer.id() == grade_node_id)
+        .and_then(LayerInstance::mask)
+        .and_then(|reference| snapshot.resolve_mask(reference))?
+        .definition();
     match base {
         MaskDefinition::Composite { composite } => composite
             .components()
