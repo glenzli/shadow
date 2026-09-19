@@ -208,6 +208,25 @@ FloatRgbImage apply_photo_structural_rendering_tile(
         : source_tile.level_zero_to_raster_scale_y;
     output.samples.resize(rgb_sample_count(output.dimensions));
 
+    if (structural.geometry == PhotoGeometry{} && !structural.liquify.has_value()) {
+        // A detail/export tile may include a neighborhood apron even when the
+        // Canvas is unchanged. Copy its exact interior instead of repeating
+        // identity coordinate mapping and four-tap interpolation per pixel.
+        const std::size_t row_samples = static_cast<std::size_t>(output_rect.width) * 3U;
+        const std::size_t local_x = output_rect.x - source_tile_rect.x;
+        const std::size_t local_y = output_rect.y - source_tile_rect.y;
+        for (std::uint32_t y = 0U; y < output_rect.height; ++y) {
+            const std::size_t source_offset =
+                ((local_y + y) * source_tile.dimensions.width + local_x) * 3U;
+            std::copy_n(
+                source_tile.samples.data() + source_offset,
+                row_samples,
+                output.samples.data() + static_cast<std::size_t>(y) * row_samples
+            );
+        }
+        return output;
+    }
+
     const double crop_left = static_cast<double>(structural.geometry_layout.source_crop.x);
     const double crop_top = static_cast<double>(structural.geometry_layout.source_crop.y);
     const double crop_right = static_cast<double>(
