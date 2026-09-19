@@ -2760,7 +2760,18 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
+    <name>ExportActivityButton</name>
+    <message>
+        <source>Exporting %1/%2</source>
+        <translation>正在导出 %1/%2</translation>
+    </message>
+</context>
+<context>
     <name>ExportDialog</name>
+    <message>
+        <source>CONTINUE EDITING</source>
+        <translation>继续编辑</translation>
+    </message>
     <message>
         <location filename="../qml/ExportDialog.qml" line="40"/>
         <source>Choose export folder</source>
