@@ -622,6 +622,19 @@
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
+    add_executable(shadow-review-metadata-presentation-test
+        tests/review_metadata_presentation_test.cpp)
+    target_compile_features(shadow-review-metadata-presentation-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-review-metadata-presentation-test PRIVATE Qt6::Gui Qt6::Qml)
+    qt_add_qml_module(shadow-review-metadata-presentation-test
+        URI Shadow.ReviewMetadataContract VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/ReviewMetadataPresentation.qml)
+    add_test(NAME shadow-desktop-review-metadata-presentation
+        COMMAND shadow-review-metadata-presentation-test)
+    set_tests_properties(shadow-desktop-review-metadata-presentation PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+
     add_executable(
         shadow-metadata-field-selector-row-test
         tests/metadata_field_selector_row_test.cpp
