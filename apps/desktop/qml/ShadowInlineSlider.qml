@@ -51,6 +51,71 @@ Slider {
     focusPolicy: Qt.StrongFocus
     activeFocusOnTab: adjustmentFocusTarget
 
+    // Qt's value interface writes `value` without emitting Slider.moved().
+    // Give assistive input its own bound value so model-driven changes remain
+    // passive, while accessibility edits follow the same authoring route as
+    // mouse and keyboard input.
+    Accessible.ignored: true
+    Item {
+        id: accessibleInput
+        objectName: "shadowSliderAccessibleInput"
+        anchors.fill: parent
+        property real value: control.value
+        readonly property real minimumValue: Math.min(control.from, control.to)
+        readonly property real maximumValue: Math.max(control.from, control.to)
+        readonly property real stepSize: control.stepSize > 0 ? control.stepSize : 0.1
+        property bool ready: false
+        Component.onCompleted: ready = true
+        Accessible.role: Accessible.Slider
+        Accessible.name: control.Accessible.name
+        Accessible.description: control.Accessible.description
+        Accessible.focusable: true
+        Accessible.focused: control.activeFocus
+        Accessible.onIncreaseAction: applyValue(control.value + stepSize)
+        Accessible.onDecreaseAction: applyValue(control.value - stepSize)
+        onActiveFocusChanged: {
+            if (activeFocus)
+                control.forceActiveFocus(Qt.OtherFocusReason)
+        }
+        onValueChanged: {
+            if (ready && value !== control.value)
+                applyValue(value)
+        }
+        function applyValue(requested) {
+            if (control.enabled && Number.isFinite(requested)) {
+                let bounded = Math.max(minimumValue, Math.min(maximumValue, requested))
+                if (control.stepSize > 0) {
+                    bounded = control.from + Math.round(
+                        (bounded - control.from) / control.stepSize) * control.stepSize
+                    bounded = Math.max(minimumValue, Math.min(maximumValue, bounded))
+                }
+                if (Math.abs(bounded - control.value) > 0.0000001) {
+                    control.editValue(bounded)
+                }
+            }
+            value = Qt.binding(() => control.value)
+        }
+    }
+
+    // Script assignment would permanently remove a caller's model binding.
+    // Temporarily override it while delivering moved(), then restore that
+    // binding so undo, variant switching, and later model updates stay live.
+    Binding {
+        id: editOverride
+        target: control
+        property: "value"
+        value: 0
+        when: false
+        restoreMode: Binding.RestoreBinding
+    }
+
+    function editValue(nextValue) {
+        editOverride.value = nextValue
+        editOverride.when = true
+        control.moved()
+        editOverride.when = false
+    }
+
     function requestNeutralReset() {
         const boundedNeutral = Math.max(from, Math.min(to, neutralValue))
         if (!enabled || Math.abs(value - boundedNeutral) < 0.0000001)
@@ -218,9 +283,8 @@ Slider {
                         (nextValue - control.from) / control.stepSize)
                         * control.stepSize
                 }
-                control.value = Math.max(control.from, Math.min(
-                    control.to, nextValue))
-                control.moved()
+                control.editValue(Math.max(control.from, Math.min(
+                    control.to, nextValue)))
             }
 
             onReleased: finishDrag()

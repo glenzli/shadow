@@ -13,16 +13,27 @@ Item {
     implicitWidth: 152
     implicitHeight: 30
 
+    function displayName(variant) {
+        return variant.name.trim().length > 0 ? variant.name : qsTr("Original")
+    }
+
+    function menuName(variant) {
+        const name = root.displayName(variant)
+        return variant.isDefault && variant.name.trim().length > 0
+            ? name + qsTr(" · Original") : name
+    }
+
     function activeName() {
         const variants = root.editor.photoVariants
         for (let index = 0; index < variants.length; ++index) {
             if (variants[index].isActive)
-                return variants[index].name
+                return root.displayName(variants[index])
         }
         return qsTr("Original")
     }
 
     ShadowButton {
+        objectName: "precisionVariantSelectorButton"
         anchors.fill: parent
         compact: true
         variant: ShadowButton.Secondary
@@ -34,12 +45,14 @@ Item {
 
     Popup {
         id: variantMenu
+        objectName: "precisionVariantMenu"
         parent: root
         x: root.width - width
         y: root.height + 6
         width: 270
         padding: 8
         modal: false
+        focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         background: Rectangle {
@@ -77,9 +90,7 @@ Item {
                         compact: true
                         variant: ShadowButton.Ghost
                         selected: variantRow.modelData.isActive
-                        text: variantRow.modelData.name
-                            + (variantRow.modelData.isDefault
-                                ? qsTr(" · Original") : "")
+                        text: root.menuName(variantRow.modelData)
                         enabled: root.editor.variantActionsEnabled
                             || variantRow.modelData.isActive
                         onClicked: {
@@ -98,7 +109,7 @@ Item {
                         enabled: root.editor.variantActionsEnabled
                         onClicked: namePopup.beginRename(
                             variantRow.modelData.variantId,
-                            variantRow.modelData.name)
+                            root.displayName(variantRow.modelData))
                     }
 
                     ShadowIconButton {
@@ -183,6 +194,7 @@ Item {
         width: 270
         padding: 12
         modal: false
+        focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         background: Rectangle {

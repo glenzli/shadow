@@ -1400,6 +1400,28 @@
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
+    add_executable(
+        shadow-precision-variant-selector-contract-test
+        tests/precision_variant_selector_contract_test.cpp
+    )
+    target_compile_features(shadow-precision-variant-selector-contract-test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        shadow-precision-variant-selector-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-precision-variant-selector-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test
+    )
+    add_test(
+        NAME shadow-desktop-precision-variant-selector-contract
+        COMMAND shadow-precision-variant-selector-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-variant-selector-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
     find_package(Qt6 6.11.1 REQUIRED COMPONENTS Test)
     add_executable(
         shadow-adjustment-controls-contract-test

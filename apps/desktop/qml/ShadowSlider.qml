@@ -86,8 +86,7 @@ Item {
         beginGesture()
         // Keep the presentation state synchronous with the authored edit.
         // The controller may publish pixels before its model binding returns.
-        slider.value = boundedNeutral
-        edited(boundedNeutral)
+        slider.editValue(boundedNeutral)
         finishGesture()
     }
 
@@ -143,8 +142,7 @@ Item {
             return true
 
         beginGesture()
-        slider.value = nextValue
-        edited(nextValue)
+        slider.editValue(nextValue)
         finishGesture()
         return true
     }

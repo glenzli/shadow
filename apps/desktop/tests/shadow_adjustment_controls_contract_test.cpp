@@ -1,3 +1,4 @@
+#include <QAccessible>
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QMetaObject>
@@ -164,6 +165,72 @@ int main(int argc, char* argv[]) {
         )) {
         return EXIT_FAILURE;
     }
+
+    QObject* const accessible_input =
+        slider->findChild<QObject*>(QStringLiteral("shadowSliderAccessibleInput"));
+    auto* const accessible = QAccessible::queryAccessibleInterface(accessible_input);
+    if (!require(
+            accessible && accessible->valueInterface() && accessible->actionInterface(),
+            "adjustments expose native accessible value and action interfaces"
+        )) {
+        return EXIT_FAILURE;
+    }
+    auto* const accessible_value = accessible->valueInterface();
+    const int edits_before_accessibility = recorder.edited_count;
+    const int starts_before_accessibility = recorder.gesture_started_count;
+    const int finishes_before_accessibility = recorder.gesture_finished_count;
+    accessible_value->setCurrentValue(0.5);
+    drainBindings();
+    QTest::qWait(300);
+    if (!require(
+            recorder.edited_count == edits_before_accessibility + 1
+                && std::abs(recorder.edited_value - 0.5) < 0.000'001,
+            "native accessible value changes author one matching edit"
+        )
+        || !require(
+            recorder.gesture_started_count == starts_before_accessibility + 1
+                && recorder.gesture_finished_count == finishes_before_accessibility + 1,
+            "accessible edits settle as an undoable gesture"
+        )) {
+        return EXIT_FAILURE;
+    }
+    slider->setProperty("value", 0.75);
+    drainBindings();
+    if (!require(
+            recorder.edited_count == edits_before_accessibility + 1
+                && accessible_value->currentValue().toDouble() == 0.75,
+            "model feedback updates accessibility without authoring another edit"
+        )) {
+        return EXIT_FAILURE;
+    }
+    accessible->actionInterface()->doAction(QAccessibleActionInterface::increaseAction());
+    drainBindings();
+    if (!require(
+            recorder.edited_count == edits_before_accessibility + 2
+                && std::abs(recorder.edited_value - 0.85) < 0.000'001,
+            "native accessible increment follows the same edited-value route"
+        )) {
+        return EXIT_FAILURE;
+    }
+    accessible_value->setCurrentValue(10.0);
+    drainBindings();
+    if (!require(
+            recorder.edited_count == edits_before_accessibility + 3 && recorder.edited_value == 2.0,
+            "accessible edits respect the slider range"
+        )) {
+        return EXIT_FAILURE;
+    }
+    slider->setProperty("enabled", false);
+    accessible_value->setCurrentValue(-1.0);
+    drainBindings();
+    if (!require(
+            recorder.edited_count == edits_before_accessibility + 3
+                && accessible_value->currentValue().toDouble() == 2.0,
+            "disabled adjustments reject accessible changes and restore the true value"
+        )) {
+        return EXIT_FAILURE;
+    }
+    slider->setProperty("enabled", true);
 
     auto inline_slider = createSourceComponent(
         engine,
@@ -660,6 +727,111 @@ int main(int argc, char* argv[]) {
         || !require(
             panel_blank_target->property("tapCount").toInt() == 1,
             "panel blank dismissal preserves the clicked panel target"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    // Exercise the production binding direction, not just an unbound test
+    // value: each input must allow a subsequent controller-side undo to win.
+    QQmlComponent bound_component(&engine);
+    bound_component.setData(
+        R"QML(
+        import QtQuick
+        Item {
+            id: model
+            width: 360; height: 80
+            property real exposure: 0
+            property int edits: 0
+            ShadowSlider {
+                objectName: "boundAdjustment"
+                x: 20; y: 20; width: 320
+                label: "Exposure"
+                from: -2; to: 2; stepSize: 0.05; neutralValue: 0
+                value: model.exposure
+                onEdited: nextValue => {
+                    model.edits += 1
+                    model.exposure = nextValue
+                }
+            }
+        }
+    )QML",
+        QUrl::fromLocalFile(
+            QStringLiteral(SHADOW_DESKTOP_SOURCE_DIR "/qml/BoundAdjustmentContract.qml")
+        )
+    );
+    std::unique_ptr<QObject> bound_model(bound_component.create());
+    if (!bound_model) {
+        std::cerr << bound_component.errorString().toStdString();
+        return EXIT_FAILURE;
+    }
+    QQuickWindow bound_window;
+    bound_window.resize(360, 80);
+    qobject_cast<QQuickItem*>(bound_model.get())->setParentItem(bound_window.contentItem());
+    bound_window.show();
+    drainBindings();
+    QObject* const bound_slider = bound_model->findChild<QObject*>("boundAdjustment");
+    QObject* const bound_input = bound_slider->findChild<QObject*>("shadowSliderAccessibleInput");
+    auto* const bound_accessible = QAccessible::queryAccessibleInterface(bound_input);
+    if (!require(
+            bound_accessible && bound_accessible->valueInterface(),
+            "model-bound adjustments expose the native value interface"
+        )) {
+        return EXIT_FAILURE;
+    }
+    bound_accessible->valueInterface()->setCurrentValue(0.5);
+    drainBindings();
+    if (!require(
+            bound_model->property("exposure").toDouble() == 0.5,
+            "accessible input updates a bound controller property"
+        )) {
+        return EXIT_FAILURE;
+    }
+    auto undo_model_value = [&]() {
+        const int prior_edits = bound_model->property("edits").toInt();
+        bound_model->setProperty("exposure", -0.5);
+        drainBindings();
+        return bound_slider->property("value").toDouble() == -0.5
+               && bound_accessible->valueInterface()->currentValue().toDouble() == -0.5
+               && bound_model->property("edits").toInt() == prior_edits;
+    };
+    if (!require(
+            undo_model_value(),
+            "controller undo survives accessible input without reauthoring"
+        )) {
+        return EXIT_FAILURE;
+    }
+    QMetaObject::invokeMethod(bound_slider, "beginValueEdit");
+    bound_slider->findChild<QObject*>("shadowSliderValueEditor")->setProperty("text", "1.25");
+    QTest::keyClick(&bound_window, Qt::Key_Return);
+    drainBindings();
+    if (!require(
+            bound_model->property("exposure").toDouble() == 1.25 && undo_model_value(),
+            "numeric entry preserves the controller binding for undo"
+        )) {
+        return EXIT_FAILURE;
+    }
+    QMetaObject::invokeMethod(bound_slider, "resetToNeutral");
+    drainBindings();
+    if (!require(
+            bound_model->property("exposure").toDouble() == 0.0 && undo_model_value(),
+            "neutral reset preserves the controller binding for undo"
+        )) {
+        return EXIT_FAILURE;
+    }
+    auto* const bound_handle = bound_slider->findChild<QQuickItem*>("shadowInlineSliderHandle");
+    const QPoint center = bound_handle
+                              ->mapToItem(
+                                  bound_window.contentItem(),
+                                  QPointF{bound_handle->width() / 2, bound_handle->height() / 2}
+                              )
+                              .toPoint();
+    QTest::mousePress(&bound_window, Qt::LeftButton, Qt::NoModifier, center);
+    QTest::mouseMove(&bound_window, center + QPoint{36, 0}, 40);
+    QTest::mouseRelease(&bound_window, Qt::LeftButton, Qt::NoModifier, center + QPoint{36, 0});
+    drainBindings();
+    if (!require(
+            bound_model->property("exposure").toDouble() > -0.5 && undo_model_value(),
+            "real handle dragging preserves the controller binding for undo"
         )) {
         return EXIT_FAILURE;
     }
