@@ -193,6 +193,7 @@ fn compile_recipe_render_plan_with_resolver(
     append_photo_image_completion_node(
         snapshot,
         completion_resolver,
+        use_layer_boundaries,
         &mut compiled,
         &mut compiled_node_ids,
     )?;
@@ -215,6 +216,7 @@ fn compile_recipe_render_plan_with_resolver(
 fn append_photo_image_completion_node(
     snapshot: &RecipeSnapshot,
     resolver: Option<&dyn ManagedImageCompletionResolver>,
+    use_layer_boundaries: bool,
     compiled: &mut Vec<AdjustmentRenderNode>,
     compiled_node_ids: &mut HashSet<String>,
 ) -> AnyResult<()> {
@@ -236,6 +238,36 @@ fn append_photo_image_completion_node(
     if !compiled_node_ids.insert(RECIPE_V1_IMAGE_COMPLETION_NODE_ID.to_owned()) {
         bail!("Recipe render compiler rejects duplicate photo AI-completion id");
     }
+    // Repair and completion are successive unmasked photo operations. Share
+    // their compiler-owned layer so 16 Grade Nodes still fit the native limit.
+    let end = if use_layer_boundaries {
+        if compiled
+            .last()
+            .is_some_and(|node| node.node_id == RECIPE_V1_RETOUCH_LAYER_END_ID)
+        {
+            compiled.pop()
+        } else {
+            compiled.push(AdjustmentRenderNode {
+                node_id: format!("{RECIPE_V1_IMAGE_COMPLETION_NODE_ID}:start"),
+                parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation: AdjustmentRenderOperation::LocalMaskLayerStart {
+                    opacity: 1.0,
+                    mask: None,
+                },
+            });
+            Some(AdjustmentRenderNode {
+                node_id: format!("{RECIPE_V1_IMAGE_COMPLETION_NODE_ID}:end"),
+                parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
+            })
+        }
+    } else {
+        None
+    };
     compiled.push(AdjustmentRenderNode {
         node_id: RECIPE_V1_IMAGE_COMPLETION_NODE_ID.to_owned(),
         parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
@@ -243,6 +275,9 @@ fn append_photo_image_completion_node(
         enabled: snapshot.image_completion_enabled(),
         operation: AdjustmentRenderOperation::ImageCompletion { patches },
     });
+    if let Some(end) = end {
+        compiled.push(end);
+    }
     Ok(())
 }
 
