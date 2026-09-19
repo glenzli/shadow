@@ -572,12 +572,14 @@ void stale_result_rules_are_kind_specific() {
         .policy = EditPreviewPolicy::NeutralBefore,
         .photo = 4,
         .current_revision = 0,
+        .before_revision = 7,
     };
     static_assert(accepts_edit_preview(current, 4, 9));
     static_assert(!accepts_edit_preview(current, 4, 10));
     static_assert(!accepts_edit_preview(current, 5, 9));
-    static_assert(accepts_edit_preview(before, 4, 99));
-    static_assert(!accepts_edit_preview(before, 5, 99));
+    static_assert(accepts_edit_preview(before, 4, 99, 7));
+    static_assert(!accepts_edit_preview(before, 5, 99, 7));
+    static_assert(!accepts_edit_preview(before, 4, 99, 8));
     static_assert(can_present_edit_preview(current, 4, 9));
     static_assert(can_present_edit_preview(current, 4, 10));
     static_assert(!can_present_edit_preview(current, 5, 10));

@@ -507,6 +507,10 @@ Its implementation follows the same navigation:
   explicit presentation-commit render after the working Recipe is durable: it completes the exact
   source-checked Recipe preview transaction off the UI thread before `activeChanged` lets `Main`
   refresh Library. Ordinary settled frames keep their non-blocking rebuildable-cache behavior.
+- [`src/edit_before_preview_state.hpp`](src/edit_before_preview_state.hpp) projects the current
+  crop, rotation, perspective, and optical correction into a colour-neutral comparison baseline.
+  Its independent revision rejects stale composition results while reusing the baseline across
+  ordinary grading gestures. Active cropping compares the full oriented source on both sides.
 - [`src/backend/edit_preview_frame.hpp`](src/backend/edit_preview_frame.hpp) is the small read-only
   RGB8/paired-R8 owner contract. [`src/backend/rust_owned_edit_preview_frame.cpp`](src/backend/rust_owned_edit_preview_frame.cpp)
   is its only Rust-Box adapter, so presentation tests do not depend on generated bridge types.
@@ -1359,7 +1363,14 @@ session and requires the final settled preview pixels and histogram to belong to
 generation. Set `SHADOW_DESKTOP_EDIT_SOURCE_PATH=/absolute/source/path` to select the exact scanned
 Review item used by an edit smoke instead of relying on Library order.
 
-Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, lazily requested neutral-import baseline and its independent analysis sidecar. This exercises the same warm decoded session without treating the baseline as unprocessed sensor data.
+Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, lazily requested
+colour-neutral baseline with the current composition and its independent analysis sidecar.
+This exercises warm decoded-session reuse without treating the baseline as unprocessed sensor data.
+
+`SHADOW_DESKTOP_BEFORE_COMPOSITION_SMOKE=1` additionally crops and rotates the selected photo,
+reads both frames back through the provider to verify matching dimensions, then changes
+exposure and requires the same Before generation to remain cached. Use an isolated
+`SHADOW_DESKTOP_DATA_ROOT`: this probe deliberately edits its selected photo.
 
 Adding `SHADOW_DESKTOP_GRADE_STACK_SMOKE=1` to the first-edit smoke runs a real
 three-Grade-Node controller round trip: add, edit, duplicate, reorder, bypass,

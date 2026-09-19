@@ -45,7 +45,10 @@ void installDesktopSmokeHarness(
     const bool set_first_decision = qEnvironmentVariableIsSet("SHADOW_DESKTOP_SET_FIRST_DECISION");
     const bool undo_first_decision =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_UNDO_FIRST_DECISION");
-    const bool request_before = qEnvironmentVariableIsSet("SHADOW_DESKTOP_REQUEST_BEFORE");
+    const bool before_composition =
+        qEnvironmentVariableIsSet("SHADOW_DESKTOP_BEFORE_COMPOSITION_SMOKE");
+    const bool request_before = before_composition
+        || qEnvironmentVariableIsSet("SHADOW_DESKTOP_REQUEST_BEFORE");
     const bool grade_stack_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_GRADE_STACK_SMOKE");
     const bool full_detail_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_FULL_DETAIL_SMOKE");
     const bool metal_preview_smoke =
@@ -146,6 +149,7 @@ void installDesktopSmokeHarness(
             edit_preview_provider,
             {
                 .request_before = request_before,
+                .before_composition = before_composition,
                 .request_full_detail = true,
                 .rapid_parameter_updates = rapid_preview_smoke,
                 .transport_expectation =
@@ -166,6 +170,7 @@ void installDesktopSmokeHarness(
             edit_preview_provider,
             {
                 .request_before = request_before,
+                .before_composition = before_composition,
                 .request_full_detail = false,
                 .rapid_parameter_updates = rapid_preview_smoke,
                 .transport_expectation =

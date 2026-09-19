@@ -419,6 +419,12 @@
         COMMAND shadow-edit-version-presentation-test
     )
 
+    add_executable(shadow-edit-before-preview-state-test tests/edit_before_preview_state_test.cpp)
+    target_compile_features(shadow-edit-before-preview-state-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-edit-before-preview-state-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-edit-before-preview-state-test PRIVATE Qt6::Gui)
+    add_test(NAME shadow-desktop-edit-before-preview-state COMMAND shadow-edit-before-preview-state-test)
+
     add_executable(
         shadow-edit-preview-contract-test
         tests/edit_preview_contract_test.cpp

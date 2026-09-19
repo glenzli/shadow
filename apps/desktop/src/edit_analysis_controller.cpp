@@ -211,7 +211,7 @@ void EditController::markHistogramUpdating(const EditPreviewKind kind) {
     target.insert(
         QStringLiteral("targetGeneration"),
         QVariant::fromValue<qulonglong>(
-            kind == EditPreviewKind::Current ? render_revision_ : photo_generation_
+            kind == EditPreviewKind::Current ? render_revision_ : before_preview_state_.revision()
         )
     );
     if (kind == EditPreviewKind::Current) {

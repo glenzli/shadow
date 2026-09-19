@@ -14,7 +14,8 @@ use shadow_domain::{PhotoId, RecipeCommitId};
 use crate::ffi;
 
 use super::{
-    ResolvedFoundationDevelopment, compile_recipe_render_plan_with_managed_rasters,
+    GradeStackDraft, ResolvedFoundationDevelopment,
+    compile_recipe_render_plan_with_managed_rasters, encode_grade_stack_draft_recipe_v1,
     grade_stack_recipe_v1_snapshot, managed_raster_resolution::FilesystemManagedRasterMaskResolver,
     preview_grade_stack_draft_recipe_v1,
 };
@@ -26,6 +27,24 @@ pub(crate) struct ResolvedRecipeRender {
     /// Complete source interpretation captured from the same immutable
     /// snapshot as the downstream Grade render plan.
     pub(crate) foundation: ResolvedFoundationDevelopment,
+}
+
+/// Colour-neutral comparison at the current composition. Whitelist the two
+/// spatial inputs at the bridge boundary; a caller cannot smuggle its grading,
+/// AI source, repair or managed-raster edits into a Before frame.
+pub(crate) fn resolve_composition_before_render(
+    catalog: &CatalogHandle,
+    runtime_cache_root: &Path,
+    photo_id: PhotoId,
+    settings: &ffi::FfiEditSettings,
+) -> AnyResult<ResolvedRecipeRender> {
+    let mut neutral = encode_grade_stack_draft_recipe_v1(GradeStackDraft::default())?;
+    neutral.foundation.enabled = settings.foundation.enabled;
+    neutral.foundation.optics = settings.foundation.optics.clone();
+    neutral.geometry = settings.geometry;
+    // This is one complete immutable synthesized Recipe. It deliberately has
+    // no base commit and can never inherit the moving working ref.
+    resolve_recipe_render(catalog, runtime_cache_root, photo_id, "", &neutral, true)
 }
 
 pub(crate) fn resolve_recipe_render(

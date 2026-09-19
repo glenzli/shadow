@@ -21,7 +21,7 @@ use crate::{
     preview_cache_identity::current_source_environment_cache_identity,
     preview_render_registry::{PreviewAdmission, PreviewRenderRegistryError, PreviewTerminalClaim},
     raw_foundation_render_source::raw_foundation_ready_for_render,
-    recipe_v1::resolve_recipe_render,
+    recipe_v1::{resolve_composition_before_render, resolve_recipe_render},
     session_photo_source::catalog_native_path,
 };
 
@@ -385,14 +385,23 @@ impl DesktopSession {
             )?;
             let source_environment_cache_identity =
                 current_source_environment_cache_identity(&photo_provider_version());
-            let recipe = resolve_recipe_render(
-                &self.catalog,
-                &self.cache_root,
-                photo_id,
-                &request.base_commit_id,
-                &request.settings,
-                request.use_working_recipe,
-            )?;
+            let recipe = if matches!(policy, EditPreviewPolicy::NeutralBefore) {
+                resolve_composition_before_render(
+                    &self.catalog,
+                    &self.cache_root,
+                    photo_id,
+                    &request.settings,
+                )?
+            } else {
+                resolve_recipe_render(
+                    &self.catalog,
+                    &self.cache_root,
+                    photo_id,
+                    &request.base_commit_id,
+                    &request.settings,
+                    request.use_working_recipe,
+                )?
+            };
             let raw_development_plan = recipe.foundation.preview_plan();
             let native_path = catalog_native_path(&source)?;
             let raw_foundation = raw_foundation_ready_for_render(

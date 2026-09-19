@@ -1,6 +1,7 @@
 #pragma once
 
 #include "desktop_backend.hpp"
+#include "edit_before_preview_state.hpp"
 #include "edit_history.hpp"
 #include "edit_persistence_state.hpp"
 #include "edit_preview_contract.hpp"
@@ -1086,6 +1087,7 @@ class EditController final : public QObject {
     void requestPresentationCommit();
     void finalizePhotoClose();
     void maybeStartBeforePreview();
+    void refreshBeforePreviewContext();
     void maybeStartDetailRender();
     void cancelDetailWarmupForRecipeEdit();
     void scheduleDetailRefreshForRecipeEdit(int delay_ms);
@@ -1203,6 +1205,7 @@ class EditController final : public QObject {
     QString preview_source_;
     QString provisional_preview_source_;
     QString before_preview_source_;
+    EditBeforePreviewState before_preview_state_;
     QString mask_coverage_source_;
     QVariantMap histogram_;
     QVariantMap before_histogram_;

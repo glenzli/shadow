@@ -409,6 +409,7 @@ qt_add_executable(
     src/edit_tone_curve_controller.cpp
     src/edit_history.hpp
     src/edit_preview_contract.hpp
+    src/edit_before_preview_state.hpp
     src/edit_preview_liquify_mesh.cpp
     src/edit_preview_liquify_mesh.hpp
     ${SHADOW_DESKTOP_PLATFORM_SOURCES}

@@ -202,6 +202,8 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
         Failed,
     };
 
+    enum class BeforeCompositionStep : std::uint8_t { Initial, Framed, Graded, Complete };
+
     EditPreviewSession(
         QCoreApplication& application,
         QQmlApplicationEngine& engine,
@@ -682,6 +684,9 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             return;
         }
         before_source_ = source;
+        if (options_.before_composition && !acceptBeforeCompositionIfReady()) {
+            return;
+        }
         if (options_.transport_expectation != DesktopSmoke::EditPreviewTransportExpectation::None) {
             beginDualRoundtrip();
             return;
@@ -691,6 +696,61 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
         } else {
             succeed();
         }
+    }
+
+    bool acceptBeforeCompositionIfReady() {
+        const QString current = editor_.previewSource();
+        const QString before = editor_.beforePreviewSource();
+        if (!validEditHistogram(editor_.histogram(), current)
+            || !qmlPreviewIsReady(engine_, current) || editor_.stateBusy()) {
+            return false;
+        }
+        if (before_composition_step_ == BeforeCompositionStep::Initial) {
+            composition_current_source_ = current;
+            composition_before_source_ = before;
+            before_composition_step_ = BeforeCompositionStep::Framed;
+            editor_.addCanvasNode();
+            editor_.resetPhotoGeometry();
+            editor_.setPhotoCropBounds(0.1, 0.2, 0.7, 0.9);
+            editor_.rotatePhotoClockwise();
+            editor_.selectGradeNode(0);
+            return false;
+        }
+        if (current == composition_current_source_) {
+            return false;
+        }
+        if (before_composition_step_ == BeforeCompositionStep::Framed) {
+            if (before == composition_before_source_) {
+                return false;
+            }
+            if (edit_preview_provider_ == nullptr) {
+                fail(QStringLiteral("composition probe has no image provider"));
+                return false;
+            }
+            const QImage edited = edit_preview_provider_->requestImage(
+                imageProviderRequestId(current), nullptr, {});
+            const QImage original = edit_preview_provider_->requestImage(
+                imageProviderRequestId(before), nullptr, {});
+            if (edited.isNull() || original.isNull() || edited.size() != original.size()) {
+                fail(QStringLiteral("cropped/rotated Before and current canvases do not match"));
+                return false;
+            }
+            composition_current_source_ = current;
+            composition_before_source_ = before;
+            before_composition_step_ = BeforeCompositionStep::Graded;
+            const double exposure = editor_.exposureStops();
+            editor_.setExposureStops(exposure + (exposure > 4.0 ? -0.25 : 0.25));
+            return false;
+        }
+        if (before != composition_before_source_) {
+            fail(QStringLiteral("ordinary exposure invalidated the composition baseline"));
+            return false;
+        }
+        before_composition_step_ = BeforeCompositionStep::Complete;
+        current_source_ = current;
+        qInfo().noquote() << "Before composition smoke passed: matching cropped/rotated frames,"
+                         << "baseline reused after exposure" << before;
+        return true;
     }
 
     void beginDualRoundtrip() {
@@ -1057,6 +1117,9 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
     QString recreated_settled_source_;
     QString interactive_source_;
     QString before_source_;
+    BeforeCompositionStep before_composition_step_ = BeforeCompositionStep::Initial;
+    QString composition_current_source_;
+    QString composition_before_source_;
     QString roundtrip_settled_source_;
     QString roundtrip_fallback_source_;
     QString roundtrip_interactive_source_;

@@ -105,6 +105,8 @@ struct EditPreviewGeneration final {
     std::uint64_t recipe_revision = 0;
     std::optional<EditMaskCoverageRequest> mask_coverage_request;
     EditPreviewPresentationBinding presentation_binding;
+    /// Framing/optics identity, independent from ordinary colour edits.
+    std::uint64_t before_revision = 0;
 
     [[nodiscard]] constexpr EditPreviewKind kind() const noexcept {
         return edit_preview_kind(policy);
@@ -156,13 +158,15 @@ should_cancel_edit_preview(const EditPreviewCancellationState state) noexcept {
 [[nodiscard]] constexpr bool accepts_edit_preview(
     const EditPreviewGeneration result,
     const std::uint64_t current_photo,
-    const std::uint64_t current_revision
+    const std::uint64_t current_revision,
+    const std::uint64_t current_before_revision = 0
 ) noexcept {
     if (result.photo != current_photo) {
         return false;
     }
     return result.kind() == EditPreviewKind::NeutralBefore
-           || result.current_revision == current_revision;
+               ? result.before_revision == current_before_revision
+               : result.current_revision == current_revision;
 }
 
 // A completed current-preview frame can still improve visual feedback while a
