@@ -1612,6 +1612,9 @@ window geometry and visibility changes; it opens no photo and performs no automa
 The `paint` scenario checks whole-stroke undo/redo, cancelled and erased strokes, A/B isolation,
 new-blend layer creation, persisted tip/pressure settings, smoothing endpoints, and exact per-photo
 restoration and PNG output pixels. It requires `SHADOW_PIPELINE_SMOKE_OUTPUT` and disposable inputs.
+The default wall-clock deadline is 90 seconds for small fixtures; real full-resolution RAW acceptance
+may set `SHADOW_PAINT_SMOKE_TIMEOUT_MS` explicitly, bounded to 1–600 seconds. This affects only the
+opt-in smoke harness, not normal interactive sessions or export deadlines.
 
 ## Local subject emphasis preview
 

@@ -4,25 +4,33 @@
 #include "pipeline_run_controller.hpp"
 #include <QCoreApplication>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QTimer>
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
 void installPaintSmokeHarness(PipelineRunController& pipeline, EditController& editor) {
     auto* const timer = new QTimer(&pipeline);
     timer->setInterval(50);
+    bool valid_timeout = false;
+    const int requested_timeout =
+        qEnvironmentVariableIntValue("SHADOW_PAINT_SMOKE_TIMEOUT_MS", &valid_timeout);
+    const int timeout_ms = valid_timeout ? std::clamp(requested_timeout, 1000, 600000) : 90000;
     struct State {
-        int stage = 0, ticks = 0;
+        int stage = 0;
+        QElapsedTimer elapsed;
         QVector<BackendPaintLayer> saved;
     };
     auto state = std::make_shared<State>();
-    QObject::connect(timer, &QTimer::timeout, &pipeline, [&, timer, state] {
+    state->elapsed.start();
+    QObject::connect(timer, &QTimer::timeout, &pipeline, [&, timer, state, timeout_ms] {
         const auto fail = [&](const char* message) {
             qCritical() << message;
             timer->stop();
             QCoreApplication::exit(3);
         };
-        if (++state->ticks > 1800) {
+        if (state->elapsed.elapsed() > timeout_ms) {
             fail("Paint acceptance timed out");
             return;
         }
