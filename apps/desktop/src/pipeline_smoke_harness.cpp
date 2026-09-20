@@ -5,6 +5,7 @@
 #include <QDebug>
 #include <QQmlApplicationEngine>
 #include <QTimer>
+#include <QWindow>
 #include <cmath>
 #include <memory>
 
@@ -16,6 +17,17 @@ void installPipelineSmokeHarness(
     const QString action = qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_ACTION");
     if (action.isEmpty())
         return;
+    if (action == QStringLiteral("window-chrome")) {
+        auto* const window = qobject_cast<QWindow*>(engine.rootObjects().front());
+        const auto report = [window] {
+            qInfo() << "Pipeline window chrome" << window->geometry() << window->visibility();
+        };
+        QObject::connect(window, &QWindow::xChanged, window, report);
+        QObject::connect(window, &QWindow::yChanged, window, report);
+        QObject::connect(window, &QWindow::visibilityChanged, window, report);
+        report();
+        return;
+    }
     auto* const timer = new QTimer(&pipeline);
     timer->setInterval(50);
     const auto stage = std::make_shared<int>(0);
@@ -44,6 +56,20 @@ void installPipelineSmokeHarness(
             timer->stop();
             QCoreApplication::exit(3);
         };
+        auto* const window = qobject_cast<QWindow*>(engine.rootObjects().front());
+        auto* const title_bar = window->findChild<QObject*>(QStringLiteral("titleToolBar"));
+        if (!title_bar || title_bar->property("height").toInt() != 44
+            || !window->flags().testFlag(Qt::ExpandedClientAreaHint)
+            || !window->flags().testFlag(Qt::NoTitleBarBackgroundHint)) {
+            fail("Independent editor must use the shared integrated title bar");
+            return;
+        }
+#if defined(Q_OS_MACOS)
+        if (!window->title().isEmpty()) {
+            fail("Independent editor must not paint a second native title on macOS");
+            return;
+        }
+#endif
         if (action == QStringLiteral("cancel")) {
             pipeline.cancel();
             timer->stop();

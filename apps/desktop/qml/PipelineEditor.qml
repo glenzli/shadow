@@ -19,9 +19,11 @@ ApplicationWindow {
     height: 920
     minimumWidth: 1100
     minimumHeight: 680
+    flags: Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
     visible: true
     color: Theme.window
-    title: qsTr("Shadow · Independent Editor")
+    readonly property string descriptiveTitle: qsTr("Shadow · Independent Editor")
+    title: Qt.platform.os === "osx" ? "" : descriptiveTitle
 
     Binding { target: Theme; property: "effectiveDark"; value: window.preferences.dark }
 
@@ -65,14 +67,26 @@ ApplicationWindow {
         }
     }
 
-    header: ToolBar {
-        background: Rectangle { color: Theme.chrome }
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 10
-            spacing: 8
+    header: Column {
+        ShadowTitleBar {
+            width: parent.width
+            hostWindow: window
+            Accessible.name: window.descriptiveTitle
             RowLayout {
-                Layout.fillWidth: true
+                anchors.fill: parent
+                spacing: 12
+                Label {
+                    text: "SHADOW"
+                    font.pixelSize: Theme.fontSubheading
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 2.5
+                    color: Theme.textPrimary
+                }
+                Rectangle {
+                    implicitWidth: 1
+                    implicitHeight: 18
+                    color: Theme.border
+                }
                 Label {
                     text: qsTr("Independent Editor")
                     font.pixelSize: Theme.fontSubheading
@@ -81,32 +95,45 @@ ApplicationWindow {
                 }
                 Label {
                     Layout.fillWidth: true
+                    elide: Text.ElideRight
                     text: qsTr("This session is separate from your Library.")
                     font.pixelSize: Theme.fontMeta
                     color: Theme.textMuted
                 }
                 ShadowButton {
+                    compact: true
                     text: qsTr("Open photos…")
                     visible: pipeline.interactive && !pipeline.finished
-                    enabled: !pipeline.busy && !pipeline.finished && pipeline.completedCount === 0
+                    enabled: !pipeline.busy && pipeline.completedCount === 0
                     onClicked: photoPicker.open()
                 }
                 ShadowButton {
+                    compact: true
                     text: pipeline.finished ? qsTr("Close") : qsTr("Cancel session")
                     onClicked: window.requestClose()
                 }
                 ShadowButton {
+                    compact: true
+                    variant: ShadowButton.Primary
                     visible: !pipeline.finished
-                    text: pipeline.completedCount > 0 && !pipeline.finished
+                    text: pipeline.completedCount > 0
                         ? qsTr("Retry remaining") : qsTr("Export %1 photos…").arg(pipeline.photoCount)
-                    enabled: pipeline.photoCount > 0 && !pipeline.busy && !pipeline.finished
+                    enabled: pipeline.photoCount > 0 && !pipeline.busy
                     onClicked: window.exportPhotos()
                 }
             }
-            RowLayout {
-                Layout.fillWidth: true
-                visible: !pipeline.exportPending && !pipeline.finished
+        }
+        ToolBar {
+            width: parent.width
+            implicitHeight: 44
+            leftPadding: 16
+            rightPadding: 16
+            visible: pipeline.photoCount > 0 && !pipeline.exportPending && !pipeline.finished
+            background: Rectangle { color: Theme.chrome }
+            contentItem: RowLayout {
+                spacing: 8
                 ShadowButton {
+                    compact: true
                     text: "‹"
                     accessibleName: qsTr("Previous photo")
                     enabled: pipeline.currentIndex > 0 && pipeline.navigationEnabled
@@ -123,6 +150,7 @@ ApplicationWindow {
                     onActivated: index => pipeline.selectPhoto(index)
                 }
                 ShadowButton {
+                    compact: true
                     text: "›"
                     accessibleName: qsTr("Next photo")
                     enabled: pipeline.currentIndex + 1 < pipeline.photoCount
@@ -144,7 +172,6 @@ ApplicationWindow {
                 }
             }
         }
-        implicitHeight: pipeline.exportPending || pipeline.finished ? 52 : 96
     }
 
     ColumnLayout {

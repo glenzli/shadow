@@ -6,10 +6,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 
-ToolBar {
+ShadowTitleBar {
     id: titleBar
 
-    required property var hostWindow
     required property var editor
     required property var exportController
     required property var settingsDialog
@@ -31,47 +30,10 @@ ToolBar {
     signal historyRequested()
     signal exportActivityRequested()
 
-    objectName: "titleToolBar"
     Accessible.name: descriptiveTitle
-    implicitHeight: 44
-    topPadding: 0
-    bottomPadding: 0
-    leftPadding: Math.max(
-        SafeArea.margins.left,
-        Qt.platform.os === "osx"
-            && hostWindow.visibility !== Window.FullScreen ? 96 : 16
-    )
-    rightPadding: Math.max(
-        SafeArea.margins.right,
-        Qt.platform.os === "windows" ? 152 : 16
-    )
 
-    background: Rectangle {
-        color: Theme.chrome
-
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: 1
-            color: Theme.border
-        }
-    }
-
-    contentItem: Item {
-        Item {
-            anchors.fill: parent
-
-            DragHandler {
-                target: null
-                acceptedButtons: Qt.LeftButton
-                onActiveChanged: {
-                    if (active)
-                        titleBar.hostWindow.startSystemMove()
-                }
-            }
-        }
-
+    Item {
+        anchors.fill: parent
         Row {
             id: branding
             anchors.left: parent.left

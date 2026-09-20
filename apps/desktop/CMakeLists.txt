@@ -846,6 +846,7 @@ qt_add_qml_module(
         qml/PipelineEditor.qml
         qml/PipelineExportDialog.qml
         qml/MainTitleBar.qml
+        qml/ShadowTitleBar.qml
         qml/MainLibraryFilterBar.qml
         qml/MainLibrarySortMenu.qml
         qml/MainPrecisionProxyStatus.qml

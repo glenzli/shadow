@@ -17,6 +17,10 @@
 #include "optics_profile_library.hpp"
 #include "ui_preferences.hpp"
 
+#if defined(Q_OS_MACOS)
+#include "platform/macos/titlebar.hpp"
+#endif
+
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDebug>
@@ -151,6 +155,14 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
             return EXIT_FAILURE;
         }
         preview_context->attach(root_window);
+#if defined(Q_OS_MACOS)
+        const auto* const title_bar =
+            root_window->findChild<QObject*>(QStringLiteral("titleToolBar"));
+        installMacTitleBarAlignment(
+            root_window,
+            title_bar == nullptr ? 44 : qRound(title_bar->property("height").toReal())
+        );
+#endif
         installPipelineSmokeHarness(engine, pipeline, editor);
         installSubjectEmphasisSmokeHarness(engine, pipeline, editor);
         QTimer::singleShot(0, &pipeline, &PipelineRunController::start);

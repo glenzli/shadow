@@ -156,8 +156,11 @@ Application startup is split from environment-driven automation:
   [`qml/ReviewGallerySectionNavigator.qml`](qml/ReviewGallerySectionNavigator.qml) owns the
   transient scroll reveal, sampled index labels, drag preview, and concrete section jump gesture;
   it consumes layout row anchors and never reconstructs date, place, or future People semantics.
-- [`qml/MainTitleBar.qml`](qml/MainTitleBar.qml) owns title-bar geometry, native window dragging,
-  workspace navigation, edit save/undo state, settings entry, and the History Drawer trigger. It
+- [`qml/ShadowTitleBar.qml`](qml/ShadowTitleBar.qml) owns shared title-bar geometry, native-control
+  spacing and window dragging for both Library and independent-editor windows. Both use expanded
+  client-area chrome and the same macOS traffic-light alignment.
+  [`qml/MainTitleBar.qml`](qml/MainTitleBar.qml) composes workspace navigation, edit save/undo state,
+  settings entry, and the History Drawer trigger. It
   preserves the `Main` translation context; [`qml/HistoryDrawer.qml`](qml/HistoryDrawer.qml) owns
   the per-photo durable Recipe timeline, named-version creation and non-destructive checkout, plus
   the read-only Library commit/ref timeline.
@@ -1579,7 +1582,9 @@ directory. Requests are limited to 1 MiB and 256 photos.
 harness. The complete scenario changes the first photo's exposure, switches to another photo,
 checks state separation, returns and checks persistence, then exports. Interactive smoke also
 requires `SHADOW_PIPELINE_SMOKE_OUTPUT`. Use only disposable test outputs. The registered tests
-create synthetic raster fixtures and verify original bytes and a separate Library sentinel.
+create synthetic raster fixtures and verify original bytes and a separate Library sentinel. For native-window
+checks, `SHADOW_PIPELINE_SMOKE_ACTION=window-chrome` with an empty `--isolate` session logs only
+window geometry and visibility changes; it opens no photo and performs no automatic edits.
 
 ## Local subject emphasis preview
 
