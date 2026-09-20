@@ -13,6 +13,10 @@ ColumnLayout {
 
     signal openMetadataRequested()
 
+    // Keep long translated field names within the inspector instead of
+    // letting right-aligned text overflow its fixed column to the left.
+    readonly property real fieldLabelWidth: Math.min(108, Math.max(76, width * 0.4))
+
     readonly property bool remoteServerOffline:
         exifSection.review.selectedIsRemote
         && exifSection.review.selectedRemoteConnectionId.length > 0
@@ -51,7 +55,8 @@ ColumnLayout {
         spacing: 8
 
         Label {
-            Layout.preferredWidth: 76
+            Layout.preferredWidth: exifSection.fieldLabelWidth
+            wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignRight
             text: qsTranslate("ReviewWorkspace", "SOURCE")
             color: exifSection.review.textMuted
@@ -151,7 +156,8 @@ ColumnLayout {
             spacing: 8
 
             Label {
-                Layout.preferredWidth: 76
+                Layout.preferredWidth: exifSection.fieldLabelWidth
+                wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignRight
                 text: exifRow.modelData.label
                 color: exifSection.review.textMuted
