@@ -95,17 +95,18 @@ ColumnLayout {
         resetEnabled: retouch.regionCount > 0
         onResetRequested: retouch.inspector.editor.clearRetouch()
 
-        RowLayout {
+        Flow {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             Layout.topMargin: 4
+            Layout.bottomMargin: 8
             spacing: 8
 
             ShadowIconButton {
                 objectName: "retouchHealToolButton"
-                buttonSize: 36
-                iconSize: 19
+                buttonSize: 32
+                iconSize: 18
                 source: "qrc:/icons/heal.svg"
                 selected: retouch.inspector.editor.retouchCreationMode === 0
                 toolTipText: qsTr("Blend a defect from its surrounding pixels")
@@ -120,8 +121,8 @@ ColumnLayout {
 
             ShadowIconButton {
                 objectName: "retouchCloneToolButton"
-                buttonSize: 36
-                iconSize: 19
+                buttonSize: 32
+                iconSize: 18
                 source: "qrc:/icons/clone.svg"
                 selected: retouch.inspector.editor.retouchCreationMode === 1
                 toolTipText: qsTr("Copy a same-shaped nearby source")
@@ -135,21 +136,14 @@ ColumnLayout {
                 }
             }
 
-            Item { Layout.fillWidth: true }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            spacing: 6
             Repeater {
                 model: [qsTr("Tone only"), qsTr("Texture only")]
                 delegate: ShadowButton {
                     required property string modelData
                     required property int index
-                    Layout.fillWidth: true
                     compact: true
+                    implicitHeight: 32
+                    variant: ShadowButton.Ghost
                     text: modelData
                     selected: retouch.inspector.editor.retouchCreationMode === index + 3
                     enabled: retouch.controlsEnabled
@@ -232,31 +226,32 @@ ColumnLayout {
             onEdited: value => retouch.inspector.editor.setRetouchBrushFeather(value)
         }
 
-        RowLayout {
+        Flow {
             objectName: "retouchSourceAlignmentControls"
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            Layout.topMargin: 4
-            spacing: 6
+            Layout.topMargin: 12
+            spacing: 8
             visible: retouch.inspector.editor.retouchPickerActive
 
-            ShadowButton {
+            ShadowIconButton {
                 objectName: "retouchSelectSourceButton"
-                Layout.fillWidth: true
-                compact: true
+                buttonSize: 32
+                source: "qrc:/icons/eyedropper.svg"
                 selected: retouch.inspector.editor.retouchSourcePicking
-                text: retouch.inspector.editor.retouchSourceSampled
+                accessibleName: retouch.inspector.editor.retouchSourceSampled
                     ? qsTr("Reselect source") : qsTr("Select source")
-                toolTipText: qsTr("Click, then choose a source directly on the image")
+                toolTipText: accessibleName + " · " + qsTr("Click, then choose a source directly on the image")
                 onClicked: retouch.inspector.editor.setRetouchSourcePicking(
                     !retouch.inspector.editor.retouchSourcePicking)
             }
 
             ShadowButton {
                 objectName: "retouchAlignedSourceButton"
-                Layout.fillWidth: true
                 compact: true
+                implicitHeight: 32
+                variant: ShadowButton.Ghost
                 selected: retouch.inspector.editor.retouchSourceAligned
                 text: qsTr("Keep offset")
                 toolTipText: qsTr("After the first repair, keep the same source-to-target offset for each new repair")
@@ -265,19 +260,21 @@ ColumnLayout {
 
             ShadowButton {
                 objectName: "retouchFixedSourceButton"
-                Layout.fillWidth: true
                 compact: true
+                implicitHeight: 32
+                variant: ShadowButton.Ghost
                 selected: !retouch.inspector.editor.retouchSourceAligned
                 text: qsTr("Reuse point")
                 toolTipText: qsTr("Start every new repair from the exact sampled source point")
                 onClicked: retouch.inspector.editor.setRetouchSourceAligned(false)
             }
 
-            ShadowButton {
+            ShadowIconButton {
                 objectName: "retouchClearSampledSourceButton"
-                compact: true
+                buttonSize: 32
+                source: "qrc:/icons/clear.svg"
                 visible: retouch.inspector.editor.retouchSourceSampled
-                text: qsTr("Clear")
+                accessibleName: qsTr("Clear")
                 toolTipText: retouch.inspector.editor.retouchCreationMode === 1
                     ? qsTr("Clear and choose a new clone source")
                     : qsTr("Return to automatic nearby source selection")
@@ -289,10 +286,15 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
+            Layout.topMargin: 8
+            Layout.bottomMargin: 8
+            spacing: 8
             visible: retouch.inspector.editor.retouchPickerActive
-            ShadowButton {
-                compact: true
-                text: qsTr("Remember source")
+            ShadowIconButton {
+                buttonSize: 32
+                source: "qrc:/icons/pin.svg"
+                accessibleName: qsTr("Remember source")
+                toolTipText: accessibleName
                 enabled: retouch.inspector.editor.retouchSourceSampled
                 onClicked: retouch.inspector.editor.retouchSources.remember()
             }
@@ -301,12 +303,16 @@ ColumnLayout {
                 delegate: ShadowButton {
                     required property int index
                     compact: true
+                    minimumButtonWidth: 32
+                    implicitHeight: 32
+                    variant: ShadowButton.Ghost
                     text: String(index + 1)
                     enabled: Boolean(retouch.inspector.editor.retouchSources.saved[index])
                     toolTipText: qsTr("Recall source %1 for this photo").arg(index + 1)
                     onClicked: retouch.inspector.editor.retouchSources.recall(index)
                 }
             }
+            Item { Layout.fillWidth: true }
         }
         ShadowSlider {
             Layout.fillWidth: true

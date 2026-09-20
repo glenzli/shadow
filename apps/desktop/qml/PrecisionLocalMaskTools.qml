@@ -309,7 +309,7 @@ ColumnLayout {
             Layout.rightMargin: 14
             visible: localMask.activeMask
                 && Number(localMask.mask.componentIndex || 0) > 0
-            spacing: 4
+            spacing: 8
 
             Label {
                 Layout.fillWidth: true
@@ -317,25 +317,25 @@ ColumnLayout {
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontMeta
             }
-            ShadowButton {
-                compact: true
-                text: qsTr("Add")
-                variant: Number(localMask.mask.operation) === 1
-                    ? ShadowButton.Primary : ShadowButton.Ghost
+            ShadowIconButton {
+                source: "qrc:/icons/mask-add.svg"
+                accessibleName: qsTr("Add")
+                toolTipText: accessibleName
+                selected: Number(localMask.mask.operation) === 1
                 onClicked: localMask.inspector.editor.setSelectedLocalMaskComponentOperation(1)
             }
-            ShadowButton {
-                compact: true
-                text: qsTr("Subtract")
-                variant: Number(localMask.mask.operation) === 2
-                    ? ShadowButton.Primary : ShadowButton.Ghost
+            ShadowIconButton {
+                source: "qrc:/icons/mask-subtract.svg"
+                accessibleName: qsTr("Subtract")
+                toolTipText: accessibleName
+                selected: Number(localMask.mask.operation) === 2
                 onClicked: localMask.inspector.editor.setSelectedLocalMaskComponentOperation(2)
             }
-            ShadowButton {
-                compact: true
-                text: qsTr("Intersect")
-                variant: Number(localMask.mask.operation) === 3
-                    ? ShadowButton.Primary : ShadowButton.Ghost
+            ShadowIconButton {
+                source: "qrc:/icons/mask-intersect.svg"
+                accessibleName: qsTr("Intersect")
+                toolTipText: accessibleName
+                selected: Number(localMask.mask.operation) === 3
                 onClicked: localMask.inspector.editor.setSelectedLocalMaskComponentOperation(3)
             }
         }
@@ -423,25 +423,26 @@ ColumnLayout {
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             visible: localMask.activeMask && localMask.kind !== 6
+            Layout.topMargin: 8
+            Layout.bottomMargin: 8
             spacing: 8
 
-            ShadowButton {
-                compact: true
-                Layout.fillWidth: true
-                text: qsTr("Copy")
+            ShadowIconButton {
+                source: "qrc:/icons/duplicate.svg"
+                accessibleName: qsTr("Copy")
                 toolTipText: qsTr("Copy this mask geometry")
                 enabled: localMask.nodeEditable
                 onClicked: localMask.inspector.editor.copySelectedLocalMask()
             }
 
-            ShadowButton {
-                compact: true
-                Layout.fillWidth: true
-                text: qsTr("Replace from clipboard")
+            ShadowIconButton {
+                source: "qrc:/icons/grade-node-paste.svg"
+                accessibleName: qsTr("Replace from clipboard")
                 toolTipText: qsTr("Replace this mask with copied geometry · Undo available")
                 enabled: localMask.nodeEditable && localMask.inspector.editor.hasCopiedNodeMask
                 onClicked: localMask.inspector.editor.pasteSelectedLocalMask()
             }
+            Item { Layout.fillWidth: true }
         }
 
         PrecisionConditionMaskTools {

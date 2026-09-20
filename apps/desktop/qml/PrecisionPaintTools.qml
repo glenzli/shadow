@@ -9,9 +9,7 @@ ColumnLayout {
     id: tools
     required property var editor
     readonly property var paint: editor.paint
-    property bool advanced: false
-    property bool layerControls: false
-    spacing: 8
+    spacing: 10
     Label {
         Layout.fillWidth: true
         text: qsTr("PAINT")
@@ -19,6 +17,7 @@ ColumnLayout {
     }
     RowLayout {
         Layout.fillWidth: true
+        spacing: 8
         enabled: !tools.paint.strokeActive
         ShadowComboBox {
             id: presets
@@ -34,13 +33,15 @@ ColumnLayout {
             onActivated: index => tools.paint.applyPreset(model[index].id)
         }
         ShadowButton {
-            implicitWidth: 36; text: "A"; selected: tools.paint.brushSlot === 0
+            compact: true; minimumButtonWidth: 32; text: "A"; selected: tools.paint.brushSlot === 0
+            variant: ShadowButton.Ghost
             Accessible.name: qsTr("Brush A")
             onClicked: tools.paint.brushSlot = 0
             ToolTip.visible: hovered; ToolTip.text: qsTr("Switch brush A/B · X")
         }
         ShadowButton {
-            implicitWidth: 36; text: "B"; selected: tools.paint.brushSlot === 1
+            compact: true; minimumButtonWidth: 32; text: "B"; selected: tools.paint.brushSlot === 1
+            variant: ShadowButton.Ghost
             Accessible.name: qsTr("Brush B")
             onClicked: tools.paint.brushSlot = 1
             ToolTip.visible: hovered; ToolTip.text: qsTr("Switch brush A/B · X")
@@ -48,6 +49,7 @@ ColumnLayout {
     }
     RowLayout {
         Layout.fillWidth: true
+        spacing: 8
         enabled: !tools.paint.strokeActive
         ShadowComboBox {
             objectName: "paintLayerSelector"
@@ -65,6 +67,7 @@ ColumnLayout {
             onClicked: tools.paint.addLayer()
         }
         ShadowIconButton {
+            Layout.leftMargin: 4
             source: "qrc:/icons/trash.svg"
             accessibleName: qsTr("Remove paint layer"); toolTipText: accessibleName
             enabled: tools.paint.selectedIndex >= 0
@@ -73,33 +76,48 @@ ColumnLayout {
     }
     RowLayout {
         Layout.fillWidth: true
+        Layout.topMargin: 4
+        spacing: 8
         enabled: !tools.paint.strokeActive
-        ShadowButton {
-            objectName: "paintBrushMode"; Layout.fillWidth: true
-            text: qsTr("Brush"); selected: !tools.paint.erase && !tools.paint.picking
+        ShadowIconButton {
+            objectName: "paintBrushMode"
+            buttonSize: 32; source: "qrc:/icons/brush.svg"
+            accessibleName: qsTr("Brush"); toolTipText: accessibleName
+            selected: !tools.paint.erase && !tools.paint.picking
             onClicked: tools.paint.erase = false
         }
-        ShadowButton {
-            objectName: "paintEraseMode"; Layout.fillWidth: true
-            text: qsTr("Erase"); selected: tools.paint.erase && !tools.paint.picking
+        ShadowIconButton {
+            objectName: "paintEraseMode"
+            buttonSize: 32; source: "qrc:/icons/eraser.svg"
+            accessibleName: qsTr("Erase"); toolTipText: accessibleName
+            selected: tools.paint.erase && !tools.paint.picking
             onClicked: tools.paint.erase = true
         }
         ShadowIconButton {
             objectName: "paintEyedropper"
+            buttonSize: 32
             source: "qrc:/icons/eyedropper.svg"; selected: tools.paint.picking
             accessibleName: qsTr("Sample paint color · Alt-click"); toolTipText: accessibleName
             onClicked: tools.paint.picking = !tools.paint.picking
         }
+        Item { Layout.fillWidth: true }
     }
     RowLayout {
         Layout.fillWidth: true
+        spacing: 8
         enabled: !tools.paint.erase && !tools.paint.strokeActive
         ShadowButton {
-            objectName: "paintColorButton"; Layout.fillWidth: true
-            text: qsTr("Color…")
+            objectName: "paintColorButton"
+            compact: true; minimumButtonWidth: 40
+            accessibleName: qsTr("Color…"); toolTipText: accessibleName
+            contentItem: Rectangle {
+                implicitWidth: 20; implicitHeight: 18
+                radius: 3; color: tools.paint.color; border.color: Theme.borderStrong
+            }
+            topPadding: 6; bottomPadding: 6
             onClicked: { colorDialog.selectedColor = tools.paint.color; colorDialog.open() }
         }
-        Rectangle { implicitWidth: 32; implicitHeight: 26; radius: Theme.controlRadius; color: tools.paint.color; border.color: Theme.borderStrong }
+        Item { Layout.preferredWidth: 4 }
         Repeater {
             model: ["#000000", "#808080", "#ffffff"]
             ShadowButton {
@@ -107,12 +125,14 @@ ColumnLayout {
                 readonly property string presetName: modelData === "#808080" ? qsTr("Neutral gray")
                     : modelData === "#000000" ? (tools.paint.brushBlend === 2 ? qsTr("Darken") : qsTr("Black"))
                     : (tools.paint.brushBlend === 2 ? qsTr("Lighten") : qsTr("White"))
-                implicitWidth: 26; text: ""; Accessible.name: presetName
+                compact: true; minimumButtonWidth: 32; text: ""; accessibleName: presetName
+                variant: ShadowButton.Ghost
                 Rectangle { anchors.centerIn: parent; width: 14; height: 14; radius: 3; color: parent.modelData; border.color: Theme.borderStrong }
                 onClicked: tools.paint.color = modelData
                 ToolTip.visible: hovered; ToolTip.text: presetName
             }
         }
+        Item { Layout.fillWidth: true }
     }
     ColorDialog { id: colorDialog; title: qsTr("Paint color"); onAccepted: tools.paint.color = selectedColor }
     ShadowSlider {
@@ -141,21 +161,26 @@ ColumnLayout {
         from: 0; to: 1; neutralValue: 1; decimals: 0; displayMultiplier: 100; suffix: "%"; value: tools.paint.opacity
         onEdited: value => tools.paint.opacity = value
     }
-    ShadowButton {
-        Layout.fillWidth: true; text: qsTr("Brush tip and dynamics"); selected: tools.advanced
-        onClicked: tools.advanced = !tools.advanced
-    }
-    PrecisionPaintBrushSettings {
-        Layout.fillWidth: true; visible: tools.advanced; enabled: !tools.paint.strokeActive
-        paint: tools.paint
-    }
-    RowLayout {
-        Layout.fillWidth: true; visible: tools.advanced; enabled: !tools.paint.strokeActive
-        ShadowButton { Layout.fillWidth: true; text: qsTr("Save brush…"); onClicked: { savedPresetName.text=""; saveDialog.open() } }
-        ShadowButton {
-            text: qsTr("Remove preset")
-            enabled: presets.currentIndex >= 0 && presets.model[presets.currentIndex].custom
-            onClicked: tools.paint.removePreset(tools.paint.presetId)
+    ShadowAdjustmentSection {
+        Layout.fillWidth: true; Layout.topMargin: 4
+        title: qsTr("Brush tip and dynamics")
+        expanded: false
+        PrecisionPaintBrushSettings {
+            Layout.fillWidth: true; enabled: !tools.paint.strokeActive
+            paint: tools.paint
+        }
+        RowLayout {
+            Layout.fillWidth: true; Layout.topMargin: 8
+            enabled: !tools.paint.strokeActive
+            spacing: 8
+            ShadowButton { compact: true; text: qsTr("Save brush…"); onClicked: { savedPresetName.text=""; saveDialog.open() } }
+            Item { Layout.fillWidth: true }
+            ShadowIconButton {
+                source: "qrc:/icons/trash.svg"
+                accessibleName: qsTr("Remove preset"); toolTipText: accessibleName
+                enabled: presets.currentIndex >= 0 && presets.model[presets.currentIndex].custom
+                onClicked: tools.paint.removePreset(tools.paint.presetId)
+            }
         }
     }
     Dialog {
@@ -187,11 +212,14 @@ ColumnLayout {
         onEdited: value => tools.paint.layerOpacity = value
         onGestureFinished: tools.editor.endParameterEdit("paint/layer/opacity")
     }
-    ShadowButton { Layout.fillWidth: true; text: qsTr("Layer controls"); selected: tools.layerControls; onClicked: tools.layerControls = !tools.layerControls }
-    ColumnLayout {
-        Layout.fillWidth: true; visible: tools.layerControls; enabled: !tools.paint.strokeActive
+    ShadowAdjustmentSection {
+        Layout.fillWidth: true; Layout.topMargin: 4
+        title: qsTr("Layer controls")
+        expanded: false
         RowLayout {
-            Layout.fillWidth: true; enabled: tools.paint.selectedIndex >= 0
+            Layout.fillWidth: true
+            enabled: !tools.paint.strokeActive && tools.paint.selectedIndex >= 0
+            spacing: 8
             ShadowCheckBox { text: qsTr("Layer visible"); checked: tools.paint.layerEnabled; onToggled: tools.paint.layerEnabled = checked }
             Item { Layout.fillWidth: true }
             ShadowIconButton { source: "qrc:/icons/move-down.svg"; accessibleName: qsTr("Move paint layer down"); toolTipText: accessibleName; enabled: tools.paint.selectedIndex > 0; onClicked: tools.paint.moveLayer(-1) }
@@ -199,6 +227,8 @@ ColumnLayout {
         }
         ShadowComboBox {
             objectName: "paintBlendSelector"; Layout.fillWidth: true
+            Layout.topMargin: 8
+            enabled: !tools.paint.strokeActive
             model: [qsTr("Normal · cover"), qsTr("Color · preserve lightness"), qsTr("Soft light · shape light")]
             currentIndex: tools.paint.blend
             onActivated: index => tools.paint.blend = index

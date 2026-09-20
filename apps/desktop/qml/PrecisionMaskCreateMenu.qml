@@ -127,11 +127,12 @@ Popup {
         }
     }
 
-    component MaskAction: Button {
+    component MenuAction: Button {
         id: action
 
         required property url iconSource
-        required property int maskKind
+        property string toolTipText: ""
+        property bool selected: false
 
         Layout.fillWidth: true
         implicitHeight: 40
@@ -139,28 +140,40 @@ Popup {
         rightPadding: 10
         hoverEnabled: enabled
         Accessible.name: text
+        Accessible.description: toolTipText
 
         background: Rectangle {
             radius: 6
-            color: action.down ? Theme.buttonGhostPressed : action.hovered ? Theme.buttonGhostHover : Theme.transparent
+            color: action.selected ? Theme.accentSurfaceQuiet
+                : action.down ? Theme.buttonGhostPressed : action.hovered ? Theme.buttonGhostHover : Theme.transparent
+            border.color: action.visualFocus ? Theme.focusRing : Theme.transparent
         }
 
         contentItem: RowLayout {
             spacing: 10
             ShadowIcon {
                 source: action.iconSource
-                color: action.enabled ? Theme.textSecondary : Theme.textDisabled
+                color: !action.enabled ? Theme.textDisabled
+                    : action.selected ? Theme.accentSelectionText : Theme.textSecondary
                 size: 19
             }
             Label {
                 Layout.fillWidth: true
                 text: action.text
-                color: action.enabled ? Theme.textPrimary : Theme.textDisabled
+                color: !action.enabled ? Theme.textDisabled
+                    : action.selected ? Theme.accentSelectionText : Theme.textPrimary
                 font.pixelSize: Theme.fontSection
                 font.weight: Font.Medium
             }
         }
 
+        ToolTip.visible: hovered && toolTipText.length > 0
+        ToolTip.text: toolTipText
+        ToolTip.delay: 450
+    }
+
+    component MaskAction: MenuAction {
+        required property int maskKind
         onClicked: menu.createMask(maskKind)
     }
 
@@ -304,7 +317,7 @@ Popup {
             Layout.fillWidth: true
             visible: menu.destination === menu.currentNodeDestination
                 && menu.currentMaskComponentCount > 0
-            spacing: 4
+            spacing: 8
 
             ShadowButton {
                 compact: true
@@ -342,31 +355,29 @@ Popup {
             font.letterSpacing: 0.7
         }
 
-        ShadowButton {
+        MenuAction {
             objectName: "aiSubjectMaskAction"
-            Layout.fillWidth: true
+            iconSource: "qrc:/icons/mask.svg"
             text: qsTr("AI subject")
-            variant: ShadowButton.Secondary
             enabled: menu.aiDestinationAvailable
             toolTipText: menu.destination === menu.currentNodeDestination ? qsTr("Add an AI subject component to the selected node mask") : qsTr("Create a new Grade Node and prompt SAM 2.1")
             onClicked: menu.startAiMask(false)
         }
 
-        ShadowButton {
+        MenuAction {
             objectName: "aiPeopleDetailsMaskAction"
-            Layout.fillWidth: true
+            iconSource: "qrc:/icons/people.svg"
             text: qsTr("AI people details")
-            variant: ShadowButton.Secondary
             enabled: menu.aiDestinationAvailable
             toolTipText: menu.destination === menu.currentNodeDestination ? qsTr("Add selected people details to the selected node mask") : qsTr("Create a new Grade Node and select facial features")
             onClicked: menu.startAiMask(true)
         }
 
-        ShadowButton {
+        MenuAction {
             objectName: "aiSemanticMaskAction"
-            Layout.fillWidth: true
+            iconSource: "qrc:/icons/filter.svg"
             text: qsTr("AI semantic")
-            variant: menu.semanticExpanded ? ShadowButton.Primary : ShadowButton.Secondary
+            selected: menu.semanticExpanded
             enabled: menu.aiDestinationAvailable
             toolTipText: menu.destination === menu.currentNodeDestination ? qsTr("Add a semantic component that can be re-evaluated on another photo") : qsTr("Create a semantic mask that can be re-evaluated on another photo")
             onClicked: menu.semanticExpanded = !menu.semanticExpanded

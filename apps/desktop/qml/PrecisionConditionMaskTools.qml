@@ -9,7 +9,7 @@ ColumnLayout {
     property bool editable: true
     readonly property var expression: editor.selectedConditionMask
     readonly property var rows: flatten(expression.root, ["root"], 0)
-    spacing: 6
+    spacing: 12
 
     function flatten(node, path, depth) {
         if (!node) return [];
@@ -102,9 +102,10 @@ ColumnLayout {
             readonly property bool group: modelData.node.operator !== "leaf"
             Layout.fillWidth: true
             Layout.leftMargin: modelData.depth * 8
-            spacing: 3
+            spacing: 6
             RowLayout {
                 Layout.fillWidth: true
+                spacing: 8
                 ShadowComboBox {
                     Layout.fillWidth: true
                     enabled: conditions.editable
@@ -120,15 +121,17 @@ ColumnLayout {
                 }
                 ShadowButton {
                     compact: true
+                    variant: ShadowButton.Ghost
                     text: qsTr("Exclude")
                     selected: row.modelData.inverse
                     enabled: conditions.editable && conditions.allows(row.modelData.path, conditions.invert)
                     toolTipText: qsTr("Use the inverse of this condition or group")
                     onClicked: conditions.change(row.modelData.path, conditions.invert)
                 }
-                ShadowButton {
-                    compact: true
-                    text: qsTr("Remove")
+                ShadowIconButton {
+                    source: "qrc:/icons/trash.svg"
+                    accessibleName: qsTr("Remove")
+                    toolTipText: accessibleName
                     visible: row.modelData.path.length > 1
                     enabled: conditions.editable
                     onClicked: conditions.remove(row.modelData.path)
@@ -165,6 +168,7 @@ ColumnLayout {
             }
             ShadowButton {
                 compact: true
+                variant: ShadowButton.Ghost
                 text: row.group ? qsTr("Add condition") : qsTr("Limit further…")
                 enabled: conditions.editable && conditions.rows.filter(r => r.node.operator === "leaf").length < 8
                     && conditions.allows(row.modelData.valuePath, node => conditions.withLeaf(node, "oklab_lightness_range"))
