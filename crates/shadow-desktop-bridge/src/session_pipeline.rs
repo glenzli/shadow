@@ -8,10 +8,13 @@
 use std::{fs, path::Path, time::SystemTime};
 
 use anyhow::{Context, Result as AnyResult, bail};
-use shadow_catalog::RegisterAsset;
+use shadow_catalog::{
+    RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RegisterAsset, RepresentationFingerprint,
+};
+use shadow_core::DecodeInspector;
 use shadow_domain::RepresentationKind;
 
-use crate::{native_path_ffi, wall_clock::current_time_ms};
+use crate::{native_path_ffi, photo_provider::PhotoInspector, wall_clock::current_time_ms};
 
 use super::{DesktopSession, ffi};
 
@@ -35,7 +38,23 @@ impl DesktopSession {
                 source_path.display()
             )
         })?;
+        // Admission runs on the isolated session's worker. Inspect exactly the
+        // selected source before publishing it as editable; do not scan its
+        // directory or create a Library proxy. The observation also supplies
+        // camera/optics facts needed by the ordinary Precision pipeline.
+        let mut inspector =
+            PhotoInspector::new_with_isolated_proxy_cache(Some(self.cache_root.clone()))?;
+        let snapshot = inspector
+            .inspect(&source_path)
+            .map_err(anyhow::Error::msg)?;
+        let current =
+            fs::metadata(&source_path).context("recheck isolated input after inspection")?;
         let modified_at_ms = metadata.modified().ok().and_then(system_time_ms);
+        if current.len() != metadata.len()
+            || current.modified().ok().and_then(system_time_ms) != modified_at_ms
+        {
+            bail!("pipeline input changed during inspection");
+        }
         let registered = self.catalog.register_asset(&RegisterAsset {
             kind,
             location: shadow_native_path::native_location(&source_path),
@@ -43,6 +62,18 @@ impl DesktopSession {
             modified_at_ms,
             now_ms: current_time_ms()?,
         })?;
+        let recorded = self.catalog.record_decode_snapshot(&RecordDecodeSnapshot {
+            representation_id: registered.representation_id,
+            expected_source: RepresentationFingerprint {
+                byte_len: metadata.len(),
+                modified_at_ms,
+            },
+            snapshot,
+            inspected_at_ms: current_time_ms()?,
+        })?;
+        if recorded != RecordDecodeSnapshotStatus::Recorded {
+            bail!("pipeline input changed before metadata was recorded");
+        }
         let title = source_path
             .file_stem()
             .and_then(|name| name.to_str())
@@ -63,7 +94,7 @@ fn representation_kind(path: &Path) -> Option<RepresentationKind> {
         "nef" | "nrw" | "cr2" | "cr3" | "arw" | "raf" | "orf" | "rw2" | "pef" | "srw" | "dng" => {
             Some(RepresentationKind::OriginalRaw)
         }
-        "jpg" | "jpeg" | "tif" | "tiff" | "png" | "heic" | "heif" => {
+        _ if shadow_bridge::photo_supported_raster_extensions().contains(&extension) => {
             Some(RepresentationKind::OriginalRaster)
         }
         _ => None,
