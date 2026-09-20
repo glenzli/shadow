@@ -114,6 +114,7 @@ enum class WarmLayerMaskKind : std::uint32_t {
     luminance_range = 4U,
     color_range = 5U,
     empty = 6U,
+    condition_expression = 7U,
 };
 
 struct WarmLayerBlendParameters final {
@@ -144,6 +145,9 @@ struct WarmLayerBlendParameters final {
     std::array<float, 4U> rgb_to_xyz_row_0{};
     std::array<float, 4U> rgb_to_xyz_row_1{};
     std::array<float, 4U> rgb_to_xyz_row_2{};
+    std::uint32_t condition_count = 0U;
+    std::array<std::uint32_t, 3U> condition_padding{};
+    std::array<std::array<float, 8U>, 32U> condition_program{};
 };
 
 struct WarmBrushCapsule final {
@@ -158,7 +162,7 @@ struct WarmBrushCellRange final {
     std::uint32_t count = 0U;
 };
 
-static_assert(sizeof(WarmLayerBlendParameters) == 144U);
+static_assert(sizeof(WarmLayerBlendParameters) == 1184U);
 static_assert(sizeof(WarmBrushCapsule) == 16U);
 static_assert(sizeof(WarmBrushCellRange) == 8U);
 

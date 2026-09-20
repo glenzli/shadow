@@ -1404,6 +1404,8 @@ mod ffi {
     /// is always Base; the remaining authored order is semantically relevant.
     #[derive(Debug, Clone)]
     struct FfiMaskComponent {
+        /// Bounded domain condition JSON; empty for every legacy mask kind.
+        condition_expression: String,
         component_id: String,
         operation: u8,
         enabled: bool,

@@ -124,8 +124,14 @@ EditController::currentMaskCoverageRequest(const BackendGradeStack& grade_stack)
     if (target.local_mask_components.isEmpty()) {
         return std::nullopt;
     }
-    const std::int32_t component_index =
-        mask_coverage_shows_selected_component_ ? selected_local_mask_component_index_ : -1;
+    // Recipe canonicalizes an enabled sole Base to its leaf. Its selected
+    // coverage is exactly the final coverage, and needs no component lookup.
+    const bool single_leaf =
+        target.local_mask_components.size() == 1 && target.local_mask_components.front().enabled
+        && target.local_mask_components.front().operation == 0 && !target.local_mask_invert;
+    const std::int32_t component_index = mask_coverage_shows_selected_component_ && !single_leaf
+                                             ? selected_local_mask_component_index_
+                                             : -1;
     if (component_index >= target.local_mask_components.size()) {
         return std::nullopt;
     }

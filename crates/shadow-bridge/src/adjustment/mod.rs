@@ -8,6 +8,7 @@ use std::collections::HashSet;
 
 use super::{BridgeError, MAX_WARM_EDIT_PREVIEW_EDGE};
 
+pub(crate) mod condition_mask;
 mod detail_effects;
 mod geometry;
 mod image_completion;

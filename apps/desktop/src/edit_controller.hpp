@@ -235,6 +235,9 @@ class EditController final : public QObject {
     // the final Base/Add/Subtract/Intersect coverage.
     Q_PROPERTY(QVariantList localMaskComponents READ localMaskComponents NOTIFY parametersChanged)
     Q_PROPERTY(
+        QVariantMap selectedConditionMask READ selectedConditionMask NOTIFY parametersChanged
+    )
+    Q_PROPERTY(
         int selectedLocalMaskComponentIndex READ selectedLocalMaskComponentIndex NOTIFY
             parametersChanged
     )
@@ -596,6 +599,8 @@ class EditController final : public QObject {
     [[nodiscard]] QString opticsLensProfile() const;
     [[nodiscard]] QVariantMap selectedLocalMask() const;
     [[nodiscard]] QVariantList localMaskComponents() const;
+    [[nodiscard]] QVariantMap selectedConditionMask() const;
+    Q_INVOKABLE void setSelectedConditionMask(const QString& json);
     [[nodiscard]] int selectedLocalMaskComponentIndex() const noexcept;
     [[nodiscard]] bool maskToolActive() const noexcept;
     [[nodiscard]] QString maskCoverageSource() const;

@@ -1636,3 +1636,10 @@ selection, the main-canvas overlay, one-node apply, exact undo/redo, strength-on
 runs the request's normal export. The fixture must admit a restrained adjustment; no-adjustment
 policy cases live in the bridge owner's unit tests. This opt-in check requires installed local
 providers and a valid Shadow credential; it never substitutes an external or cloud provider.
+
+### Condition mask editing
+
+`src/edit_condition_mask_controller.*` owns the bounded condition editor transaction and legacy
+range projection. `qml/PrecisionConditionMaskTools.qml` edits grouped ranges using stable slider
+instances; changes reuse mask gesture history, paired-coverage invalidation and preview scheduling.
+The Recipe condition owner remains authoritative for persistent expression validation.

@@ -439,5 +439,12 @@ Popup {
             maskKind: 5
             enabled: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
         }
+        MaskAction {
+            objectName: "conditionMaskAction"
+            text: qsTr("Combined conditions")
+            iconSource: "qrc:/icons/mask-intersect.svg"
+            maskKind: 7
+            enabled: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
+        }
     }
 }

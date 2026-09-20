@@ -135,6 +135,7 @@ struct BackendFineEditParameters final {
 inline constexpr qsizetype BACKEND_MAX_MASK_COMPONENTS = 8;
 
 struct BackendMaskComponent final {
+    QString condition_expression;
     // Stable photo-instance-local identity. Operation values are 0 = Base,
     // 1 = Add, 2 = Subtract, and 3 = Intersect. Only the first component may
     // be Base; later components retain their authored order.
@@ -145,6 +146,7 @@ struct BackendMaskComponent final {
     // 4 = Oklab luminance range, 5 = Oklch hue range, 6 = opaque managed
     // raster. Kind 6 uses x0 for expansion/contraction [-1, 1] and feather for
     // softness [0, 1]; Rust restores the separate immutable raster identity.
+    // Kind 7 carries a bounded scalar expression in condition_expression.
     std::uint8_t kind = 0;
     double x0 = 0.0;
     double y0 = 0.0;

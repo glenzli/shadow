@@ -39,12 +39,11 @@ using image::test_support::ScopedEnvironment;
 [[nodiscard]] image::LocalMask constant_managed_mask(const std::uint8_t coverage) {
     return image::LocalMask{
         .kind = image::LocalMaskKind::managed_raster,
-        .managed_raster =
-            image::ManagedRasterMask{
-                .raster_dimensions = {.width = 1U, .height = 1U},
-                .coordinate_dimensions = {.width = 6'000U, .height = 4'000U},
-                .samples = {coverage},
-            },
+        .managed_raster = image::ManagedRasterMask{
+            .raster_dimensions = {.width = 1U, .height = 1U},
+            .coordinate_dimensions = {.width = 6'000U, .height = 4'000U},
+            .samples = {coverage},
+        },
     };
 }
 
@@ -65,7 +64,7 @@ using image::test_support::ScopedEnvironment;
     return mask;
 }
 
-[[nodiscard]] std::array<image::LocalMask, 5U> representative_masks() {
+[[nodiscard]] std::array<image::LocalMask, 6U> representative_masks() {
     return {
         image::LocalMask{
             .kind = image::LocalMaskKind::linear_gradient,
@@ -104,10 +103,21 @@ using image::test_support::ScopedEnvironment;
             .x1 = 54.0 / 180.0,
             .feather = 0.38,
         },
+        image::LocalMask{
+            .kind = image::LocalMaskKind::condition_expression,
+            .condition_program = {
+                {0.0, 0.24, 0.76, 0.1, 0.0, 0.0, 0.0, 0.0},
+                {1.0, 342.0, 60.0, 0.4, 0.08, 0.15, 0.0, 0.0},
+                {2.0, 0.0, 0.06, 0.08, 0.0, 0.0, 0.0, 0.0},
+                {6.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+                {5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+                {4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+            },
+        },
     };
 }
 
-void five_kinds_publish_geometrically_paired_r8() {
+void supported_kinds_publish_geometrically_paired_r8() {
     const RetainedRgbSession source(processed_linear_gradient(97U, 61U));
     const auto warm = image::prepare_warm_edit_preview(source, 97U);
     const ScopedEnvironment cpu("SHADOW_IMAGE_ACCELERATION", "cpu");
@@ -129,15 +139,9 @@ void five_kinds_publish_geometrically_paired_r8() {
             },
         };
         const auto paired =
-            warm.render_rgb8_layers_with_mask_coverage_cancellable(
-                layers,
-                0U,
-                {},
-                geometry
-            );
+            warm.render_rgb8_layers_with_mask_coverage_cancellable(layers, 0U, {}, geometry);
         expect(
-            paired.completed.has_value()
-                && paired.completed->mask_coverage.has_value(),
+            paired.completed.has_value() && paired.completed->mask_coverage.has_value(),
             "each local-mask kind publishes paired coverage"
         );
         if (!paired.completed || !paired.completed->mask_coverage) {
@@ -145,16 +149,12 @@ void five_kinds_publish_geometrically_paired_r8() {
         }
         const auto& coverage = *paired.completed->mask_coverage;
         expect(
-            coverage.valid()
-                && coverage.dimensions
-                    == paired.completed->preview.dimensions
+            coverage.valid() && coverage.dimensions == paired.completed->preview.dimensions
                 && coverage.row_stride_bytes == coverage.dimensions.width,
             "coverage is valid tightly packed R8 with preview geometry"
         );
-        const auto [minimum, maximum] = std::minmax_element(
-            coverage.samples.begin(),
-            coverage.samples.end()
-        );
+        const auto [minimum, maximum] =
+            std::minmax_element(coverage.samples.begin(), coverage.samples.end());
         expect(
             minimum != coverage.samples.end() && *minimum < *maximum,
             "representative coverage contains a useful feathered selection"
@@ -201,15 +201,9 @@ void target_semantics_capture_without_mutating_the_frame() {
     };
     for (const auto& layer : cases) {
         const std::array layers{layer};
-        const auto paired =
-            warm.render_rgb8_layers_with_mask_coverage_cancellable(
-                layers,
-                0U,
-                {}
-            );
+        const auto paired = warm.render_rgb8_layers_with_mask_coverage_cancellable(layers, 0U, {});
         expect(
-            paired.completed.has_value()
-                && paired.completed->mask_coverage.has_value()
+            paired.completed.has_value() && paired.completed->mask_coverage.has_value()
                 && paired.completed->preview.bytes == baseline.bytes,
             "disabled, zero-opacity and no-op targets capture without changing RGB"
         );
@@ -221,26 +215,15 @@ void target_semantics_capture_without_mutating_the_frame() {
             .nodes = {no_op_node()},
         },
     };
-    const auto absent =
-        warm.render_rgb8_layers_with_mask_coverage_cancellable(
-            no_mask,
-            0U,
-            {}
-        );
+    const auto absent = warm.render_rgb8_layers_with_mask_coverage_cancellable(no_mask, 0U, {});
     expect(
-        absent.completed.has_value()
-            && !absent.completed->mask_coverage.has_value(),
+        absent.completed.has_value() && !absent.completed->mask_coverage.has_value(),
         "a valid target without a mask publishes no coverage"
     );
     const auto no_target =
-        warm.render_rgb8_layers_with_mask_coverage_cancellable(
-            no_mask,
-            std::nullopt,
-            {}
-        );
+        warm.render_rgb8_layers_with_mask_coverage_cancellable(no_mask, std::nullopt, {});
     expect(
-        no_target.completed.has_value()
-            && !no_target.completed->mask_coverage.has_value(),
+        no_target.completed.has_value() && !no_target.completed->mask_coverage.has_value(),
         "an omitted target preserves the ordinary preview contract"
     );
 }
@@ -257,20 +240,14 @@ void analyzed_jpeg_keeps_the_same_coverage_transaction() {
         },
     };
     const auto result =
-        warm.render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(
-            layers,
-            0U,
-            91U,
-            {}
-        );
+        warm.render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(layers, 0U, 91U, {});
     expect(
-        result.completed.has_value()
-            && result.completed->mask_coverage.has_value()
+        result.completed.has_value() && result.completed->mask_coverage.has_value()
             && result.completed->mask_coverage->valid()
             && result.completed->preview.analysis.sample_dimensions
-                == result.completed->preview.proxy.dimensions
+                   == result.completed->preview.proxy.dimensions
             && result.completed->mask_coverage->dimensions
-                == result.completed->preview.proxy.dimensions,
+                   == result.completed->preview.proxy.dimensions,
         "JPEG, analysis and mask coverage publish one geometrically paired transaction"
     );
 }
@@ -293,14 +270,8 @@ void composite_coverage_is_idempotent_ordered_and_component_selectable() {
         },
     };
     const auto final = warm.render_rgb8_layers_with_mask_coverage_cancellable(layers, 0U, {});
-    const auto selected = warm.render_rgb8_layers_with_mask_coverage_cancellable(
-        layers,
-        0U,
-        {},
-        {},
-        nullptr,
-        2U
-    );
+    const auto selected =
+        warm.render_rgb8_layers_with_mask_coverage_cancellable(layers, 0U, {}, {}, nullptr, 2U);
     expect(
         final.completed.has_value() && final.completed->mask_coverage.has_value()
             && selected.completed.has_value() && selected.completed->mask_coverage.has_value(),
@@ -313,14 +284,15 @@ void composite_coverage_is_idempotent_ordered_and_component_selectable() {
     const auto& final_coverage = *final.completed->mask_coverage;
     const auto& selected_coverage = *selected.completed->mask_coverage;
     expect(
-        !final_coverage.component_index.has_value()
-            && selected_coverage.component_index == 2U,
+        !final_coverage.component_index.has_value() && selected_coverage.component_index == 2U,
         "coverage identity distinguishes the final composition from a selected leaf"
     );
     expect(
-        std::all_of(final_coverage.samples.begin(), final_coverage.samples.end(), [](const auto value) {
-            return value == 51U;
-        })
+        std::all_of(
+            final_coverage.samples.begin(),
+            final_coverage.samples.end(),
+            [](const auto value) { return value == 51U; }
+        )
             && std::all_of(
                 selected_coverage.samples.begin(),
                 selected_coverage.samples.end(),
@@ -345,11 +317,8 @@ void composite_coverage_is_idempotent_ordered_and_component_selectable() {
             .nodes = {no_op_node()},
         },
     };
-    const auto reordered = warm.render_rgb8_layers_with_mask_coverage_cancellable(
-        reordered_layers,
-        0U,
-        {}
-    );
+    const auto reordered =
+        warm.render_rgb8_layers_with_mask_coverage_cancellable(reordered_layers, 0U, {});
     expect(
         reordered.completed.has_value() && reordered.completed->mask_coverage.has_value()
             && std::all_of(
@@ -373,13 +342,7 @@ void invalid_target_and_cancellation_fail_closed() {
         },
     };
     try {
-        static_cast<void>(
-            warm.render_rgb8_layers_with_mask_coverage_cancellable(
-                layers,
-                1U,
-                {}
-            )
-        );
+        static_cast<void>(warm.render_rgb8_layers_with_mask_coverage_cancellable(layers, 1U, {}));
         expect(false, "out-of-range coverage target must throw");
     } catch (const image::DecodeError& error) {
         expect(
@@ -391,21 +354,14 @@ void invalid_target_and_cancellation_fail_closed() {
     std::stop_source stop;
     stop.request_stop();
     const auto cancelled =
-        warm.render_rgb8_layers_with_mask_coverage_cancellable(
-            layers,
-            0U,
-            stop.get_token()
-        );
-    expect(
-        cancelled.cancelled(),
-        "cancellation publishes neither the preview nor mask half"
-    );
+        warm.render_rgb8_layers_with_mask_coverage_cancellable(layers, 0U, stop.get_token());
+    expect(cancelled.cancelled(), "cancellation publishes neither the preview nor mask half");
 }
 
 } // namespace
 
 int main() {
-    five_kinds_publish_geometrically_paired_r8();
+    supported_kinds_publish_geometrically_paired_r8();
     target_semantics_capture_without_mutating_the_frame();
     analyzed_jpeg_keeps_the_same_coverage_transaction();
     composite_coverage_is_idempotent_ordered_and_component_selectable();

@@ -1,4 +1,5 @@
 #include "adjustment_render_wire.hpp"
+#include "../edit/condition_mask.hpp"
 
 #include <shadow/image/adjustment_parameters.hpp>
 #include <shadow/image/cxx_bridge.hpp>
@@ -512,16 +513,19 @@ void require_parameter_count(
         };
         std::size_t legacy_size = 4;
         for (const auto count : source.parameter_group_lengths) {
-            if (!count || count > 2048) throw_invalid_adjustment_plan("invalid paint point count");
+            if (!count || count > 2048)
+                throw_invalid_adjustment_plan("invalid paint point count");
             legacy_size += 8U + 3U * count;
         }
-        const bool extended = source.parameters.size() == legacy_size + 7U * source.parameter_group_lengths.size();
+        const bool extended =
+            source.parameters.size() == legacy_size + 7U * source.parameter_group_lengths.size();
         if (!extended && source.parameters.size() != legacy_size)
             throw_invalid_adjustment_plan("invalid paint brush wire length");
         const std::size_t header_size = extended ? 15U : 8U;
         std::size_t offset = 4;
         for (const auto count : source.parameter_group_lengths) {
-            if (!count || count > 2048 || source.parameters.size() - offset < header_size + 3U * count)
+            if (!count || count > 2048
+                || source.parameters.size() - offset < header_size + 3U * count)
                 throw_invalid_adjustment_plan("invalid paint stroke wire");
             if (!integer(source.parameters[offset + 7], 1))
                 throw_invalid_adjustment_plan("invalid paint eraser flag");
@@ -646,6 +650,29 @@ local_mask_leaf(const Wire& source, const std::size_t parameter_offset) {
     }
     const double kind = source.parameters[parameter_offset];
     const double invert = source.parameters[parameter_offset + 8U];
+    if (kind == 7.0) {
+        if (source.parameter_group_lengths.size() != 1U || source.parameter_group_lengths[0] == 0U
+            || source.parameter_group_lengths[0] > 32U
+            || source.parameters.size()
+                   != parameter_offset + 9U
+                          + static_cast<std::size_t>(source.parameter_group_lengths[0]) * 8U
+            || !source.payload.empty() || (invert != 0.0 && invert != 1.0)) {
+            throw_invalid_adjustment_plan("condition mask has invalid program dimensions");
+        }
+        image::LocalMask mask{
+            .kind = image::LocalMaskKind::condition_expression,
+            .invert = invert == 1.0
+        };
+        for (std::size_t offset = parameter_offset + 9U; offset < source.parameters.size();
+             offset += 8U) {
+            std::array<double, 8U> record{};
+            for (std::size_t i = 0; i < 8U; ++i)
+                record[i] = source.parameters[offset + i];
+            mask.condition_program.push_back(record);
+        }
+        image::detail::validate_condition_program(mask.condition_program);
+        return mask;
+    }
     if ((kind != 1.0 && kind != 2.0 && kind != 3.0 && kind != 4.0 && kind != 5.0 && kind != 6.0)
         || (invert != 0.0 && invert != 1.0)) {
         throw_invalid_adjustment_plan("local-mask leaf kind or inversion is out of range");

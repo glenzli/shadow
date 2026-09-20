@@ -158,6 +158,14 @@ pub(super) const fn detail_tile_rect(rect: ffi::FfiDetailTileRect) -> DetailTile
 fn ffi_local_mask_leaf(mask: &AdjustmentLocalMask) -> (Vec<f64>, Vec<u32>, Vec<u8>) {
     let (kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert, brush_points, payload) =
         match mask {
+            AdjustmentLocalMask::ConditionExpression { expression } => {
+                let program = super::adjustment::condition_mask::condition_program(expression)
+                    .expect("validated condition program");
+                let mut parameters = vec![7.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+                let count = u32::try_from(program.len()).expect("bounded condition count");
+                parameters.extend(program.into_iter().flatten());
+                return (parameters, vec![count], vec![]);
+            }
             AdjustmentLocalMask::LinearGradient {
                 start_x,
                 start_y,

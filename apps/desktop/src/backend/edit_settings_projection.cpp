@@ -2,6 +2,7 @@
 
 #include "backend/rust_qt_projection.hpp"
 
+#include <QJsonDocument>
 #include <QSet>
 
 #include <array>
@@ -25,7 +26,7 @@ void validate_mask_components(const BackendGradeNode& source) {
     QSet<QString> component_ids;
     for (qsizetype index = 0; index < source.local_mask_components.size(); ++index) {
         const auto& component = source.local_mask_components.at(index);
-        if (component.component_id.isEmpty() || component.kind < 1U || component.kind > 6U
+        if (component.component_id.isEmpty() || component.kind < 1U || component.kind > 7U
             || component.operation > 3U || (index == 0 && component.operation != 0U)
             || (index > 0 && component.operation == 0U)
             || component_ids.contains(component.component_id)) {
@@ -46,7 +47,7 @@ void validate_mask_components(const shadow::desktop::FfiGradeNode& source) {
     std::unordered_set<std::string> component_ids;
     for (std::size_t index = 0; index < source.local_mask_components.size(); ++index) {
         const auto& component = source.local_mask_components[index];
-        if (component.component_id.empty() || component.kind < 1U || component.kind > 6U
+        if (component.component_id.empty() || component.kind < 1U || component.kind > 7U
             || component.operation > 3U || (index == 0U && component.operation != 0U)
             || (index > 0U && component.operation == 0U)
             || !component_ids
@@ -371,6 +372,7 @@ shadow::desktop::FfiGradeNode ffi_grade_node(const BackendGradeNode& source) {
         for (const double value : source_component.brush_points) {
             component.brush_points.push_back(value);
         }
+        component.condition_expression = source_component.condition_expression.toStdString();
         component.semantic_query = source_component.semantic_query.toStdString();
         component.semantic_maximum_regions = source_component.semantic_maximum_regions;
         component.semantic_score_threshold_percent =
@@ -424,6 +426,15 @@ BackendGradeNode grade_node(const shadow::desktop::FfiGradeNode& source) {
         for (const double value : source_component.brush_points) {
             component.brush_points.push_back(value);
         }
+        component.condition_expression =
+            source_component.condition_expression.empty()
+                ? QString{}
+                : QString::fromUtf8(
+                      QJsonDocument::fromJson(
+                          qstring(source_component.condition_expression).toUtf8()
+                      )
+                          .toJson(QJsonDocument::Compact)
+                  );
         component.semantic_query = qstring(source_component.semantic_query);
         component.semantic_maximum_regions = source_component.semantic_maximum_regions;
         component.semantic_score_threshold_percent =

@@ -393,6 +393,7 @@ qt_add_executable(
     src/edit_history_controller.cpp
     src/edit_history_restore_projection.cpp
     src/edit_local_mask_controller.cpp
+    src/edit_condition_mask_controller.cpp
     src/edit_liquify_coordinates.cpp
     src/edit_liquify_coordinates.hpp
     src/edit_liquify_controller.cpp
@@ -484,6 +485,8 @@ qt_add_executable(
     src/pipeline_launch.hpp
     src/paint_smoke_harness.cpp
     src/paint_smoke_harness.hpp
+    src/precision_editing_smoke_harness.cpp
+    src/precision_editing_smoke_harness.hpp
     src/pipeline_smoke_harness.cpp
     src/pipeline_smoke_harness.hpp
     src/pipeline_runtime.cpp
@@ -916,6 +919,7 @@ qt_add_qml_module(
         qml/PrecisionRetouchStrokeHandle.qml
         qml/PrecisionSubjectEmphasis.qml
         qml/PrecisionLocalMaskTools.qml
+        qml/PrecisionConditionMaskTools.qml
         qml/PrecisionMaskCreateMenu.qml
         qml/PrecisionSemanticMaskPanel.qml
         qml/PrecisionRetouchTools.qml

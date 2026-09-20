@@ -1,5 +1,6 @@
 #include "local_mask_validation.hpp"
 
+#include "condition_mask.hpp"
 #include "managed_raster_mask.hpp"
 
 #include <shadow/image/edit_error.hpp>
@@ -157,6 +158,9 @@ void validate_local_mask(const LocalMask& mask) {
         }
         validate_normalized(mask.feather, "managed raster feather");
         validate_managed_raster_mask(*mask.managed_raster);
+        return;
+    case LocalMaskKind::condition_expression:
+        validate_condition_program(mask.condition_program);
         return;
     }
     invalid_mask("local-mask has an unsupported kind");

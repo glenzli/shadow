@@ -206,7 +206,7 @@ fn condition_masks_compile_without_changing_authored_units() {
 }
 
 #[test]
-fn composite_condition_masks_fail_at_the_executability_boundary() {
+fn composite_condition_masks_preserve_their_native_program() {
     let unit = |value| UnitInterval::new(value).expect("unit interval");
     let expression = ConditionMaskExpression::all(vec![
         ConditionMaskNode::leaf(ConditionMaskPredicate::oklab_lightness_range(
@@ -223,11 +223,13 @@ fn composite_condition_masks_fail_at_the_executability_boundary() {
     .expect("composite expression");
     let definition =
         MaskDefinition::condition_expression(expression).expect("persistent condition mask");
-    let error = adjustment_local_mask(&definition).expect_err("runtime must reject unsupported");
-    assert!(
-        error
-            .to_string()
-            .contains("persists bounded condition-mask expressions")
+    let compiled = adjustment_local_mask(&definition).expect("scalar conditions compile");
+    let MaskDefinition::ConditionExpression { expression } = definition else {
+        panic!("condition")
+    };
+    assert_eq!(
+        compiled,
+        AdjustmentLocalMask::ConditionExpression { expression }
     );
 }
 

@@ -307,7 +307,10 @@ void EditController::setGradeStack(
         selected_recipe_node_kind_ = QStringLiteral("grade");
     }
     if (local_mask_changed && !selection_changed) {
-        handleSelectedLocalMaskMutation();
+        // Autosave may canonicalize a mask without a subsequent user edit.
+        // Refresh its invalidated coverage too; undo/redo's scheduled preview
+        // is coalesced by the deferred selection refresh.
+        handleMaskSelectionChanged();
     }
     const int new_point_color_count =
         selectedGradeNode() == nullptr ? 0 : PointColorModel::count(selectedGradeNode()->fine);

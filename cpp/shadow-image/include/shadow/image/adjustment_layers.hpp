@@ -4,6 +4,7 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -24,6 +25,7 @@ enum class LocalMaskKind : std::uint8_t {
     luminance_range,
     color_range,
     managed_raster,
+    condition_expression,
 };
 
 // Persisted managed-mask samples use a portable byte contract rather than a
@@ -85,6 +87,9 @@ struct LocalMask final {
     // vector is one bounded ordered composition; this outer mask's `invert`
     // applies once after composition and all other outer leaf slots are ignored.
     std::vector<LocalMaskComponent> components;
+    // Bounded postfix scalar program: opcode + seven double parameters.
+    // 0 lightness, 1 hue, 2 chroma; 4 min, 5 max, 6 complement.
+    std::vector<std::array<double, 8U>> condition_program;
 };
 
 struct LocalMaskComponent final {

@@ -436,6 +436,23 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
     })
 }
 
+fn validate_editable_condition(node: &shadow_domain::ConditionMaskNode) -> AnyResult<()> {
+    use shadow_domain::{ConditionMaskNode, ConditionMaskPredicate};
+    match node {
+        ConditionMaskNode::Leaf {
+            condition: ConditionMaskPredicate::LocalDetailRange { .. },
+        } => bail!("local-detail mask conditions are not supported by this desktop renderer"),
+        ConditionMaskNode::All { children } | ConditionMaskNode::Any { children } => {
+            for child in children {
+                validate_editable_condition(child)?;
+            }
+        }
+        ConditionMaskNode::Not { child } => validate_editable_condition(child)?,
+        ConditionMaskNode::Leaf { .. } => {}
+    }
+    Ok(())
+}
+
 fn recipe_v1_local_mask_from_snapshot(
     snapshot: &RecipeSnapshot,
     layer: &LayerInstance,
@@ -462,15 +479,11 @@ fn recipe_v1_local_mask_from_snapshot(
             reference.revision()
         )
     })?;
-    if matches!(
-        mask.definition(),
-        MaskDefinition::ConditionExpression { .. }
-    ) {
-        bail!(
-            "the current editable Grade Stack cannot project persisted composite condition masks into the Qt DTO"
-        );
-    }
     match mask.definition() {
+        MaskDefinition::ConditionExpression { expression } => {
+            validate_editable_condition(expression.root())?;
+            Ok((Some(mask.definition().clone()), None, None))
+        }
         MaskDefinition::ManagedRaster {
             semantic_intent,
             expansion_percent,
@@ -492,13 +505,11 @@ fn recipe_v1_local_mask_from_snapshot(
                 .components()
                 .iter()
                 .map(|component| {
-                    if matches!(component.definition(), MaskDefinition::ConditionExpression { .. })
-                    {
-                        bail!(
-                            "the current editable Grade Stack cannot project composite condition masks into the Qt DTO"
-                        );
-                    }
                     let definition = match component.definition() {
+                        MaskDefinition::ConditionExpression { expression } => {
+                            validate_editable_condition(expression.root())?;
+                            MaskComponentDraftDefinition::Definition(component.definition().clone())
+                        }
                         MaskDefinition::ManagedRaster {
                             semantic_intent,
                             expansion_percent,
@@ -513,9 +524,7 @@ fn recipe_v1_local_mask_from_snapshot(
                                 semantic_intent: semantic_intent.clone(),
                             },
                         ),
-                        definition => {
-                            MaskComponentDraftDefinition::Definition(definition.clone())
-                        }
+                        definition => MaskComponentDraftDefinition::Definition(definition.clone()),
                     };
                     Ok(MaskComponentDraft {
                         id: component.id(),

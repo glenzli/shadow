@@ -20,6 +20,7 @@ fn unit(value: f64) -> UnitInterval {
 
 fn ffi_mask_component(kind: u8) -> ffi::FfiMaskComponent {
     ffi::FfiMaskComponent {
+        condition_expression: String::new(),
         component_id: "00000000-0000-0000-0000-000000000001".to_owned(),
         operation: 0,
         enabled: true,
@@ -447,7 +448,7 @@ fn typed_mask_components_fail_closed_on_unknown_or_ambiguous_topology() {
 }
 
 #[test]
-fn current_qt_dto_rejects_persisted_composite_condition_masks() {
+fn condition_masks_round_trip_through_the_qt_dto() {
     let expression = ConditionMaskExpression::all(vec![
         ConditionMaskNode::leaf(ConditionMaskPredicate::oklab_lightness_range(
             unit(0.2),
@@ -463,23 +464,14 @@ fn current_qt_dto_rejects_persisted_composite_condition_masks() {
     .expect("expression");
     let definition =
         MaskDefinition::condition_expression(expression).expect("persistent condition mask");
-    let error = ffi_local_mask_fields(Some(&definition), None)
-        .expect_err("DTO must reject unsupported shape");
-    assert!(
-        error
-            .to_string()
-            .contains("current Qt Grade Node DTO cannot represent")
-    );
-
+    let fields = ffi_local_mask_fields(Some(&definition), None).expect("condition projection");
+    assert_eq!(fields.0, 7);
     let mut grade_stack = GradeStackDraft::default();
-    grade_stack.grade_nodes[0].local_mask = Some(definition);
-    let projection_error = encode_grade_stack_draft_recipe_v1(grade_stack)
-        .expect_err("complete desktop projection must return the unsupported condition");
-    assert!(
-        projection_error
-            .to_string()
-            .contains("current Qt Grade Node DTO cannot represent")
-    );
+    grade_stack.grade_nodes[0].local_mask = Some(definition.clone());
+    let encoded = encode_grade_stack_draft_recipe_v1(grade_stack).expect("encode condition");
+    let component = &encoded.grade_nodes[0].local_mask_components[0];
+    let (decoded, _) = local_mask_definition_from_ffi(component, 0, 0).expect("decode condition");
+    assert_eq!(decoded, Some(definition));
 }
 
 #[test]

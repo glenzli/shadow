@@ -17,7 +17,7 @@ fn unit(value: f64) -> UnitInterval {
 }
 
 #[test]
-fn persisted_but_unexecutable_conditions_fail_before_qt_projection() {
+fn persisted_conditions_reopen_without_losing_authored_semantics() {
     let expression = ConditionMaskExpression::all(vec![
         ConditionMaskNode::leaf(ConditionMaskPredicate::oklab_lightness_range(
             unit(0.2),
@@ -36,12 +36,11 @@ fn persisted_but_unexecutable_conditions_fail_before_qt_projection() {
         Some(MaskDefinition::condition_expression(expression).expect("condition mask"));
     let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("persistable Recipe");
 
-    let error = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
-        .expect_err("current desktop DTO must reject unsupported condition");
-    assert!(
-        error
-            .to_string()
-            .contains("current editable Grade Stack cannot project")
+    let reopened =
+        decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot).expect("reopen condition mask");
+    assert_eq!(
+        reopened.grade_nodes[0].local_mask,
+        grade_stack.grade_nodes[0].local_mask
     );
 }
 

@@ -40,6 +40,9 @@ struct WarmLayerBlendParameters {
     float4 rgb_to_xyz_row_0;
     float4 rgb_to_xyz_row_1;
     float4 rgb_to_xyz_row_2;
+    uint condition_count;
+    uint condition_padding[3];
+    float condition_program[32][8];
 };
 
 struct WarmBrushCapsule {

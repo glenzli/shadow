@@ -1,4 +1,5 @@
 #include "local_mask_coverage.hpp"
+#include "condition_mask.hpp"
 
 #include "managed_raster_mask.hpp"
 #include "perceptual_hue_selection.hpp"
@@ -81,11 +82,14 @@ PreparedLocalMaskCoverage prepare_local_mask_coverage(
                 prepare_local_mask_coverage(component.mask, source, full_dimensions)
             );
         }
-    } else if (mask.kind == LocalMaskKind::luminance_range
-               || mask.kind == LocalMaskKind::color_range) {
+    } else if (
+        mask.kind == LocalMaskKind::luminance_range || mask.kind == LocalMaskKind::color_range
+        || mask.kind == LocalMaskKind::condition_expression
+    ) {
         prepared.color_transform = prepare_working_space_transform(source.working_space);
-    } else if (mask.kind == LocalMaskKind::managed_raster
-               && (mask.radius_y != 0.0 || mask.feather != 0.0)) {
+    } else if (
+        mask.kind == LocalMaskKind::managed_raster && (mask.radius_y != 0.0 || mask.feather != 0.0)
+    ) {
         prepared.refined_managed_raster =
             refine_managed_raster_mask(*mask.managed_raster, mask.radius_y, mask.feather);
     }
@@ -210,6 +214,12 @@ double local_mask_coverage_at(
                    );
         break;
     }
+    case LocalMaskKind::condition_expression:
+        coverage = condition_coverage(
+            mask.condition_program,
+            working_rgb_to_oklab(*prepared.color_transform, source_rgb)
+        );
+        break;
     case LocalMaskKind::managed_raster:
         coverage =
             prepared.refined_managed_raster.has_value()

@@ -38,6 +38,9 @@ pub enum AdjustmentRasterMaskEncoding {
 /// A normalized local mask ready for the native layer mixer.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AdjustmentLocalMask {
+    ConditionExpression {
+        expression: shadow_domain::ConditionMaskExpression,
+    },
     LinearGradient {
         start_x: f64,
         start_y: f64,
@@ -202,6 +205,9 @@ pub(super) fn validate_adjustment_local_mask(
     mask: &AdjustmentLocalMask,
 ) -> Result<(), BridgeError> {
     match mask {
+        AdjustmentLocalMask::ConditionExpression { expression } => {
+            super::condition_mask::condition_program(expression)?;
+        }
         AdjustmentLocalMask::LinearGradient {
             start_x,
             start_y,

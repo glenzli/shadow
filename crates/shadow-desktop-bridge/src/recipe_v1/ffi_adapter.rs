@@ -188,9 +188,7 @@ fn ffi_local_mask_fields(
             Vec::new(),
         ),
         Some(MaskDefinition::ConditionExpression { .. }) => {
-            bail!(
-                "the current Qt Grade Node DTO cannot represent composite, chroma-qualified, or local-detail condition masks"
-            )
+            (7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false, Vec::new())
         }
         Some(MaskDefinition::Composite { .. }) => {
             bail!("a composite mask must project through the typed component vector")
@@ -250,6 +248,9 @@ fn local_mask_definition_from_ffi(
     Option<PreservedManagedRasterSettings>,
 )> {
     let location = format!("Grade Node {grade_node_index} mask component {component_index}");
+    if component.kind != 7 && !component.condition_expression.is_empty() {
+        bail!("{location} carries a condition expression on a different mask kind");
+    }
     if component.kind != LOCAL_MASK_MANAGED_RASTER
         && (!component.semantic_query.is_empty()
             || component.semantic_maximum_regions != 0
@@ -268,6 +269,24 @@ fn local_mask_definition_from_ffi(
         UnitInterval::new(value).with_context(|| format!("{location} {name} must be in [0, 1]"))
     };
     match component.kind {
+        7 => {
+            if component.condition_expression.len() > 16_384 {
+                bail!("{location} condition expression exceeds its bounded payload");
+            }
+            let mut expression: shadow_domain::ConditionMaskExpression =
+                serde_json::from_str(&component.condition_expression)?;
+            if component.leaf_invert {
+                expression = shadow_domain::ConditionMaskExpression::new(
+                    shadow_domain::ConditionMaskNode::Not {
+                        child: Box::new(expression.root().clone()),
+                    },
+                )?;
+            }
+            Ok((
+                Some(MaskDefinition::condition_expression(expression)?),
+                None,
+            ))
+        }
         LOCAL_MASK_NONE => bail!("{location} cannot use the empty mask kind"),
         LOCAL_MASK_LINEAR_GRADIENT => Ok((
             Some(MaskDefinition::linear_gradient(
@@ -499,6 +518,12 @@ fn ffi_mask_component(
         bail!("a typed mask component cannot project an empty leaf");
     }
     Ok(ffi::FfiMaskComponent {
+        condition_expression: match mask {
+            Some(MaskDefinition::ConditionExpression { expression }) => {
+                serde_json::to_string(expression)?
+            }
+            _ => String::new(),
+        },
         component_id: id.to_string(),
         operation: mask_component_operation_ffi(operation),
         enabled,

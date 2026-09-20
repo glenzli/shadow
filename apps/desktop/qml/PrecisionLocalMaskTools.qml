@@ -18,10 +18,10 @@ ColumnLayout {
 
     readonly property var mask: inspector.editor.selectedLocalMask
     readonly property int kind: Number(mask.kind || 0)
-    readonly property bool activeMask: kind >= 1 && kind <= 6
+    readonly property bool activeMask: kind >= 1 && kind <= 7
     readonly property bool nodeEditable: inspector.editor.active && inspector.editor.hasSelectedGradeNode && inspector.editor.gradeNodeEnabled && !inspector.editor.stateBusy
-    readonly property string kindLabel: kind === 1 ? qsTr("Linear gradient") : kind === 2 ? qsTr("Radial gradient") : kind === 3 ? qsTr("Brush") : kind === 4 ? qsTr("Luminance range") : kind === 5 ? qsTr("Color range") : kind === 6 ? qsTr("AI mask") : qsTr("No mask")
-    readonly property url kindIcon: kind === 1 ? "qrc:/icons/mask-linear.svg" : kind === 2 ? "qrc:/icons/mask-radial.svg" : kind === 3 ? "qrc:/icons/brush.svg" : kind === 4 ? "qrc:/icons/mask-luminance-range.svg" : kind === 5 ? "qrc:/icons/mask-color-range.svg" : kind === 6 ? "qrc:/icons/mask.svg" : "qrc:/icons/mask-create.svg"
+    readonly property string kindLabel: kind === 1 ? qsTr("Linear gradient") : kind === 2 ? qsTr("Radial gradient") : kind === 3 ? qsTr("Brush") : kind === 4 ? qsTr("Luminance range") : kind === 5 ? qsTr("Color range") : kind === 6 ? qsTr("AI mask") : kind === 7 ? qsTr("Conditions") : qsTr("No mask")
+    readonly property url kindIcon: kind === 1 ? "qrc:/icons/mask-linear.svg" : kind === 2 ? "qrc:/icons/mask-radial.svg" : kind === 3 ? "qrc:/icons/brush.svg" : kind === 4 ? "qrc:/icons/mask-luminance-range.svg" : kind === 5 ? "qrc:/icons/mask-color-range.svg" : kind === 6 ? "qrc:/icons/mask.svg" : kind === 7 ? "qrc:/icons/mask-intersect.svg" : "qrc:/icons/mask-create.svg"
 
     function operationLabel(operation) {
         return operation === 0 ? qsTr("Base")
@@ -34,7 +34,7 @@ ColumnLayout {
             : kindValue === 2 ? qsTr("Radial gradient")
             : kindValue === 3 ? qsTr("Brush")
             : kindValue === 4 ? qsTr("Luminance range")
-            : kindValue === 5 ? qsTr("Color range") : qsTr("AI mask")
+            : kindValue === 5 ? qsTr("Color range") : kindValue === 7 ? qsTr("Conditions") : qsTr("AI mask")
     }
 
     spacing: 8
@@ -444,6 +444,15 @@ ColumnLayout {
             }
         }
 
+        PrecisionConditionMaskTools {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: localMask.kind === 4 || localMask.kind === 5 || localMask.kind === 7
+            editor: localMask.inspector.editor
+            editable: localMask.nodeEditable
+        }
+
         Repeater {
             model: localMask.kind === 1 ? [
                 {
@@ -497,49 +506,6 @@ ColumnLayout {
                     "name": qsTr("Feather"),
                     "neutral": 0.6
                 }
-            ] : localMask.kind === 4 ? [
-                {
-                    "key": "lower",
-                    "name": qsTr("Lower"),
-                    "to": Number(localMask.mask.upper),
-                    "neutral": 0.2
-                },
-                {
-                    "key": "upper",
-                    "name": qsTr("Upper"),
-                    "from": Number(localMask.mask.lower),
-                    "neutral": 0.8
-                },
-                {
-                    "key": "softness",
-                    "name": qsTr("Softness"),
-                    "neutral": 0.08
-                }
-            ] : localMask.kind === 5 ? [
-                {
-                    "key": "centerHue",
-                    "name": qsTr("Hue"),
-                    "from": 0,
-                    "to": 359 / 360,
-                    "neutral": 30 / 360,
-                    "step": 1 / 360,
-                    "multiplier": 360,
-                    "suffix": "°"
-                },
-                {
-                    "key": "width",
-                    "name": qsTr("Range"),
-                    "from": 1 / 180,
-                    "neutral": 30 / 180,
-                    "step": 1 / 180,
-                    "multiplier": 180,
-                    "suffix": "°"
-                },
-                {
-                    "key": "softness",
-                    "name": qsTr("Softness"),
-                    "neutral": 0.45
-                }
             ] : localMask.kind === 6 ? [
                 {
                     "key": "x0",
@@ -557,6 +523,8 @@ ColumnLayout {
 
             delegate: ShadowSlider {
                 required property var modelData
+                visible: localMask.kind !== 4 && localMask.kind !== 5
+                Layout.preferredHeight: visible ? implicitHeight : 0
 
                 Layout.fillWidth: true
                 Layout.leftMargin: 14
@@ -581,7 +549,7 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
-            visible: localMask.activeMask
+            visible: localMask.activeMask && localMask.kind !== 4 && localMask.kind !== 5 && localMask.kind !== 7
             spacing: 8
 
             Label {

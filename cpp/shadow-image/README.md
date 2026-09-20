@@ -655,7 +655,10 @@ admission contract. CPU layer execution and resident Metal lowering both call it
 disabled or neutral content, so malformed persisted recipes cannot acquire backend-dependent
 validation.
 `src/edit/local_mask_coverage.*` owns CPU mask dispatch, pre-adjustment-input capture, continuous
-brush capsules, condition-mask color conversion, and scalar geometry/R8 projection;
+brush capsules, condition-mask color conversion, and scalar geometry/R8 projection.
+`src/edit/condition_mask.hpp` owns bounded postfix admission and scalar evaluation for grouped
+lightness/hue/chroma conditions; `warm_edit_gpu_mask_plan.*` lowers the same program into the
+resident Metal mask ABI. Existing spatial composites retain their explicit CPU replay route;
 `src/edit/managed_raster_mask.*` separately owns the bounded portable Gray8/Gray16Float contract,
 validation, binary16 decoding, and pixel-center bilinear sampling for application-managed masks.
 `src/edit/local_mask.cpp` consumes that evaluator for layer blending; a selected active layer

@@ -2,6 +2,7 @@
 #include "edit_controller.hpp"
 #include "paint_smoke_harness.hpp"
 #include "pipeline_run_controller.hpp"
+#include "precision_editing_smoke_harness.hpp"
 #include <QCoreApplication>
 #include <QDebug>
 #include <QQmlApplicationEngine>
@@ -16,6 +17,10 @@ void installPipelineSmokeHarness(
     EditController& editor
 ) {
     const QString action = qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_ACTION");
+    if (action == QStringLiteral("precision")) {
+        installPrecisionEditingSmokeHarness(engine, pipeline, editor);
+        return;
+    }
     if (action == QStringLiteral("paint")) {
         installPaintSmokeHarness(pipeline, editor);
         return;

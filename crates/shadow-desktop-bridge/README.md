@@ -88,9 +88,10 @@ mode.
 Recipe v1 keeps existing single Oklab-lightness and zero-minimum-chroma Oklch-hue masks on their
 byte-stable, GPU-executable representation. The domain can also persist bounded `all`/`any`/`not`
 condition expressions, chroma-qualified predicates, and a scale-explicit local-detail predicate.
-Those richer values currently fail before Qt projection and before render-plan execution; they are
-not flattened, silently omitted, or advertised as active UI features. The next execution slice must
-extend the Qt/native mask protocol and prove CPU/Metal parity before removing either gate.
+The Qt condition editor preserves bounded expressions as domain JSON. Scalar expressions lower
+through `shadow-bridge::adjustment::condition_mask` to a bounded postfix program shared by CPU and
+resident Metal; condition thresholds always read the node input before its adjustments. The
+local-detail predicate remains capability-gated until neighborhood execution is available.
 
 The Recipe draft and flat Qt DTO expose the optional, photo-private Liquify structural node as one
 enabled flag plus an ordered tagged Push/Reconstruct vector. Empty plus disabled is the canonical

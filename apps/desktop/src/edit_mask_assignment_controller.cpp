@@ -1,3 +1,4 @@
+#include "edit_condition_mask_controller.hpp"
 #include "edit_controller.hpp"
 
 #include "edit_stack.hpp"
@@ -50,13 +51,15 @@ void EditController::initializeLocalMaskComponent(
         component.x0 = 30.0 / 360.0;
         component.x1 = 30.0 / 180.0;
         component.feather = 0.45;
+    } else if (kind == 7) {
+        component.condition_expression = defaultConditionMaskExpression();
     }
 }
 
 bool EditController::createLocalMask(const int kind, const int destination) {
     constexpr int current_node_destination = 0;
     constexpr int new_node_destination = 1;
-    if (!active_ || interactionLocked() || kind < 1 || kind > 5
+    if (!active_ || interactionLocked() || kind < 1 || (kind > 5 && kind != 7)
         || (destination != current_node_destination && destination != new_node_destination)) {
         return false;
     }
@@ -144,7 +147,7 @@ bool EditController::addLocalMaskComponent(const int kind, const int operation) 
                                  ? nullptr
                                  : &grade_stack_.grade_nodes[selected_grade_node_index_];
     if (!active_ || interactionLocked() || grade_node == nullptr || !grade_node->enabled || kind < 1
-        || kind > 5 || operation < 1 || operation > 3
+        || (kind > 5 && kind != 7) || operation < 1 || operation > 3
         || grade_node->local_mask_components.isEmpty()) {
         return false;
     }

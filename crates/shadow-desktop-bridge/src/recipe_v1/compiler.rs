@@ -520,10 +520,10 @@ fn adjustment_local_mask_with_resolver(
             softness: softness.get(),
             invert: *invert,
         },
-        MaskDefinition::ConditionExpression { .. } => {
-            bail!(
-                "Recipe v1 persists bounded condition-mask expressions, but this renderer supports only single luminance and zero-minimum-chroma hue leaves"
-            )
+        MaskDefinition::ConditionExpression { expression } => {
+            AdjustmentLocalMask::ConditionExpression {
+                expression: expression.clone(),
+            }
         }
         MaskDefinition::Composite { composite } => AdjustmentLocalMask::Composite {
             components: composite
