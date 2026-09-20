@@ -472,6 +472,9 @@ qt_add_executable(
     src/main.cpp
     src/pipeline_launch.cpp
     src/pipeline_launch.hpp
+    src/pipeline_smoke_harness.cpp
+    src/pipeline_smoke_harness.hpp
+    src/pipeline_runtime.cpp
     src/pipeline_run_controller.cpp
     src/pipeline_run_controller.hpp
     src/ai_preferences.cpp
@@ -837,6 +840,7 @@ qt_add_qml_module(
         qml/SettingsStoragePane.qml
         qml/Main.qml
         qml/PipelineEditor.qml
+        qml/PipelineExportDialog.qml
         qml/MainTitleBar.qml
         qml/MainLibraryFilterBar.qml
         qml/MainLibrarySortMenu.qml

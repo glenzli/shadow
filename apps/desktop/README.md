@@ -93,14 +93,18 @@ Application startup is split from environment-driven automation:
   registration.
 - [`src/main.cpp`](src/main.cpp) owns process startup, isolated RAW-helper policy, local Catalog
   recovery, service composition, QML loading, and the application run loop.
-- [`src/pipeline_launch.*`](src/pipeline_launch.hpp) owns the versioned caller request contract for
-  `--pipeline-edit`: it validates one exact input, a caller-owned new output path, export settings,
-  and a caller-owned result path before the normal application composition begins.
-  [`src/pipeline_run_controller.*`](src/pipeline_run_controller.hpp) owns the isolated temporary
-  runtime, one-photo edit lifecycle, direct durable export, cancellation, and terminal result
-  publication. It deliberately constructs no normal Library, Review, People, or catalog-shell
-  controller. [`qml/PipelineEditor.qml`](qml/PipelineEditor.qml) is the corresponding locked
-  Precision-only window: its only terminal actions are cancel and complete/export.
+- [`src/pipeline_launch.*`](src/pipeline_launch.hpp) owns isolated-editor admission: direct
+  `--isolate` file arguments and compatible versioned `--pipeline-edit` requests. It rejects
+  duplicate outputs, result/output collisions and replacement of existing files, and publishes
+  versioned results without overwriting a competing result.
+  [`src/pipeline_runtime.cpp`](src/pipeline_runtime.cpp) composes the task-private Catalog,
+  settings, cache, Precision and interchange controllers, without normal Library/Review/People
+  controllers. [`src/pipeline_run_controller.*`](src/pipeline_run_controller.hpp) owns asynchronous
+  input admission, per-photo selection, persistence before batch export, progress, cancellation,
+  partial results and terminal publication. [`qml/PipelineEditor.qml`](qml/PipelineEditor.qml)
+  owns the independent window; [`qml/PipelineExportDialog.qml`](qml/PipelineExportDialog.qml)
+  owns interactive output choices. [`src/pipeline_smoke_harness.*`](src/pipeline_smoke_harness.hpp)
+  drives opt-in packaged session acceptance, registered in `ShadowDesktopPipelineTests.cmake`.
 - [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,
   authorization-gated anonymous-people analysis lifecycle: persisted local-summary loading, worker
   admission, safe failure presentation, conflict-safe group selection, durable merge delegation,
@@ -1528,3 +1532,49 @@ one active search and one replaceable pending query. Clear and replacement cance
 the active Rust request and reject late results. The core caches exact-source image
 vectors across queries; QML displays relative ranking and scan coverage without
 inventing strong-match confidence. Model files remain managed by Infer Runtime.
+
+## Independent photo editor
+
+Run `Shadow --isolate /absolute/photo.nef /absolute/another.jpg`, or `Shadow --isolate` to
+choose/drop files in the window. Input decoding uses the installed RAW, JPEG, HEIF and supported
+TIFF providers; PNG input is currently unsupported (PNG output is available). This opens an independent process with a private temporary
+Catalog/cache/settings root; the regular Library can remain open. Add up to 256 local photos,
+switch with the photo selector or previous/next buttons, then export the set. Switching saves
+each photo's working Recipe in this session. Closing without export requires confirmation and
+removes the temporary session; this is not a persistent project format.
+
+Interactive export chooses an existing output folder, JPEG/PNG/TIFF, sRGB/Display P3 and format
+quality/bit depth. Outputs retain full resolution, use `-edited` filenames with numeric collision
+suffixes, and do not copy source metadata. Existing files are never replaced. Stopping export
+keeps completed files and the live session; retry processes the remaining photos. Export is
+atomic per file, not an all-or-nothing transaction across the batch.
+
+External callers retain `Shadow --pipeline-edit --request /absolute/request.json --result
+/absolute/result.json`. The single-photo `shadow-pipeline-edit-20260814.1` request and result stay
+compatible. Batch callers use:
+
+```json
+{
+  "schema": "shadow-pipeline-edit-20260920.1",
+  "requestId": "caller-job-id",
+  "photos": [
+    {"input": "/absolute/first.nef", "output": "/absolute/first.png"},
+    {"input": "/absolute/second.jpg", "output": "/absolute/second.png"}
+  ],
+  "export": {"format": "png", "colorSpace": "srgb"}
+}
+```
+
+The result uses `shadow-pipeline-result-20260920.1`, echoes `requestId`, and records the overall
+`outcome`, `errors`, and a `photos` array with each input/output and terminal outcome. Completed
+outputs remain identified even if the rest is cancelled or fails. Exit codes are 0 completed,
+2 cancelled, and 1 failed (including result publication failure). Output and result paths must
+be new files in existing directories. DNG source-stage export is excluded because it does not
+apply editing adjustments. Relative paths, when supplied, resolve against the process working
+directory. Requests are limited to 1 MiB and 256 photos.
+
+`SHADOW_PIPELINE_SMOKE_ACTION=complete|cancel` enables the otherwise inert packaged acceptance
+harness. The complete scenario changes the first photo's exposure, switches to another photo,
+checks state separation, returns and checks persistence, then exports. Interactive smoke also
+requires `SHADOW_PIPELINE_SMOKE_OUTPUT`. Use only disposable test outputs. The registered tests
+create synthetic raster fixtures and verify original bytes and a separate Library sentinel.

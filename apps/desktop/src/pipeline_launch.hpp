@@ -1,22 +1,34 @@
 #pragma once
 
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
-
+#include <QVector>
 #include <optional>
 
-/// Caller-owned immutable request for one isolated pipeline-editor process.
-/// Paths are resolved before any task-private runtime state is created.
-struct PipelineLaunchRequest final {
-    QString request_id;
+struct PipelinePhotoRequest final {
     QString input_path;
     QString output_path;
-    QString result_path;
-    QVariantMap export_options;
 };
 
-/// Returns no value without an error when normal desktop startup was requested.
-/// A non-empty error means `--pipeline-edit` was present but invalid.
+/// Immutable caller contract, or an interactive --isolate launch. No normal
+/// Library state is consulted while resolving these paths.
+struct PipelineLaunchRequest final {
+    QString request_id;
+    QVector<PipelinePhotoRequest> photos;
+    QString result_path;
+    QVariantMap export_options;
+    bool interactive = false;
+    bool legacy_single = false;
+};
+
 [[nodiscard]] std::optional<PipelineLaunchRequest>
 parsePipelineLaunch(const QStringList& arguments, QString* error);
+
+[[nodiscard]] bool writePipelineResult(
+    const PipelineLaunchRequest& request,
+    const QString& outcome,
+    const QStringList& errors,
+    const QSet<QString>& completed = {}
+);

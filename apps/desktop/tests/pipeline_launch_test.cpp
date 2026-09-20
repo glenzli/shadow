@@ -1,67 +1,151 @@
 #include "pipeline_launch.hpp"
-
+#include <QDebug>
+#include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
-
 #include <cstdlib>
 
 namespace {
-
-[[nodiscard]] bool writeFile(const QString& path, const QByteArray& bytes) {
+bool writeFile(const QString& path, const QByteArray& bytes) {
     QFile file(path);
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
 }
-
+bool require(bool condition, const char* message) {
+    if (!condition)
+        qCritical() << message;
+    return condition;
+}
 } // namespace
-
 int main() {
     QTemporaryDir directory;
-    if (!directory.isValid()) {
+    if (!directory.isValid())
         return EXIT_FAILURE;
-    }
-    const QString input = directory.filePath(QStringLiteral("input.jpg"));
-    const QString request = directory.filePath(QStringLiteral("request.json"));
-    const QString result = directory.filePath(QStringLiteral("result.json"));
-    const QString output = directory.filePath(QStringLiteral("output.jpg"));
-    if (!writeFile(input, QByteArrayLiteral("not decoded by this parser"))) {
+    const QDir canonical(QDir(directory.path()).canonicalPath());
+    const QString input = canonical.filePath("input.jpg");
+    const QString second = canonical.filePath("second.jpg");
+    const QString request = canonical.filePath("request.json");
+    const QString result = canonical.filePath("result.json");
+    const QString output = canonical.filePath("output.jpg");
+    if (!writeFile(input, "parser fixture") || !writeFile(second, "parser fixture"))
         return EXIT_FAILURE;
-    }
-    const QJsonObject request_object{
-        {QStringLiteral("schema"), QStringLiteral("shadow-pipeline-edit-20260814.1")},
-        {QStringLiteral("requestId"), QStringLiteral("pipeline-launch-contract")},
-        {QStringLiteral("input"), input},
-        {QStringLiteral("output"), output},
-        {QStringLiteral("export"), QJsonObject{{QStringLiteral("format"), QStringLiteral("jpeg")}}},
+    QJsonObject object{
+        {"schema", "shadow-pipeline-edit-20260814.1"},
+        {"requestId", "contract"},
+        {"input", input},
+        {"output", output},
+        {"export", QJsonObject{{"format", "jpeg"}}}
     };
-    if (!writeFile(request, QJsonDocument(request_object).toJson(QJsonDocument::Compact))) {
-        return EXIT_FAILURE;
-    }
+    const QStringList args{"Shadow", "--pipeline-edit", "--request", request, "--result", result};
     QString error;
-    const auto parsed = parsePipelineLaunch(
-        {QStringLiteral("Shadow"),
-         QStringLiteral("--pipeline-edit"),
-         QStringLiteral("--request"),
-         request,
-         QStringLiteral("--result"),
-         result},
-        &error
-    );
-    if (!parsed.has_value() || !error.isEmpty() || parsed->input_path != input
-        || parsed->output_path != output || parsed->result_path != result) {
+    const auto parse = [&] {
+        writeFile(request, QJsonDocument(object).toJson());
+        return parsePipelineLaunch(args, &error);
+    };
+    const auto legacy = parse();
+    if (!require(
+            legacy && legacy->legacy_single && legacy->photos.size() == 1
+                && legacy->photos[0].input_path == input && legacy->photos[0].output_path == output
+                && legacy->result_path == result && error.isEmpty(),
+            "legacy contract changed"
+        ))
         return EXIT_FAILURE;
-    }
-    const auto normal = parsePipelineLaunch({QStringLiteral("Shadow")}, &error);
-    if (normal.has_value() || !error.isEmpty()) {
+    auto normal = parsePipelineLaunch({"Shadow"}, &error);
+    if (!require(!normal && error.isEmpty(), "normal launch captured"))
         return EXIT_FAILURE;
-    }
-    const auto invalid = parsePipelineLaunch(
-        {QStringLiteral("Shadow"),
-         QStringLiteral("--pipeline-edit"),
-         QStringLiteral("--request"),
-         request},
-        &error
-    );
-    return !invalid.has_value() && !error.isEmpty() ? EXIT_SUCCESS : EXIT_FAILURE;
+    auto direct = parsePipelineLaunch({"Shadow", "--isolate", input, second, input}, &error);
+    if (!require(
+            direct && direct->interactive && direct->photos.size() == 2,
+            "direct deduplication"
+        ))
+        return EXIT_FAILURE;
+    if (!require(
+            parsePipelineLaunch({"Shadow", "--isolate"}, &error).has_value(),
+            "empty interactive launch"
+        ))
+        return EXIT_FAILURE;
+    if (!require(
+            !parsePipelineLaunch({"Shadow", "--isolate", "--bad"}, &error),
+            "unknown flag accepted"
+        ))
+        return EXIT_FAILURE;
+    if (!require(
+            !parsePipelineLaunch({"Shadow", "--isolate", "--pipeline-edit"}, &error),
+            "mixed modes accepted"
+        ))
+        return EXIT_FAILURE;
+    if (!require(
+            !parsePipelineLaunch({"Shadow", "--pipeline-edit", "--request", request}, &error),
+            "missing result accepted"
+        ))
+        return EXIT_FAILURE;
+    object["output"] = result;
+    if (!require(!parse(), "result/output collision accepted"))
+        return EXIT_FAILURE;
+    object["output"] = input;
+    if (!require(!parse(), "original overwrite accepted"))
+        return EXIT_FAILURE;
+    object["output"] = output;
+    object["schema"] = "shadow-pipeline-edit-20260920.1";
+    const QJsonObject first{{"input", input}, {"output", output}};
+    const QJsonObject next{{"input", second}, {"output", canonical.filePath("second-out.jpg")}};
+    object["photos"] = QJsonArray{first, next};
+    const auto batch = parse();
+    if (!require(batch && batch->photos.size() == 2 && !batch->legacy_single, "batch admission"))
+        return EXIT_FAILURE;
+    if (!require(writePipelineResult(*batch, "cancelled", {}, {output}), "result publication"))
+        return EXIT_FAILURE;
+    QFile receiptFile(result);
+    if (!receiptFile.open(QIODevice::ReadOnly))
+        return EXIT_FAILURE;
+    const QByteArray originalReceipt = receiptFile.readAll();
+    receiptFile.close();
+    const auto receipt = QJsonDocument::fromJson(originalReceipt).object();
+    if (!require(
+            receipt["photos"].toArray()[0].toObject()["outcome"] == "completed"
+                && receipt["photos"].toArray()[1].toObject()["outcome"] == "cancelled",
+            "partial completion receipt"
+        ))
+        return EXIT_FAILURE;
+    if (!require(
+            !writePipelineResult(*batch, "failed", {"late result"}),
+            "result overwrite accepted"
+        ))
+        return EXIT_FAILURE;
+    if (!receiptFile.open(QIODevice::ReadOnly) || receiptFile.readAll() != originalReceipt)
+        return EXIT_FAILURE;
+    receiptFile.close();
+    if (!QFile::remove(result))
+        return EXIT_FAILURE;
+    object["photos"] = QJsonArray{first, first};
+    if (!require(!parse(), "duplicate batch paths"))
+        return EXIT_FAILURE;
+    QJsonObject alias = next;
+    alias["output"] = result;
+    object["photos"] = QJsonArray{first, alias};
+    if (!require(!parse(), "batch result collision"))
+        return EXIT_FAILURE;
+    object["photos"] = QJsonArray{};
+    if (!require(!parse(), "empty batch accepted"))
+        return EXIT_FAILURE;
+    QJsonArray too_many;
+    for (int i = 0; i < 257; ++i)
+        too_many.append(first);
+    object["photos"] = too_many;
+    if (!require(!parse(), "oversized batch accepted"))
+        return EXIT_FAILURE;
+    object["photos"] = QJsonArray{first};
+    object["export"] = 42;
+    if (!require(!parse(), "non-object settings accepted"))
+        return EXIT_FAILURE;
+    object["export"] = QJsonObject{{"format", "dng"}};
+    if (!require(!parse(), "unedited DNG output admitted as edited export"))
+        return EXIT_FAILURE;
+    object["export"] = QJsonObject{{"format", "jpeg"}};
+    writeFile(output, "do not replace");
+    if (!require(!parse(), "existing output accepted"))
+        return EXIT_FAILURE;
+    return EXIT_SUCCESS;
 }
