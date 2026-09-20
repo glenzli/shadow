@@ -636,6 +636,8 @@ qt_add_resources(
         icons/check.svg
         icons/clear.svg
         icons/clone.svg
+        icons/color-mixer-colors.svg
+        icons/color-mixer-curves.svg
         icons/close.svg
         icons/compare.svg
         icons/compare-side-by-side.svg

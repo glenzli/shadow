@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <utility>
 
 class ColorMixerEditorStub final : public QObject {
     Q_OBJECT
@@ -166,6 +167,37 @@ int main(int argc, char* argv[]) {
         QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, center.toPoint());
         drainBindings();
     };
+
+    // Header views must stay usable in the narrow inspector without invoking
+    // the underlying section-fold target or authoring a Recipe change.
+    mixer_item->setWidth(280.0);
+    drainBindings();
+    const std::array<std::pair<QString, int>, 4> header_views{{
+        {QStringLiteral("colorMixerColorView"), 1},
+        {QStringLiteral("colorMixerCurveView"), 2},
+        {QStringLiteral("colorMixerParameterView"), 0},
+        {QStringLiteral("colorMixerParameterView"), 0},
+    }};
+    for (const auto& [name, mode] : header_views) {
+        auto* const button = findVisualChild(mixer_item, name);
+        if (!require(button != nullptr, "header view exposes a real interaction target")) {
+            return EXIT_FAILURE;
+        }
+        click_tab(button);
+        if (!require(
+                mixer->property("viewMode").toInt() == mode && button->property("checked").toBool()
+                    && mixer->property("expanded").toBool(),
+                "header click selects its view without toggling off or folding the section"
+            )
+            || !require(
+                editor.begin_count == 0 && editor.set_count == 0 && editor.end_count == 0,
+                "header view changes preserve authored values and undo history"
+            )) {
+            return EXIT_FAILURE;
+        }
+    }
+    mixer_item->setWidth(420.0);
+    drainBindings();
 
     click_tab(lightness_tab);
     auto* const lightness_slider =

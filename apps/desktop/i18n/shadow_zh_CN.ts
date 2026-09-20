@@ -8276,6 +8276,14 @@ R %2 · G %3 · B %4</translation>
         <translation>色彩</translation>
     </message>
     <message>
+        <source>By parameter</source>
+        <translation>按参数</translation>
+    </message>
+    <message>
+        <source>By color</source>
+        <translation>按颜色</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionInspector.qml" line="135"/>
         <source>Finish mask editing</source>
         <translation>完成蒙版编辑</translation>

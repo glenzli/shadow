@@ -70,21 +70,42 @@ ShadowAdjustmentSection {
         return Qt.lighter(band.color, Theme.effectiveDark ? 1.9 : 1.55)
     }
 
-    TabBar {
-        id: mixerViewTabs
-        Layout.fillWidth: true
-        Layout.leftMargin: 14
-        Layout.rightMargin: 14
-        Layout.preferredHeight: 28
-        background: Rectangle {
-            radius: Theme.controlRadius
-            color: Theme.surfaceSubtle
-            border.color: mixer.panelBorder
+    headerActions: Row {
+        spacing: 6
+
+        ShadowIconButton {
+            objectName: "colorMixerParameterView"
+            source: "qrc:/icons/settings.svg"
+            buttonSize: 26
+            iconSize: 16
+            checkable: true
+            autoExclusive: true
+            checked: mixer.viewMode === 0
+            toolTipText: qsTr("By parameter")
+            onClicked: mixer.viewMode = 0
         }
-        onCurrentIndexChanged: mixer.viewMode = mixerViewTabs.currentIndex
-        ShadowTabButton { text: qsTr("OKLCH"); compact: true }
-        ShadowTabButton { text: qsTr("COLOR"); compact: true }
-        ShadowTabButton { text: qsTr("CURVES"); compact: true }
+        ShadowIconButton {
+            objectName: "colorMixerColorView"
+            source: "qrc:/icons/color-mixer-colors.svg"
+            buttonSize: 26
+            iconSize: 16
+            checkable: true
+            autoExclusive: true
+            checked: mixer.viewMode === 1
+            toolTipText: qsTr("By color")
+            onClicked: mixer.viewMode = 1
+        }
+        ShadowIconButton {
+            objectName: "colorMixerCurveView"
+            source: "qrc:/icons/color-mixer-curves.svg"
+            buttonSize: 26
+            iconSize: 16
+            checkable: true
+            autoExclusive: true
+            checked: mixer.viewMode === 2
+            toolTipText: qsTr("CURVES")
+            onClicked: mixer.viewMode = 2
+        }
     }
 
     TabBar {
@@ -94,21 +115,25 @@ ShadowAdjustmentSection {
         Layout.leftMargin: 14
         Layout.rightMargin: 14
         Layout.preferredHeight: visible ? 28 : 0
+        Layout.bottomMargin: visible ? 4 : 0
         background: Item {}
         ShadowTabButton {
             objectName: "colorMixerHueTab"
             text: qsTr("HUE")
             compact: true
+            underlineMaximumWidth: 32
         }
         ShadowTabButton {
             objectName: "colorMixerChromaTab"
             text: qsTr("CHROMA")
             compact: true
+            underlineMaximumWidth: 32
         }
         ShadowTabButton {
             objectName: "colorMixerLightnessTab"
             text: qsTr("LIGHTNESS")
             compact: true
+            underlineMaximumWidth: 32
         }
     }
 

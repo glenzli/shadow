@@ -227,16 +227,24 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 28
             currentIndex: root.curveMode
-            background: Rectangle {
-                radius: Theme.controlRadius
-                color: Theme.surfaceSubtle
-                border.color: root.borderColor
-            }
+            background: Item {}
             onCurrentIndexChanged: root.curveMode = currentIndex
 
-            ShadowTabButton { text: qsTr("HUE → HUE"); compact: true }
-            ShadowTabButton { text: qsTr("HUE → CHROMA"); compact: true }
-            ShadowTabButton { text: qsTr("HUE → LIGHTNESS"); compact: true }
+            ShadowTabButton {
+                text: qsTr("HUE → HUE")
+                compact: true
+                underlineMaximumWidth: 32
+            }
+            ShadowTabButton {
+                text: qsTr("HUE → CHROMA")
+                compact: true
+                underlineMaximumWidth: 32
+            }
+            ShadowTabButton {
+                text: qsTr("HUE → LIGHTNESS")
+                compact: true
+                underlineMaximumWidth: 32
+            }
         }
 
         Item {
