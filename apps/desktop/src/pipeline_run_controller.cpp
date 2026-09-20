@@ -96,6 +96,11 @@ bool PipelineRunController::navigationEnabled() const noexcept {
            && !admission_watcher_.isRunning() && (editor_.active() || !editor_.stateBusy());
 }
 
+bool PipelineRunController::currentPhotoEditable() const noexcept {
+    return navigationEnabled() && current_index_ >= 0 && current_index_ < request_.photos.size()
+           && !completed_paths_.contains(request_.photos[current_index_].output_path);
+}
+
 QVariantList PipelineRunController::photos() const {
     QVariantList result;
     for (const auto& input : inputs_)
@@ -123,6 +128,9 @@ QString PipelineRunController::statusText() const {
         return tr("Saving adjustments before export…");
     if (inputs_.isEmpty())
         return tr("Open photos to start an independent editing session.");
+    if (current_index_ >= 0 && current_index_ < request_.photos.size()
+        && completed_paths_.contains(request_.photos[current_index_].output_path))
+        return tr("Already exported. Select an unfinished photo to continue editing.");
     return editor_.statusText();
 }
 
@@ -377,7 +385,12 @@ void PipelineRunController::finishExport() {
         );
         return;
     } else {
-        selectPhoto(std::max(0, current_index_));
+        for (qsizetype i = 0; i < request_.photos.size(); ++i) {
+            if (!completed_paths_.contains(request_.photos[i].output_path)) {
+                selectPhoto(static_cast<int>(i));
+                break;
+            }
+        }
         error_text_ = result.cancelled ? tr("Export stopped. Completed files are kept; you can "
                                             "retry the remaining photos.")
                                        : result.errors.join(QLatin1Char('\n'));

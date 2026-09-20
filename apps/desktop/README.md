@@ -1610,13 +1610,18 @@ be new files in existing directories. DNG source-stage export is excluded becaus
 apply editing adjustments. Relative paths, when supplied, resolve against the process working
 directory. Requests are limited to 1 MiB and 256 photos.
 
-`SHADOW_PIPELINE_SMOKE_ACTION=complete|cancel|paint` enables the otherwise inert packaged acceptance
+After a partial export, the session opens the first unfinished photo for further editing and retry.
+Completed photos remain viewable but read-only; retry leaves their exported bytes untouched.
+
+`SHADOW_PIPELINE_SMOKE_ACTION=complete|cancel|paint|retry|precision` enables the otherwise inert packaged acceptance
 harness. The complete scenario changes the first photo's exposure, switches to another photo,
 checks state separation, returns and checks persistence, then exports. Interactive smoke also
 requires `SHADOW_PIPELINE_SMOKE_OUTPUT`. Use only disposable test outputs. The registered tests
 create synthetic raster fixtures and verify original bytes and a separate Library sentinel. For native-window
 checks, `SHADOW_PIPELINE_SMOKE_ACTION=window-chrome` with an empty `--isolate` session logs only
 window geometry and visibility changes; it opens no photo and performs no automatic edits.
+The `retry` scenario creates a temporary output obstruction, verifies that failed photos remain
+editable and completed photos are read-only, then edits and retries without rewriting completed files.
 The `paint` scenario checks whole-stroke undo/redo, cancelled and erased strokes, A/B isolation,
 new-blend layer creation, persisted tip/pressure settings, smoothing endpoints, and exact per-photo
 restoration and PNG output pixels. It requires `SHADOW_PIPELINE_SMOKE_OUTPUT` and disposable inputs.

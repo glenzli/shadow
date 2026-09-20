@@ -23,6 +23,7 @@ class PipelineRunController final : public QObject {
     Q_PROPERTY(bool exporting READ exporting NOTIFY changed)
     Q_PROPERTY(bool exportPending READ exportPending NOTIFY changed)
     Q_PROPERTY(bool navigationEnabled READ navigationEnabled NOTIFY changed)
+    Q_PROPERTY(bool currentPhotoEditable READ currentPhotoEditable NOTIFY changed)
     Q_PROPERTY(bool interactive READ interactive CONSTANT)
     Q_PROPERTY(bool finished READ finished NOTIFY changed)
     Q_PROPERTY(int currentIndex READ currentIndex NOTIFY changed)
@@ -49,6 +50,7 @@ class PipelineRunController final : public QObject {
         return completion_requested_;
     }
     bool navigationEnabled() const noexcept;
+    bool currentPhotoEditable() const noexcept;
     bool interactive() const noexcept {
         return request_.interactive;
     }

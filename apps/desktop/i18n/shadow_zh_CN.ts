@@ -6868,6 +6868,10 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PipelineRunController</name>
     <message>
+        <source>Already exported. Select an unfinished photo to continue editing.</source>
+        <translation>此照片已导出。请选择尚未完成的照片继续编辑。</translation>
+    </message>
+    <message>
         <location filename="../src/pipeline_run_controller.cpp" line="114"/>
         <source>Exported %1 photos. You can close this session.</source>
         <translation>已导出 %1 张照片，可以关闭本次编辑。</translation>

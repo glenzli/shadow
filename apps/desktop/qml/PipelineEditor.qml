@@ -209,7 +209,7 @@ ApplicationWindow {
                 objectName: "pipelinePrecisionWorkspace"
                 anchors.fill: parent
                 visible: pipeline.photoCount > 0 && !pipeline.exportPending && !pipeline.finished
-                enabled: !pipeline.exportPending && !pipeline.finished && pipeline.completedCount === 0
+                enabled: pipeline.currentPhotoEditable
                 editor: window.editor
                 interchangeController: window.interchangeController
                 editPreviewPresentation: window.editPreviewPresentation

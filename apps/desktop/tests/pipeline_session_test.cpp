@@ -33,7 +33,8 @@ bool run(const QString& executable, const QString& scenario) {
         return false;
     const auto first_bytes = contents(first), second_bytes = contents(second);
     const bool paint = scenario == "paint";
-    const bool direct = scenario == "interactive" || paint;
+    const bool retry = scenario == "retry";
+    const bool direct = scenario == "interactive" || paint || retry;
     const bool single = scenario == "legacy";
     const bool cancel = scenario == "cancel";
     const QString output1 = root.filePath("output1.png");
@@ -65,7 +66,10 @@ bool run(const QString& executable, const QString& scenario) {
     env.insert("QT_QPA_PLATFORM", "offscreen");
     env.insert("QT_QUICK_BACKEND", "software");
     env.insert("SHADOW_DESKTOP_DATA_ROOT", normal_root);
-    env.insert("SHADOW_PIPELINE_SMOKE_ACTION", cancel ? "cancel" : paint ? "paint" : "complete");
+    env.insert(
+        "SHADOW_PIPELINE_SMOKE_ACTION",
+        cancel ? "cancel" : paint ? "paint" : retry ? "retry" : "complete"
+    );
     env.insert("SHADOW_PIPELINE_SMOKE_OUTPUT", root.path());
     const QString collision = root.filePath("first-edited.png");
     if (direct && !write(collision, "existing output stays unchanged"))
@@ -102,6 +106,10 @@ bool run(const QString& executable, const QString& scenario) {
         return false;
     }
     if (direct) {
+        if (retry && !diagnostics.contains("Partial export edit and retry preserved completed bytes")) {
+            qCritical() << "Missing partial recovery acceptance" << diagnostics;
+            return false;
+        }
         if (contents(collision) != "existing output stays unchanged")
             return false;
         if (QImage(root.filePath("first-edited-1.png")).isNull()
