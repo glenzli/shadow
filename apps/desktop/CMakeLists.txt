@@ -415,6 +415,9 @@ qt_add_executable(
     src/edit_retouch_donor_preview.hpp
     src/edit_retouch_sources.cpp
     src/edit_retouch_sources.hpp
+    src/edit_retouch_coordinates.cpp
+    src/edit_retouch_coordinates.hpp
+    src/edit_retouch_projection.cpp
     src/edit_source_admission.cpp
     src/edit_source_admission.hpp
     src/edit_stroke_input.cpp
@@ -919,6 +922,7 @@ qt_add_qml_module(
         qml/PrecisionMaskCoverageOverlay.qml
         qml/PrecisionCropOverlay.qml
         qml/PrecisionRetouchOverlay.qml
+        qml/PrecisionRetouchProjectedHandle.qml
         qml/PrecisionRetouchSpotHandle.qml
         qml/PrecisionRetouchStrokeCoverage.qml
         qml/PrecisionRetouchStrokeHandle.qml

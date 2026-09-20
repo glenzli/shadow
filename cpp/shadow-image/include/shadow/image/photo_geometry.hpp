@@ -3,6 +3,7 @@
 #include <shadow/image/decoder_types.hpp>
 
 #include <compare>
+#include <array>
 #include <cstdint>
 
 namespace shadow::image {
@@ -65,6 +66,11 @@ void validate_photo_geometry(const PhotoGeometry& geometry);
 [[nodiscard]] PhotoGeometryLayout photo_geometry_layout(
     Dimensions source_dimensions,
     const PhotoGeometry& geometry
+);
+/// Maps continuous normalized output-edge coordinates through the same integer
+/// crop and half-pixel convention as preview, detail and export sampling.
+[[nodiscard]] std::array<double, 2> photo_geometry_source_point(
+    Dimensions source_dimensions, const PhotoGeometry& geometry, double x, double y
 );
 [[nodiscard]] GeometryPixelRect photo_geometry_source_rect_for_output(
     const PhotoGeometryLayout& layout,

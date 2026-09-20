@@ -499,6 +499,14 @@ Its implementation follows the same navigation:
   owns cached candidate positions and three temporary source anchors for the current photo and
   framing. [`qml/PrecisionRetouchSourcePreview.qml`](qml/PrecisionRetouchSourcePreview.qml)
   samples the displayed texture for the pre-stroke donor overlay without per-pointer readback.
+  [`src/edit_retouch_coordinates.*`](src/edit_retouch_coordinates.hpp) caches the renderer's
+  integer Canvas crop/homography and prepared Liquify map. Authoring and source sampling map
+  back to original coordinates; [`src/edit_retouch_projection.cpp`](src/edit_retouch_projection.cpp)
+  maps persisted regions into the current viewport. Transformed handles use projected centrelines
+  and local brush ellipses in `PrecisionRetouchProjectedHandle.qml`; only the selected region
+  expands its whole path. Failed inversions hide the handle instead of inventing a location.
+  This changes no existing Recipe coordinates or pixel execution. Pointer movement transfers no
+  image data; structural changes invalidate this coordinate cache, and normal retouch edits retain it.
   Tone-only and texture-only repair keep their separation scale in each persisted region, with
   ordinary per-region opacity, source transforms, and atomic history; these are photographic
   retouch modes, not a general-purpose layer document.

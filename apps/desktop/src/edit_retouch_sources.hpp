@@ -1,5 +1,7 @@
 #pragma once
 #include "backend/edit_types.hpp"
+#include "edit_retouch_coordinates.hpp"
+#include "edit_retouch_donor_selection.hpp"
 #include <QObject>
 #include <QPointF>
 #include <QVariantList>
@@ -16,6 +18,7 @@ class EditRetouchSources final : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY changed)
     Q_PROPERTY(bool previewEnabled MEMBER preview_enabled_ NOTIFY changed)
     Q_PROPERTY(double previewOpacity READ previewOpacity WRITE setPreviewOpacity NOTIFY changed)
+    Q_PROPERTY(bool projectionRequired READ projectionRequired NOTIFY changed)
   public:
     explicit EditRetouchSources(EditController&);
     QVariantList saved() const;
@@ -35,6 +38,21 @@ class EditRetouchSources final : public QObject {
     Q_INVOKABLE void recall(int);
     Q_INVOKABLE void nextCandidate(bool continuous, int index);
     Q_INVOKABLE QVariantMap previewSourceAt(double x, double y) const;
+    bool projectionRequired() const;
+    const EditRetouchCoordinates& coordinates() const;
+    Q_INVOKABLE QVariantMap projectRegion(bool continuous, int index, bool detailed = true) const;
+    Q_INVOKABLE void moveRegion(
+        bool continuous,
+        int index,
+        bool source,
+        double fromX,
+        double fromY,
+        double toX,
+        double toY
+    );
+    Q_INVOKABLE double previewRadius(double x, double y) const;
+    std::optional<EditRetouchDonorSelection>
+    selectSource(const QString&, std::span<const QPointF>, double radius, int mode) const;
   signals:
     void changed();
 
@@ -50,4 +68,7 @@ class EditRetouchSources final : public QObject {
     bool preview_enabled_ = true;
     double preview_opacity_ = 0.5;
     QString status_;
+    mutable EditRetouchCoordinates coordinates_;
+    QVector<BackendLiquifyStroke> saved_liquify_;
+    bool saved_liquify_enabled_ = false;
 };

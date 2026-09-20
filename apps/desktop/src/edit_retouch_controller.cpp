@@ -208,10 +208,9 @@ QVariantMap EditController::retouchSampledSource() const {
     if (!retouch_source_anchor_.has_value()) {
         return {};
     }
-    return {
-        {QStringLiteral("x"), retouch_source_anchor_->x()},
-        {QStringLiteral("y"), retouch_source_anchor_->y()},
-    };
+    const auto point = retouch_sources_->coordinates().preview(*retouch_source_anchor_);
+    return point ? QVariantMap{{QStringLiteral("x"), point->x()}, {QStringLiteral("y"), point->y()}}
+                 : QVariantMap{};
 }
 
 void EditController::setRetouchPickerActive(const bool active) {
@@ -332,7 +331,11 @@ void EditController::setRetouchSourceFromPreview(
         || normalized_y < 0.0 || normalized_y > 1.0) {
         return;
     }
-    retouch_source_anchor_ = QPointF(normalized_x, normalized_y);
+    const auto point = retouch_sources_->coordinates().original({normalized_x, normalized_y});
+    if (!point)
+        return;
+    retouch_source_anchor_ =
+        QPointF(std::clamp(point->x(), 0.0, 1.0), std::clamp(point->y(), 0.0, 1.0));
     retouch_source_picking_ = false;
     retouch_aligned_source_offset_radii_.reset();
     emit retouchSourceChanged();
@@ -349,7 +352,10 @@ void EditController::moveRetouchSourceFromPreview(
         || normalized_y < 0.0 || normalized_y > 1.0) {
         return;
     }
-    const QPointF next_anchor(normalized_x, normalized_y);
+    const auto point = retouch_sources_->coordinates().original({normalized_x, normalized_y});
+    if (!point)
+        return;
+    const QPointF next_anchor(std::clamp(point->x(), 0.0, 1.0), std::clamp(point->y(), 0.0, 1.0));
     if (*retouch_source_anchor_ == next_anchor) {
         return;
     }
@@ -390,17 +396,22 @@ void EditController::setRetouchNodeEnabled(const bool enabled) {
 }
 
 void EditController::addRetouchSpotFromPreview(
-    const double normalized_x,
-    const double normalized_y,
+    double normalized_x,
+    double normalized_y,
     const QString& preview_generation,
-    const int level_zero_width,
-    const int level_zero_height
+    const int /*level_zero_width*/,
+    const int /*level_zero_height*/
 ) {
     if (!active_ || interactionLocked() || !retouch_picker_active_ || !std::isfinite(normalized_x)
         || !std::isfinite(normalized_y) || normalized_x < 0.0 || normalized_x > 1.0
         || normalized_y < 0.0 || normalized_y > 1.0) {
         return;
     }
+    const auto mapped = retouch_sources_->coordinates().original({normalized_x, normalized_y});
+    if (!mapped)
+        return;
+    normalized_x = std::clamp(mapped->x(), 0.0, 1.0);
+    normalized_y = std::clamp(mapped->y(), 0.0, 1.0);
     constexpr int clone_mode = 1;
     if (retouch_creation_mode_ == clone_mode && !retouch_source_anchor_.has_value()) {
         if (!retouch_source_picking_) {
@@ -435,15 +446,13 @@ void EditController::addRetouchSpotFromPreview(
                 ? retouch_aligned_source_offset_radii_
                 : std::optional<QPointF>{QPointF(
                       (retouch_source_anchor_->x() - normalized_x)
-                          * static_cast<double>(level_zero_width) / creation_radius,
+                          * static_cast<double>(level_zero_width_) / creation_radius,
                       (retouch_source_anchor_->y() - normalized_y)
-                          * static_cast<double>(level_zero_height) / creation_radius
+                          * static_cast<double>(level_zero_height_) / creation_radius
                   )};
     } else if (retouch_creation_mode_ != clone_mode) {
-        automatic_selection = preview_retouch_source_selection(
-            preview_store_,
+        automatic_selection = retouch_sources_->selectSource(
             preview_generation,
-            QSize(level_zero_width, level_zero_height),
             target_points,
             static_cast<double>(creation_radius),
             retouch_creation_mode_
@@ -509,8 +518,8 @@ void EditController::addRetouchSpotFromPreview(
 void EditController::addRetouchStrokeFromPreview(
     const QVariantList& points,
     const QString& preview_generation,
-    const int level_zero_width,
-    const int level_zero_height
+    const int /*level_zero_width*/,
+    const int /*level_zero_height*/
 ) {
     constexpr qsizetype maximum_retouch_strokes = 64;
     constexpr qsizetype maximum_retouch_stroke_points = 512;
@@ -534,10 +543,16 @@ void EditController::addRetouchStrokeFromPreview(
         ));
         return;
     }
-    const auto normalized_points =
+    auto normalized_points =
         EditStrokeInput::decodeNormalizedPoints(points, maximum_retouch_stroke_points);
     if (!normalized_points.has_value()) {
         return;
+    }
+    for (auto& point : *normalized_points) {
+        const auto mapped = retouch_sources_->coordinates().original(point);
+        if (!mapped)
+            return;
+        point = {std::clamp(mapped->x(), 0.0, 1.0), std::clamp(mapped->y(), 0.0, 1.0)};
     }
     finishActiveGesture();
     const BackendGradeStack before = grade_stack_;
@@ -566,15 +581,13 @@ void EditController::addRetouchStrokeFromPreview(
                 ? retouch_aligned_source_offset_radii_
                 : std::optional<QPointF>{QPointF(
                       (retouch_source_anchor_->x() - target_anchor->x())
-                          * static_cast<double>(level_zero_width) / creation_radius,
+                          * static_cast<double>(level_zero_width_) / creation_radius,
                       (retouch_source_anchor_->y() - target_anchor->y())
-                          * static_cast<double>(level_zero_height) / creation_radius
+                          * static_cast<double>(level_zero_height_) / creation_radius
                   )};
     } else if (retouch_creation_mode_ != clone_mode) {
-        automatic_selection = preview_retouch_source_selection(
-            preview_store_,
+        automatic_selection = retouch_sources_->selectSource(
             preview_generation,
-            QSize(level_zero_width, level_zero_height),
             std::span<const QPointF>(
                 normalized_points->constData(),
                 static_cast<std::size_t>(normalized_points->size())

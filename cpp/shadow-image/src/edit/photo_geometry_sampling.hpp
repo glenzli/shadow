@@ -90,8 +90,8 @@ photo_geometry_is_transposed(const PhotoQuarterTurn quarter_turn) noexcept {
 photo_geometry_source_coordinate_for_output(
     const PhotoGeometryLayout& layout,
     const PhotoGeometry& geometry,
-    const std::uint32_t output_x,
-    const std::uint32_t output_y
+    const double output_x,
+    const double output_y
 ) {
     const std::uint32_t crop_width = layout.source_crop.width;
     const std::uint32_t crop_height = layout.source_crop.height;

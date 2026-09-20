@@ -12,15 +12,21 @@ EditRetouchSources::EditRetouchSources(EditController& owner) : QObject(&owner),
         basis_.reset();
         status_.clear();
         saved_geometry_ = owner_.grade_stack_.geometry;
+        saved_liquify_ = owner_.grade_stack_.liquify_strokes;
+        saved_liquify_enabled_ = owner_.grade_stack_.liquify_enabled;
         emit changed();
     });
     connect(&owner_, &EditController::parametersChanged, this, [this] {
-        if (saved_geometry_ != owner_.grade_stack_.geometry) {
+        if (saved_geometry_ != owner_.grade_stack_.geometry
+            || saved_liquify_ != owner_.grade_stack_.liquify_strokes
+            || saved_liquify_enabled_ != owner_.grade_stack_.liquify_enabled) {
             saved_.clear();
             candidates_.clear();
             basis_.reset();
             status_.clear();
             saved_geometry_ = owner_.grade_stack_.geometry;
+            saved_liquify_ = owner_.grade_stack_.liquify_strokes;
+            saved_liquify_enabled_ = owner_.grade_stack_.liquify_enabled;
             owner_.clearRetouchSource();
             emit changed();
         }
@@ -57,7 +63,10 @@ void EditRetouchSources::recall(int index) {
     if (!owner_.active_ || owner_.interactionLocked() || index < 0 || index >= int(saved_.size()))
         return;
     owner_.setRetouchPickerActive(true);
-    owner_.setRetouchSourceFromPreview(saved_[index].x(), saved_[index].y());
+    const auto p = coordinates().preview(saved_[static_cast<std::size_t>(index)]);
+    if (!p)
+        return;
+    owner_.setRetouchSourceFromPreview(p->x(), p->y());
     status_.clear();
     emit changed();
 }
@@ -68,12 +77,16 @@ QVariantMap EditRetouchSources::previewSourceAt(double x, double y) const {
     if (owner_.retouch_source_aligned_ && owner_.retouch_aligned_source_offset_radii_
         && owner_.level_zero_width_ && owner_.level_zero_height_) {
         const auto offset = *owner_.retouch_aligned_source_offset_radii_;
+        const auto target = coordinates().original({x, y});
+        if (!target)
+            return {};
         source = {
-            x + offset.x() * owner_.retouch_brush_radius_ / owner_.level_zero_width_,
-            y + offset.y() * owner_.retouch_brush_radius_ / owner_.level_zero_height_
+            target->x() + offset.x() * owner_.retouch_brush_radius_ / owner_.level_zero_width_,
+            target->y() + offset.y() * owner_.retouch_brush_radius_ / owner_.level_zero_height_
         };
     }
-    return {{"x", source.x()}, {"y", source.y()}};
+    const auto projected = coordinates().preview(source);
+    return projected ? QVariantMap{{"x", projected->x()}, {"y", projected->y()}} : QVariantMap{};
 }
 void EditRetouchSources::nextCandidate(bool continuous, int index) {
     if (!owner_.active_ || owner_.interactionLocked() || index < 0)
@@ -114,14 +127,7 @@ void EditRetouchSources::nextCandidate(bool continuous, int index) {
     if (!basis_ || *basis_ != basis || candidate_index_ != index || continuous_ != continuous) {
         const auto generation =
             QUrlQuery(QUrl(owner_.previewSource())).queryItemValue("generation");
-        const auto selection = preview_retouch_source_selection(
-            owner_.preview_store_,
-            generation,
-            QSize(int(owner_.level_zero_width_), int(owner_.level_zero_height_)),
-            points,
-            radius,
-            mode
-        );
+        const auto selection = selectSource(generation, points, radius, mode);
         if (!selection || selection->ranked_offsets.empty()) {
             status_ = tr("No suitable nearby source. Drag the source outline to choose one.");
             emit changed();
@@ -138,7 +144,7 @@ void EditRetouchSources::nextCandidate(bool continuous, int index) {
     const int next = it == candidates_.end() ? 0
                                              : (int(std::distance(candidates_.begin(), it)) + 1)
                                                    % int(candidates_.size());
-    const auto offset = candidates_[next];
+    const auto offset = candidates_[static_cast<std::size_t>(next)];
     if (continuous)
         owner_.setRetouchStrokeSourceOffset(index, offset.x(), offset.y());
     else
@@ -147,6 +153,75 @@ void EditRetouchSources::nextCandidate(bool continuous, int index) {
                   .arg(next + 1)
                   .arg(candidates_.size());
     emit changed();
+}
+
+std::optional<EditRetouchDonorSelection> EditRetouchSources::selectSource(
+    const QString& generation,
+    std::span<const QPointF> points,
+    double radius,
+    int mode
+) const {
+    if (points.empty())
+        return std::nullopt;
+    const auto& map = coordinates();
+    std::vector<QPointF> projected;
+    double minX = 1, maxX = 0, minY = 1, maxY = 0, viewMinX = 1, viewMaxX = 0, viewMinY = 1,
+           viewMaxY = 0;
+    for (auto p : points) {
+        const auto q = map.preview(p);
+        if (!q)
+            return std::nullopt;
+        projected.push_back(*q);
+        minX = std::min(minX, p.x());
+        maxX = std::max(maxX, p.x());
+        minY = std::min(minY, p.y());
+        maxY = std::max(maxY, p.y());
+        viewMinX = std::min(viewMinX, q->x());
+        viewMaxX = std::max(viewMaxX, q->x());
+        viewMinY = std::min(viewMinY, q->y());
+        viewMaxY = std::max(viewMaxY, q->y());
+    }
+    auto result = preview_retouch_source_selection(
+        owner_.preview_store_,
+        generation,
+        map.outputSize(),
+        projected,
+        radius,
+        mode
+    );
+    if (!result)
+        return std::nullopt;
+    const QPointF original((minX + maxX) / 2, (minY + maxY) / 2),
+        view((viewMinX + viewMaxX) / 2, (viewMinY + viewMaxY) / 2);
+    const auto convert = [&](QPointF offset) -> std::optional<QPointF> {
+        const auto donor = map.original(
+            view
+            + QPointF(
+                offset.x() * radius / map.outputSize().width(),
+                offset.y() * radius / map.outputSize().height()
+            )
+        );
+        if (!donor)
+            return std::nullopt;
+        const QPointF value(
+            (donor->x() - original.x()) * map.sourceSize().width() / radius,
+            (donor->y() - original.y()) * map.sourceSize().height() / radius
+        );
+        const double limit = 511 / radius - 1;
+        if (std::abs(value.x()) > limit || std::abs(value.y()) > limit)
+            return std::nullopt;
+        return value;
+    };
+    const auto selected = convert(result->offset_radii);
+    if (!selected)
+        return std::nullopt;
+    result->offset_radii = *selected;
+    std::vector<QPointF> ranked;
+    for (auto p : result->ranked_offsets)
+        if (const auto value = convert(p))
+            ranked.push_back(*value);
+    result->ranked_offsets = std::move(ranked);
+    return result;
 }
 
 void EditRetouchSources::setFrequencyRadius(int value) {

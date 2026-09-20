@@ -221,6 +221,14 @@ Item {
         }
 
         function retouchBrushDiameter() {
+            if (pickerInput.editor.retouchSources !== undefined
+                    && pickerInput.editor.retouchSources.projectionRequired === true) {
+                const p = pickerInput.normalizedContentPoint(inputArea, pointerX, pointerY)
+                if (p !== null) {
+                    const radius = pickerInput.editor.retouchSources.previewRadius(p.x, p.y)
+                    if (radius > 0) return Math.max(0.5, 2 * radius * pickerInput.previewContentRect.width)
+                }
+            }
             // Coverage follows the level-zero radius that will be authored on
             // release. Keep it exact even when the image is fitted below 1:1.
             return Math.max(

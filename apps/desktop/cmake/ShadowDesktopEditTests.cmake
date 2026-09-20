@@ -701,6 +701,13 @@
         src/edit_liquify_coordinates.cpp
         src/edit_liquify_coordinates.hpp
     )
+    add_executable(shadow-edit-retouch-coordinates-test
+        tests/edit_retouch_coordinates_test.cpp
+        src/edit_retouch_coordinates.cpp)
+    target_compile_features(shadow-edit-retouch-coordinates-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-edit-retouch-coordinates-test PRIVATE src)
+    target_link_libraries(shadow-edit-retouch-coordinates-test PRIVATE Qt6::Gui Shadow::Image)
+    add_test(NAME shadow-desktop-edit-retouch-coordinates COMMAND shadow-edit-retouch-coordinates-test)
     target_compile_features(
         shadow-edit-liquify-coordinates-test
         PRIVATE cxx_std_20

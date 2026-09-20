@@ -6,13 +6,28 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QJSValue>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQmlApplicationEngine>
+#include <QQuickItem>
 #include <QTimer>
 #include <QUrlQuery>
 #include <memory>
+
+namespace {
+QQuickItem* projectedRetouchHandle(QQuickItem* item) {
+    if (!item)
+        return nullptr;
+    if (item->objectName() == QStringLiteral("projectedRetouchHandle"))
+        return item;
+    for (auto* child : item->childItems())
+        if (auto* result = projectedRetouchHandle(child))
+            return result;
+    return nullptr;
+}
+} // namespace
 
 void installPrecisionEditingSmokeHarness(
     QQmlApplicationEngine& engine,
@@ -239,6 +254,80 @@ void installPrecisionEditingSmokeHarness(
             if (editor.previewSource() == state->awaited_source)
                 return;
             qInfo() << "Warm 20-value frequency gesture settled ms" << state->gesture.elapsed();
+            editor.setLiquifyBrushRadius(0.04);
+            editor.setLiquifyBrushStrength(0.2);
+            editor.addLiquifyStrokeFromPreview(
+                {QVariantMap{{"x", 0.6}, {"y", 0.6}, {"pressure", 1}},
+                 QVariantMap{{"x", 0.602}, {"y", 0.602}, {"pressure", 1}}},
+                double(editor.levelZeroWidth()) / editor.levelZeroHeight()
+            );
+            editor.addCanvasNode();
+            editor.setPhotoCropBounds(0.1, 0.15, 0.9, 0.85);
+            editor.rotatePhotoClockwise();
+            QMetaObject::invokeMethod(workspace, "setActiveSpecialTool", Q_ARG(QVariant, 3));
+            state->awaited_source = editor.previewSource();
+            state->stage = 13;
+            return;
+        case 13: {
+            if (editor.previewSource() == state->awaited_source)
+                return;
+            auto* sources = qobject_cast<EditRetouchSources*>(editor.retouchSources());
+            const auto before = editor.gradeStackForInterchange();
+            editor.setRetouchPickerActive(true);
+            editor.setRetouchCreationMode(3);
+            editor.setRetouchBrushRadius(32);
+            editor.setRetouchSourceFromPreview(0.415, 0.43);
+            editor.addRetouchStrokeFromPreview(
+                {QVariantMap{{"x", 0.42}, {"y", 0.43}}},
+                QUrlQuery(QUrl(editor.previewSource())).queryItemValue("generation"),
+                int(editor.levelZeroWidth()),
+                int(editor.levelZeroHeight())
+            );
+            const auto after = editor.gradeStackForInterchange();
+            if (after.retouch_strokes.size() != 3 || !sources->projectionRequired()) {
+                fail("Rotated crop repair was not authored");
+                return;
+            }
+            const auto& point = after.retouch_strokes.last().points.first();
+            qInfo() << "Mapped repair" << point.x << point.y << "Canvas" << editor.photoGeometry();
+            if (std::abs(point.x - 0.444) > 0.001 || std::abs(point.y - 0.556) > 0.001) {
+                fail("Repair persisted the viewport coordinate instead of the original coordinate");
+                return;
+            }
+            const auto target = sources->projectRegion(true, 2)["target"].toList().first().toMap();
+            if (std::abs(target["x"].toDouble() - 0.42) > 0.001
+                || std::abs(target["y"].toDouble() - 0.43) > 0.001) {
+                fail("Projected repair handle does not match its pointer");
+                return;
+            }
+            editor.undo();
+            if (editor.gradeStackForInterchange() != before) {
+                fail("Mapped repair undo changed geometry");
+                return;
+            }
+            editor.redo();
+            state->awaited_source = editor.previewSource();
+            state->stage = 14;
+            return;
+        }
+        case 14:
+            if (editor.previewSource() == state->awaited_source)
+                return;
+            if (auto* handle = projectedRetouchHandle(qobject_cast<QQuickItem*>(workspace));
+                !handle
+                || (handle->property("projection").canConvert<QJSValue>()
+                        ? handle->property("projection").value<QJSValue>().toVariant().toMap()
+                        : handle->property("projection").toMap())
+                       .isEmpty()
+                || !handle->property("visible").toBool()) {
+                qInfo() << "Projected handle" << handle
+                        << (handle ? handle->property("visible") : QVariant{})
+                        << (handle ? handle->property("projection").typeName() : "missing")
+                        << workspace->property("activeSpecialTool") << editor.retouchPickerActive();
+                fail("Packaged projected retouch handle was not visible");
+                return;
+            }
+            qInfo() << "Retouch crop, rotation and Liquify authoring/projection/undo passed";
             state->saved = editor.gradeStackForInterchange();
             editor.setMaskToolActive(false);
             state->stage = 5;
