@@ -525,6 +525,7 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
             .source_flip_vertical = spot.source_flip_vertical,
             .feather = spot.feather,
             .strength = spot.strength,
+            .frequency_radius = spot.frequency_radius,
         });
     }
     settings.retouch_strokes.reserve(static_cast<std::size_t>(source.retouch_strokes.size()));
@@ -540,6 +541,7 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
             .source_flip_vertical = stroke.source_flip_vertical,
             .feather = stroke.feather,
             .strength = stroke.strength,
+            .frequency_radius = stroke.frequency_radius,
         };
         ffi_stroke.points.reserve(static_cast<std::size_t>(stroke.points.size()));
         for (const auto& point : stroke.points) {
@@ -704,6 +706,7 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
             .source_flip_vertical = spot.source_flip_vertical,
             .feather = spot.feather,
             .strength = spot.strength,
+            .frequency_radius = spot.frequency_radius,
         });
     }
     result.retouch_strokes.reserve(
@@ -721,6 +724,7 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
             .source_flip_vertical = stroke.source_flip_vertical,
             .feather = stroke.feather,
             .strength = stroke.strength,
+            .frequency_radius = stroke.frequency_radius,
         };
         decoded.points.reserve(
             checked_qt_vector_size(stroke.points.size(), "retouch_stroke_points")

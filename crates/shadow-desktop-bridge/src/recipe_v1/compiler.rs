@@ -391,6 +391,8 @@ fn append_photo_retouch_nodes(
                         RetouchMode::Heal => 0,
                         RetouchMode::Clone => 1,
                         RetouchMode::HealStructure => 2,
+                        RetouchMode::Tone => 3,
+                        RetouchMode::Texture => 4,
                     },
                     source_offset_x_radii: spot.source_offset_x_radii(),
                     source_offset_y_radii: spot.source_offset_y_radii(),
@@ -400,6 +402,7 @@ fn append_photo_retouch_nodes(
                     source_flip_vertical: spot.source_flip_vertical(),
                     feather: spot.feather().get(),
                     strength: spot.strength().get(),
+                    frequency_radius: spot.frequency_radius(),
                 })
                 .collect(),
             strokes: snapshot
@@ -419,6 +422,8 @@ fn append_photo_retouch_nodes(
                         RetouchMode::Heal => 0,
                         RetouchMode::Clone => 1,
                         RetouchMode::HealStructure => 2,
+                        RetouchMode::Tone => 3,
+                        RetouchMode::Texture => 4,
                     },
                     source_offset_x_radii: stroke.source_offset_x_radii(),
                     source_offset_y_radii: stroke.source_offset_y_radii(),
@@ -428,6 +433,7 @@ fn append_photo_retouch_nodes(
                     source_flip_vertical: stroke.source_flip_vertical(),
                     feather: stroke.feather().get(),
                     strength: stroke.strength().get(),
+                    frequency_radius: stroke.frequency_radius(),
                 })
                 .collect(),
         },

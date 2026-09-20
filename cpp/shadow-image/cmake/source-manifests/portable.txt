@@ -45,6 +45,8 @@ src/edit/photo_geometry.cpp
 src/edit/photo_liquify.cpp
 src/edit/photo_structural_rendering.cpp
 src/edit/retouch.cpp
+src/edit/retouch_frequency.cpp
+src/edit/retouch_dependency_reach.cpp
 src/edit/retouch_heal_blending.cpp
 src/edit/retouch_source_transform.cpp
 src/edit/scalar_neighborhood_filters.cpp

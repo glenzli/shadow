@@ -3,6 +3,7 @@
 #include <shadow/image/adjustment_graph.hpp>
 #include <shadow/image/cpu_edit_reference.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
+#include <shadow/image/retouch.hpp>
 
 #include <algorithm>
 #include <array>
@@ -249,10 +250,8 @@ void clone_does_not_invent_a_cable_fitting_absent_from_the_donor() {
     const image::RetouchStroke stroke{
         .points =
             {
-                {.x = 104.5 / static_cast<double>(width),
-                 .y = 48.5 / static_cast<double>(height)},
-                {.x = 116.5 / static_cast<double>(width),
-                 .y = 48.5 / static_cast<double>(height)},
+                {.x = 104.5 / static_cast<double>(width), .y = 48.5 / static_cast<double>(height)},
+                {.x = 116.5 / static_cast<double>(width), .y = 48.5 / static_cast<double>(height)},
             },
         .radius_level_zero_pixels = radius,
         .mode = image::SpotRepairMode::clone,
@@ -296,7 +295,8 @@ void clone_does_not_invent_a_cable_fitting_absent_from_the_donor() {
                 expect(
                     cloned.samples[target + channel] >= lower - 1.0e-6F
                         && cloned.samples[target + channel] <= upper + 1.0e-6F,
-                    "clone output remains a convex blend of target and donor and cannot invent a point"
+                    "clone output remains a convex blend of target and donor and cannot invent a "
+                    "point"
                 );
             }
         }
@@ -415,9 +415,179 @@ void structure_heal_preserves_a_target_edge_that_crosses_the_repair() {
     );
 }
 
+void frequency_retouch_preserves_the_other_component_and_tile_result() {
+    constexpr std::uint32_t width = 256, height = 160;
+    auto input = image::FloatRgbImage{};
+    input.dimensions = {width, height};
+    input.row_stride_bytes = width * 3 * sizeof(float);
+    input.level_zero_to_raster_scale_x = 1;
+    input.level_zero_to_raster_scale_y = 1;
+    input.samples.resize(width * height * 3);
+    for (std::uint32_t y = 0; y < height; ++y)
+        for (std::uint32_t x = 0; x < width; ++x)
+            for (std::uint32_t c = 0; c < 3; ++c)
+                input.samples[(y * width + x) * 3 + c] =
+                    -0.2F + float(c) * 1.3F + float(x) * 0.001F + (x % 2 ? 0.05F : -0.05F);
+    image::SpotHealAdjustment repair{
+        .spots = {{
+            .center_x = 128.5 / width,
+            .center_y = 80.5 / height,
+            .radius_level_zero_pixels = 12,
+            .mode = image::SpotRepairMode::tone,
+            .source_offset_x_radii = 1.75,
+            .feather = 0.0,
+            .frequency_radius = 8,
+        }}
+    };
+    auto tone = input, texture = input, clone = input;
+    image::apply_spot_heal(tone, repair);
+    repair.spots[0].mode = image::SpotRepairMode::texture;
+    image::apply_spot_heal(texture, repair);
+    repair.spots[0].mode = image::SpotRepairMode::clone;
+    image::apply_spot_heal(clone, repair);
+    for (std::size_t i = 0; i < input.samples.size(); ++i)
+        expect(
+            std::abs(
+                double(tone.samples[i]) + texture.samples[i] - clone.samples[i] - input.samples[i]
+            ) < 0.000002,
+            "tone and texture edits must recompose the complete clone without clipping signed/HDR "
+            "samples"
+        );
+    const auto center = (80 * width + 128) * 3;
+    expect(
+        std::abs(tone.samples[center] - input.samples[center] - 0.021F) < 0.0002,
+        "tone-only repair must retain alternating fine texture"
+    );
+    expect(
+        std::abs(texture.samples[center] - input.samples[center] - 0.1F) < 0.0002,
+        "texture-only repair must retain the local illumination slope"
+    );
+    auto tile = input;
+    tile.dimensions = {128, 112};
+    tile.row_stride_bytes = 128 * 3 * sizeof(float);
+    tile.samples.resize(128 * 112 * 3);
+    for (std::uint32_t y = 0; y < 112; ++y)
+        for (std::uint32_t x = 0; x < 128; ++x)
+            for (std::uint32_t c = 0; c < 3; ++c)
+                tile.samples[(y * 128 + x) * 3 + c] =
+                    input.samples[((y + 24) * width + x + 64) * 3 + c];
+    repair.spots[0].mode = image::SpotRepairMode::texture;
+    image::apply_spot_heal(
+        tile,
+        repair,
+        {.origin_x = 64, .origin_y = 24, .full_dimensions = input.dimensions}
+    );
+    double maximum_error = 0;
+    for (std::uint32_t y = 68; y <= 92; ++y)
+        for (std::uint32_t x = 116; x <= 140; ++x)
+            for (std::uint32_t c = 0; c < 3; ++c) {
+                const double actual = tile.samples[((y - 24) * 128 + x - 64) * 3 + c];
+                const double expected = texture.samples[(y * width + x) * 3 + c];
+                maximum_error = std::max(maximum_error, std::abs(actual - expected));
+            }
+    expect(
+        maximum_error < 0.000001,
+        "frequency repair must agree across full-image and bounded detail-tile execution"
+    );
+    auto untouched = input;
+    repair.spots[0].strength = 0;
+    image::apply_spot_heal(untouched, repair);
+    expect(
+        untouched.samples == input.samples,
+        "zero-strength frequency repair must be exact identity"
+    );
+    repair.spots[0].strength = 0.8;
+    repair.spots[0].mode = image::SpotRepairMode::tone;
+    repair.spots[0].source_offset_x_radii = 2.9;
+    repair.spots[0].frequency_radius = 6;
+    repair.spots.push_back(
+        {.center_x = 144.5 / width,
+         .center_y = 80.5 / height,
+         .radius_level_zero_pixels = 12,
+         .mode = image::SpotRepairMode::texture,
+         .source_offset_x_radii = -1.7,
+         .feather = 0.3,
+         .frequency_radius = 8}
+    );
+    auto complete = input;
+    image::apply_spot_heal(complete, repair);
+    const auto reach = image::footprint(repair, 1, 1, input.dimensions);
+    const auto left = std::max(0, 139 - int(reach.horizontal_radius));
+    const auto top = std::max(0, 77 - int(reach.vertical_radius));
+    const auto right = std::min(int(width), 147 + int(reach.horizontal_radius));
+    const auto bottom = std::min(int(height), 84 + int(reach.vertical_radius));
+    auto bounded = input;
+    bounded.dimensions = {std::uint32_t(right - left), std::uint32_t(bottom - top)};
+    bounded.row_stride_bytes = bounded.dimensions.width * 3 * sizeof(float);
+    bounded.samples.resize(bounded.dimensions.width * bounded.dimensions.height * 3);
+    for (int y = top; y < bottom; ++y)
+        for (int x = left; x < right; ++x)
+            for (std::size_t c = 0; c < 3; ++c)
+                bounded.samples
+                    [(std::size_t(y - top) * bounded.dimensions.width + std::size_t(x - left)) * 3
+                     + c] = input.samples[(std::size_t(y) * width + std::size_t(x)) * 3 + c];
+    image::apply_spot_heal(
+        bounded,
+        repair,
+        {.origin_x = std::uint32_t(left),
+         .origin_y = std::uint32_t(top),
+         .full_dimensions = input.dimensions}
+    );
+    double chained_error = 0;
+    for (int y = 77; y < 84; ++y)
+        for (int x = 139; x < 147; ++x)
+            for (std::size_t c = 0; c < 3; ++c)
+                chained_error = std::max(
+                    chained_error,
+                    std::abs(
+                        double(bounded.samples
+                                   [(std::size_t(y - top) * bounded.dimensions.width
+                                     + std::size_t(x - left))
+                                        * 3
+                                    + c])
+                        - complete.samples[(std::size_t(y) * width + std::size_t(x)) * 3 + c]
+                    )
+                );
+    expect(
+        chained_error < 0.000002,
+        "dependency-limited tiles must preserve overlapping ordered tone/texture repairs"
+    );
+}
+
+void nearby_frequency_regions_do_not_pay_unrelated_source_displacements_twice() {
+    image::SpotHealAdjustment repair{
+        .spots = {
+            {.center_x = 400.5 / 1024,
+             .center_y = 128.5 / 256,
+             .radius_level_zero_pixels = 64,
+             .mode = image::SpotRepairMode::tone,
+             .source_offset_x_radii = 6.0,
+             .frequency_radius = 12},
+            {.center_x = 475.5 / 1024,
+             .center_y = 128.5 / 256,
+             .radius_level_zero_pixels = 64,
+             .mode = image::SpotRepairMode::texture,
+             .source_offset_x_radii = -0.85,
+             .frequency_radius = 21}
+        }
+    };
+    const auto reach = image::footprint(repair, 1.0, 1.0, {1024, 256});
+    expect(
+        reach.horizontal_radius <= 512 && reach.vertical_radius <= 512,
+        "nearby tone and texture repair must fit the bounded detail footprint"
+    );
+    // The first donor is still required: reducing the bound must not forget it.
+    expect(
+        reach.horizontal_radius >= 420,
+        "frequency footprint retains its far donor and blur halo"
+    );
+}
+
 } // namespace
 
 int main() {
+    nearby_frequency_regions_do_not_pay_unrelated_source_displacements_twice();
+    frequency_retouch_preserves_the_other_component_and_tile_result();
     heal_tracks_local_illumination_instead_of_stamping_a_global_tone();
     clone_preserves_high_frequency_source_structure_without_blur();
     one_point_clone_stroke_executes_as_a_click_authored_region();

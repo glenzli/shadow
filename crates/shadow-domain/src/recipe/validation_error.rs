@@ -154,6 +154,8 @@ pub enum RecipeValidationError {
     DuplicateMaskRevision { mask_id: MaskId, revision: u32 },
     #[error("retouch spot radius {0} must be between 1 and 128 full-resolution pixels")]
     InvalidRetouchSpotRadius(u16),
+    #[error("frequency separation radius {0} must be between 2 and 32 full-resolution pixels")]
+    InvalidRetouchFrequencyRadius(u16),
     #[error("retouch stroke must contain at least one point")]
     EmptyRetouchStroke,
     #[error("retouch stroke contains {0} points, but at most 512 are supported")]

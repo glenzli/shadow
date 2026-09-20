@@ -55,7 +55,7 @@ pub struct AdjustmentSpotHealTarget {
     pub center_x: f64,
     pub center_y: f64,
     pub radius_level_zero_pixels: u16,
-    /// 0 = heal, 1 = clone, 2 = structure-preserving heal.
+    /// 0 = heal, 1 = clone, 2 = structure-preserving heal, 3 = tone, 4 = texture.
     pub mode: u8,
     /// Finite horizontal donor displacement in brush radii.
     pub source_offset_x_radii: f64,
@@ -67,6 +67,7 @@ pub struct AdjustmentSpotHealTarget {
     pub source_flip_vertical: bool,
     pub feather: f64,
     pub strength: f64,
+    pub frequency_radius: u16,
 }
 
 /// One normalized sampled point in a continuous repair/clone stroke.
@@ -84,7 +85,7 @@ pub struct AdjustmentRetouchStrokePoint {
 pub struct AdjustmentRetouchStroke {
     pub points: Vec<AdjustmentRetouchStrokePoint>,
     pub radius_level_zero_pixels: u16,
-    /// 0 = heal, 1 = clone, 2 = structure-preserving heal.
+    /// 0 = heal, 1 = clone, 2 = structure-preserving heal, 3 = tone, 4 = texture.
     pub mode: u8,
     /// Finite horizontal donor displacement in brush radii.
     pub source_offset_x_radii: f64,
@@ -96,6 +97,7 @@ pub struct AdjustmentRetouchStroke {
     pub source_flip_vertical: bool,
     pub feather: f64,
     pub strength: f64,
+    pub frequency_radius: u16,
 }
 
 pub(super) fn validate_spot_heal(
@@ -132,7 +134,10 @@ pub(super) fn validate_spot_heal(
                 ));
             }
         }
-        if target.mode > 2 || !(1..=128).contains(&target.radius_level_zero_pixels) {
+        if target.mode > 4
+            || !(2..=32).contains(&target.frequency_radius)
+            || !(1..=128).contains(&target.radius_level_zero_pixels)
+        {
             return Err(BridgeError::InvalidEditRequest(
                 "spot-heal mode or radius is outside its supported range",
             ));
@@ -167,7 +172,8 @@ pub(super) fn validate_spot_heal(
         ] {
             validate_finite_render_parameter(value)?;
         }
-        if stroke.mode > 2
+        if stroke.mode > 4
+            || !(2..=32).contains(&stroke.frequency_radius)
             || !(0.0..=1.0).contains(&stroke.feather)
             || !(0.0..=1.0).contains(&stroke.strength)
             || !(1..=128).contains(&stroke.radius_level_zero_pixels)

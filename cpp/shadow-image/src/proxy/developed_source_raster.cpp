@@ -296,7 +296,11 @@ crop_processed_linear_to_working(const PixelBuffer& source, const GeometryPixelR
 
 [[nodiscard]] FloatRgbImage
 crop_processed_linear_to_working(const SceneLinearRgbFrame& source, const GeometryPixelRect rect) {
-    const std::size_t source_stride = validated_scene_linear_row_stride(source);
+    // The retained source was fully validated at session admission. Cropping
+    // must remain proportional to the requested tile, not the entire RAW.
+    if (!source.valid_layout())
+        throw DecodeError(DecodeErrorCode::corrupt_data, 0, "invalid scene-linear crop layout");
+    const std::size_t source_stride = source.row_stride_bytes / sizeof(float);
     validate_crop_rect(rect, source.dimensions);
     FloatRgbImage output;
     output.dimensions = Dimensions{rect.width, rect.height};
@@ -310,6 +314,15 @@ crop_processed_linear_to_working(const SceneLinearRgbFrame& source, const Geomet
         const std::size_t source_row = static_cast<std::size_t>(rect.y + y) * source_stride;
         const std::size_t destination_row = static_cast<std::size_t>(y) * rect.width * 3U;
         const std::size_t source_offset = source_row + static_cast<std::size_t>(rect.x) * 3U;
+        const auto* first = source.samples.data() + source_offset;
+        if (!std::all_of(first, first + static_cast<std::size_t>(rect.width) * 3U, [](float value) {
+                return std::isfinite(value);
+            }))
+            throw DecodeError(
+                DecodeErrorCode::corrupt_data,
+                0,
+                "non-finite scene-linear crop sample"
+            );
         std::copy_n(
             source.samples.data() + source_offset,
             static_cast<std::size_t>(rect.width) * 3U,

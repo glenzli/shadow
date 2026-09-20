@@ -357,7 +357,7 @@ void require_parameter_count(
                 "spot-heal must contain bounded complete repair targets or continuous strokes"
             );
         }
-        std::size_t expected_parameter_count = target_count * 12U;
+        std::size_t expected_parameter_count = target_count * 13U;
         for (std::size_t stroke_index = 0U; stroke_index < stroke_count; ++stroke_index) {
             const std::size_t point_count = source.parameter_group_lengths[2U + stroke_index];
             if (point_count == 0U || point_count > 512U) {
@@ -365,7 +365,7 @@ void require_parameter_count(
                     "a continuous repair stroke must contain 1 through 512 points"
                 );
             }
-            expected_parameter_count += 10U + point_count * 2U;
+            expected_parameter_count += 11U + point_count * 2U;
         }
         if (source.parameters.size() != expected_parameter_count) {
             throw_invalid_adjustment_plan(
@@ -375,7 +375,7 @@ void require_parameter_count(
         image::SpotHealAdjustment parameters;
         parameters.spots.reserve(target_count);
         for (std::size_t index = 0U; index < target_count; ++index) {
-            const std::size_t offset = index * 12U;
+            const std::size_t offset = index * 13U;
             const double encoded_radius = source.parameters[offset + 2U];
             const double encoded_mode = source.parameters[offset + 3U];
             if (!std::isfinite(source.parameters[offset])
@@ -392,7 +392,8 @@ void require_parameter_count(
                 || source.parameters[offset + 1U] < 0.0 || source.parameters[offset + 1U] > 1.0
                 || encoded_radius < 1.0 || encoded_radius > 128.0
                 || std::floor(encoded_radius) != encoded_radius
-                || (encoded_mode != 0.0 && encoded_mode != 1.0 && encoded_mode != 2.0)
+                || (encoded_mode < 0.0 || encoded_mode > 4.0
+                    || std::floor(encoded_mode) != encoded_mode)
                 || !source_offset_fits_detail_apron(
                     encoded_radius,
                     source.parameters[offset + 4U],
@@ -404,7 +405,10 @@ void require_parameter_count(
                 || (source.parameters[offset + 8U] != 0.0 && source.parameters[offset + 8U] != 1.0)
                 || (source.parameters[offset + 9U] != 0.0 && source.parameters[offset + 9U] != 1.0)
                 || source.parameters[offset + 10U] < 0.0 || source.parameters[offset + 10U] > 1.0
-                || source.parameters[offset + 11U] < 0.0 || source.parameters[offset + 11U] > 1.0) {
+                || source.parameters[offset + 11U] < 0.0 || source.parameters[offset + 11U] > 1.0
+                || !std::isfinite(source.parameters[offset + 12U])
+                || source.parameters[offset + 12U] < 2 || source.parameters[offset + 12U] > 32
+                || std::floor(source.parameters[offset + 12U]) != source.parameters[offset + 12U]) {
                 throw_invalid_adjustment_plan(
                     "spot-heal target behavior is outside the supported range"
                 );
@@ -414,10 +418,8 @@ void require_parameter_count(
                     .center_x = source.parameters[offset],
                     .center_y = source.parameters[offset + 1U],
                     .radius_level_zero_pixels = static_cast<std::uint16_t>(encoded_radius),
-                    .mode = encoded_mode == 0.0
-                                ? image::SpotRepairMode::heal
-                                : (encoded_mode == 1.0 ? image::SpotRepairMode::clone
-                                                       : image::SpotRepairMode::heal_structure),
+                    .mode =
+                        static_cast<image::SpotRepairMode>(static_cast<std::uint8_t>(encoded_mode)),
                     .source_offset_x_radii = source.parameters[offset + 4U],
                     .source_offset_y_radii = source.parameters[offset + 5U],
                     .source_rotation_degrees = source.parameters[offset + 6U],
@@ -426,11 +428,12 @@ void require_parameter_count(
                     .source_flip_vertical = source.parameters[offset + 9U] == 1.0,
                     .feather = source.parameters[offset + 10U],
                     .strength = source.parameters[offset + 11U],
+                    .frequency_radius = static_cast<std::uint16_t>(source.parameters[offset + 12U]),
                 }
             );
         }
         parameters.strokes.reserve(stroke_count);
-        std::size_t offset = target_count * 12U;
+        std::size_t offset = target_count * 13U;
         for (std::size_t stroke_index = 0U; stroke_index < stroke_count; ++stroke_index) {
             const std::size_t point_count = source.parameter_group_lengths[2U + stroke_index];
             const double encoded_radius = source.parameters[offset];
@@ -445,7 +448,8 @@ void require_parameter_count(
                 || !std::isfinite(source.parameters[offset + 8U])
                 || !std::isfinite(source.parameters[offset + 9U]) || encoded_radius < 1.0
                 || encoded_radius > 128.0 || std::floor(encoded_radius) != encoded_radius
-                || (encoded_mode != 0.0 && encoded_mode != 1.0 && encoded_mode != 2.0)
+                || (encoded_mode < 0.0 || encoded_mode > 4.0
+                    || std::floor(encoded_mode) != encoded_mode)
                 || !source_offset_fits_detail_apron(
                     encoded_radius,
                     source.parameters[offset + 2U],
@@ -457,17 +461,17 @@ void require_parameter_count(
                 || (source.parameters[offset + 6U] != 0.0 && source.parameters[offset + 6U] != 1.0)
                 || (source.parameters[offset + 7U] != 0.0 && source.parameters[offset + 7U] != 1.0)
                 || source.parameters[offset + 8U] < 0.0 || source.parameters[offset + 8U] > 1.0
-                || source.parameters[offset + 9U] < 0.0 || source.parameters[offset + 9U] > 1.0) {
+                || source.parameters[offset + 9U] < 0.0 || source.parameters[offset + 9U] > 1.0
+                || !std::isfinite(source.parameters[offset + 10U])
+                || source.parameters[offset + 10U] < 2 || source.parameters[offset + 10U] > 32
+                || std::floor(source.parameters[offset + 10U]) != source.parameters[offset + 10U]) {
                 throw_invalid_adjustment_plan(
                     "continuous spot-heal behavior is outside the supported range"
                 );
             }
             image::RetouchStroke stroke{
                 .radius_level_zero_pixels = static_cast<std::uint16_t>(encoded_radius),
-                .mode = encoded_mode == 0.0
-                            ? image::SpotRepairMode::heal
-                            : (encoded_mode == 1.0 ? image::SpotRepairMode::clone
-                                                   : image::SpotRepairMode::heal_structure),
+                .mode = static_cast<image::SpotRepairMode>(static_cast<std::uint8_t>(encoded_mode)),
                 .source_offset_x_radii = source.parameters[offset + 2U],
                 .source_offset_y_radii = source.parameters[offset + 3U],
                 .source_rotation_degrees = source.parameters[offset + 4U],
@@ -476,9 +480,10 @@ void require_parameter_count(
                 .source_flip_vertical = source.parameters[offset + 7U] == 1.0,
                 .feather = source.parameters[offset + 8U],
                 .strength = source.parameters[offset + 9U],
+                .frequency_radius = static_cast<std::uint16_t>(source.parameters[offset + 10U]),
             };
             stroke.points.reserve(point_count);
-            offset += 10U;
+            offset += 11U;
             for (std::size_t point_index = 0U; point_index < point_count; ++point_index) {
                 const double x = source.parameters[offset + point_index * 2U];
                 const double y = source.parameters[offset + point_index * 2U + 1U];

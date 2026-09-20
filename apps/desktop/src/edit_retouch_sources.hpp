@@ -11,6 +11,7 @@ class EditController;
 // cycling only commits an existing displacement to the selected repair.
 class EditRetouchSources final : public QObject {
     Q_OBJECT
+    Q_PROPERTY(int frequencyRadius READ frequencyRadius WRITE setFrequencyRadius NOTIFY changed)
     Q_PROPERTY(QVariantList saved READ saved NOTIFY changed)
     Q_PROPERTY(QString status READ status NOTIFY changed)
     Q_PROPERTY(bool previewEnabled MEMBER preview_enabled_ NOTIFY changed)
@@ -18,6 +19,11 @@ class EditRetouchSources final : public QObject {
   public:
     explicit EditRetouchSources(EditController&);
     QVariantList saved() const;
+    int frequencyRadius() const {
+        return frequency_radius_;
+    }
+    void setFrequencyRadius(int value);
+    Q_INVOKABLE void setRegionFrequency(bool continuous, int index, int value);
     QString status() const {
         return status_;
     }
@@ -38,6 +44,7 @@ class EditRetouchSources final : public QObject {
     std::vector<QPointF> candidates_;
     std::optional<BackendGradeStack> basis_;
     BackendPhotoGeometry saved_geometry_;
+    int frequency_radius_ = 8;
     int candidate_index_ = -1;
     bool continuous_ = false;
     bool preview_enabled_ = true;

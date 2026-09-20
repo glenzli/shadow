@@ -294,6 +294,8 @@ enum class SpotRepairMode : std::uint8_t {
     heal = 0U,
     clone = 1U,
     heal_structure = 2U,
+    tone = 3U,
+    texture = 4U,
 };
 
 inline constexpr std::uint32_t maximum_retouch_detail_apron_level_zero_pixels = 512U;
@@ -318,6 +320,7 @@ struct SpotHealTarget final {
     bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
+    std::uint16_t frequency_radius = 8U;
 };
 
 // A single authored point on a continuous Repair/Clone brush stroke. Coordinates
@@ -345,6 +348,7 @@ struct RetouchStroke final {
     bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
+    std::uint16_t frequency_radius = 8U;
 };
 
 struct SpotHealAdjustment final {

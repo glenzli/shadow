@@ -143,3 +143,37 @@ fn source_transform_survives_validation_and_round_trip() {
     assert!(!decoded.source_flip_vertical());
     assert_eq!(decoded.source_offset_x_radii(), 3.25);
 }
+
+#[test]
+fn frequency_retouch_preserves_mode_and_scale_and_defaults_legacy_recipes() {
+    let spot = RetouchSpot::new(
+        UnitInterval::new(0.4).unwrap(),
+        UnitInterval::new(0.5).unwrap(),
+        24,
+    )
+    .unwrap()
+    .with_behavior(
+        RetouchMode::Texture,
+        2.0,
+        0.0,
+        UnitInterval::new(0.3).unwrap(),
+    )
+    .unwrap()
+    .with_frequency_radius(12)
+    .unwrap();
+    let encoded = serde_json::to_value(spot).unwrap();
+    assert_eq!(
+        serde_json::from_value::<RetouchSpot>(encoded.clone()).unwrap(),
+        spot
+    );
+    assert!(spot.with_frequency_radius(33).is_err());
+    let mut legacy = encoded;
+    legacy.as_object_mut().unwrap().remove("frequency_radius");
+    legacy["mode"] = serde_json::json!("heal");
+    assert_eq!(
+        serde_json::from_value::<RetouchSpot>(legacy)
+            .unwrap()
+            .frequency_radius(),
+        8
+    );
+}

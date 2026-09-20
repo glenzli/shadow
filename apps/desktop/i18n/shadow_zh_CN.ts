@@ -1118,34 +1118,34 @@
         <translation>点颜色最多支持 16 个取样</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_controller.cpp" line="414"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="417"/>
         <source>Repair supports at most 64 spots</source>
         <translation>修复最多支持 64 个点</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_controller.cpp" line="500"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="504"/>
         <source>Added repair spot</source>
         <translation>已添加修复点</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_controller.cpp" line="490"/>
-        <location filename="../src/edit_retouch_controller.cpp" line="622"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="494"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="627"/>
         <source>Using a nearby fallback source · drag the outlined source to refine it</source>
         <translation>正在使用邻近备用源区 · 拖动带轮廓的源区可进一步调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_controller.cpp" line="495"/>
-        <location filename="../src/edit_retouch_controller.cpp" line="627"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="499"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="632"/>
         <source>Automatic repair source is uncertain · drag the outlined source to refine it</source>
         <translation>自动修复源区可信度较低 · 拖动带轮廓的源区可进一步调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_controller.cpp" line="516"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="520"/>
         <source>Repair supports at most 64 strokes</source>
         <translation>修复最多支持 64 笔</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_controller.cpp" line="800"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="805"/>
         <source>Removed repair spot</source>
         <translation>已移除修复点</translation>
     </message>
@@ -1844,24 +1844,24 @@
         <translation>自动几何预览失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_controller.cpp" line="335"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="338"/>
         <source>Repair source sampled</source>
         <translation>修复源区已取样</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_controller.cpp" line="317"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="320"/>
         <source>Click the image to choose a repair source</source>
         <translation>点击图像选择修复源区</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_controller.cpp" line="407"/>
-        <location filename="../src/edit_retouch_controller.cpp" line="528"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="410"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="532"/>
         <source>Choose a clone source before painting</source>
         <translation>请先选择仿制源区，再开始绘制</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_controller.cpp" line="465"/>
-        <location filename="../src/edit_retouch_controller.cpp" line="598"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="468"/>
+        <location filename="../src/edit_retouch_controller.cpp" line="602"/>
         <source>Sampled source is farther than the 512 px detail limit</source>
         <translation>取样源区超出 512 像素细节范围</translation>
     </message>
@@ -2546,17 +2546,17 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>EditRetouchSources</name>
     <message>
-        <location filename="../src/edit_retouch_sources.cpp" line="51"/>
+        <location filename="../src/edit_retouch_sources.cpp" line="53"/>
         <source>Source remembered for this photo and framing.</source>
         <translation>已记住当前照片与构图中的源位置。</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_sources.cpp" line="124"/>
+        <location filename="../src/edit_retouch_sources.cpp" line="126"/>
         <source>No suitable nearby source. Drag the source outline to choose one.</source>
         <translation>附近没有合适的源区域，请拖动源区轮廓选择。</translation>
     </message>
     <message>
-        <location filename="../src/edit_retouch_sources.cpp" line="144"/>
+        <location filename="../src/edit_retouch_sources.cpp" line="146"/>
         <source>Source %1 of %2 · undo restores the previous source</source>
         <translation>候选源 %1 / %2 · 撤销可恢复上一个源</translation>
     </message>
@@ -8750,8 +8750,8 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionLiquifyTools.qml" line="78"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="500"/>
         <location filename="../qml/PrecisionPaintBrushSettings.qml" line="44"/>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="167"/>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="146"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="195"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="183"/>
         <source>Size</source>
         <translation>大小</translation>
     </message>
@@ -8840,8 +8840,8 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="495"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="506"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="519"/>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="210"/>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="184"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="238"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="221"/>
         <source>Feather</source>
         <translation>羽化</translation>
     </message>
@@ -9584,7 +9584,7 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/PrecisionGeometryTools.qml" line="145"/>
         <location filename="../qml/PrecisionGeometryTools.qml" line="312"/>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="298"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="326"/>
         <source>Vertical</source>
         <translation>垂直</translation>
     </message>
@@ -9595,7 +9595,7 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGeometryTools.qml" line="337"/>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="286"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="314"/>
         <source>Horizontal</source>
         <translation>水平</translation>
     </message>
@@ -9635,23 +9635,23 @@ R %2 · G %3 · B %4</translation>
         <translation>使用带羽化的修复或附近仿制源移除小瑕疵。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="155"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="192"/>
         <source>Radius used by the next repair · use [ and ] over the image</source>
         <translation>用于下一处修复的半径 · 在图像上使用 [ 和 ] 调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="172"/>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="191"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="209"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="228"/>
         <source>%</source>
         <translation>%</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="175"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="212"/>
         <source>Opacity used by the next repair</source>
         <translation>用于下一处修复的不透明度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="194"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="231"/>
         <source>Edge softness used by the next repair</source>
         <translation>用于下一处修复的边缘柔和度</translation>
     </message>
@@ -9680,53 +9680,73 @@ R %2 · G %3 · B %4</translation>
         <translation>从附近复制同形来源区域</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="139"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="136"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="147"/>
+        <source>Tone only</source>
+        <translation>仅色调</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="136"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="147"/>
+        <source>Texture only</source>
+        <translation>仅纹理</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="151"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="170"/>
+        <source>Separation scale</source>
+        <translation>分离尺度</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="167"/>
         <source>Blend</source>
         <translation>混合</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="149"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="177"/>
         <source>Natural</source>
         <translation>自然</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="150"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="178"/>
         <source>Replace isolated spots without retaining their edges</source>
         <translation>替换孤立瑕疵，不保留其边缘</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="159"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="187"/>
         <source>Structure</source>
         <translation>结构</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="160"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="188"/>
         <source>Preserve strong lines and edges crossing the repair</source>
         <translation>保留穿过修复区域的强线条和边缘</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="173"/>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="152"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="153"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="201"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="172"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="189"/>
         <source> px</source>
         <translation> 像素</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="175"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="203"/>
         <source>Full-resolution repair radius</source>
         <translation>全分辨率修复半径</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="201"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="229"/>
         <source>Try another source</source>
         <translation>换一个取样源</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="219"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="247"/>
         <source>Soften the repair edge</source>
         <translation>柔化修复边缘</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="193"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="221"/>
         <source>Blend the repair with the original</source>
         <translation>控制修复结果与原图的混合强度</translation>
     </message>
@@ -9736,92 +9756,97 @@ R %2 · G %3 · B %4</translation>
         <translation>已绘制</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="213"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="174"/>
+        <source>Separate broad color from fine texture. Only the selected component is sampled.</source>
+        <translation>分离大范围色调与精细纹理，只从源区域取样所选的分量。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="250"/>
         <source>Select source</source>
         <translation>选择源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="213"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="250"/>
         <source>Reselect source</source>
         <translation>重新选择源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="214"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="251"/>
         <source>Click, then choose a source directly on the image</source>
         <translation>点击后直接在图像上选择源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="245"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="282"/>
         <source>Clear and choose a new clone source</source>
         <translation>清除并重新选择仿制源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="258"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="295"/>
         <source>Remember source</source>
         <translation>记住源位置</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="269"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="306"/>
         <source>Recall source %1 for this photo</source>
         <translation>使用当前照片的源位置 %1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="279"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="316"/>
         <source>Source preview</source>
         <translation>取样预览</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="302"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="339"/>
         <source>Click the image to choose the source area.</source>
         <translation>点击图像选择源区。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="306"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="343"/>
         <source>Select a source before painting with Clone.</source>
         <translation>使用仿制前请先选择源区。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="307"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="344"/>
         <source>Heal selects a nearby source automatically · use Select source to override</source>
         <translation>修复会自动选择附近源区 · 可用“选择源区”手动覆盖</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="224"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="261"/>
         <source>Keep offset</source>
         <translation>保持偏移</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="225"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="262"/>
         <source>After the first repair, keep the same source-to-target offset for each new repair</source>
         <translation>完成第一处修复后，后续每处修复都保持相同的源区到目标区偏移</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="234"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="271"/>
         <source>Reuse point</source>
         <translation>重用取样点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="235"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="272"/>
         <source>Start every new repair from the exact sampled source point</source>
         <translation>每处新修复都从同一个精确取样点开始</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="246"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="283"/>
         <source>Return to automatic nearby source selection</source>
         <translation>恢复自动选择附近源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="304"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="341"/>
         <source>Source set · drag its crosshair to move · paint the repair</source>
         <translation>源区已设置 · 拖动十字标记可移动 · 绘制即可修复</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="309"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="346"/>
         <source>Select a repair region below or on the image.</source>
         <translation>在下方或图像上选择修复区域。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="310"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="347"/>
         <source>Choose Heal or Clone, then paint on the image.</source>
         <translation>选择修复或仿制，然后在图像上绘制。</translation>
     </message>
@@ -9849,47 +9874,47 @@ R %2 · G %3 · B %4</translation>
         <translation>移除区域 %1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="313"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="341"/>
         <source>Source · %1 px</source>
         <translation>源区 · %1 像素</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="321"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="349"/>
         <source>Reset source</source>
         <translation>重置源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="322"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="350"/>
         <source>Choose a deterministic nearby source again</source>
         <translation>重新选择一个确定的邻近源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="229"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="257"/>
         <source>Source rotation</source>
         <translation>源区旋转</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="237"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="265"/>
         <source>Rotate the sampled source around the target anchor</source>
         <translation>围绕目标锚点旋转取样源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="251"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="279"/>
         <source>Source scale</source>
         <translation>源区缩放</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="260"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="288"/>
         <source>Resize the sampled source texture</source>
         <translation>缩放取样源区纹理</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="277"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="305"/>
         <source>Mirror source</source>
         <translation>镜像源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="330"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="358"/>
         <source>Select this repair, then drag its outlined source region on the image.</source>
         <translation>选中此修复后，在图像上拖动其带轮廓的源区域。</translation>
     </message>
@@ -9976,7 +10001,7 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="136"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="152"/>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="243"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="280"/>
         <source>Clear</source>
         <translation>清除</translation>
     </message>
@@ -10186,8 +10211,8 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionInspector.qml" line="413"/>
         <location filename="../qml/PrecisionLiquifyTools.qml" line="96"/>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="39"/>
-        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="184"/>
-        <location filename="../qml/PrecisionRetouchTools.qml" line="165"/>
+        <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="212"/>
+        <location filename="../qml/PrecisionRetouchTools.qml" line="202"/>
         <location filename="../qml/PrecisionSubjectEmphasis.qml" line="129"/>
         <source>Strength</source>
         <translation>强度</translation>

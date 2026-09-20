@@ -1,5 +1,6 @@
 #include "edit_controller.hpp"
 #include "edit_retouch_donor_preview.hpp"
+#include "edit_retouch_sources.hpp"
 #include "edit_stroke_input.hpp"
 
 #include <algorithm>
@@ -126,6 +127,7 @@ QVariantList EditController::retouchSpots() const {
                 {QStringLiteral("sourceFlipVertical"), spot.source_flip_vertical},
                 {QStringLiteral("feather"), spot.feather},
                 {QStringLiteral("strength"), spot.strength},
+                {QStringLiteral("frequencyRadius"), int(spot.frequency_radius)},
             }
         );
     }
@@ -163,6 +165,7 @@ QVariantList EditController::retouchStrokes() const {
                 {QStringLiteral("sourceFlipVertical"), stroke.source_flip_vertical},
                 {QStringLiteral("feather"), stroke.feather},
                 {QStringLiteral("strength"), stroke.strength},
+                {QStringLiteral("frequencyRadius"), int(stroke.frequency_radius)},
             }
         );
     }
@@ -242,7 +245,8 @@ void EditController::setRetouchPickerActive(const bool active) {
 void EditController::setRetouchCreationMode(const int mode) {
     constexpr int heal_mode = 0;
     constexpr int clone_mode = 1;
-    if ((mode != heal_mode && mode != clone_mode) || retouch_creation_mode_ == mode) {
+    if ((mode != heal_mode && mode != clone_mode && mode != 3 && mode != 4)
+        || retouch_creation_mode_ == mode) {
         return;
     }
     retouch_creation_mode_ = mode;
@@ -478,6 +482,7 @@ void EditController::addRetouchSpotFromPreview(
             .source_offset_y_radii = source_offset_y,
             .feather = retouch_brush_feather_,
             .strength = retouch_brush_strength_,
+            .frequency_radius = static_cast<std::uint16_t>(retouch_sources_->frequencyRadius()),
         }
     );
     if (sampled_source && retouch_source_aligned_
@@ -610,6 +615,7 @@ void EditController::addRetouchStrokeFromPreview(
             .source_offset_y_radii = source_offset_y,
             .feather = retouch_brush_feather_,
             .strength = retouch_brush_strength_,
+            .frequency_radius = static_cast<std::uint16_t>(retouch_sources_->frequencyRadius()),
         }
     );
     if (sampled_source && retouch_source_aligned_
@@ -679,7 +685,8 @@ void EditController::setRetouchSpotMode(const int index, const int mode) {
     constexpr int clone_mode = 1;
     constexpr int structure_heal_mode = 2;
     if (!active_ || interactionLocked() || index < 0 || index >= grade_stack_.retouch_spots.size()
-        || (mode != heal_mode && mode != clone_mode && mode != structure_heal_mode)) {
+        || (mode != heal_mode && mode != clone_mode && mode != structure_heal_mode && mode != 3
+            && mode != 4)) {
         return;
     }
     const BackendGradeStack before = grade_stack_;
@@ -828,7 +835,8 @@ void EditController::setRetouchStrokeMode(const int index, const int mode) {
     constexpr int clone_mode = 1;
     constexpr int structure_heal_mode = 2;
     if (!active_ || interactionLocked() || index < 0 || index >= grade_stack_.retouch_strokes.size()
-        || (mode != heal_mode && mode != clone_mode && mode != structure_heal_mode)) {
+        || (mode != heal_mode && mode != clone_mode && mode != structure_heal_mode && mode != 3
+            && mode != 4)) {
         return;
     }
     const BackendGradeStack before = grade_stack_;

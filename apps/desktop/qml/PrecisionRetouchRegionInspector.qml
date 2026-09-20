@@ -102,7 +102,7 @@ ColumnLayout {
             buttonSize: 30
             iconSize: 17
             source: "qrc:/icons/heal.svg"
-            selected: Number(regionInspector.region.mode) !== 1
+            selected: (Number(regionInspector.region.mode) === 0 || Number(regionInspector.region.mode) === 2)
             toolTipText: qsTr("Blend a defect from its surrounding pixels")
             accessibleName: qsTr("Heal") + " · " + qsTr("Region %1").arg(regionInspector.displayIndex + 1)
             onClicked: regionInspector.setMode(0)
@@ -130,10 +130,38 @@ ColumnLayout {
     }
 
     RowLayout {
+        Layout.fillWidth: true
+        spacing: 6
+        Repeater {
+            model: [qsTr("Tone only"), qsTr("Texture only")]
+            delegate: ShadowButton {
+                required property string modelData
+                required property int index
+                Layout.fillWidth: true
+                compact: true
+                text: modelData
+                selected: Number(regionInspector.region.mode) === index + 3
+                onClicked: regionInspector.setMode(index + 3)
+            }
+        }
+    }
+    ShadowSlider {
+        Layout.fillWidth: true
+        visible: Number(regionInspector.region.mode) >= 3
+        label: qsTr("Separation scale")
+        from: 2; to: 32; stepSize: 1; decimals: 0
+        suffix: qsTr(" px")
+        value: Number(regionInspector.region.frequencyRadius)
+        onGestureStarted: regionInspector.editor.beginParameterEdit(regionInspector.historyKey("frequency"))
+        onGestureFinished: regionInspector.editor.endParameterEdit(regionInspector.historyKey("frequency"))
+        onEdited: value => regionInspector.editor.retouchSources.setRegionFrequency(regionInspector.continuous, regionInspector.region.index, Math.round(value))
+    }
+
+    RowLayout {
         objectName: "retouchHealBlendSelector"
         Layout.fillWidth: true
         spacing: 6
-        visible: Number(regionInspector.region.mode) !== 1
+        visible: (Number(regionInspector.region.mode) === 0 || Number(regionInspector.region.mode) === 2)
 
         Label {
             text: qsTr("Blend")

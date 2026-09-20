@@ -138,6 +138,43 @@ ColumnLayout {
             Item { Layout.fillWidth: true }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            spacing: 6
+            Repeater {
+                model: [qsTr("Tone only"), qsTr("Texture only")]
+                delegate: ShadowButton {
+                    required property string modelData
+                    required property int index
+                    Layout.fillWidth: true
+                    compact: true
+                    text: modelData
+                    selected: retouch.inspector.editor.retouchCreationMode === index + 3
+                    enabled: retouch.controlsEnabled
+                    onClicked: {
+                        retouch.inspector.editor.setRetouchCreationMode(index + 3)
+                        retouch.inspector.editor.setRetouchPickerActive(true)
+                        retouch.inspector.editor.setRetouchSourcePicking(false)
+                    }
+                }
+            }
+        }
+        ShadowSlider {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: retouch.inspector.editor.retouchCreationMode >= 3
+            enabled: retouch.controlsEnabled
+            label: qsTr("Separation scale")
+            from: 2; to: 32; stepSize: 1; decimals: 0
+            suffix: qsTr(" px")
+            value: retouch.inspector.editor.retouchSources.frequencyRadius
+            toolTipText: qsTr("Separate broad color from fine texture. Only the selected component is sampled.")
+            onEdited: value => retouch.inspector.editor.retouchSources.frequencyRadius = Math.round(value)
+        }
+
         ShadowSlider {
             objectName: "retouchBrushSizeSlider"
             Layout.fillWidth: true

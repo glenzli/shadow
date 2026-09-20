@@ -847,6 +847,8 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                     0 => RetouchMode::Heal,
                     1 => RetouchMode::Clone,
                     2 => RetouchMode::HealStructure,
+                    3 => RetouchMode::Tone,
+                    4 => RetouchMode::Texture,
                     other => bail!("retouch spot {index} has unsupported mode {other}"),
                 };
                 RetouchSpot::new(
@@ -874,6 +876,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                         spot.source_flip_vertical,
                     )
                 })
+                .and_then(|value| value.with_frequency_radius(spot.frequency_radius))
                 .and_then(|value| Ok(value.with_strength(UnitInterval::new(spot.strength)?)))
                 .with_context(|| format!("retouch spot {index} is invalid"))
             })
@@ -887,6 +890,8 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                     0 => RetouchMode::Heal,
                     1 => RetouchMode::Clone,
                     2 => RetouchMode::HealStructure,
+                    3 => RetouchMode::Tone,
+                    4 => RetouchMode::Texture,
                     other => bail!("retouch stroke {index} has unsupported mode {other}"),
                 };
                 let points = stroke
@@ -925,6 +930,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                             stroke.source_flip_vertical,
                         )
                     })
+                    .and_then(|value| value.with_frequency_radius(stroke.frequency_radius))
                     .and_then(|value| Ok(value.with_strength(UnitInterval::new(stroke.strength)?)))
                     .with_context(|| format!("retouch stroke {index} is invalid"))
             })
@@ -1418,6 +1424,8 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                     RetouchMode::Heal => 0,
                     RetouchMode::Clone => 1,
                     RetouchMode::HealStructure => 2,
+                    RetouchMode::Tone => 3,
+                    RetouchMode::Texture => 4,
                 },
                 source_offset_x_radii: spot.source_offset_x_radii(),
                 source_offset_y_radii: spot.source_offset_y_radii(),
@@ -1427,6 +1435,7 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                 source_flip_vertical: spot.source_flip_vertical(),
                 feather: spot.feather().get(),
                 strength: spot.strength().get(),
+                frequency_radius: spot.frequency_radius(),
             })
             .collect(),
         retouch_strokes: grade_stack
@@ -1446,6 +1455,8 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                     RetouchMode::Heal => 0,
                     RetouchMode::Clone => 1,
                     RetouchMode::HealStructure => 2,
+                    RetouchMode::Tone => 3,
+                    RetouchMode::Texture => 4,
                 },
                 source_offset_x_radii: stroke.source_offset_x_radii(),
                 source_offset_y_radii: stroke.source_offset_y_radii(),
@@ -1455,6 +1466,7 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                 source_flip_vertical: stroke.source_flip_vertical(),
                 feather: stroke.feather().get(),
                 strength: stroke.strength().get(),
+                frequency_radius: stroke.frequency_radius(),
             })
             .collect(),
         retouch_enabled: grade_stack.retouch_enabled,

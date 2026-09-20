@@ -49,6 +49,7 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
             spot.source_flip_horizontal(),
             spot.source_flip_vertical(),
         )?
+        .with_frequency_radius(spot.frequency_radius())?
         .with_strength(spot.strength());
     }
     if grade_stack.retouch_strokes.len() > MAX_RETOUCH_STROKES_PER_RECIPE {
@@ -73,6 +74,7 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
                     stroke.source_flip_horizontal(),
                     stroke.source_flip_vertical(),
                 )?
+                .with_frequency_radius(stroke.frequency_radius())?
                 .with_strength(stroke.strength());
     }
     let mut grade_node_ids = HashSet::with_capacity(grade_stack.grade_nodes.len());

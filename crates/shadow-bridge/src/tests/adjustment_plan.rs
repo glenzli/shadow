@@ -357,6 +357,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
                 source_flip_vertical: false,
                 feather: 0.4,
                 strength: 0.65,
+                frequency_radius: 8,
             }],
         },
     };
@@ -372,7 +373,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
     assert_eq!(
         flattened.parameters,
         [
-            24.0, 1.0, 18.5, -0.75, 30.0, 1.25, 1.0, 0.0, 0.4, 0.65, 0.2, 0.3, 0.7, 0.6
+            24.0, 1.0, 18.5, -0.75, 30.0, 1.25, 1.0, 0.0, 0.4, 0.65, 8.0, 0.2, 0.3, 0.7, 0.6
         ]
     );
 
@@ -390,6 +391,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
             source_flip_vertical: false,
             feather: 0.28,
             strength: 1.0,
+            frequency_radius: 8,
         }],
     };
     assert!(validate_render_operation(&invalid).is_err());
@@ -408,6 +410,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
             source_flip_vertical: false,
             feather: 0.28,
             strength: 1.01,
+            frequency_radius: 8,
         }],
     };
     assert!(validate_render_operation(&invalid_strength).is_err());
@@ -434,6 +437,7 @@ fn structure_preserving_heal_mode_validates_and_flattens_without_schema_expansio
                 source_flip_vertical: false,
                 feather: 0.28,
                 strength: 1.0,
+                frequency_radius: 8,
             }],
             strokes: Vec::new(),
         },
@@ -447,6 +451,6 @@ fn structure_preserving_heal_mode_validates_and_flattens_without_schema_expansio
     let AdjustmentRenderOperation::SpotHeal { targets, .. } = &mut invalid.operation else {
         unreachable!("test operation is retouch")
     };
-    targets[0].mode = 3;
+    targets[0].mode = 5;
     assert!(validate_render_operation(&invalid.operation).is_err());
 }

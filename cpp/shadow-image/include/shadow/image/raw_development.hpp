@@ -63,6 +63,9 @@ struct SceneLinearRgbFrame final {
     std::size_t row_stride_bytes = 0U;
     std::vector<float> samples;
 
+    // Constant-time shape check. Full admission still calls valid(); bounded
+    // consumers validate only the samples they read after checking this layout.
+    [[nodiscard]] bool valid_layout() const noexcept;
     [[nodiscard]] bool valid() const noexcept;
 };
 
@@ -88,9 +91,7 @@ struct SceneLinearRgbFrame final {
 // max_edge. Native-size requests reuse the full bilinear baseline. Downscaled requests integrate
 // the complete sensor footprint represented by every output pixel, so total work remains roughly
 // proportional to the RAW plane rather than allocating and then resizing a full RGB image.
-[[nodiscard]] LinearCameraRgbFrame demosaic_bayer_preview(
-    const RawFrame& frame,
-    std::uint32_t max_edge
-);
+[[nodiscard]] LinearCameraRgbFrame
+demosaic_bayer_preview(const RawFrame& frame, std::uint32_t max_edge);
 
 } // namespace shadow::image

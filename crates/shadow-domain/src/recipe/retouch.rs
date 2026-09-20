@@ -42,6 +42,17 @@ pub enum RetouchMode {
     /// target boundary. This is intended for repairs that cross a real edge;
     /// ordinary Heal remains the safer choice for isolated dust and spots.
     HealStructure,
+    /// Copy only the low-frequency color and illumination component.
+    Tone,
+    /// Copy only the signed high-frequency texture component.
+    Texture,
+}
+
+const fn default_frequency_radius() -> u16 {
+    8
+}
+const fn is_default_frequency_radius(value: &u16) -> bool {
+    *value == 8
 }
 
 const fn default_retouch_feather() -> UnitInterval {
@@ -81,6 +92,11 @@ pub struct RetouchSpot {
     feather: UnitInterval,
     #[serde(default = "default_retouch_strength")]
     strength: UnitInterval,
+    #[serde(
+        default = "default_frequency_radius",
+        skip_serializing_if = "is_default_frequency_radius"
+    )]
+    frequency_radius: u16,
 }
 
 impl RetouchSpot {
@@ -118,6 +134,7 @@ impl RetouchSpot {
             source_flip_vertical: false,
             feather: default_retouch_feather(),
             strength: default_retouch_strength(),
+            frequency_radius: default_frequency_radius(),
         })
     }
 
@@ -239,6 +256,19 @@ impl RetouchSpot {
         self.strength
     }
 
+    /// Gaussian separation scale in original-image pixels, independent of brush size.
+    pub fn with_frequency_radius(mut self, radius: u16) -> Result<Self, RecipeValidationError> {
+        if !(2..=32).contains(&radius) {
+            return Err(RecipeValidationError::InvalidRetouchFrequencyRadius(radius));
+        }
+        self.frequency_radius = radius;
+        Ok(self)
+    }
+
+    pub const fn frequency_radius(&self) -> u16 {
+        self.frequency_radius
+    }
+
     pub(super) fn validate(self) -> Result<(), RecipeValidationError> {
         Self::new(self.center_x, self.center_y, self.radius_level_zero_pixels)?
             .with_source_transform(
@@ -253,6 +283,7 @@ impl RetouchSpot {
                 self.source_offset_y_radii.get(),
                 self.feather,
             )
+            .and_then(|value| value.with_frequency_radius(self.frequency_radius))
             .map(|value| value.with_strength(self.strength))
             .map(|_| ())
     }
@@ -313,6 +344,11 @@ pub struct RetouchStroke {
     feather: UnitInterval,
     #[serde(default = "default_retouch_strength")]
     strength: UnitInterval,
+    #[serde(
+        default = "default_frequency_radius",
+        skip_serializing_if = "is_default_frequency_radius"
+    )]
+    frequency_radius: u16,
 }
 
 impl RetouchStroke {
@@ -357,6 +393,7 @@ impl RetouchStroke {
             source_flip_vertical: false,
             feather: default_retouch_feather(),
             strength: default_retouch_strength(),
+            frequency_radius: default_frequency_radius(),
         })
     }
 
@@ -475,6 +512,19 @@ impl RetouchStroke {
         self.strength
     }
 
+    /// Gaussian separation scale in original-image pixels, independent of brush size.
+    pub fn with_frequency_radius(mut self, radius: u16) -> Result<Self, RecipeValidationError> {
+        if !(2..=32).contains(&radius) {
+            return Err(RecipeValidationError::InvalidRetouchFrequencyRadius(radius));
+        }
+        self.frequency_radius = radius;
+        Ok(self)
+    }
+
+    pub const fn frequency_radius(&self) -> u16 {
+        self.frequency_radius
+    }
+
     pub(super) fn validate(&self) -> Result<(), RecipeValidationError> {
         Self::new(self.points.clone(), self.radius_level_zero_pixels)?
             .with_source_transform(
@@ -489,6 +539,7 @@ impl RetouchStroke {
                 self.source_offset_y_radii.get(),
                 self.feather,
             )
+            .and_then(|value| value.with_frequency_radius(self.frequency_radius))
             .map(|value| value.with_strength(self.strength))
             .map(|_| ())
     }

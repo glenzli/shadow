@@ -3,8 +3,8 @@
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/proxy_rendering.hpp>
 
-#include "bayer_sampling.hpp"
 #include "../concurrency/row_scheduler.hpp"
+#include "bayer_sampling.hpp"
 
 #include <cmath>
 #include <limits>
@@ -18,8 +18,8 @@ namespace {
     const std::uint32_t source_schema,
     const RawDemosaicAlgorithm algorithm
 ) {
-    const auto output_samples = static_cast<std::uint64_t>(dimensions.width)
-        * dimensions.height * 3U;
+    const auto output_samples =
+        static_cast<std::uint64_t>(dimensions.width) * dimensions.height * 3U;
     if (output_samples > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
@@ -52,14 +52,12 @@ bool LinearCameraRgbFrame::valid() const noexcept {
         return false;
     }
     const auto sample_count = width * height * 3U;
-    if (
-        sample_count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
+    if (sample_count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
         || samples.size() != static_cast<std::size_t>(sample_count)
         || receipt.schema_version != raw_demosaic_receipt_schema_version
         || receipt.source_raw_frame_schema_version != raw_frame_schema_version
         || !receipt.black_subtraction_applied || !receipt.white_level_normalization_applied
-        || receipt.white_balance_applied || receipt.dng_opcodes_applied
-    ) {
+        || receipt.white_balance_applied || receipt.dng_opcodes_applied) {
         return false;
     }
     for (const auto sample : samples) {
@@ -70,19 +68,20 @@ bool LinearCameraRgbFrame::valid() const noexcept {
     return true;
 }
 
-bool SceneLinearRgbFrame::valid() const noexcept {
+bool SceneLinearRgbFrame::valid_layout() const noexcept {
     const auto width = static_cast<std::uint64_t>(dimensions.width);
     const auto height = static_cast<std::uint64_t>(dimensions.height);
-    if (width == 0U || height == 0U || row_stride_bytes != width * 3U * sizeof(float)) {
+    if (width == 0U || height == 0U || row_stride_bytes != width * 3U * sizeof(float))
         return false;
-    }
-    const auto sample_count = width * height * 3U;
-    if (
-        sample_count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
-        || samples.size() != static_cast<std::size_t>(sample_count)
-    ) {
+    const auto pixels = width * height;
+    if (pixels > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()) / 3U)
         return false;
-    }
+    return samples.size() == static_cast<std::size_t>(pixels * 3U);
+}
+
+bool SceneLinearRgbFrame::valid() const noexcept {
+    if (!valid_layout())
+        return false;
     for (const auto sample : samples) {
         if (!std::isfinite(sample)) {
             return false;
@@ -183,10 +182,7 @@ LinearCameraRgbFrame demosaic_bayer_edge_aware(const RawFrame& frame) {
     return output;
 }
 
-LinearCameraRgbFrame demosaic_bayer_preview(
-    const RawFrame& frame,
-    const std::uint32_t max_edge
-) {
+LinearCameraRgbFrame demosaic_bayer_preview(const RawFrame& frame, const std::uint32_t max_edge) {
     detail::validate_bayer_frame(frame, "Bayer preview demosaic");
     if (max_edge == 0U) {
         throw DecodeError(
@@ -211,18 +207,14 @@ LinearCameraRgbFrame demosaic_bayer_preview(
     detail::parallel_for_rows(
         target.height,
         8U,
-        [&frame, &output, target, sampling](
-            const std::uint32_t first_row,
-            const std::uint32_t last_row
-        ) {
+        [&frame,
+         &output,
+         target,
+         sampling](const std::uint32_t first_row, const std::uint32_t last_row) {
             for (std::uint32_t output_y = first_row; output_y < last_row; ++output_y) {
                 for (std::uint32_t output_x = 0U; output_x < target.width; ++output_x) {
-                    const auto rgb = detail::area_camera_rgb_at(
-                        frame,
-                        sampling,
-                        output_x,
-                        output_y
-                    );
+                    const auto rgb =
+                        detail::area_camera_rgb_at(frame, sampling, output_x, output_y);
                     const auto output_index =
                         (static_cast<std::size_t>(output_y) * target.width + output_x) * 3U;
                     output.samples[output_index] = rgb[0];

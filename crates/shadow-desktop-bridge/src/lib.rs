@@ -1474,7 +1474,7 @@ mod ffi {
         center_x: f64,
         center_y: f64,
         radius_level_zero_pixels: u16,
-        /// 0 = heal, 1 = clone, 2 = structure-preserving heal.
+        /// 0 = heal, 1 = clone, 2 = structure-preserving heal, 3 = tone, 4 = texture.
         mode: u8,
         source_offset_x_radii: f64,
         source_offset_y_radii: f64,
@@ -1484,6 +1484,7 @@ mod ffi {
         source_flip_vertical: bool,
         feather: f64,
         strength: f64,
+        frequency_radius: u16,
     }
 
     /// One normalized centerline point for a photo-local continuous repair
@@ -1502,7 +1503,7 @@ mod ffi {
     struct FfiRetouchStroke {
         points: Vec<FfiRetouchPoint>,
         radius_level_zero_pixels: u16,
-        /// 0 = heal, 1 = clone, 2 = structure-preserving heal.
+        /// 0 = heal, 1 = clone, 2 = structure-preserving heal, 3 = tone, 4 = texture.
         mode: u8,
         source_offset_x_radii: f64,
         source_offset_y_radii: f64,
@@ -1512,6 +1513,7 @@ mod ffi {
         source_flip_vertical: bool,
         feather: f64,
         strength: f64,
+        frequency_radius: u16,
     }
 
     /// One accepted immutable RGBA8 AI-completion patch. The desktop never

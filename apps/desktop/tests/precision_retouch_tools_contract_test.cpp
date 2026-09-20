@@ -39,6 +39,7 @@ class FakeRetouchEditor final : public QObject {
         return {
             {"saved", QVariantList{false, false, false}},
             {"status", ""},
+            {"frequencyRadius", 8},
             {"previewOpacity", 0.5},
             {"previewEnabled", false}
         };

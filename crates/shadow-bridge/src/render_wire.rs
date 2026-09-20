@@ -544,9 +544,9 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
         AdjustmentRenderOperation::SpotHeal { targets, strokes } => {
             let stroke_parameters = strokes
                 .iter()
-                .map(|stroke| 10 + stroke.points.len() * 2)
+                .map(|stroke| 11 + stroke.points.len() * 2)
                 .sum::<usize>();
-            let mut flattened = Vec::with_capacity(targets.len() * 12 + stroke_parameters);
+            let mut flattened = Vec::with_capacity(targets.len() * 13 + stroke_parameters);
             let mut parameter_group_lengths = vec![
                 u32::try_from(targets.len()).expect("validated spot-heal target count fits u32"),
                 u32::try_from(strokes.len()).expect("validated continuous stroke count fits u32"),
@@ -565,6 +565,7 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                     f64::from(target.source_flip_vertical),
                     target.feather,
                     target.strength,
+                    f64::from(target.frequency_radius),
                 ]);
             }
             for stroke in strokes {
@@ -583,6 +584,7 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                     f64::from(stroke.source_flip_vertical),
                     stroke.feather,
                     stroke.strength,
+                    f64::from(stroke.frequency_radius),
                 ]);
                 for point in &stroke.points {
                     flattened.extend([point.x, point.y]);

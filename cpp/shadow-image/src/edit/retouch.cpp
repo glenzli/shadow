@@ -4,6 +4,7 @@
 #include <shadow/image/retouch.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include "retouch_frequency.hpp"
 #include "retouch_heal_blending.hpp"
 #include "retouch_source_transform.hpp"
 
@@ -186,7 +187,9 @@ struct RasterBounds final {
 }
 
 [[nodiscard]] double brush_alpha(const double distance, const double feather) {
-    if (distance > 1.0) {
+    // Subtracting a tile origin must not move a mathematically exact circle
+    // boundary outside a hard brush because of double rounding.
+    if (distance > 1.0 + 1.0e-12) {
         return 0.0;
     }
     return feather <= 0.0 ? 1.0 : 1.0 - smoothstep(1.0 - feather, 1.0, distance);
@@ -205,7 +208,8 @@ struct RasterBounds final {
     return radius_level_zero_pixels >= minimum_spot_radius_level_zero
            && radius_level_zero_pixels <= maximum_spot_radius_level_zero
            && (mode == SpotRepairMode::heal || mode == SpotRepairMode::clone
-               || mode == SpotRepairMode::heal_structure)
+               || mode == SpotRepairMode::heal_structure || mode == SpotRepairMode::tone
+               || mode == SpotRepairMode::texture)
            && std::isfinite(source_offset_x_radii) && std::isfinite(source_offset_y_radii)
            && std::isfinite(source_rotation_degrees) && source_rotation_degrees >= -180.0
            && source_rotation_degrees <= 180.0 && std::isfinite(source_scale)
@@ -281,7 +285,6 @@ void apply_target(
                             - static_cast<double>(context.origin_x) - 0.5;
     const double center_y = target.center_y * static_cast<double>(full.height)
                             - static_cast<double>(context.origin_y) - 0.5;
-    const FloatRgbImage source = image;
     const auto paint_lower_x = static_cast<std::int64_t>(std::floor(center_x - radius_x)) - 1;
     const auto paint_upper_x = static_cast<std::int64_t>(std::ceil(center_x + radius_x)) + 1;
     const auto paint_lower_y = static_cast<std::int64_t>(std::floor(center_y - radius_y)) - 1;
@@ -295,6 +298,8 @@ void apply_target(
     if (lower_x > upper_x || lower_y > upper_y) {
         return;
     }
+    // Tiles outside this region need neither a source snapshot nor a frequency split.
+    const FloatRgbImage source = image;
     const auto coverage_width = static_cast<std::uint32_t>(upper_x - lower_x + 1);
     const auto coverage_height = static_cast<std::uint32_t>(upper_y - lower_y + 1);
     std::vector<float> coverage(static_cast<std::size_t>(coverage_width) * coverage_height, 0.0F);
@@ -346,6 +351,22 @@ void apply_target(
     }
     const detail::RetouchSourceMapping source_mapping =
         full_mapping->with_local_origin(context.origin_x, context.origin_y);
+    if (target.mode == SpotRepairMode::tone || target.mode == SpotRepairMode::texture) {
+        detail::apply_frequency_retouch(
+            image,
+            source,
+            coverage,
+            lower_x,
+            lower_y,
+            coverage_width,
+            coverage_height,
+            source_mapping,
+            target.strength,
+            target.mode == SpotRepairMode::texture,
+            target.frequency_radius
+        );
+        return;
+    }
     if (target.mode != SpotRepairMode::clone) {
         detail::apply_texture_heal(
             image,
@@ -425,7 +446,6 @@ void apply_stroke(
         points.push_back(raster_point(point, full, context));
     }
 
-    const FloatRgbImage source = image;
     const std::int64_t raster_max_x = static_cast<std::int64_t>(image.dimensions.width) - 1;
     const std::int64_t raster_max_y = static_cast<std::int64_t>(image.dimensions.height) - 1;
     std::int64_t stroke_lower_x = raster_max_x;
@@ -455,6 +475,8 @@ void apply_stroke(
     if (stroke_lower_x > stroke_upper_x || stroke_lower_y > stroke_upper_y) {
         return;
     }
+    // Tiles outside this region need neither a source snapshot nor a frequency split.
+    const FloatRgbImage source = image;
     stroke_lower_x = std::max<std::int64_t>(0, stroke_lower_x - 1);
     stroke_upper_x = std::min(raster_max_x, stroke_upper_x + 1);
     stroke_lower_y = std::max<std::int64_t>(0, stroke_lower_y - 1);
@@ -563,6 +585,22 @@ void apply_stroke(
     }
     const detail::RetouchSourceMapping source_mapping =
         full_mapping->with_local_origin(context.origin_x, context.origin_y);
+    if (stroke.mode == SpotRepairMode::tone || stroke.mode == SpotRepairMode::texture) {
+        detail::apply_frequency_retouch(
+            image,
+            source,
+            coverage,
+            stroke_lower_x,
+            stroke_lower_y,
+            coverage_width,
+            coverage_height,
+            source_mapping,
+            stroke.strength,
+            stroke.mode == SpotRepairMode::texture,
+            stroke.frequency_radius
+        );
+        return;
+    }
     if (stroke.mode != SpotRepairMode::clone) {
         detail::apply_texture_heal(
             image,
@@ -624,7 +662,8 @@ void validate_spot_heal(const SpotHealAdjustment& adjustment) {
         invalid_retouch("must contain no more than 64 continuous strokes");
     }
     for (const auto& target : adjustment.spots) {
-        if (!std::isfinite(target.center_x) || !std::isfinite(target.center_y)
+        if (target.frequency_radius < 2 || target.frequency_radius > 32
+            || !std::isfinite(target.center_x) || !std::isfinite(target.center_y)
             || target.center_x < 0.0 || target.center_x > 1.0 || target.center_y < 0.0
             || target.center_y > 1.0
             || !valid_retouch_properties(
@@ -641,7 +680,8 @@ void validate_spot_heal(const SpotHealAdjustment& adjustment) {
         }
     }
     for (const auto& stroke : adjustment.strokes) {
-        if (stroke.points.empty() || stroke.points.size() > maximum_retouch_stroke_points
+        if (stroke.frequency_radius < 2 || stroke.frequency_radius > 32 || stroke.points.empty()
+            || stroke.points.size() > maximum_retouch_stroke_points
             || !valid_retouch_properties(
                 stroke.radius_level_zero_pixels,
                 stroke.mode,

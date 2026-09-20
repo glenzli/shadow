@@ -239,6 +239,7 @@ struct BackendRetouchSpot final {
     bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
+    std::uint16_t frequency_radius = 8U;
 
     bool operator==(const BackendRetouchSpot&) const = default;
 };
@@ -266,6 +267,7 @@ struct BackendRetouchStroke final {
     bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
+    std::uint16_t frequency_radius = 8U;
 
     bool operator==(const BackendRetouchStroke&) const = default;
 };

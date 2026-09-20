@@ -25,6 +25,7 @@ void installPrecisionEditingSmokeHarness(
         QElapsedTimer elapsed;
         QElapsedTimer gesture;
         BackendGradeStack saved;
+        QString awaited_source;
     };
     const auto state = std::make_shared<State>();
     state->elapsed.start();
@@ -50,6 +51,11 @@ void installPrecisionEditingSmokeHarness(
             qInfo() << "Precision editing acceptance completed";
             timer->stop();
             pipeline.cancel();
+            return;
+        }
+        if (state->stage == 7 && !pipeline.busy() && !pipeline.errorText().isEmpty()) {
+            qCritical() << pipeline.errorText();
+            fail("Precision export failed");
             return;
         }
         if (pipeline.busy() || editor.busy() || !editor.active())
@@ -176,7 +182,63 @@ void installPrecisionEditingSmokeHarness(
             state->stage = 9;
             return;
         }
-        case 9:
+        case 9: {
+            state->awaited_source = editor.previewSource();
+            editor.setRetouchStrokeMode(0, 3);
+            auto* sources = qobject_cast<EditRetouchSources*>(editor.retouchSources());
+            sources->setRegionFrequency(true, 0, 12);
+            editor.undo();
+            if (editor.gradeStackForInterchange().retouch_strokes[0].frequency_radius != 8) {
+                fail("Frequency scale undo did not restore the prior value");
+                return;
+            }
+            editor.redo();
+            if (editor.gradeStackForInterchange().retouch_strokes[0].frequency_radius != 12) {
+                fail("Frequency scale redo did not restore the authored value");
+                return;
+            }
+            state->gesture.restart();
+            state->stage = 10;
+            return;
+        }
+        case 10:
+            if (editor.previewSource() == state->awaited_source)
+                return;
+            state->awaited_source = editor.previewSource();
+            qInfo() << "Tone repair settled ms" << state->gesture.elapsed();
+            editor.setRetouchCreationMode(4);
+            editor.setRetouchSourceFromPreview(0.37, 0.25);
+            editor.addRetouchStrokeFromPreview(
+                {QVariantMap{{"x", 0.38}, {"y", 0.25}}},
+                QUrlQuery(QUrl(editor.previewSource())).queryItemValue("generation"),
+                int(editor.levelZeroWidth()),
+                int(editor.levelZeroHeight())
+            );
+            state->gesture.restart();
+            state->stage = 11;
+            return;
+        case 11:
+            if (editor.previewSource() == state->awaited_source)
+                return;
+            if (editor.gradeStackForInterchange().retouch_strokes.size() != 2
+                || editor.gradeStackForInterchange().retouch_strokes[1].mode != 4) {
+                fail("Texture repair was not authored");
+                return;
+            }
+            qInfo() << "Combined tone and texture repair settled ms" << state->gesture.elapsed();
+            state->awaited_source = editor.previewSource();
+            editor.beginParameterEdit("retouch/stroke/1/frequency");
+            for (int i = 2; i <= 21; ++i)
+                qobject_cast<EditRetouchSources*>(editor.retouchSources())
+                    ->setRegionFrequency(true, 1, i);
+            editor.endParameterEdit("retouch/stroke/1/frequency");
+            state->gesture.restart();
+            state->stage = 12;
+            return;
+        case 12:
+            if (editor.previewSource() == state->awaited_source)
+                return;
+            qInfo() << "Warm 20-value frequency gesture settled ms" << state->gesture.elapsed();
             state->saved = editor.gradeStackForInterchange();
             editor.setMaskToolActive(false);
             state->stage = 5;
@@ -210,7 +272,7 @@ void installPrecisionEditingSmokeHarness(
             }
             if (!pipeline.configureExport(
                     QUrl::fromLocalFile(qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_OUTPUT")),
-                    {{QStringLiteral("format"), QStringLiteral("png")}}
+                    {{QStringLiteral("format"), QStringLiteral("jpeg")}}
                 )) {
                 fail("Precision export rejected");
                 return;

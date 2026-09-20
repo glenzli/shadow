@@ -596,7 +596,17 @@ New production code should include the narrow semantic owner directly:
   clamping, and exact full-detail source reach for rotation, scale, and mirroring, while
   `src/edit/retouch_heal_blending.*` owns Heal's robust local-illumination boundary fit and
   scale-aware bounded screened gradient-domain texture blend; `adjustment_layers.hpp` owns masks,
-  layer composition, and masked execution.
+  layer composition, and masked execution. `src/edit/retouch_frequency.*` owns manual tone/texture
+  repair with a persisted 2–32 px Gaussian scale. It samples a bounded target/donor union, preserves
+  signed residuals, and leaves the other component unchanged against each pre-stroke input.
+  Frequency modes currently use complete CPU grade replay from the retained developed preview.
+  A resident-only source is materialized once per warm session, then reused; this avoids source
+  reopen or repeated RAW/denoise work but remains performance debt until frequency repair has a
+  resident kernel or an intermediate retouch-input cache. Obsolete row work is cancelled. Hover previews sample the displayed
+  GPU texture; donor analysis reads one matched preview on demand. Preview, detail, and export
+  use the same linear RGB split with raster-scaled radii. `src/edit/retouch_dependency_reach.*`
+  follows ordered target/donor intersections backwards, retaining necessary blur halos without
+  charging every displacement to unrelated pixels; the full-detail resource limit stays bounded.
 - `warm_edit_preview.hpp` owns the reusable interactive preview session, analysis, cancellation,
   execution provenance, transient display-sRGB RGB8 rendering, and settled JPEG output;
   `edit_preview_frame.hpp` owns the immutable moved RGB8/R8 presentation frame and paired mask
@@ -608,7 +618,9 @@ New production code should include the narrow semantic owner directly:
 
 The implementation follows the same map. `src/proxy/developed_source_raster.*` owns validation,
 dimensions, resizing, and bounded rectangular extraction for the decoder's two developed-source
-representations. `src/proxy/jpeg_proxy_encoding.*` owns the bounded libjpeg 4:4:4 encoder shared
+representations. Retained scene-linear sources receive complete validation at session admission;
+tile extraction checks layout and the requested samples without rescanning the whole frame.
+`src/proxy/jpeg_proxy_encoding.*` owns the bounded libjpeg 4:4:4 encoder shared
 by reference and edited proxies. `src/proxy/proxy_render_request_validation.*` owns the shared
 proxy-size/JPEG-quality boundary and RAW-plan schema/intent checks. Lifecycle-specific preparation
 and rendering stay with the warm-preview, full-detail, and proxy owners rather than with these

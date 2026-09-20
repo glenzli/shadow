@@ -148,3 +148,28 @@ void EditRetouchSources::nextCandidate(bool continuous, int index) {
                   .arg(candidates_.size());
     emit changed();
 }
+
+void EditRetouchSources::setFrequencyRadius(int value) {
+    if (value < 2 || value > 32 || value == frequency_radius_)
+        return;
+    frequency_radius_ = value;
+    emit changed();
+}
+void EditRetouchSources::setRegionFrequency(bool continuous, int index, int value) {
+    if (!owner_.active_ || owner_.interactionLocked() || value < 2 || value > 32 || index < 0)
+        return;
+    if (continuous ? index >= owner_.grade_stack_.retouch_strokes.size()
+                   : index >= owner_.grade_stack_.retouch_spots.size())
+        return;
+    const auto before = owner_.grade_stack_;
+    auto& radius = continuous ? owner_.grade_stack_.retouch_strokes[index].frequency_radius
+                              : owner_.grade_stack_.retouch_spots[index].frequency_radius;
+    if (radius == value)
+        return;
+    radius = static_cast<std::uint16_t>(value);
+    owner_.parameterEdited(
+        continuous ? QStringLiteral("retouch/stroke/%1/frequency").arg(index)
+                   : QStringLiteral("retouch/%1/frequency").arg(index),
+        before
+    );
+}
