@@ -65,7 +65,7 @@ Window {
                         text: root.photoTitle.length > 0
                             ? root.photoTitle : qsTr("No photo selected")
                         color: Theme.textPrimary
-                        font.pixelSize: 18
+                        font.pixelSize: Theme.fontHeading
                         font.weight: Font.DemiBold
                         elide: Text.ElideMiddle
                     }
@@ -75,7 +75,7 @@ Window {
                         text: root.sourcePath
                         visible: text.length > 0
                         color: Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                         elide: Text.ElideMiddle
                     }
                 }
@@ -86,7 +86,7 @@ Window {
                     Label {
                         text: qsTr("SIDEBAR")
                         color: Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.8
                         horizontalAlignment: Text.AlignHCenter
@@ -95,7 +95,7 @@ Window {
                     Label {
                         text: qsTr("Pin the fields you want to see in the library inspector")
                         color: Theme.textQuiet
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                     }
                 }
             }
@@ -115,7 +115,7 @@ Window {
                         ? qsTr("Metadata is being prepared")
                         : qsTr("No decoded metadata is available for this photo")
                 color: Theme.textMuted
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontBody
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
             }
@@ -157,7 +157,7 @@ Window {
                                 visible: fieldDelegate.modelData.firstInGroup
                                 text: fieldDelegate.modelData.group
                                 color: Theme.textSecondary
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.fontSection
                                 font.weight: Font.DemiBold
                             }
 
@@ -184,7 +184,7 @@ Window {
                     Layout.fillWidth: true
                     text: qsTr("All currently decoded fields are shown here.")
                     color: Theme.textQuiet
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                 }
 
                 ShadowButton {

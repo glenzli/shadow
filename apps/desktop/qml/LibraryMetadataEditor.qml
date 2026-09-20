@@ -66,7 +66,7 @@ Window {
             Layout.fillWidth: true
             text: qsTr("Non-destructive metadata corrections")
             color: Theme.textPrimary
-            font.pixelSize: 18
+            font.pixelSize: Theme.fontHeading
             font.weight: Font.DemiBold
         }
 
@@ -74,7 +74,7 @@ Window {
             Layout.fillWidth: true
             text: qsTr("The camera EXIF remains unchanged. Rescanning the photo will not overwrite these corrections.")
             color: Theme.textMuted
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSection
             wrapMode: Text.WordWrap
         }
 
@@ -90,7 +90,7 @@ Window {
             font.weight: Font.DemiBold
         }
 
-        TextField {
+        ShadowTextField {
             id: captureTimeField
             Layout.fillWidth: true
             placeholderText: qsTr("YYYY-MM-DD HH:MM:SS (local time)")
@@ -147,7 +147,7 @@ Window {
             Layout.fillWidth: true
             spacing: 10
 
-            TextField {
+            ShadowTextField {
                 id: latitudeField
                 Layout.fillWidth: true
                 placeholderText: qsTr("Latitude")
@@ -155,7 +155,7 @@ Window {
                 enabled: !root.controller.libraryMetadataBusy
             }
 
-            TextField {
+            ShadowTextField {
                 id: longitudeField
                 Layout.fillWidth: true
                 placeholderText: qsTr("Longitude")
@@ -164,7 +164,7 @@ Window {
             }
         }
 
-        TextField {
+        ShadowTextField {
             id: placeField
             Layout.fillWidth: true
             placeholderText: qsTr("Place name (optional)")
@@ -219,7 +219,7 @@ Window {
             color: root.validationError.length > 0
                 || root.controller.libraryMetadataStatusCode === "failed"
                 ? Theme.errorText : Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             wrapMode: Text.WordWrap
         }
 

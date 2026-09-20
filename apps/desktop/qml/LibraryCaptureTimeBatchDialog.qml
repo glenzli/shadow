@@ -64,7 +64,7 @@ Window {
             Layout.fillWidth: true
             text: qsTr("Correct capture times for selected photos")
             color: Theme.textPrimary
-            font.pixelSize: 18
+            font.pixelSize: Theme.fontHeading
             font.weight: Font.DemiBold
         }
 
@@ -72,7 +72,7 @@ Window {
             Layout.fillWidth: true
             text: qsTr("Preview a relative clock correction before applying it. The camera EXIF remains unchanged.")
             color: Theme.textMuted
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSection
             wrapMode: Text.WordWrap
         }
 
@@ -87,7 +87,7 @@ Window {
                 Label {
                     text: qsTr("Clock offset (minutes)")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
 
                 SpinBox {
@@ -107,7 +107,7 @@ Window {
                 Layout.bottomMargin: 8
                 text: root.offsetLabel(offsetMinutes.value)
                 color: Theme.textPrimary
-                font.pixelSize: 16
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
         }
@@ -175,7 +175,7 @@ Window {
                         ? qsTr("Existing capture-time corrections will return to their current camera values.")
                         : qsTr("Every applicable photo receives the same relative clock correction.")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.WordWrap
                 }
 
@@ -195,7 +195,7 @@ Window {
                             exampleLabel.example.afterCapturedAtUnixSeconds,
                             exampleLabel.example.hasAfterCaptureTime))
                     color: Theme.textSecondary
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     elide: Text.ElideRight
                 }
 
@@ -207,7 +207,7 @@ Window {
                     text: qsTr("Could not prepare capture-time changes: %1").arg(
                         root.controller.libraryMetadataErrorText)
                     color: Theme.errorText
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.WordWrap
                 }
             }

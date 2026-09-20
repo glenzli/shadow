@@ -228,7 +228,7 @@ Item {
             visible: !field.hasEndpointLabels
             text: field.label
             color: field.enabled ? field.textPrimary : Theme.textDisabled
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             elide: Text.ElideRight
             horizontalAlignment: Text.AlignRight
             verticalAlignment: Text.AlignVCenter
@@ -252,7 +252,7 @@ Item {
             Layout.minimumWidth: field.endpointLabelWidth
             text: field.startLabel
             color: field.enabled ? field.trackStartColor : Theme.textDisabled
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.Medium
             horizontalAlignment: Text.AlignRight
             verticalAlignment: Text.AlignVCenter
@@ -306,7 +306,7 @@ Item {
             Layout.minimumWidth: field.endpointLabelWidth
             text: field.endLabel
             color: field.enabled ? field.trackEndColor : Theme.textDisabled
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.Medium
             horizontalAlignment: Text.AlignLeft
             verticalAlignment: Text.AlignVCenter
@@ -325,7 +325,7 @@ Item {
                 text: field.formattedValue
                 color: field.enabled ? field.textMuted : Theme.textDisabled
                 font.family: "Menlo"
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 horizontalAlignment: Text.AlignRight
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideLeft
@@ -351,7 +351,7 @@ Item {
                 selectionColor: field.accent
                 selectedTextColor: Theme.selectionForeground
                 font.family: "Menlo"
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 horizontalAlignment: TextInput.AlignRight
                 verticalAlignment: TextInput.AlignVCenter
                 leftPadding: 3

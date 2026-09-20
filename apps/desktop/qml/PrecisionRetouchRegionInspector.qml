@@ -94,7 +94,7 @@ ColumnLayout {
             Layout.fillWidth: true
             text: qsTr("Region %1").arg(regionInspector.displayIndex + 1)
             color: regionInspector.enabled ? Theme.textSecondary : Theme.textDisabled
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             font.weight: Font.DemiBold
         }
 
@@ -138,7 +138,7 @@ ColumnLayout {
         Label {
             text: qsTr("Blend")
             color: regionInspector.enabled ? Theme.textSecondary : Theme.textDisabled
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
 
         ShadowButton {
@@ -267,7 +267,7 @@ ColumnLayout {
             Layout.fillWidth: true
             text: qsTr("Mirror source")
             color: regionInspector.enabled ? Theme.textSecondary : Theme.textDisabled
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
 
         ShadowButton {
@@ -303,7 +303,7 @@ ColumnLayout {
             Layout.fillWidth: true
             text: qsTr("Source · %1 px").arg(Math.round(Math.hypot(Number(regionInspector.region.sourceOffsetX), Number(regionInspector.region.sourceOffsetY)) * Number(regionInspector.region.radius)))
             color: regionInspector.enabled ? Theme.textSecondary : Theme.textDisabled
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
 
         ShadowButton {
@@ -320,7 +320,7 @@ ColumnLayout {
         visible: true
         text: qsTr("Select this repair, then drag its outlined source region on the image.")
         color: regionInspector.enabled ? Theme.textMuted : Theme.textDisabled
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         lineHeight: 1.2
     }
 }

@@ -175,6 +175,14 @@ Application startup is split from environment-driven automation:
   [`qml/ShadowCheckBox.qml`](qml/ShadowCheckBox.qml) and
   [`qml/ShadowSwitch.qml`](qml/ShadowSwitch.qml) own the compact checkbox and toggle presentation
   used throughout the packaged desktop module; feature panes retain only their domain semantics.
+  [`qml/ShadowTextField.qml`](qml/ShadowTextField.qml),
+  [`qml/ShadowComboBox.qml`](qml/ShadowComboBox.qml), and the `ShadowMenu` / `ShadowMenuItem`
+  pair own form and menu typography, focus, disabled and light/dark presentation. Inline numeric
+  editors and composite search fields retain their own geometry. `Theme.qml` defines the shared
+  type scale; micro text is reserved for plot coordinates and thumbnail badges. Monochrome SVG
+  icons use white RGB with alpha coverage so `ShadowIcon` can tint them in both appearances.
+  [`qml/ReviewGalleryActionsMenu.qml`](qml/ReviewGalleryActionsMenu.qml) owns secondary gallery
+  commands, while the toolbar prioritizes search, browsing, comparison, editing and export.
   Together with `Theme.qml` and the remaining `Shadow*` primitives they form the desktop's internal
   control library inside the packaged `Shadow.App` QML module. Keep feature-specific state and
   workflows outside these controls. A separate `Shadow.Controls` module is deferred until its

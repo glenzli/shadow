@@ -156,7 +156,7 @@ Popup {
                 Layout.fillWidth: true
                 text: action.text
                 color: action.enabled ? Theme.textPrimary : Theme.textDisabled
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.Medium
             }
         }
@@ -175,7 +175,7 @@ Popup {
             bottomPadding: 4
             text: qsTr("CREATE MASK")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }
@@ -205,7 +205,7 @@ Popup {
                     Layout.fillWidth: true
                     text: editCurrentMaskButton.text
                     color: Theme.textPrimary
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     font.weight: Font.Medium
                 }
             }
@@ -232,7 +232,7 @@ Popup {
             bottomPadding: 1
             text: qsTr("APPLY TO")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }
@@ -294,7 +294,7 @@ Popup {
                 && menu.currentMaskComponentCount > 0
             text: qsTr("COMBINE AS")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }
@@ -337,7 +337,7 @@ Popup {
             bottomPadding: 1
             text: qsTr("MASK TYPE")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }
@@ -421,7 +421,7 @@ Popup {
             bottomPadding: 1
             text: qsTr("CONDITION")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }

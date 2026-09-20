@@ -33,7 +33,7 @@ Rectangle {
         Label {
             text: qsTranslate("ReviewWorkspace", "LIBRARY")
             color: sidebar.workspace.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             font.weight: Font.DemiBold
             font.letterSpacing: 1.6
         }

@@ -57,7 +57,7 @@ ScrollView {
             Layout.fillWidth: true
             text: qsTr("Library")
             color: Theme.textPrimary
-            font.pixelSize: 16
+            font.pixelSize: Theme.fontTitle
             font.weight: Font.DemiBold
         }
 

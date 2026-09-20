@@ -112,7 +112,7 @@ Rectangle {
                             : qsTr("Basemap unavailable")
                         color: root.workspace.libraryWebMapController.providerSelected
                             ? Theme.textPrimary : Theme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                         font.weight: Font.DemiBold
                     }
 
@@ -131,7 +131,7 @@ Rectangle {
                         color: !root.workspace.libraryWebMapController.providerRegionAvailable
                             || root.workspace.libraryWebMapController.statusCode.length > 0
                             ? Theme.errorText : Theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                         elide: Text.ElideRight
                     }
                 }
@@ -196,7 +196,7 @@ Rectangle {
                                           Qt.locale("C"), "f", 6)
                                     : qsTr("Click the map where this photo was taken.")
                                 color: Theme.textSecondary
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontMeta
                                 elide: Text.ElideRight
                             }
 
@@ -232,7 +232,7 @@ Rectangle {
                             text: qsTr("Could not save the map location: %1").arg(
                                 locationPlacement.errorText)
                             color: Theme.errorText
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontMeta
                             wrapMode: Text.WordWrap
                         }
                     }

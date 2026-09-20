@@ -53,7 +53,7 @@ Popup {
                 Layout.fillWidth: true
                 text: qsTr("Smart categories")
                 color: Theme.textPrimary
-                font.pixelSize: 18
+                font.pixelSize: Theme.fontHeading
                 font.weight: Font.DemiBold
             }
             ShadowIconButton {
@@ -136,13 +136,13 @@ Popup {
                 Layout.fillHeight: true
                 Layout.margins: 20
                 spacing: 10
-                Label { text: qsTr("Name"); color: Theme.textMuted; font.pixelSize: 10 }
-                TextField {
+                Label { text: qsTr("Name"); color: Theme.textMuted; font.pixelSize: Theme.fontMeta }
+                ShadowTextField {
                     id: nameField
                     Layout.fillWidth: true
                     selectByMouse: true
                 }
-                Label { text: qsTr("Model description"); color: Theme.textMuted; font.pixelSize: 10 }
+                Label { text: qsTr("Model description"); color: Theme.textMuted; font.pixelSize: Theme.fontMeta }
                 TextArea {
                     id: descriptionField
                     Layout.fillWidth: true
@@ -152,7 +152,7 @@ Popup {
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    Label { text: qsTr("Match threshold"); color: Theme.textMuted; font.pixelSize: 10 }
+                    Label { text: qsTr("Match threshold"); color: Theme.textMuted; font.pixelSize: Theme.fontMeta }
                     Slider {
                         id: thresholdSlider
                         Layout.fillWidth: true
@@ -170,7 +170,7 @@ Popup {
                     Layout.fillWidth: true
                     text: qsTr("Photos may appear in more than one category. Changes are matched locally using the existing image-vector cache.")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.Wrap
                 }
                 Rectangle {
@@ -188,14 +188,14 @@ Popup {
                         Label {
                             text: qsTr("Rebuild analysis")
                             color: Theme.textPrimary
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontSection
                             font.weight: Font.DemiBold
                         }
                         Label {
                             Layout.fillWidth: true
                             text: qsTr("Recreate image vectors and all smart-category matches.")
                             color: Theme.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                             wrapMode: Text.Wrap
                         }
                     }

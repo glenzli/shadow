@@ -45,14 +45,14 @@ Dialog {
                 Label {
                     text: qsTr("Import XMP adjustments")
                     color: Theme.textPrimary
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
                 Label {
                     Layout.fillWidth: true
                     text: dialog.interchangeController.sourceName
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     elide: Text.ElideMiddle
                 }
             }
@@ -87,7 +87,7 @@ Dialog {
                 Layout.topMargin: 16
                 text: qsTr("Shadow maps only adjustments with a stable local equivalent. The values below are approximate because the source and Shadow use different processing pipelines.")
                 color: Theme.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 wrapMode: Text.Wrap
             }
             Label {
@@ -97,7 +97,7 @@ Dialog {
                 visible: dialog.interchangeController.compatibilityWarnings.length > 0
                 text: dialog.interchangeController.compatibilityWarnings.join("\n")
                 color: Theme.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 wrapMode: Text.Wrap
             }
             Rectangle {
@@ -116,7 +116,7 @@ Dialog {
                     text: qsTr("Camera Raw process version: %1")
                         .arg(dialog.interchangeController.processVersion)
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
             }
             Label {
@@ -127,7 +127,7 @@ Dialog {
                 text: qsTr("WILL CREATE ONE NEW GRADE NODE · %1 ADJUSTMENTS")
                     .arg(dialog.interchangeController.mappedAdjustments.length)
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.35
             }
@@ -152,19 +152,19 @@ Dialog {
                             Label {
                                 text: modelData.targetName
                                 color: Theme.textPrimary
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.fontSection
                                 font.weight: Font.Medium
                             }
                             Label {
                                 text: modelData.sourceName + " · " + modelData.sourceValue
                                 color: Theme.textMuted
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.fontCaption
                             }
                         }
                         Label {
                             text: modelData.targetValue
                             color: Theme.accent
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontSection
                             font.weight: Font.DemiBold
                         }
                     }
@@ -194,7 +194,7 @@ Dialog {
                         Layout.fillWidth: true
                         text: dialog.interchangeController.errorText
                         color: Theme.errorText
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                         wrapMode: Text.Wrap
                     }
                     Repeater {
@@ -205,7 +205,7 @@ Dialog {
                             text: modelData.sourceName + " · "
                                 + modelData.sourceValue + " · " + modelData.problem
                             color: Theme.errorText
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontMeta
                             wrapMode: Text.Wrap
                         }
                     }
@@ -221,7 +221,7 @@ Dialog {
                     text: qsTr("NOT IMPORTED · %1 FIELDS")
                         .arg(dialog.interchangeController.ignoredFields.length)
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.35
                 }
@@ -234,14 +234,14 @@ Dialog {
                         Label {
                             text: modelData.sourceName
                             color: Theme.textSecondary
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontMeta
                             font.weight: Font.Medium
                         }
                         Label {
                             Layout.fillWidth: true
                             text: modelData.reason
                             color: Theme.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                             wrapMode: Text.Wrap
                         }
                     }
@@ -255,7 +255,7 @@ Dialog {
                 Layout.bottomMargin: 16
                 text: dialog.interchangeController.applyErrorText
                 color: Theme.errorText
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 wrapMode: Text.Wrap
             }
         }

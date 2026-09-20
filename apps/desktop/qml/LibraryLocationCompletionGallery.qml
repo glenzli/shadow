@@ -149,7 +149,7 @@ Rectangle {
                     Label {
                         text: qsTr("Complete locations")
                         color: Theme.textPrimary
-                        font.pixelSize: 16
+                        font.pixelSize: Theme.fontTitle
                         font.weight: Font.DemiBold
                     }
 
@@ -192,7 +192,7 @@ Rectangle {
                     font.weight: Font.DemiBold
                 }
 
-                TextField {
+                ShadowTextField {
                     id: startField
                     objectName: "locationCompletionStartField"
                     Layout.preferredWidth: 128
@@ -207,7 +207,7 @@ Rectangle {
                     color: Theme.textMuted
                 }
 
-                TextField {
+                ShadowTextField {
                     id: endField
                     objectName: "locationCompletionEndField"
                     Layout.preferredWidth: 128
@@ -305,7 +305,7 @@ Rectangle {
                                         !== Number(eventCard.modelData.startedAt)
                                         ? " — " + root.formatMoment(eventCard.modelData.endedAt) : "")
                                 color: Theme.textPrimary
-                                font.pixelSize: 15
+                                font.pixelSize: Theme.fontTitle
                                 font.weight: Font.DemiBold
                             }
 

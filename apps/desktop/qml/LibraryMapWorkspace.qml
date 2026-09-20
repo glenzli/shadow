@@ -135,7 +135,7 @@ Item {
                         text: mapWorkspace.libraryContext
                             .currentLibraryScopeName.toUpperCase()
                         color: Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.8
                     }
@@ -145,7 +145,7 @@ Item {
                             mapWorkspace.libraryContext.controller
                                 .filteredItemCount)
                         color: Theme.textPrimary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
 
                     Item { Layout.fillWidth: true }

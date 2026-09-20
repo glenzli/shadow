@@ -51,7 +51,7 @@ ColumnLayout {
         Layout.fillWidth: true
         text: qsTr("AI COMPLETION")
         color: Theme.textPrimary
-        font.pixelSize: 12
+        font.pixelSize: Theme.fontBody
         font.weight: Font.DemiBold
         font.letterSpacing: 0.25
     }
@@ -250,7 +250,7 @@ ColumnLayout {
         text: qsTr("ACCEPTED REGIONS · %L1")
             .arg(tools.editor.imageCompletionRegions.length)
         color: Theme.textSecondary
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
         font.weight: Font.DemiBold
     }
 

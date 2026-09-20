@@ -23,7 +23,7 @@ import QtQuick.Layouts
                     Label {
                         text: qsTr("CREATE VERSION CHECKPOINT")
                         color: inspector.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                         font.weight: Font.DemiBold
                         font.letterSpacing: 1.2
                     }
@@ -60,7 +60,7 @@ import QtQuick.Layouts
                                     color: !inspector.editor.dirty ? inspector.textSecondary
                                         : inspector.editor.autosaveFailed ? Theme.errorText
                                         : inspector.accent
-                                    font.pixelSize: 9
+                                    font.pixelSize: Theme.fontCaption
                                     font.weight: Font.DemiBold
                                     font.letterSpacing: 0.8
                                 }
@@ -82,13 +82,13 @@ import QtQuick.Layouts
                                     : qsTr("Adjustments save automatically to this photo’s current working state. Creating a version adds a named, immutable Library checkpoint; only those checkpoints appear below.")
                                 color: inspector.editor.autosaveFailed
                                     ? Theme.errorText : inspector.textMuted
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.fontCaption
                                 wrapMode: Text.WordWrap
                             }
                         }
                     }
 
-                    TextField {
+                    ShadowTextField {
                         id: versionLabel
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.controlHeight
@@ -138,14 +138,14 @@ import QtQuick.Layouts
                             Layout.fillWidth: true
                             text: qsTr("NAMED VERSIONS")
                             color: inspector.textMuted
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontMeta
                             font.weight: Font.DemiBold
                             font.letterSpacing: 1.2
                         }
                         Label {
                             text: qsTr("%L1").arg(versionList.count)
                             color: inspector.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                         }
                     }
 
@@ -186,7 +186,7 @@ import QtQuick.Layouts
                                     width: parent.width
                                     text: versionRow.label
                                     color: inspector.textPrimary
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontSection
                                     font.weight: Font.Medium
                                     elide: Text.ElideRight
                                 }
@@ -194,7 +194,7 @@ import QtQuick.Layouts
                                     width: parent.width
                                     text: versionRow.changeSummary
                                     color: inspector.textSecondary
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontMeta
                                     elide: Text.ElideRight
                                 }
                                 Label {
@@ -203,7 +203,7 @@ import QtQuick.Layouts
                                         .arg(versionRow.createdAtText)
                                         .arg(versionRow.parentSummary)
                                     color: inspector.textMuted
-                                    font.pixelSize: 9
+                                    font.pixelSize: Theme.fontCaption
                                     elide: Text.ElideRight
                                 }
                             }
@@ -218,7 +218,7 @@ import QtQuick.Layouts
                                         ? qsTr("LOADED") : qsTr("CURRENT"))
                                     : qsTr("LOAD")
                                 color: versionRow.selected ? inspector.accent : inspector.textMuted
-                                font.pixelSize: 8
+                                font.pixelSize: Theme.fontMicro
                                 font.weight: Font.Bold
                                 font.letterSpacing: 0.7
                             }
@@ -237,7 +237,7 @@ import QtQuick.Layouts
                             visible: versionList.count === 0
                             text: qsTr("Named checkpoints appear here. The current working adjustments are saved automatically; loading a checkpoint never deletes newer work.")
                             color: inspector.textMuted
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontMeta
                             horizontalAlignment: Text.AlignHCenter
                             wrapMode: Text.WordWrap
                             lineHeight: 1.35

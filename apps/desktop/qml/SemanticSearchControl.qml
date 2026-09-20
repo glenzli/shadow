@@ -55,8 +55,8 @@ Item {
             semanticInput.selectAll()
         }
 
-        implicitHeight: 30
-        radius: 8
+        implicitHeight: Theme.compactControlHeight
+        radius: Theme.controlRadius
         color: owner.semantic.busy || owner.semantic.hasResults
             ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
         border.width: 1
@@ -92,7 +92,7 @@ Item {
                 placeholderText: qsTr("Describe a photo…")
                 color: Theme.textPrimary
                 placeholderTextColor: Theme.textPlaceholder
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 visible: true
                 selectByMouse: true
                 background: Item {}
@@ -106,7 +106,7 @@ Item {
                 Layout.fillWidth: true
                 text: qsTr("Matching locally…")
                 color: Theme.accent
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
             }
@@ -231,7 +231,7 @@ Item {
                 Layout.fillWidth: true
                 text: control.semantic.errorText
                 color: Theme.dangerText
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
             }
 
@@ -241,7 +241,7 @@ Item {
                 Layout.fillWidth: true
                 text: control.resultSummary()
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 elide: Text.ElideRight
             }
         }

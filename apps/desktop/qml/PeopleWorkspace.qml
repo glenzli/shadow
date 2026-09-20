@@ -157,7 +157,7 @@ Item {
                 wrapMode: Text.WordWrap
             }
 
-            TextField {
+            ShadowTextField {
                 id: personNameField
                 objectName: "peopleNameField"
                 Layout.fillWidth: true
@@ -221,7 +221,7 @@ Item {
                         Layout.fillWidth: true
                         text: qsTr("Find and organize recurring people with local face analysis.")
                         color: Theme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                         wrapMode: Text.WordWrap
                     }
                 }
@@ -260,7 +260,7 @@ Item {
                             Layout.fillWidth: true
                             text: qsTr("Processing stays on this device. Face embeddings are not saved; groups, representative thumbnails, and your merges remain until you clear them.")
                             color: Theme.textMuted
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontSection
                             wrapMode: Text.WordWrap
                         }
                     }
@@ -377,7 +377,7 @@ Item {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 text: Number(statisticCard.modelData.value).toLocaleString()
                                 color: Theme.textPrimary
-                                font.pixelSize: 20
+                                font.pixelSize: Theme.fontHero
                                 font.weight: Font.DemiBold
                             }
 
@@ -385,7 +385,7 @@ Item {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 text: String(statisticCard.modelData.label)
                                 color: Theme.textMuted
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontMeta
                             }
                         }
                     }
@@ -423,7 +423,7 @@ Item {
                             color: people.controller.selectedGroupCount >= 2
                                 && !people.controller.canMergeSelectedGroups
                                 ? Theme.warningText : Theme.textMuted
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontSection
                             wrapMode: Text.WordWrap
                         }
                     }
@@ -463,7 +463,7 @@ Item {
                 Layout.topMargin: 30
                 text: qsTr("No recurring people were grouped in the current Library preview.")
                 color: Theme.textMuted
-                font.pixelSize: 14
+                font.pixelSize: Theme.fontSubheading
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
             }
@@ -547,7 +547,7 @@ Item {
                                     : qsTr("Person %1").arg(
                                         peopleGroup.modelData.displayIndex)
                                 color: Theme.textPrimary
-                                font.pixelSize: 14
+                                font.pixelSize: Theme.fontSubheading
                                 font.weight: Font.DemiBold
                                 horizontalAlignment: Text.AlignHCenter
                             }
@@ -556,7 +556,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: qsTr("%n photos", "", peopleGroup.modelData.photoCount)
                                 color: Theme.textMuted
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.fontSection
                                 horizontalAlignment: Text.AlignHCenter
                             }
 
@@ -576,7 +576,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: qsTr("Merged by you")
                                 color: Theme.accent
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontMeta
                                 horizontalAlignment: Text.AlignHCenter
                             }
                         }
@@ -595,7 +595,7 @@ Item {
                     .arg(people.controller.ungroupedFaces)
                     .arg(people.controller.skippedItems)
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 horizontalAlignment: Text.AlignHCenter
             }
 

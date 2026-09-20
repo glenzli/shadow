@@ -145,7 +145,7 @@ ColumnLayout {
                             ? collections.workspace.textPrimary
                             : collections.workspace.textSecondary)
                         : Theme.textDisabled
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     elide: Text.ElideRight
                 }
 
@@ -155,14 +155,14 @@ ColumnLayout {
                     text: qsTranslate("ReviewWorkspace", "%L1").arg(
                         collectionRow.modelData.count)
                     color: collections.workspace.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
 
                 Label {
                     visible: !collectionRow.modelData.enabled
                     text: qsTranslate("ReviewWorkspace", "SOON")
                     color: Theme.textDisabled
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontMicro
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.5
                 }

@@ -71,7 +71,7 @@ Item {
                 Layout.bottomMargin: 10
                 text: qsTr("EXPORT PRESETS")
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.7
             }
@@ -110,7 +110,7 @@ Item {
                             width: parent.width
                             text: String(presetDelegate.modelData.name || "")
                             color: Theme.textPrimary
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontSection
                             font.weight: Font.Medium
                             elide: Text.ElideRight
                         }
@@ -124,7 +124,7 @@ Item {
                                     : qsTr("%1 · original size").arg(format)
                             }
                             color: Theme.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                             elide: Text.ElideRight
                         }
                     }

@@ -409,7 +409,7 @@ Item {
             anchors.bottomMargin: 3
             text: qsTr("SOURCE")
             color: Theme.accent
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.bold: true
         }
 
@@ -478,7 +478,7 @@ Item {
                 anchors.bottomMargin: 5
                 text: qsTr("SOURCE")
                 color: Theme.accent
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 font.bold: true
 
                 Rectangle {
@@ -497,7 +497,7 @@ Item {
                 anchors.topMargin: 6
                 text: qsTr("%1 px").arg(pickerInput.editor.retouchBrushRadius)
                 color: Theme.previewCompareDivider
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 font.bold: true
 
                 Rectangle {

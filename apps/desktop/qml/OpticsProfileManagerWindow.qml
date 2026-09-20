@@ -66,7 +66,7 @@ ApplicationWindow {
                 Label {
                     text: qsTr("OPTICAL PROFILE LIBRARY")
                     color: Theme.textPrimary
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.8
                 }
@@ -80,7 +80,7 @@ ApplicationWindow {
                         + (receipt.valid && receipt.providerVersion.length > 0
                             ? " · " + receipt.providerVersion : "")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     elide: Text.ElideRight
                 }
             }
@@ -147,7 +147,7 @@ ApplicationWindow {
                 visible: root.sourceIndex === 0
                 spacing: 12
 
-                TextField {
+                ShadowTextField {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 34
                     placeholderText: qsTr("Search camera or lens")
@@ -195,7 +195,7 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     text: profileRow.modelData.lensModel
                                     color: Theme.textPrimary
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: Font.Medium
                                     elide: Text.ElideRight
                                 }
@@ -205,7 +205,7 @@ ApplicationWindow {
                                         profileRow.modelData.cameraMaker,
                                         profileRow.modelData.cameraModel].filter(value => value.length > 0).join(" · ")
                                     color: Theme.textMuted
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontMeta
                                     elide: Text.ElideRight
                                 }
                             }
@@ -213,7 +213,7 @@ ApplicationWindow {
                                 visible: profileRow.selected
                                 text: qsTr("ACTIVE")
                                 color: Theme.accent
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.fontCaption
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 0.6
                             }
@@ -244,7 +244,7 @@ ApplicationWindow {
                             ? qsTr("No optical profiles match this search.")
                             : qsTr("No compatible Lensfun profiles were found for this camera.")
                         color: Theme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                         wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
                     }
@@ -256,7 +256,7 @@ ApplicationWindow {
                         ? qsTr("%1 profiles for the detected camera · Select any one to override automatic matching.").arg(root.candidates.length)
                         : qsTr("Select a profile to override automatic matching. The choice is saved with the edit recipe.")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.WordWrap
                 }
             }
@@ -270,14 +270,14 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: qsTr("Save the current manual optics values as a reusable local profile. Applying one copies its values into this photo's recipe.")
                     color: Theme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     wrapMode: Text.WordWrap
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
-                    TextField {
+                    ShadowTextField {
                         id: customProfileTitle
                         Layout.fillWidth: true
                         Layout.preferredHeight: 34
@@ -291,7 +291,7 @@ ApplicationWindow {
                             border.color: parent.activeFocus ? Theme.focusRing : Theme.border
                         }
                     }
-                    TextField {
+                    ShadowTextField {
                         id: customProfileLens
                         Layout.preferredWidth: 190
                         Layout.preferredHeight: 34
@@ -332,7 +332,7 @@ ApplicationWindow {
                     visible: root.opticsProfileLibrary.lastError.length > 0
                     text: root.opticsProfileLibrary.lastError
                     color: Theme.dangerText
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.WordWrap
                 }
 
@@ -374,7 +374,7 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     text: customProfileRow.modelData.title
                                     color: Theme.textPrimary
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: Font.Medium
                                     elide: Text.ElideRight
                                 }
@@ -384,7 +384,7 @@ ApplicationWindow {
                                         ? customProfileRow.modelData.lensLabel
                                         : qsTr("Manual optical correction")
                                     color: Theme.textMuted
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontMeta
                                     elide: Text.ElideRight
                                 }
                             }
@@ -392,7 +392,7 @@ ApplicationWindow {
                                 visible: customProfileRow.matchesCurrent
                                 text: qsTr("MATCHES CURRENT")
                                 color: Theme.accent
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.fontCaption
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 0.6
                             }
@@ -420,7 +420,7 @@ ApplicationWindow {
                         visible: root.opticsProfileLibrary.count === 0
                         text: qsTr("No local optical profiles yet. Save the current manual correction to reuse it on another photo.")
                         color: Theme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                         wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
                     }
@@ -430,7 +430,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: qsTr("Stored locally as data-only profile files. Updating or removing one never changes photos that already use its values.")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.WordWrap
                 }
             }

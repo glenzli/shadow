@@ -99,7 +99,7 @@ Popup {
                     width: parent.width
                     text: qsTr("Personal profile")
                     color: Theme.textPrimary
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
                 Label {
@@ -221,7 +221,7 @@ Popup {
                         font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
                     }
-                    TextField {
+                    ShadowTextField {
                         objectName: "personalProfileNicknameField"
                         Layout.fillWidth: true
                         text: root.nicknameDraft

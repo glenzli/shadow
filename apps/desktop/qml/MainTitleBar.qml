@@ -81,7 +81,7 @@ ToolBar {
             Label {
                 text: "SHADOW"
                 color: Theme.textPrimary
-                font.pixelSize: 14
+                font.pixelSize: Theme.fontSubheading
                 font.weight: Font.DemiBold
                 font.letterSpacing: 2.5
             }
@@ -202,7 +202,7 @@ ToolBar {
                     color: !titleBar.editor.dirty ? Theme.savedText
                         : titleBar.editor.autosaveFailed
                             ? Theme.errorText : Theme.warningText
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.65
                 }

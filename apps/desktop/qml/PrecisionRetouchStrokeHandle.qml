@@ -252,7 +252,7 @@ Item {
         visible: strokeHandle.selected && strokeHandle.points.length > 0
         text: qsTr("SOURCE")
         color: Theme.accent
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         font.bold: true
     }
 

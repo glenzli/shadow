@@ -125,7 +125,7 @@ Item {
                     anchors.centerIn: parent
                     text: qsTr("BEFORE")
                     color: Theme.textSecondary
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.Bold
                     font.letterSpacing: 0.7
                 }
@@ -186,7 +186,7 @@ Item {
                     anchors.centerIn: parent
                     text: qsTr("AFTER")
                     color: Theme.textSecondary
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.Bold
                     font.letterSpacing: 0.7
                 }
@@ -328,7 +328,7 @@ Item {
             anchors.centerIn: parent
             text: qsTr("BEFORE")
             color: Theme.textSecondary
-            font.pixelSize: 8
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.Bold
             font.letterSpacing: 0.7
         }
@@ -353,7 +353,7 @@ Item {
             anchors.centerIn: parent
             text: qsTr("AFTER")
             color: Theme.textSecondary
-            font.pixelSize: 8
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.Bold
             font.letterSpacing: 0.7
         }

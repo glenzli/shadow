@@ -95,7 +95,7 @@ ShadowAdjustmentSection {
         Layout.rightMargin: 14
         text: qsTr("Input / output: linear sRGB")
         color: lutSection.textMuted
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
         wrapMode: Text.WordWrap
     }
 
@@ -156,7 +156,7 @@ ShadowAdjustmentSection {
                     color: lutSection.editor.hasLut
                         ? lutSection.textPrimary
                         : lutSection.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     elide: Text.ElideRight
                 }
 
@@ -247,7 +247,7 @@ ShadowAdjustmentSection {
                             Layout.fillWidth: true
                             text: lutGroup.modelData.title
                             color: lutSection.textSecondary
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                             font.weight: Font.DemiBold
                             elide: Text.ElideRight
                         }
@@ -255,7 +255,7 @@ ShadowAdjustmentSection {
                         Label {
                             text: String(lutGroup.modelData.entries.length)
                             color: lutSection.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                         }
 
                         ShadowIcon {
@@ -345,7 +345,7 @@ ShadowAdjustmentSection {
                                         color: lutCard.current
                                             ? lutSection.accent
                                             : lutSection.textPrimary
-                                        font.pixelSize: 10
+                                        font.pixelSize: Theme.fontMeta
                                         font.weight: lutCard.current
                                             ? Font.DemiBold : Font.Medium
                                         elide: Text.ElideRight
@@ -356,7 +356,7 @@ ShadowAdjustmentSection {
                                         text: qsTr("%1³").arg(
                                             lutCard.modelData.size)
                                         color: lutSection.textMuted
-                                        font.pixelSize: 9
+                                        font.pixelSize: Theme.fontCaption
                                     }
                                 }
                             }

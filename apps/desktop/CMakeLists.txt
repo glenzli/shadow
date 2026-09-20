@@ -688,6 +688,8 @@ qt_add_resources(
         icons/skip.svg
         icons/zebra.svg
         icons/zoom.svg
+        icons/zoom-in.svg
+        icons/zoom-out.svg
 )
 
 qt_add_resources(
@@ -730,6 +732,7 @@ qt_add_qml_module(
     URI Shadow.ServerManager
     VERSION 1.0
     QML_FILES
+        qml/ShadowTextField.qml
         qml/ServerManagerMain.qml
         qml/SettingsLibraryServerPane.qml
         qml/ShadowButton.qml
@@ -782,6 +785,11 @@ qt_add_qml_module(
     URI Shadow.App
     VERSION 1.0
     QML_FILES
+        qml/ReviewGalleryActionsMenu.qml
+        qml/ShadowComboBox.qml
+        qml/ShadowMenu.qml
+        qml/ShadowMenuItem.qml
+        qml/ShadowTextField.qml
         qml/EditHistogram.qml
         qml/EditScopeClipSummary.qml
         qml/EditScopeCanvas.qml

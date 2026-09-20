@@ -982,6 +982,8 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowComboBox.qml
+            qml/ShadowTextField.qml
             qml/LibraryLocationBatchDialog.qml
             qml/LibraryLocationBatchState.qml
             qml/LibraryMapPlaceSearch.qml
@@ -1042,6 +1044,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowTextField.qml
             qml/LibraryLocationCompletionGallery.qml
             qml/ShadowIconButton.qml
             qml/ShadowIcon.qml
@@ -1277,6 +1280,8 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowComboBox.qml
+            qml/ShadowTextField.qml
             qml/PersonalProfileDialog.qml
             qml/PersonalLocationSearchField.qml
             qml/PersonalLivingPlacesEditor.qml
@@ -1418,10 +1423,15 @@ qt_add_qml_module(shadow-review-preview-viewport-contract-test
     NO_PLUGIN
     QML_FILES
         qml/ReviewPreviewViewport.qml
+        qml/ShadowIcon.qml
+        qml/ShadowIconButton.qml
         qml/PrecisionViewportState.qml
         qml/PrecisionCanvasZoomInput.qml
         qml/ShadowButton.qml
         qml/Theme.qml)
+qt_add_resources(shadow-review-preview-viewport-contract-test review-preview-icons
+    PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+    FILES icons/zoom-in.svg icons/zoom-out.svg icons/fit-view.svg)
 add_test(NAME shadow-desktop-review-preview-viewport-contract
     COMMAND shadow-review-preview-viewport-contract-test)
 set_tests_properties(shadow-desktop-review-preview-viewport-contract

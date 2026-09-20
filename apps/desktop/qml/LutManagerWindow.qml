@@ -115,7 +115,7 @@ ApplicationWindow {
                 Label {
                     text: qsTr("LUT LIBRARY")
                     color: Theme.textPrimary
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontBody
                     font.weight: Font.DemiBold
                     font.letterSpacing: 1.0
                 }
@@ -123,7 +123,7 @@ ApplicationWindow {
                     text: qsTr("%1 available · %2 need attention")
                         .arg(root.lutLibrary.validCount).arg(root.lutLibrary.errorCount)
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
             }
 
@@ -159,7 +159,7 @@ ApplicationWindow {
                 Label {
                     text: qsTr("SOURCE FOLDERS")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.7
                 }
@@ -188,7 +188,7 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 text: directoryDelegate.modelData
                                 color: Theme.textPrimary
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontMeta
                                 elide: Text.ElideMiddle
                                 wrapMode: Text.WrapAnywhere
                                 maximumLineCount: 2
@@ -210,7 +210,7 @@ ApplicationWindow {
                         width: parent.width - 24
                         text: qsTr("Add folders containing 3D .cube LUTs. Shadow applies them in linear sRGB; Log and display-encoded LUTs need conversion before use.")
                         color: Theme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                         wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
                     }
@@ -245,7 +245,7 @@ ApplicationWindow {
                             text: lutGroup.modelData.title
                             color: lutGroup.modelData.invalid
                                 ? Theme.warningText : Theme.textSecondary
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontMeta
                             font.weight: Font.DemiBold
                             font.letterSpacing: 0.55
                             elide: Text.ElideRight
@@ -254,7 +254,7 @@ ApplicationWindow {
                         Label {
                             text: qsTr("%1 LUTs").arg(lutGroup.modelData.entries.length)
                             color: Theme.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                         }
                     }
 
@@ -312,7 +312,7 @@ ApplicationWindow {
                                                 ? lutEntry.modelData.title
                                                 : lutEntry.modelData.fileName
                                             color: Theme.textPrimary
-                                            font.pixelSize: 11
+                                            font.pixelSize: Theme.fontSection
                                             font.weight: Font.Medium
                                             elide: Text.ElideRight
                                         }
@@ -321,7 +321,7 @@ ApplicationWindow {
                                             visible: !lutEntry.modelData.valid
                                             text: "!"
                                             color: Theme.warningText
-                                            font.pixelSize: 11
+                                            font.pixelSize: Theme.fontSection
                                             font.weight: Font.Bold
                                         }
                                     }
@@ -334,7 +334,7 @@ ApplicationWindow {
                                             : lutEntry.modelData.error
                                         color: lutEntry.modelData.valid
                                             ? Theme.textMuted : Theme.warningText
-                                        font.pixelSize: 9
+                                        font.pixelSize: Theme.fontCaption
                                         elide: Text.ElideRight
                                     }
                                 }

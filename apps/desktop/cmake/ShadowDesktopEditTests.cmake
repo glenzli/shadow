@@ -8,7 +8,10 @@
     target_link_libraries(shadow-lut-export-controller-test PRIVATE Qt6::Quick Qt6::Qml Qt6::Concurrent)
     qt_add_qml_module(shadow-lut-export-controller-test
         URI Shadow.LutExportContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
-        QML_FILES qml/LutExportDialog.qml qml/ShadowButton.qml qml/Theme.qml)
+        QML_FILES
+            qml/ShadowComboBox.qml
+            qml/ShadowIcon.qml
+ qml/LutExportDialog.qml qml/ShadowButton.qml qml/Theme.qml)
     add_test(NAME shadow-desktop-lut-export-controller COMMAND shadow-lut-export-controller-test)
     set_tests_properties(shadow-desktop-lut-export-controller PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30 LABELS "desktop;grading")

@@ -62,7 +62,7 @@ Rectangle {
     }
 
     implicitWidth: filterControls.implicitWidth + 12
-    implicitHeight: 28
+    implicitHeight: Theme.controlHeight
     radius: 7
     color: filterBar.anyFilterActive
         ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
@@ -124,7 +124,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             text: qsTranslate("Main", "FILTER")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.letterSpacing: 0.7
 
             TapHandler {

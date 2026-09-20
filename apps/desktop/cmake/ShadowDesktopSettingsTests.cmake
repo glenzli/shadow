@@ -530,6 +530,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowTextField.qml
             qml/MapProviderSettingsDialog.qml
             qml/MapProviderSettingsPane.qml
             qml/ShadowButton.qml
@@ -575,6 +576,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowTextField.qml
             qml/ApplicationSettingsDialog.qml
             qml/SettingsGeneralPane.qml
             qml/SettingsLibraryPane.qml
@@ -801,6 +803,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowTextField.qml
             qml/LibraryRemoteConnectionsPane.qml
             qml/ShadowButton.qml
             qml/ShadowIcon.qml
@@ -834,3 +837,27 @@
         shadow-desktop-library-remote-connections-pane
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+
+# Packaged shared fields preserve editing and keyboard popup semantics.
+add_executable(shadow-form-controls-contract-test tests/form_controls_contract_test.cpp)
+target_compile_features(shadow-form-controls-contract-test PRIVATE cxx_std_20)
+target_compile_definitions(shadow-form-controls-contract-test
+    PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(shadow-form-controls-contract-test
+    PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+qt_add_qml_module(shadow-form-controls-contract-test
+    URI Shadow.FormControlsContract
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+        qml/ShadowTextField.qml
+        qml/ShadowComboBox.qml
+        qml/ShadowIcon.qml
+        qml/Theme.qml)
+qt_add_resources(shadow-form-controls-contract-test form-controls-icons
+    PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+    FILES icons/chevron-down.svg icons/map.svg icons/settings.svg)
+add_test(NAME shadow-desktop-form-controls-contract COMMAND shadow-form-controls-contract-test)
+set_tests_properties(shadow-desktop-form-controls-contract
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

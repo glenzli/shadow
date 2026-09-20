@@ -87,7 +87,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Search and add this folder")
                 color: Theme.textPrimary
-                font.pixelSize: 15
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
 
@@ -95,7 +95,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Shadow will search this folder and its subfolders, reconnect the matching original, then add and scan the selected folder.")
                 color: Theme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 wrapMode: Text.WordWrap
             }
 
@@ -161,7 +161,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Remove Library folder?")
                 color: Theme.textPrimary
-                font.pixelSize: 15
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
 
@@ -169,7 +169,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Remove this folder from Shadow’s Library? Photos available only through this folder leave the Gallery. Edits and original files are kept, and return if the folder is added again.")
                 color: Theme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 wrapMode: Text.WordWrap
             }
 
@@ -236,7 +236,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Locate missing originals")
                 color: Theme.textPrimary
-                font.pixelSize: 15
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
 
@@ -244,7 +244,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Shadow will verify matching originals, add this folder, and replace the unavailable folder when every original is recovered.")
                 color: Theme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 wrapMode: Text.WordWrap
             }
 
@@ -311,7 +311,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Remove missing photos?")
                 color: Theme.textPrimary
-                font.pixelSize: 15
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
 
@@ -319,7 +319,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Shadow will check every known original path and remove only photos that are still unavailable. Edits and source records are retained for recovery.")
                 color: Theme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 wrapMode: Text.WordWrap
             }
 
@@ -481,7 +481,7 @@ ColumnLayout {
                                 anchors.centerIn: parent
                                 text: "!"
                                 color: Theme.panelRaised
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.Bold
                             }
                         }

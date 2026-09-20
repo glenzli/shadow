@@ -109,7 +109,7 @@ Rectangle {
             color: statusBar.workspaceIndex === statusBar.reviewWorkspaceIndex
                 && statusBar.semanticSearchController.errorText.length > 0
                 ? Theme.errorText : Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             elide: Text.ElideRight
         }
 
@@ -139,7 +139,7 @@ Rectangle {
                     ? qsTranslate("Main", "PEOPLE")
                     : qsTranslate("Main", "LIBRARY")
             color: Theme.textFaint
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.letterSpacing: 0.8
         }
     }

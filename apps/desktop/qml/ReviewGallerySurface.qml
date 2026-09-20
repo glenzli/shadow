@@ -190,7 +190,7 @@ Rectangle {
                 Label {
                     text: justifiedRow.sectionTitle
                     color: gallery.workspace.textPrimary
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
 
@@ -198,14 +198,14 @@ Rectangle {
                     text: qsTr("%L1 photos").arg(
                         justifiedRow.sectionItemCount)
                     color: gallery.workspace.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
 
                 Label {
                     Layout.fillWidth: true
                     text: justifiedRow.sectionSubtitle
                     color: gallery.workspace.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     elide: Text.ElideRight
                 }
             }
@@ -336,7 +336,7 @@ Rectangle {
                     ? qsTr("Finding the first photos")
                     : qsTr("Loading local Library")
                 color: gallery.workspace.textPrimary
-                font.pixelSize: 14
+                font.pixelSize: Theme.fontSubheading
             }
         }
     }

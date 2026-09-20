@@ -86,7 +86,7 @@ ColumnLayout {
             Layout.rightMargin: 14
             wrapMode: Text.WordWrap
             color: Theme.textSecondary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             text: localMask.inspector.editor.aiMaskFaceRegionMode
                 ? qsTr("People are detected automatically. Choose one person, then select one or more visible details to preview their combined mask.")
                 : localMask.inspector.editor.aiMaskSemanticMode
@@ -239,7 +239,7 @@ ColumnLayout {
                             text: localMask.operationLabel(componentRow.modelData.operation)
                             color: componentRow.modelData.enabled
                                 ? Theme.textSecondary : Theme.textDisabled
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                             font.weight: Font.DemiBold
                         }
                         Label {
@@ -247,7 +247,7 @@ ColumnLayout {
                             text: localMask.componentKindLabel(componentRow.modelData.kind)
                             color: componentRow.modelData.enabled
                                 ? Theme.textPrimary : Theme.textDisabled
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontMeta
                             elide: Text.ElideRight
                         }
                         ShadowSwitch {
@@ -284,7 +284,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Overlay")
                 color: Theme.textSecondary
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
             }
             ShadowButton {
                 compact: true
@@ -315,7 +315,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Combine")
                 color: Theme.textSecondary
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
             }
             ShadowButton {
                 compact: true
@@ -364,7 +364,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: localMask.kindLabel
                 color: Theme.textPrimary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
             }
 
@@ -588,7 +588,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Invert selected component")
                 color: Theme.textSecondary
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
             }
 
             ShadowSwitch {
@@ -616,7 +616,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Invert combined result")
                 color: Theme.textSecondary
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
             }
 
             ShadowSwitch {

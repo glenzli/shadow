@@ -34,7 +34,7 @@ ColumnLayout {
             Layout.fillWidth: true
             text: qsTr("FOCUS CHECK")
             color: pane.review.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             font.weight: Font.DemiBold
         }
 
@@ -44,7 +44,7 @@ ColumnLayout {
                 ? qsTr("100%") : qsTr("PROXY")
             color: pane.review.controller.focusDetailReady
                 ? Theme.readyText : pane.review.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
         }
     }
@@ -112,7 +112,7 @@ ColumnLayout {
             color: pane.review.textMuted
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
 
         Rectangle {
@@ -150,7 +150,7 @@ ColumnLayout {
                     text: pane.review.controller.focusDetailStatusText
                     color: Theme.accentForeground
                     elide: Text.ElideRight
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                 }
             }
         }
@@ -166,38 +166,38 @@ ColumnLayout {
         Label {
             text: qsTr("Shadow reference")
             color: pane.review.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
         Label {
             Layout.alignment: Qt.AlignRight
             text: pane.percent(pane.review.selectedNearBlackFraction)
             color: pane.review.selectedNearBlackFraction >= 0.03
                 ? Theme.warningText : pane.review.textPrimary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
         Label {
             text: qsTr("Highlight reference")
             color: pane.review.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
         Label {
             Layout.alignment: Qt.AlignRight
             text: pane.percent(pane.review.selectedNearWhiteFraction)
             color: pane.review.selectedNearWhiteFraction >= 0.01
                 ? Theme.warningText : pane.review.textPrimary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
         Label {
             text: qsTr("Proxy detail")
             color: pane.review.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
         Label {
             Layout.alignment: Qt.AlignRight
             text: pane.review.selectedLaplacianVariance.toLocaleString(
                 Qt.locale(), "f", 3)
             color: pane.review.textPrimary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
     }
 

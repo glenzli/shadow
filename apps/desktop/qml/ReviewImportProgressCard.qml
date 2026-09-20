@@ -38,7 +38,7 @@ Rectangle {
                         ? qsTranslate("ReviewWorkspace", "STOPPING IMPORT")
                         : qsTranslate("ReviewWorkspace", "IMPORTING")
                 color: progressCard.workspace.accent
-                font.pixelSize: 8
+                font.pixelSize: Theme.fontMicro
                 font.weight: Font.Bold
                 font.letterSpacing: 0.9
             }
@@ -51,7 +51,7 @@ Rectangle {
                             .cataloguedFiles)
                 color: progressCard.workspace.textPrimary
                 horizontalAlignment: Text.AlignRight
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
             }
         }
 
@@ -80,7 +80,7 @@ Rectangle {
                         .issueCount)
             color: progressCard.workspace.textMuted
             elide: Text.ElideRight
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
 
         Label {
@@ -97,7 +97,7 @@ Rectangle {
                     .decodeCancelled)
             color: progressCard.workspace.textMuted
             elide: Text.ElideRight
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
 
         ProgressBar {

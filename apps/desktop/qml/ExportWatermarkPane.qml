@@ -95,7 +95,7 @@ ColumnLayout {
     Label {
         text: qsTr("WATERMARK")
         color: Theme.textMuted
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         font.weight: Font.DemiBold
         font.letterSpacing: 0.7
     }
@@ -104,7 +104,7 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: 7
 
-        ComboBox {
+        ShadowComboBox {
             id: definitionBox
             Layout.fillWidth: true
             implicitHeight: Theme.controlHeight
@@ -113,21 +113,6 @@ ColumnLayout {
             textRole: "name"
             currentIndex: pane.definitionIndex(pane.selectedDefinitionId)
             onActivated: pane.applyDefinition(pane.definitionAt(currentIndex))
-            contentItem: Label {
-                leftPadding: 10
-                rightPadding: 28
-                verticalAlignment: Text.AlignVCenter
-                text: definitionBox.displayText
-                color: Theme.textPrimary
-                font.pixelSize: 11
-                elide: Text.ElideRight
-            }
-            background: Rectangle {
-                color: Theme.control
-                radius: Theme.compactControlRadius
-                border.width: 1
-                border.color: definitionBox.activeFocus ? Theme.focusRing : Theme.border
-            }
         }
 
         ShadowButton {
@@ -143,7 +128,7 @@ ColumnLayout {
         visible: !pane.managerExpanded && pane.watermarkPath.length > 0
         text: pane.watermarkPath.split("/").pop()
         color: Theme.textMuted
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         elide: Text.ElideMiddle
     }
 
@@ -164,20 +149,13 @@ ColumnLayout {
             anchors.margins: 10
             spacing: 9
 
-            TextField {
+            ShadowTextField {
                 id: definitionNameField
                 Layout.fillWidth: true
                 placeholderText: qsTr("Watermark name")
                 color: Theme.textPrimary
                 placeholderTextColor: Theme.textPlaceholder
                 selectByMouse: true
-                background: Rectangle {
-                    color: Theme.control
-                    radius: Theme.compactControlRadius
-                    border.width: 1
-                    border.color: definitionNameField.activeFocus
-                                  ? Theme.focusRing : Theme.border
-                }
             }
 
             RowLayout {
@@ -242,7 +220,7 @@ ColumnLayout {
                     Layout.preferredWidth: 68
                     text: qsTr("Opacity")
                     color: Theme.textSecondary
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
                 ShadowInlineSlider {
                     Layout.fillWidth: true
@@ -259,7 +237,7 @@ ColumnLayout {
                     Layout.preferredWidth: 34
                     text: qsTr("%1%").arg(Math.round(pane.watermarkOpacity * 100))
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     horizontalAlignment: Text.AlignRight
                 }
             }
@@ -270,7 +248,7 @@ ColumnLayout {
                     Layout.preferredWidth: 68
                     text: qsTr("Scale")
                     color: Theme.textSecondary
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
                 ShadowInlineSlider {
                     Layout.fillWidth: true
@@ -287,7 +265,7 @@ ColumnLayout {
                     Layout.preferredWidth: 34
                     text: qsTr("%1%").arg(Math.round(pane.watermarkScale * 100))
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     horizontalAlignment: Text.AlignRight
                 }
             }
@@ -298,7 +276,7 @@ ColumnLayout {
                     Layout.preferredWidth: 68
                     text: qsTr("Inset")
                     color: Theme.textSecondary
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
                 ShadowInlineSlider {
                     Layout.fillWidth: true
@@ -315,7 +293,7 @@ ColumnLayout {
                     Layout.preferredWidth: 34
                     text: qsTr("%1%").arg(Math.round(pane.watermarkInset * 100))
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     horizontalAlignment: Text.AlignRight
                 }
             }

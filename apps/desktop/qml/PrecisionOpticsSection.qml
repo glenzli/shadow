@@ -110,7 +110,7 @@ ShadowAdjustmentSection {
                                 : opticsSection.inspector.editor.opticsManualProfile
                                     ? opticsSection.inspector.accent
                                     : Theme.textSecondary
-                            font.pixelSize: 8
+                            font.pixelSize: Theme.fontMicro
                             font.weight: Font.DemiBold
                             font.letterSpacing: 0.45
                         }
@@ -160,7 +160,7 @@ ShadowAdjustmentSection {
                                 && opticsSection.inspector.editor.opticsReceipt.status
                                     === "matched"
                                 ? Theme.textPrimary : Theme.textMuted
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontMeta
                             font.weight: Font.Medium
                             elide: Text.ElideRight
 
@@ -196,7 +196,7 @@ ShadowAdjustmentSection {
                                     "EXIF camera and lens matching")
                         }
                         color: Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                         elide: Text.ElideRight
                     }
 
@@ -249,7 +249,7 @@ ShadowAdjustmentSection {
                 && opticsSection.inspector.editor.opticsReceipt.status
                     === "matched"
                 ? Theme.textSecondary : Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             wrapMode: Text.WordWrap
             ToolTip.visible: opticsProfileSummaryHover.hovered
             ToolTip.delay: 500

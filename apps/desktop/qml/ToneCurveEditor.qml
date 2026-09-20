@@ -430,7 +430,7 @@ Item {
                         .arg(Math.round(root.selectedPointY * 100))
                     : (!root.curveEditable ? qsTr("Read only") : "")
                 color: root.mutedTextColor
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight
             }
 

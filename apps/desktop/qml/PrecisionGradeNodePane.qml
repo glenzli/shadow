@@ -78,7 +78,7 @@ Rectangle {
                     text: structuralRow.nodeGlyph
                     color: structuralRow.nodeSelected
                         ? pane.accent : pane.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.Bold
                 }
             }
@@ -91,7 +91,7 @@ Rectangle {
                     Layout.fillWidth: true
                     text: structuralRow.nodeLabel
                     color: pane.textPrimary
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     font.weight: Font.Medium
                     elide: Text.ElideRight
                 }
@@ -101,7 +101,7 @@ Rectangle {
                     text: structuralRow.nodeStatus
                     color: structuralRow.nodeSelected
                         ? Theme.accentTextMuted : pane.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.2
                     elide: Text.ElideRight
@@ -159,7 +159,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: qsTr("NODES")
                 color: pane.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.35
             }
@@ -167,7 +167,7 @@ Rectangle {
                 text: qsTr("GRADES %L1 / %L2")
                     .arg(pane.editor.gradeNodes.length).arg(16)
                 color: pane.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
             }
             ShadowIconButton {
                 id: addGradeNodeButton
@@ -329,7 +329,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: gradeNodeRow.modelData.label
                             color: gradeNodeRow.modelData.enabled ? pane.textPrimary : pane.textSecondary
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontSection
                             font.weight: Font.Medium
                             elide: Text.ElideRight
                         }
@@ -337,7 +337,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: (gradeNodeRow.modelData.shared ? (gradeNodeRow.modelData.enabled ? qsTr("SHARED · V%1 · ENABLED").arg(gradeNodeRow.modelData.sharedRevisionNumber) : qsTr("SHARED · V%1 · BYPASSED").arg(gradeNodeRow.modelData.sharedRevisionNumber)) : (gradeNodeRow.modelData.enabled ? qsTr("LOCAL · ENABLED") : qsTr("LOCAL · BYPASSED"))) + (gradeNodeRow.modelData.hasLocalMask ? qsTr(" · %L1 MASK PART(S)").arg(gradeNodeRow.modelData.localMaskComponentCount) : "")
                             color: gradeNodeRow.modelData.enabled ? (gradeNodeRow.selected ? Theme.accentTextMuted : pane.textMuted) : Theme.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                             font.weight: Font.DemiBold
                             font.letterSpacing: 0.2
                             elide: Text.ElideRight
@@ -443,7 +443,7 @@ Rectangle {
                         text: "F"
                         color: pane.editor.foundationSelected
                             ? pane.accent : pane.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.Bold
                     }
                 }
@@ -457,7 +457,7 @@ Rectangle {
                         text: qsTr("Basic Adjustments")
                         color: pane.editor.foundationEnabled
                             ? pane.textPrimary : pane.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                         font.weight: Font.Medium
                         elide: Text.ElideRight
                     }
@@ -471,7 +471,7 @@ Rectangle {
                             ? (pane.editor.foundationSelected
                                 ? Theme.accentTextMuted : pane.textMuted)
                             : Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.2
                         elide: Text.ElideRight
@@ -544,7 +544,7 @@ Rectangle {
                         text: "AI"
                         color: pane.editor.rawDenoiseSelected
                             ? pane.accent : pane.textMuted
-                        font.pixelSize: 8
+                        font.pixelSize: Theme.fontMicro
                         font.weight: Font.Bold
                     }
                 }
@@ -558,7 +558,7 @@ Rectangle {
                         text: qsTr("AI RAW Denoise")
                         color: pane.editor.rawDenoiseNodeVisible
                             ? pane.textPrimary : pane.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                         font.weight: Font.Medium
                         elide: Text.ElideRight
                     }
@@ -579,7 +579,7 @@ Rectangle {
                             ? (pane.editor.rawDenoiseSelected
                                 ? Theme.accentTextMuted : pane.textMuted)
                             : Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.2
                         elide: Text.ElideRight
@@ -707,7 +707,7 @@ Rectangle {
             text: qsTr("Read from bottom source to top output. Fixed-order photo nodes appear only after you add them.")
             color: Theme.textSubtle
             wrapMode: Text.WordWrap
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             lineHeight: 1.35
         }
     }

@@ -37,6 +37,14 @@ Item {
         anchors.centerIn: parent
         spacing: 2
 
+        Label {
+            visible: root.floating
+            text: qsTr("Selected photo")
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontMeta
+            Layout.rightMargin: 6
+        }
+
         ShadowIconButton {
             buttonSize: root.controlSize
             iconSize: 15

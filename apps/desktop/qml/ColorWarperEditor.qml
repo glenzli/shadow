@@ -290,7 +290,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Green")
                     color: Theme.textMuted
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontMicro
                     rotation: -90
                     transformOrigin: Item.Center
                 }
@@ -301,7 +301,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Red")
                     color: Theme.textMuted
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontMicro
                     rotation: 90
                     transformOrigin: Item.Center
                 }
@@ -312,7 +312,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: qsTr("Yellow")
                     color: Theme.textMuted
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontMicro
                 }
 
                 Label {
@@ -321,7 +321,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: qsTr("Blue")
                     color: Theme.textMuted
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontMicro
                 }
 
                 MouseArea {

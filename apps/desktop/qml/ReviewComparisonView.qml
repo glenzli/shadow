@@ -62,7 +62,7 @@ Rectangle {
                 Label {
                     text: qsTr("PHOTO COMPARISON")
                     color: comparisonView.review.textPrimary
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     font.letterSpacing: 1.0
                 }

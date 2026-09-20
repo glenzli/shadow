@@ -46,7 +46,7 @@ Window {
             Layout.fillWidth: true
             text: qsTr("Match selected photos to a GPS track")
             color: Theme.textPrimary
-            font.pixelSize: 18
+            font.pixelSize: Theme.fontHeading
             font.weight: Font.DemiBold
         }
 
@@ -54,7 +54,7 @@ Window {
             Layout.fillWidth: true
             text: qsTr("Shadow matches each effective capture time against UTC track points. Preview the result before applying it.")
             color: Theme.textMuted
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSection
             wrapMode: Text.WordWrap
         }
 
@@ -89,7 +89,7 @@ Window {
                 Label {
                     text: qsTr("Camera clock offset (minutes)")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
                 SpinBox {
                     id: offsetMinutes
@@ -108,7 +108,7 @@ Window {
                 Label {
                     text: qsTr("Maximum gap (seconds)")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
                 SpinBox {
                     id: maximumGap
@@ -161,7 +161,7 @@ Window {
                     visible: Boolean(root.preview.previewId)
                     text: qsTr("Only matched photos will receive a GPS correction. Capture times are not changed.")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.WordWrap
                 }
 
@@ -172,7 +172,7 @@ Window {
                     text: qsTr("Could not prepare GPS matches: %1").arg(
                         root.controller.libraryMetadataErrorText)
                     color: Theme.errorText
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.WordWrap
                 }
             }

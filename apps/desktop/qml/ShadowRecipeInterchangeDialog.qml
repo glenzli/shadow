@@ -124,14 +124,14 @@ Dialog {
                 Label {
                     text: qsTr("Import Shadow Recipe")
                     color: Theme.textPrimary
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
                 Label {
                     Layout.fillWidth: true
                     text: dialog.interchangeController.recipeSourceName
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     elide: Text.ElideMiddle
                 }
             }
@@ -175,7 +175,7 @@ Dialog {
                 Layout.topMargin: 16
                 text: qsTr("Import replaces the current Grade Node list in one undoable step. Source development, repairs, AI completion, Liquify, and crop remain attached to this photo.")
                 color: Theme.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 wrapMode: Text.Wrap
             }
 
@@ -202,7 +202,7 @@ Dialog {
                         Layout.fillWidth: true
                         text: dialog.interchangeController.recipeLabel
                         color: Theme.textPrimary
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontBody
                         font.weight: Font.DemiBold
                         elide: Text.ElideRight
                     }
@@ -212,7 +212,7 @@ Dialog {
                             .arg(dialog.interchangeController.recipeGradeNodeCount)
                             .arg(dialog.interchangeController.recipePortableMaskCount)
                         color: Theme.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
                 }
             }
@@ -236,7 +236,7 @@ Dialog {
                     anchors.rightMargin: 10
                     text: dialog.interchangeController.recipeErrorText
                     color: Theme.errorText
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.Wrap
                 }
             }
@@ -250,7 +250,7 @@ Dialog {
                 Label {
                     text: qsTr("IMPORT NOTES")
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.35
                 }
@@ -274,7 +274,7 @@ Dialog {
                             anchors.rightMargin: 10
                             text: warningRow.modelData
                             color: Theme.warningText
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontMeta
                             wrapMode: Text.Wrap
                         }
                     }
@@ -296,7 +296,7 @@ Dialog {
                         Layout.fillWidth: true
                         text: qsTr("SEMANTIC MASK ADAPTATION")
                         color: Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.35
                     }
@@ -305,7 +305,7 @@ Dialog {
                             .arg(dialog.interchangeController.recipeSemanticCompletedCount)
                             .arg(dialog.interchangeController.recipeSemanticItemCount)
                         color: Theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                     }
                 }
 
@@ -325,7 +325,7 @@ Dialog {
                     Layout.fillWidth: true
                     text: qsTr("Some Grade Nodes could not be adapted. Retry those items, or explicitly import only the available nodes. Unavailable nodes are excluded as complete Grade Nodes.")
                     color: Theme.warningText
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.Wrap
                 }
 
@@ -357,7 +357,7 @@ Dialog {
                                     Layout.fillWidth: true
                                     text: semanticItemRow.modelData.nodeLabel
                                     color: Theme.textPrimary
-                                    font.pixelSize: 11
+                                    font.pixelSize: Theme.fontSection
                                     font.weight: Font.Medium
                                     elide: Text.ElideRight
                                 }
@@ -366,7 +366,7 @@ Dialog {
                                         semanticItemRow.modelData.state)
                                     color: dialog.semanticStateColor(
                                         semanticItemRow.modelData.state)
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontMeta
                                     font.weight: Font.DemiBold
                                 }
                             }
@@ -377,7 +377,7 @@ Dialog {
                                     semanticItemRow.modelData)
                                 color: semanticItemRow.modelData.state === "unavailable"
                                     ? Theme.errorText : Theme.textMuted
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontMeta
                                 wrapMode: Text.Wrap
                             }
                         }
@@ -393,7 +393,7 @@ Dialog {
                 Layout.bottomMargin: 16
                 text: dialog.interchangeController.recipeApplyErrorText
                 color: Theme.errorText
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 wrapMode: Text.Wrap
             }
         }
@@ -547,7 +547,7 @@ Dialog {
             width: parent.width
             text: dialog.interchangeController.recipeExportErrorText
             color: Theme.errorText
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSection
             wrapMode: Text.Wrap
         }
     }

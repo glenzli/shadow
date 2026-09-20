@@ -204,98 +204,14 @@ Popup {
 
     component SectionLabel: Label {
         color: Theme.textMuted
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         font.weight: Font.DemiBold
         font.letterSpacing: 0.7
     }
 
-    component FilterCombo: ComboBox {
-        id: combo
-
+    component FilterCombo: ShadowComboBox {
         implicitHeight: Theme.compactControlHeight
-        leftPadding: 10
-        rightPadding: 28
-        topPadding: 0
-        bottomPadding: 0
-        hoverEnabled: true
-
-        background: Rectangle {
-            radius: Theme.compactControlRadius
-            color: combo.down ? Theme.controlPressed
-                : combo.hovered ? Theme.buttonHoverSurface : Theme.control
-            border.width: 1
-            border.color: combo.visualFocus
-                ? Theme.focusRing : Theme.borderStrong
-        }
-
-        contentItem: Label {
-            text: combo.displayText
-            color: combo.enabled ? Theme.textPrimary : Theme.textDisabled
-            font.pixelSize: Theme.fontSection
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
-
-        indicator: ShadowIcon {
-            x: combo.width - width - 9
-            anchors.verticalCenter: parent.verticalCenter
-            size: 12
-            source: "qrc:/icons/chevron-down.svg"
-            color: combo.enabled ? Theme.textMuted : Theme.textDisabled
-            rotation: combo.popup.visible ? 180 : 0
-        }
-
-        delegate: ItemDelegate {
-            id: option
-
-            required property int index
-
-            width: ListView.view ? ListView.view.width : combo.width - 8
-            height: 30
-            leftPadding: 9
-            rightPadding: 9
-            highlighted: combo.highlightedIndex === index
-            text: combo.textAt(index)
-
-            background: Rectangle {
-                radius: Theme.compactControlRadius
-                color: option.down ? Theme.buttonGhostPressed
-                    : option.highlighted || option.hovered
-                        ? Theme.buttonGhostHover : Theme.transparent
-            }
-
-            contentItem: Label {
-                text: option.text
-                color: option.enabled ? Theme.textPrimary : Theme.textDisabled
-                font.pixelSize: Theme.fontSection
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
-            }
-        }
-
-        popup: Popup {
-            y: combo.height + 4
-            width: combo.width
-            implicitHeight: Math.min(combo.count * 30 + 8, 218)
-            padding: 4
-            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
-
-            contentItem: ListView {
-                clip: true
-                implicitHeight: contentHeight
-                model: combo.delegateModel
-                currentIndex: combo.highlightedIndex
-                highlightMoveDuration: 0
-                ScrollIndicator.vertical: ScrollIndicator {}
-            }
-
-            background: Rectangle {
-                radius: Theme.controlRadius
-                color: Theme.menuSurface
-                border.width: 1
-                border.color: Theme.borderStrong
-            }
-        }
+        font.pixelSize: Theme.fontSection
     }
 
     contentItem: ColumnLayout {

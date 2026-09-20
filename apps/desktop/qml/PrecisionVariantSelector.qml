@@ -72,7 +72,7 @@ Item {
                 Layout.bottomMargin: 4
                 text: qsTr("Photo variants")
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 font.weight: Font.Medium
             }
 
@@ -214,7 +214,7 @@ Item {
                 font.weight: Font.Medium
             }
 
-            TextField {
+            ShadowTextField {
                 id: nameField
                 Layout.fillWidth: true
                 color: Theme.textPrimary

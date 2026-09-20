@@ -368,7 +368,7 @@ Item {
                     anchors.topMargin: 3
                     text: root.upperScaleLabel()
                     color: root.mutedTextColor
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontMicro
                 }
 
                 Label {
@@ -378,7 +378,7 @@ Item {
                     anchors.bottomMargin: 3
                     text: root.lowerScaleLabel()
                     color: root.mutedTextColor
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontMicro
                 }
             }
         }
@@ -397,13 +397,13 @@ Item {
                         .arg(root.formattedValue(root.anchorValue(root.selectedAnchor)))
                     : root.idleInstruction()
                 color: root.mutedTextColor
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
             }
 
             Label {
                 text: qsTr("INPUT HUE")
                 color: root.mutedTextColor
-                font.pixelSize: 8
+                font.pixelSize: Theme.fontMicro
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.5
             }
@@ -416,7 +416,7 @@ Item {
             text: root.componentDescription()
                 + " " + qsTr("All three views share the same eight persisted anchors; no second color transform is added.")
             color: root.mutedTextColor
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             wrapMode: Text.WordWrap
         }
     }

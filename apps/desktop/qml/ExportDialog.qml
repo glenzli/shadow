@@ -61,20 +61,19 @@ Popup {
                 Label {
                     text: qsTr("EXPORT")
                     color: Theme.textPrimary
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
-                    font.letterSpacing: 1.0
                 }
                 Label {
                     text: qsTr("%L1 selected photos").arg(dialog.exportController.busy
                         ? dialog.exportController.totalCount : dialog.targets.length)
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
                 Label {
                     text: qsTr("Saved locally · unfinished exports resume automatically")
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                 }
@@ -148,7 +147,7 @@ Popup {
                 Label {
                     text: qsTr("FAILED ITEMS · %1").arg(dialog.exportController.errors.length)
                     color: Theme.dangerText
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.55
                 }
@@ -166,7 +165,7 @@ Popup {
                         width: errorList.width
                         text: modelData
                         color: Theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                         wrapMode: Text.Wrap
                     }
                 }
@@ -208,7 +207,7 @@ Popup {
                         color: dialog.exportController.errors.length > 0
                                && !dialog.exportController.busy
                                ? Theme.errorText : Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                         elide: Text.ElideRight
                     }
                 }

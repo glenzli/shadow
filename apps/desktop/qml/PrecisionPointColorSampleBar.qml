@@ -208,7 +208,7 @@ ColumnLayout {
                 : qsTr("Sample a color from the photo to begin.")
         color: sampleBar.editor.pointColorPickerActive
             ? Theme.accentTextMuted : Theme.textMuted
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
         wrapMode: Text.WordWrap
         lineHeight: 1.2
     }

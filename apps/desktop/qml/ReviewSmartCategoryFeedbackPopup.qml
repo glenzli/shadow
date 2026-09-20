@@ -307,7 +307,7 @@ Popup {
                                 visible: categoryRow.uncertain
                                 text: qsTr("NEEDS REVIEW")
                                 color: Theme.warningText
-                                font.pixelSize: 8
+                                font.pixelSize: Theme.fontMicro
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 0.6
                             }
@@ -317,7 +317,7 @@ Popup {
                                     && categoryRow.originalChosen
                                 text: qsTr("CURRENT")
                                 color: Theme.textMuted
-                                font.pixelSize: 8
+                                font.pixelSize: Theme.fontMicro
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 0.6
                             }

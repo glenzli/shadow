@@ -118,7 +118,7 @@ ScrollView {
             Layout.fillWidth: true
             text: qsTr("Library Server")
             color: Theme.textPrimary
-            font.pixelSize: 16
+            font.pixelSize: Theme.fontTitle
             font.weight: Font.DemiBold
         }
 
@@ -241,7 +241,7 @@ ScrollView {
                 Layout.fillWidth: true
                 spacing: 10
 
-                TextField {
+                ShadowTextField {
                     id: serverNameField
                     objectName: "libraryServerNameField"
                     Layout.fillWidth: true
@@ -252,7 +252,7 @@ ScrollView {
                     onEditingFinished: root.controller.displayName = text
                 }
 
-                TextField {
+                ShadowTextField {
                     id: serverPortField
                     objectName: "libraryServerPortField"
                     Layout.preferredWidth: 110

@@ -105,7 +105,7 @@ Popup {
                 Layout.fillWidth: true
                 text: qsTr("AUTOSAVE FAILED")
                 color: Theme.errorText
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
                 font.letterSpacing: 1.1
             }
@@ -116,7 +116,7 @@ Popup {
                     ? qsTr("Shadow could not save this photo’s latest working adjustments. The selected photo will remain unopened until you retry, keep editing, or open it without these unsaved changes.")
                     : qsTr("Shadow could not save the latest working adjustments locally. You can retry, keep editing, or quit without the unsaved changes.")
                 color: Theme.textPrimary
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 wrapMode: Text.WordWrap
                 lineHeight: 1.35
             }
@@ -126,7 +126,7 @@ Popup {
                 visible: recovery.editor.autosaveErrorText.length > 0
                 text: recovery.editor.autosaveErrorText
                 color: Theme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 wrapMode: Text.WordWrap
                 lineHeight: 1.3
             }

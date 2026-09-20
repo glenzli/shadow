@@ -219,7 +219,7 @@ Item {
                 objectName: "aiMaskGuidanceText"
                 text: overlay.guidanceText
                 color: "white"
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontBody
                 font.weight: Font.DemiBold
             }
         }
@@ -399,7 +399,7 @@ Item {
             anchors.centerIn: parent
             text: actionButton.label
             color: "white"
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSection
             font.weight: actionButton.primary ? Font.DemiBold : Font.Medium
         }
 

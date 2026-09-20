@@ -98,7 +98,7 @@ Item {
                 Layout.fillWidth: true
                 text: qsTr("Storage & Cache")
                 color: Theme.textPrimary
-                font.pixelSize: 16
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
 
@@ -219,7 +219,7 @@ Item {
                                     root.cacheMaintenanceController.inventory.cacheBlobByteLength)
                                 color: root.cacheMaintenanceController.overConfiguredLimit
                                     ? Theme.warningText : Theme.textSecondary
-                                font.pixelSize: 18
+                                font.pixelSize: Theme.fontHeading
                                 font.weight: Font.DemiBold
                             }
                         }

@@ -180,7 +180,7 @@ Item {
                                 "PrecisionWorkspace",
                                 "BEFORE / AFTER · TOP / BOTTOM")
             color: Theme.accent
-            font.pixelSize: 8
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.Bold
             font.letterSpacing: 0.7
         }
@@ -262,7 +262,7 @@ Item {
                                 "PrecisionWorkspace",
                                 "Waiting for 100% detail…")
                 color: detailHint.failed ? Theme.errorText : Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight
             }
         }
@@ -307,7 +307,7 @@ Item {
                             "Waiting for the current preview…")
                 color: overlays.editor.beforeErrorText.length > 0
                     ? Theme.errorText : Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight
             }
         }
@@ -333,7 +333,7 @@ Item {
                     "PrecisionWorkspace", "Rendering local edit")
                 : qsTranslate("PrecisionWorkspace", "Opening photo")
             color: Theme.textPrimary
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontBody
         }
     }
 
@@ -352,7 +352,7 @@ Item {
                 : qsTranslate("PrecisionWorkspace", "NO PHOTO OPEN")
             color: overlays.previewLoadFailed
                 ? Theme.errorText : Theme.textMuted
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontBody
             font.weight: Font.DemiBold
             font.letterSpacing: 1.2
         }
@@ -363,7 +363,7 @@ Item {
             color: Theme.textMuted
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             lineHeight: 1.35
         }
     }

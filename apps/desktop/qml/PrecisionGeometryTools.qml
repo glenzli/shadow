@@ -169,7 +169,7 @@ ColumnLayout {
             text: geometry.inspector.editor.autoGeometryStatusText
             color: geometry.inspector.editor.autoGeometryHasProposal
                 ? Theme.accent : Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             wrapMode: Text.WordWrap
         }
 
@@ -192,7 +192,7 @@ ColumnLayout {
                 ))
                 .arg(geometry.inspector.editor.autoGeometrySupportingLines)
             color: Theme.textSecondary
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             wrapMode: Text.WordWrap
         }
 
@@ -259,7 +259,7 @@ ColumnLayout {
                     )) > 0.0001)
             text: qsTr("Reset Crop, Straighten, and Perspective before analyzing again.")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             wrapMode: Text.WordWrap
         }
 
@@ -295,7 +295,7 @@ ColumnLayout {
             Layout.topMargin: 2
             text: qsTr("Empty corners are cropped automatically after rotation.")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             wrapMode: Text.WordWrap
         }
 
@@ -412,7 +412,7 @@ ColumnLayout {
             Layout.topMargin: 6
             text: qsTr("Drag the frame, edges, or corners directly on the photo.")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             wrapMode: Text.WordWrap
         }
     }

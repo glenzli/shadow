@@ -206,7 +206,7 @@ ShadowAdjustmentSection {
                                 + skinGuideNudge.roundedGuideDeviation + "°")
                 color: skinGuideNudge.nudgeAvailable
                     ? Theme.textSecondary : "#e6a36c"
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
             }
@@ -219,7 +219,7 @@ ShadowAdjustmentSection {
                     text: (skinGuideNudge.roundedHueNudge > 0 ? "+" : "")
                         + skinGuideNudge.roundedHueNudge + "°"
                     color: Theme.textSecondary
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     font.weight: Font.DemiBold
                 }
 

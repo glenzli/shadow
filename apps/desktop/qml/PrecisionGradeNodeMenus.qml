@@ -63,7 +63,7 @@ Item {
         contentItem: Label {
             text: popupAction.text
             color: popupAction.enabled ? Theme.textPrimary : Theme.textDisabled
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSection
             font.weight: Font.Medium
             horizontalAlignment: Text.AlignLeft
             verticalAlignment: Text.AlignVCenter
@@ -94,7 +94,7 @@ Item {
                 bottomPadding: 3
                 text: qsTr("STRUCTURAL")
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.35
             }
@@ -155,7 +155,7 @@ Item {
                 bottomPadding: 3
                 text: qsTr("ADJUSTMENTS")
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.35
             }
@@ -176,7 +176,7 @@ Item {
                 bottomPadding: 3
                 text: qsTr("SHARED NODES")
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.35
             }
@@ -190,7 +190,7 @@ Item {
                 bottomPadding: 8
                 text: qsTr("No shared nodes yet")
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
             }
 
             Repeater {
@@ -291,17 +291,17 @@ Item {
                 Layout.fillWidth: true
                 text: qsTr("Shared Grade Node")
                 color: Theme.textPrimary
-                font.pixelSize: 15
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
             Label {
                 Layout.fillWidth: true
                 text: qsTr("A stable library node can be linked to many photos.")
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
             }
-            TextField {
+            ShadowTextField {
                 id: sharedNodeNameField
                 Layout.fillWidth: true
                 placeholderText: qsTr("Node name")

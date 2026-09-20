@@ -243,7 +243,7 @@ Item {
                     visible: !card.remoteServerOffline
                     text: "RAW"
                     color: Theme.rawPlaceholderText
-                    font.pixelSize: 20
+                    font.pixelSize: Theme.fontHero
                     font.weight: Font.DemiBold
                     font.letterSpacing: 2
                 }
@@ -258,7 +258,7 @@ Item {
                         : card.visualError.length > 0
                             ? qsTr("PREVIEW PENDING") : qsTr("NO VISUAL")
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
                 }
@@ -328,14 +328,14 @@ Item {
                     text: card.title
                     color: Theme.textPrimary
                     elide: Text.ElideRight
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                 }
                 Label {
                     text: card.visualWidth > 0
                         ? qsTr("%L1 × %L2").arg(card.visualWidth)
                             .arg(card.visualHeight) : "—"
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                 }
             }
 
@@ -364,7 +364,7 @@ Item {
                             && card.hasRasterRepresentation
                         text: "RAW+JPEG"
                         color: Theme.textMuted
-                        font.pixelSize: 8
+                        font.pixelSize: Theme.fontMicro
                         font.weight: Font.DemiBold
                         Accessible.name: qsTr("RAW and JPEG representations")
                     }
@@ -382,7 +382,7 @@ Item {
                         Label {
                             text: card.sourceLocationCount
                             color: Theme.textSecondary
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                             font.weight: Font.DemiBold
                         }
 

@@ -55,7 +55,7 @@ ColumnLayout {
         text: selector.people.length > 0
             ? qsTr("People") : qsTr("Looking for people in this photo…")
         color: Theme.textSecondary
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
     }
 
     Flickable {
@@ -116,7 +116,7 @@ ColumnLayout {
                         anchors.bottomMargin: 4
                         text: qsTr("Person %1").arg(personCard.personIndex + 1)
                         color: personCard.selected ? Theme.accent : Theme.textSecondary
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                     }
 
                     TapHandler {
@@ -133,7 +133,7 @@ ColumnLayout {
         visible: selector.people.length > 0
         text: qsTr("Details")
         color: Theme.textSecondary
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
     }
 
     Flow {
@@ -171,7 +171,7 @@ ColumnLayout {
                 text: String(modelData.label)
                 enabled: !selector.editor.aiMaskBusy && selector.selectedPerson >= 0 && available
                 opacity: enabled ? 1 : 0.38
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 onClicked: selector.toggleRegion(Number(modelData.index), !selected)
 
                 contentItem: Label {

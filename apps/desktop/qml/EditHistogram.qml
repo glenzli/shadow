@@ -239,7 +239,7 @@ Item {
                         ? qsTr("Analyzing the warm preview…")
                         : qsTr("%1 unavailable").arg(root.activeScopeLabel())
                     color: root.updating ? root.secondaryTextColor : root.mutedTextColor
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     horizontalAlignment: Text.AlignHCenter
                 }
 
@@ -251,7 +251,7 @@ Item {
                              && root.displayScopeMatchedPixels <= 0
                     text: qsTr("No pixels match the selected Point Color")
                     color: root.mutedTextColor
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     horizontalAlignment: Text.AlignHCenter
                 }
             }

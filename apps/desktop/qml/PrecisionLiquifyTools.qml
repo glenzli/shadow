@@ -154,7 +154,7 @@ ColumnLayout {
                 ? qsTr("Paint over a deformed area to restore its original mapping. The authoritative preview updates while you drag, then commits as one undoable stroke.")
                 : qsTr("Drag on the image to push pixels. The path stays local while dragging, then commits as one undoable stroke.")
             color: Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             wrapMode: Text.WordWrap
             lineHeight: 1.25
         }

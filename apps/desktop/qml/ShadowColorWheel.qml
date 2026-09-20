@@ -43,7 +43,7 @@ Item {
             Layout.fillWidth: true
             text: root.label
             color: Theme.textSecondary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             font.weight: Font.Medium
             horizontalAlignment: Text.AlignHCenter
         }
@@ -181,7 +181,7 @@ Item {
             Label {
                 text: qsTr("L")
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
             }
 
             ShadowInlineSlider {
@@ -216,7 +216,7 @@ Item {
                 Layout.preferredWidth: 28
                 text: Math.round(root.luminance * 100)
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 horizontalAlignment: Text.AlignRight
             }
         }

@@ -63,7 +63,7 @@ Item {
             objectName: "analysisScopeTitleText"
             text: qsTranslate("EditHistogram", "ANALYSIS")
             color: toolbar.mutedTextColor
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 1.1
         }

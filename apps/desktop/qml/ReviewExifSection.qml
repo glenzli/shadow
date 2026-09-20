@@ -28,7 +28,7 @@ ColumnLayout {
         Label {
             text: qsTranslate("ReviewWorkspace", "EXIF")
             color: exifSection.review.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             font.weight: Font.DemiBold
             font.letterSpacing: 1.2
         }
@@ -55,7 +55,7 @@ ColumnLayout {
             horizontalAlignment: Text.AlignRight
             text: qsTranslate("ReviewWorkspace", "SOURCE")
             color: exifSection.review.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
 
         ReviewRemoteSourceIndicator {
@@ -89,7 +89,7 @@ ColumnLayout {
                     : qsTranslate("ReviewWorkspace", "Server Library"))
                 : qsTranslate("ReviewWorkspace", "Local Library")
             color: exifSection.review.textPrimary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             elide: Text.ElideRight
         }
     }
@@ -108,7 +108,7 @@ ColumnLayout {
                     "ReviewWorkspace",
                     "No metadata is available for this photo")
         color: Theme.textQuiet
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
     }
 
     ShadowButton {
@@ -155,7 +155,7 @@ ColumnLayout {
                 horizontalAlignment: Text.AlignRight
                 text: exifRow.modelData.label
                 color: exifSection.review.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
             }
 
             Label {
@@ -163,7 +163,7 @@ ColumnLayout {
                 text: exifSection.metadataPresentation.exifValue(
                     exifRow.modelData.id)
                 color: exifSection.review.textPrimary
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 elide: Text.ElideRight
             }
         }

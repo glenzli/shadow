@@ -109,7 +109,7 @@ Dialog {
         }
         RowLayout {
             Label { text: qsTr("Grid size"); color: Theme.textPrimary }
-            ComboBox {
+            ShadowComboBox {
                 id: gridSize
                 objectName: "lutExportGridSize"
                 model: ["17 × 17 × 17", "33 × 33 × 33", "65 × 65 × 65"]

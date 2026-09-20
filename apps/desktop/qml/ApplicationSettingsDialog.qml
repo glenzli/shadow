@@ -105,7 +105,7 @@ Popup {
                     width: parent.width
                     text: qsTr("Settings")
                     color: Theme.textPrimary
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }

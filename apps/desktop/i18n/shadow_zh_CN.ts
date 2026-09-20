@@ -10400,6 +10400,10 @@ Details: %3</source>
         <source>Set color label: %1</source>
         <translation>设为 %1 色标</translation>
     </message>
+    <message>
+        <source>Selected photo</source>
+        <translation>当前照片</translation>
+    </message>
 </context>
 <context>
     <name>ReviewFocusDetailCoordinator</name>
@@ -12049,11 +12053,6 @@ Details: %3</source>
         <translation>打开照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="221"/>
-        <source>%L1 selected</source>
-        <translation>已选择 %L1 张</translation>
-    </message>
-    <message>
         <location filename="../qml/ReviewGalleryToolbar.qml" line="230"/>
         <source>Apply a shared Grade Node to selection</source>
         <translation>将共享调色节点应用到所选照片</translation>
@@ -12930,6 +12929,22 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/LibraryLocationCompletionGallery.qml" line="535"/>
         <source>Remove</source>
         <translation>移除</translation>
+    </message>
+    <message>
+        <source>Edit</source>
+        <translation>编辑</translation>
+    </message>
+    <message>
+        <source>Edit selected photo</source>
+        <translation>编辑所选照片</translation>
+    </message>
+    <message>
+        <source>Export…</source>
+        <translation>导出…</translation>
+    </message>
+    <message>
+        <source>More…</source>
+        <translation>更多…</translation>
     </message>
 </context>
 <context>

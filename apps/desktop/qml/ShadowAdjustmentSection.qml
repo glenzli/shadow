@@ -63,7 +63,7 @@ Item {
                 Layout.minimumWidth: 0
                 text: root.title
                 color: root.sectionEnabled ? Theme.textPrimary : Theme.textDisabled
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.45
                 elide: Text.ElideRight
@@ -75,7 +75,7 @@ Item {
                 Layout.minimumWidth: 0
                 text: root.summary
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight
             }
 

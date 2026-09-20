@@ -40,7 +40,7 @@ Popup {
         spacing: 12
         Label {
             text: dialog.mode === "hdr" ? qsTr("HDR merge") : qsTr("Panorama merge")
-            font.pixelSize: 20
+            font.pixelSize: Theme.fontHero
             color: Theme.textPrimary
         }
         Label {
@@ -60,7 +60,7 @@ Popup {
         RowLayout {
             enabled: !dialog.compositionController.busy && !dialog.compositionController.ready
             Label { text: qsTr("Source long edge"); color: Theme.textPrimary }
-            ComboBox { id: resolution; model: ["2048", "4096"]; currentIndex: 1 }
+            ShadowComboBox { id: resolution; model: ["2048", "4096"]; currentIndex: 1 }
             CheckBox { id: align; visible: dialog.mode === "hdr"; checked: true; text: qsTr("Auto align") }
             CheckBox { id: deghost; visible: dialog.mode === "hdr"; checked: true; text: qsTr("Reduce ghosting") }
             CheckBox { id: compensate; visible: dialog.mode === "panorama"; checked: true; text: qsTr("Match exposure") }

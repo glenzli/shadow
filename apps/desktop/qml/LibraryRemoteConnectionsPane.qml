@@ -138,7 +138,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     text: qsTr("Remove remote Library?")
                     color: Theme.textPrimary
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
 
@@ -146,7 +146,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     text: qsTr("%1 will leave this Library view. Its downloaded originals stay in the local Library, and its proxy cache can be reused if you add it again.").arg(root.pendingRemovalName)
                     color: Theme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     wrapMode: Text.WordWrap
                 }
 
@@ -204,7 +204,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     text: qsTr("Edit Remote Library")
                     color: Theme.textPrimary
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
 
@@ -212,11 +212,11 @@ ColumnLayout {
                     Layout.fillWidth: true
                     text: qsTr("Update the server address or paste a replacement access token. Cached thumbnails keep the same Library identity.")
                     color: Theme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     wrapMode: Text.WordWrap
                 }
 
-                TextField {
+                ShadowTextField {
                     id: editServerAddressField
                     objectName: "remoteLibraryEditAddressField"
                     Layout.fillWidth: true
@@ -226,7 +226,7 @@ ColumnLayout {
                     Accessible.name: qsTr("Remote Library server address")
                 }
 
-                TextField {
+                ShadowTextField {
                     id: editAccessTokenField
                     objectName: "remoteLibraryEditTokenField"
                     Layout.fillWidth: true
@@ -461,7 +461,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 8
 
-                TextField {
+                ShadowTextField {
                     id: serverAddressField
                     objectName: "remoteLibraryServerAddressField"
                     Layout.fillWidth: true
@@ -471,7 +471,7 @@ ColumnLayout {
                     Accessible.name: qsTr("Remote Library server address")
                 }
 
-                TextField {
+                ShadowTextField {
                     id: accessTokenField
                     objectName: "remoteLibraryAccessTokenField"
                     Layout.fillWidth: true

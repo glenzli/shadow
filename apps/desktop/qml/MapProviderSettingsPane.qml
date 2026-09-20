@@ -97,7 +97,7 @@ Item {
                         Layout.fillWidth: true
                         text: qsTr("Map & Location Services")
                         color: Theme.textPrimary
-                        font.pixelSize: 16
+                        font.pixelSize: Theme.fontTitle
                         font.weight: Font.DemiBold
                     }
 
@@ -224,7 +224,7 @@ Item {
                 Layout.fillWidth: true
                 spacing: 8
 
-                TextField {
+                ShadowTextField {
                     id: amapWebKeyField
                     objectName: "amapWebServiceKeyField"
                     Layout.fillWidth: true
@@ -307,7 +307,7 @@ Item {
                 Layout.fillWidth: true
                 spacing: 8
 
-                TextField {
+                ShadowTextField {
                     id: amapJsKeyField
                     objectName: "amapJsApiKeyField"
                     Layout.fillWidth: true
@@ -321,7 +321,7 @@ Item {
                     Accessible.name: qsTr("AMap JS API key")
                 }
 
-                TextField {
+                ShadowTextField {
                     id: amapSecurityCodeField
                     objectName: "amapSecurityJsCodeField"
                     Layout.fillWidth: true
@@ -402,7 +402,7 @@ Item {
                 Layout.fillWidth: true
                 spacing: 8
 
-                TextField {
+                ShadowTextField {
                     id: googleApiKeyField
                     objectName: "googleApiKeyField"
                     Layout.fillWidth: true

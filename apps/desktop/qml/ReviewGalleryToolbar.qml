@@ -19,11 +19,78 @@ Rectangle {
     anchors.top: parent.top
     anchors.left: parent.left
     anchors.right: parent.right
-    height: 42
+    height: 44
     z: 3
     visible: !toolbar.workspace.comparison.compareMode
         && !toolbar.workspace.culling.arenaActive
     color: Theme.chrome
+    onVisibleChanged: {
+        if (!visible) {
+            actionsMenu.close()
+            thumbnailScalePopup.close()
+        }
+    }
+
+    readonly property bool showThumbnailScale: width >= 1050
+        && workspace.galleryPresentation === ReviewWorkspace.JustifiedGrid
+
+    ReviewGalleryActionsMenu {
+        id: actionsMenu
+        workspace: toolbar.workspace
+        thumbnailScaleVisible: toolbar.showThumbnailScale
+        onOpenLibraryManagementRequested: toolbar.openLibraryManagementRequested()
+        onOpenMetadataRequested: toolbar.openMetadataRequested()
+        onSharedGradeRequested: toolbar.sharedGradeRequested(moreButton)
+        onThumbnailScaleRequested: thumbnailScalePopup.open()
+    }
+
+    Popup {
+        id: thumbnailScalePopup
+        parent: moreButton
+        x: moreButton.width - width
+        y: moreButton.height + 4
+        width: 268
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 12
+        implicitHeight: scalePopupContent.implicitHeight + topPadding + bottomPadding
+        background: Rectangle {
+            radius: Theme.controlRadius
+            color: Theme.menuSurface
+            border.width: 1
+            border.color: Theme.borderStrong
+        }
+        contentItem: ColumnLayout {
+            id: scalePopupContent
+            spacing: 8
+            Label {
+                text: qsTr("Thumbnail scale")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSection
+            }
+            RowLayout {
+                ShadowInlineSlider {
+                    Layout.fillWidth: true
+                    from: 96
+                    to: 360
+                    neutralValue: 188
+                    fillFromMinimum: true
+                    stepSize: 4
+                    value: toolbar.workspace.justifiedReviewLayout.targetRowHeight
+                    toolTipText: qsTr("Thumbnail scale")
+                    Accessible.name: toolTipText
+                    onMoved: toolbar.setGalleryScale(value)
+                    onResetRequested: value => toolbar.setGalleryScale(value)
+                }
+                ShadowIconButton {
+                    source: "qrc:/icons/fit-view.svg"
+                    toolTipText: qsTr("Restore default thumbnail scale")
+                    accessibleName: toolTipText
+                    onClicked: toolbar.setGalleryScale(188)
+                }
+            }
+        }
+    }
 
     function setGalleryScale(value) {
         const next = Math.round(value)
@@ -46,9 +113,10 @@ Rectangle {
         spacing: 8
 
         Label {
-            text: toolbar.workspace.currentLibraryScopeName.toUpperCase()
+            visible: toolbar.width >= 1100
+            text: toolbar.workspace.currentLibraryScopeName
             color: toolbar.workspace.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.8
         }
@@ -57,30 +125,14 @@ Rectangle {
             text: qsTr("%L1 visible").arg(
                 toolbar.workspace.controller.filteredItemCount)
             color: toolbar.workspace.textPrimary
-            font.pixelSize: 11
-        }
-
-        ShadowIconButton {
-            source: "qrc:/icons/library-manage.svg"
-            toolTipText: qsTr("Manage photo sources")
-            accessibleName: toolTipText
-            onClicked: toolbar.openLibraryManagementRequested()
-        }
-
-        ShadowIconButton {
-            checkable: true
-            checked: toolbar.workspace.hasLibraryKeywordFilter
-            source: "qrc:/icons/tag.svg"
-            toolTipText: qsTr("Assign and filter Library keywords")
-            accessibleName: toolTipText
-            onClicked: toolbar.workspace.openKeywordPanel()
+            font.pixelSize: Theme.fontSection
         }
 
         SemanticSearchControl {
             id: semanticSearch
-            Layout.preferredWidth: implicitWidth
+            Layout.preferredWidth: expanded ? Math.min(268, toolbar.width * 0.30) : implicitWidth
             Layout.preferredHeight: implicitHeight
-            expanded: toolbar.width >= 1180
+            expanded: toolbar.width >= 650
             workspace: toolbar.workspace
         }
 
@@ -123,7 +175,7 @@ Rectangle {
                     anchors.centerIn: parent
                     text: toolbar.workspace.culling.candidateCount
                     color: Theme.accentSelectionText
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontMicro
                     font.weight: Font.Bold
                 }
             }
@@ -150,19 +202,17 @@ Rectangle {
         }
 
         Label {
-            visible: toolbar.workspace.galleryPresentation
-                === ReviewWorkspace.JustifiedGrid
+            visible: toolbar.showThumbnailScale
             text: qsTr("SCALE")
             color: toolbar.workspace.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }
 
         ShadowInlineSlider {
             id: galleryScaleSlider
-            visible: toolbar.workspace.galleryPresentation
-                === ReviewWorkspace.JustifiedGrid
+            visible: toolbar.showThumbnailScale
             Layout.preferredWidth: 138
             from: 96
             to: 360
@@ -177,8 +227,7 @@ Rectangle {
         }
 
         ShadowIconButton {
-            visible: toolbar.workspace.galleryPresentation
-                === ReviewWorkspace.JustifiedGrid
+            visible: toolbar.showThumbnailScale
             source: "qrc:/icons/fit-view.svg"
             toolTipText: qsTr("Restore default thumbnail scale")
             accessibleName: toolTipText
@@ -189,50 +238,6 @@ Rectangle {
             Layout.preferredWidth: 1
             Layout.preferredHeight: 18
             color: toolbar.workspace.border
-        }
-
-        ShadowIconButton {
-            source: "qrc:/icons/metadata.svg"
-            toolTipText: qsTr("Open photo metadata")
-            accessibleName: toolTipText
-            enabled: toolbar.workspace.selectedPhotoId.length > 0
-            onClicked: toolbar.openMetadataRequested()
-        }
-
-        ShadowIconButton {
-            source: "qrc:/icons/location-pin.svg"
-            toolTipText: qsTr("Set location for selected photos")
-            accessibleName: toolTipText
-            enabled: toolbar.workspace.selectedPhotoCount > 0
-                && !toolbar.workspace.controller.libraryMetadataBusy
-            onClicked: toolbar.workspace.openLocationBatch()
-        }
-
-        ShadowIconButton {
-            source: "qrc:/icons/pin.svg"
-            toolTipText: qsTr("Complete missing photo locations")
-            accessibleName: toolTipText
-            enabled: !toolbar.workspace.controller.locationCompletionBusy
-            onClicked: toolbar.workspace.openLocationCompletion()
-        }
-
-        Label {
-            visible: toolbar.workspace.selectedPhotoCount > 1
-            text: qsTr("%L1 selected").arg(
-                toolbar.workspace.selectedPhotoCount)
-            color: toolbar.workspace.textMuted
-            font.pixelSize: 9
-        }
-
-        ShadowIconButton {
-            id: applySharedGradeButton
-            source: "qrc:/icons/grade-node-paste.svg"
-            toolTipText: qsTr("Apply a shared Grade Node to selection")
-            accessibleName: toolTipText
-            enabled: toolbar.workspace.selectedPhotoCount > 0
-                && !toolbar.workspace.selectionContainsRemote()
-            onClicked: toolbar.sharedGradeRequested(
-                applySharedGradeButton)
         }
 
         ShadowIconButton {
@@ -259,36 +264,9 @@ Rectangle {
             }
         }
 
-        ShadowIconButton {
-            id: addToManualAlbumButton
-            source: "qrc:/icons/album-add.svg"
-            toolTipText: toolbar.workspace.manualLibraryAlbums.length > 0
-                ? qsTr("Add selected photos to a Manual Album")
-                : qsTr("Create a Manual Album first")
-            accessibleName: toolTipText
-            enabled: toolbar.workspace.selectedPhotoCount > 0
-                && !toolbar.workspace.selectionContainsRemote()
-                && toolbar.workspace.manualLibraryAlbums.length > 0
-                && !toolbar.workspace.controller.libraryAlbumsBusy
-            onClicked: toolbar.workspace.addTargetsToManualAlbum(
-                toolbar.workspace.batchSelectionTargets())
-        }
-
-        ShadowIconButton {
-            visible: toolbar.workspace.currentLibraryAlbumIsManual
-            source: "qrc:/icons/album-remove.svg"
-            toolTipText: qsTr("Remove selected photos from this Manual Album")
-            accessibleName: toolTipText
-            enabled: toolbar.workspace.selectedPhotoCount > 0
-                && !toolbar.workspace.selectionContainsRemote()
-                && !toolbar.workspace.controller.libraryAlbumsBusy
-            onClicked: toolbar.workspace.controller.removePhotosFromManualLibraryAlbum(
-                String(toolbar.workspace.currentLibraryAlbum.id),
-                toolbar.workspace.batchSelectionTargets())
-        }
-
         ShadowButton {
             id: mergeButton
+            visible: toolbar.workspace.selectedPhotoCount >= 2
             objectName: "photoCompositionMenuButton"
             text: qsTr("Merge")
             compact: true
@@ -298,22 +276,41 @@ Rectangle {
                 && toolbar.workspace.selectedPhotoCount <= 12
                 && !toolbar.workspace.controller.remoteLibraryBusy
             onClicked: mergeMenu.popup(mergeButton, 0, mergeButton.height)
-            Menu {
+            ShadowMenu {
                 id: mergeMenu
-                MenuItem { text: qsTr("HDR merge…"); onTriggered: toolbar.workspace.requestComposition("hdr") }
-                MenuItem { text: qsTr("Panorama merge…"); onTriggered: toolbar.workspace.requestComposition("panorama") }
+                ShadowMenuItem { text: qsTr("HDR merge…"); onTriggered: toolbar.workspace.requestComposition("hdr") }
+                ShadowMenuItem { text: qsTr("Panorama merge…"); onTriggered: toolbar.workspace.requestComposition("panorama") }
             }
         }
 
-        ShadowIconButton {
-            source: "qrc:/icons/export.svg"
-            toolTipText: qsTr("Export selected photos")
-            accessibleName: toolTipText
-            enabled: toolbar.workspace.selectedPhotoCount > 0
-                && !toolbar.workspace.controller.remoteLibraryBusy
-            onClicked: toolbar.exportRequested(
-                toolbar.workspace.batchSelectionTargets())
+        ShadowButton {
+            objectName: "reviewEditButton"
+            text: qsTr("Edit")
+            compact: true
+            variant: ShadowButton.Tinted
+            enabled: toolbar.workspace.canOpenSelectedPhoto
+            toolTipText: qsTr("Edit selected photo")
+            onClicked: toolbar.workspace.openSelectedPhoto()
         }
 
+        ShadowButton {
+            objectName: "reviewExportButton"
+            text: qsTr("Export…")
+            compact: true
+            enabled: toolbar.workspace.selectedPhotoCount > 0
+                && !toolbar.workspace.controller.remoteLibraryBusy
+            toolTipText: qsTr("Export selected photos")
+            onClicked: toolbar.exportRequested(toolbar.workspace.batchSelectionTargets())
+        }
+
+        ShadowButton {
+            id: moreButton
+            objectName: "reviewMoreButton"
+            text: qsTr("More…")
+            compact: true
+            variant: ShadowButton.Ghost
+            selected: actionsMenu.opened
+            onClicked: actionsMenu.popup(moreButton, moreButton.width - actionsMenu.width, moreButton.height)
+        }
     }
 }

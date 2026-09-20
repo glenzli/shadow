@@ -234,7 +234,7 @@ Item {
             visible: repairHandle.selected
             text: qsTr("SOURCE")
             color: Theme.accent
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.bold: true
         }
 

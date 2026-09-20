@@ -49,7 +49,7 @@ Rectangle {
                     ? qsTr("Complete the %1 map configuration").arg(root.providerName)
                     : qsTr("Choose a map service")
                 color: Theme.textPrimary
-                font.pixelSize: 16
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
                 horizontalAlignment: Text.AlignHCenter
             }

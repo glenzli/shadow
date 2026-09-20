@@ -269,7 +269,7 @@ ColumnLayout {
                 ? Theme.textDisabled
                 : retouch.inspector.editor.retouchPickerActive
                     ? Theme.accentTextMuted : Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             wrapMode: Text.WordWrap
             lineHeight: 1.25
         }

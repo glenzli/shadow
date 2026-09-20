@@ -166,21 +166,19 @@ Item {
         spacing: 4
         visible: viewport.selectionKey.length > 0
 
-        ShadowButton {
+        ShadowIconButton {
             objectName: "reviewPreviewZoomOut"
-            text: "−"
-            compact: true
-            minimumButtonWidth: 30
+            source: "qrc:/icons/zoom-out.svg"
+            variant: ShadowIconButton.Secondary
             accessibleName: qsTr("Zoom out preview")
             toolTipText: accessibleName
             enabled: viewport.imageReady && !viewport.fitView
             onClicked: viewport.zoomBy(1 / 1.5)
         }
-        ShadowButton {
+        ShadowIconButton {
             objectName: "reviewPreviewZoomIn"
-            text: "+"
-            compact: true
-            minimumButtonWidth: 30
+            source: "qrc:/icons/zoom-in.svg"
+            variant: ShadowIconButton.Secondary
             accessibleName: qsTr("Zoom in preview")
             toolTipText: accessibleName
             enabled: viewport.imageReady && (viewport.fitView || viewport.zoomFactor < 4)
@@ -188,16 +186,21 @@ Item {
         }
         ShadowButton {
             objectName: "reviewPreviewActualSize"
-            text: qsTr("Preview 100%")
+            text: "100%"
+            accessibleName: qsTr("Preview 100%")
             compact: true
+            minimumButtonWidth: 64
+            selected: !viewport.fitView && Math.abs(viewport.zoomFactor - 1.0) < 0.001
             toolTipText: qsTr("Show preview pixels at 100%; use Precision for original detail")
             enabled: viewport.imageReady
             onClicked: viewport.zoomAt(viewport.width / 2, viewport.height / 2, 1)
         }
-        ShadowButton {
+        ShadowIconButton {
             objectName: "reviewPreviewFit"
-            text: qsTr("Fit")
-            compact: true
+            source: "qrc:/icons/fit-view.svg"
+            variant: ShadowIconButton.Secondary
+            accessibleName: qsTr("Fit")
+            selected: viewport.fitView
             toolTipText: qsTr("Fit preview to window")
             enabled: viewport.imageReady
             onClicked: viewport.resetView()

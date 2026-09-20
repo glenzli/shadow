@@ -66,7 +66,7 @@ ColumnLayout {
         Layout.fillWidth: true
         text: qsTr("REGIONS")
         color: Theme.textMuted
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         font.weight: Font.DemiBold
         font.letterSpacing: 0.65
     }

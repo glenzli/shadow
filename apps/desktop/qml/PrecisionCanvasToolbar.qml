@@ -85,7 +85,7 @@ Rectangle {
                 text: toolbar.editor.active
                     ? toolbar.editor.title : qsTr("No photo open")
                 color: Theme.textPrimary
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontBody
                 font.weight: Font.Medium
                 elide: Text.ElideRight
             }
@@ -94,7 +94,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: toolbar.editor.sourcePath
                 color: Theme.textMuted
-                font.pixelSize: 8
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideMiddle
             }
         }
@@ -230,7 +230,7 @@ Rectangle {
                 : qsTr("%L1%").arg(Math.round(toolbar.zoomFactor * 100))
             color: Theme.textMuted
             font.family: "Menlo"
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
 
         ShadowIconButton {
@@ -264,7 +264,7 @@ Rectangle {
 
         ShadowButton {
             id: actualPixelsButton
-            Layout.preferredWidth: 52
+            Layout.preferredWidth: 64
             Layout.preferredHeight: 30
             compact: true
             variant: ShadowButton.Secondary

@@ -21,7 +21,7 @@ ColumnLayout {
         wrapMode: Text.WordWrap
         text: qsTr("Choose what the mask should follow. Copying this mask reruns the same meaning on the target photo.")
         color: Theme.textSecondary
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
     }
 
     Flow {
@@ -55,7 +55,7 @@ ColumnLayout {
         }
     }
 
-    TextField {
+    ShadowTextField {
         id: customQuery
         objectName: "semanticMaskCustomQuery"
         Layout.fillWidth: true
