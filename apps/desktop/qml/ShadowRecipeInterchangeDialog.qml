@@ -526,12 +526,15 @@ Dialog {
         id: exportProgressDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
+        width: Math.min(430, Math.max(0, (parent ? parent.width : 478) - 48))
         modal: true
         closePolicy: Popup.NoAutoClose
         title: qsTr("Exporting Shadow Recipe")
-        Label {
+        contentItem: Label {
             text: qsTr("Packaging the captured Recipe and its LUT resources…")
             color: Theme.textSecondary
+            font.pixelSize: Theme.fontBody
+            wrapMode: Text.WordWrap
         }
     }
 
