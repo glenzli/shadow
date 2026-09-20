@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <vector>
 
 enum class EditRetouchDonorMode : std::uint8_t {
     Heal,
@@ -30,6 +31,9 @@ struct EditRetouchDonorSelection final {
     // guidance only: the selected offset remains deterministic Recipe input.
     double confidence = 0.0;
     std::size_t candidate_count = 0U;
+    // Up to five spatially distinct candidates, best first. Keep this small
+    // list while trying sources so a new preview does not rerank the repair.
+    std::vector<QPointF> ranked_offsets;
 };
 
 // Selects one source displacement in brush-radius units and reports how well

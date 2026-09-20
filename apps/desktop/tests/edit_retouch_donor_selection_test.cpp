@@ -187,6 +187,23 @@ int main() {
     }
 
     EditRetouchDonorRequest malformed = request(pixels, dimensions, centered);
+    if (!require(
+            !separated_stroke->ranked_offsets.empty()
+                && separated_stroke->ranked_offsets.front() == separated_stroke->offset_radii
+                && separated_stroke->ranked_offsets.size() <= 5,
+            "candidate list is bounded and retains the best source first"
+        ))
+        return EXIT_FAILURE;
+    for (std::size_t a = 0; a < separated_stroke->ranked_offsets.size(); ++a)
+        for (std::size_t b = a + 1; b < separated_stroke->ranked_offsets.size(); ++b) {
+            const auto d =
+                separated_stroke->ranked_offsets[a] - separated_stroke->ranked_offsets[b];
+            if (!require(
+                    std::hypot(d.x(), d.y()) >= 1.0,
+                    "candidate sources are spatially distinct"
+                ))
+                return EXIT_FAILURE;
+        }
     malformed.preview_row_stride_bytes = 1U;
     if (!require(
             !select_edit_retouch_donor(malformed).has_value(),

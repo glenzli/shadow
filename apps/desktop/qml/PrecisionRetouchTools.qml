@@ -248,6 +248,49 @@ ColumnLayout {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: retouch.inspector.editor.retouchPickerActive
+            ShadowButton {
+                compact: true
+                text: qsTr("Remember source")
+                enabled: retouch.inspector.editor.retouchSourceSampled
+                onClicked: retouch.inspector.editor.retouchSources.remember()
+            }
+            Repeater {
+                model: 3
+                delegate: ShadowButton {
+                    required property int index
+                    compact: true
+                    text: String(index + 1)
+                    enabled: Boolean(retouch.inspector.editor.retouchSources.saved[index])
+                    toolTipText: qsTr("Recall source %1 for this photo").arg(index + 1)
+                    onClicked: retouch.inspector.editor.retouchSources.recall(index)
+                }
+            }
+        }
+        ShadowSlider {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: retouch.inspector.editor.retouchSourceSampled
+            label: qsTr("Source preview")
+            from: 0.1; to: 1; stepSize: 0.05; decimals: 0; displayMultiplier: 100; suffix: "%"
+            value: retouch.inspector.editor.retouchSources.previewOpacity
+            onEdited: value => retouch.inspector.editor.retouchSources.previewOpacity = value
+        }
+        Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: text.length > 0
+            text: retouch.inspector.editor.retouchSources.status
+            font.pixelSize: Theme.fontMeta
+            color: Theme.textMuted
+            wrapMode: Text.WordWrap
+        }
         Label {
             Layout.fillWidth: true
             Layout.leftMargin: 14

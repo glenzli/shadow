@@ -22,6 +22,7 @@
 class FakeDirectStrokeEditor final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool active READ active CONSTANT)
+    Q_PROPERTY(QVariantMap retouchSources READ retouchSources CONSTANT)
     Q_PROPERTY(bool stateBusy READ stateBusy NOTIFY stateBusyChanged)
     Q_PROPERTY(QVariantMap photoGeometry READ photoGeometry NOTIFY photoGeometryChanged)
     Q_PROPERTY(bool retouchPickerActive READ retouchPickerActive CONSTANT)
@@ -48,6 +49,14 @@ class FakeDirectStrokeEditor final : public QObject {
 
   public:
     using QObject::QObject;
+    QVariantMap retouchSources() const {
+        return {
+            {"saved", QVariantList{false, false, false}},
+            {"status", ""},
+            {"previewOpacity", 0.5},
+            {"previewEnabled", false}
+        };
+    }
 
     [[nodiscard]] bool active() const noexcept {
         return true;

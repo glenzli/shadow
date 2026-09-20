@@ -494,6 +494,11 @@ Its implementation follows the same navigation:
   and Clone. [`src/edit_retouch_donor_selection.*`](src/edit_retouch_donor_selection.hpp) owns the
   deterministic, generation-matched preview analysis used to author an in-bounds donor into new
   Heal and Clone regions; later renders consume that stored offset without re-running analysis.
+  [`src/edit_retouch_donor_preview.*`](src/edit_retouch_donor_preview.hpp) reads one matching
+  displayed frame, including encoded settled previews. [`src/edit_retouch_sources.*`](src/edit_retouch_sources.hpp)
+  owns cached candidate positions and three temporary source anchors for the current photo and
+  framing. [`qml/PrecisionRetouchSourcePreview.qml`](qml/PrecisionRetouchSourcePreview.qml)
+  samples the displayed texture for the pre-stroke donor overlay without per-pointer readback.
 - [`src/edit_paint_controller.*`](src/edit_paint_controller.hpp) owns photo-local finishing layers,
   bounded live paths, explicit preview color sampling, and one-stroke history/autosave checkpoints.
   [`src/paint_brush_presets.*`](src/paint_brush_presets.hpp) owns six photographic presets,

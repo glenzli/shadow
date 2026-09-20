@@ -411,6 +411,10 @@ qt_add_executable(
     src/edit_retouch_controller.cpp
     src/edit_retouch_donor_selection.cpp
     src/edit_retouch_donor_selection.hpp
+    src/edit_retouch_donor_preview.cpp
+    src/edit_retouch_donor_preview.hpp
+    src/edit_retouch_sources.cpp
+    src/edit_retouch_sources.hpp
     src/edit_source_admission.cpp
     src/edit_source_admission.hpp
     src/edit_stroke_input.cpp
@@ -886,6 +890,7 @@ qt_add_qml_module(
         qml/PrecisionAiCompletionTools.qml
         qml/PrecisionPeopleMaskSelector.qml
         qml/PrecisionCanvasPickerInput.qml
+        qml/PrecisionRetouchSourcePreview.qml
         qml/PrecisionCanvasStatusOverlays.qml
         qml/PrecisionCanvasToolbar.qml
         qml/PrecisionVariantSelector.qml

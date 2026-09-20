@@ -642,6 +642,7 @@ Rectangle {
                     z: 100
                     editor: canvas.editor
                     previewItem: photoSurface
+                    samplePreviewItem: liveEditedPreview
                     previewContentRect: Qt.rect(0, 0, photoSurface.width, photoSurface.height)
                     previewFrameReady: canvas.previewFrameReady
                     readyPreviewGeneration: canvas.readyPreviewGeneration

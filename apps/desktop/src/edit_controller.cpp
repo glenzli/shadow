@@ -6,6 +6,7 @@
 #include "edit_paint_controller.hpp"
 #include "edit_persistence_task_coordinator.hpp"
 #include "edit_raw_foundation_controller.hpp"
+#include "edit_retouch_sources.hpp"
 #include "edit_subject_emphasis_controller.hpp"
 
 #include <QCoreApplication>
@@ -53,6 +54,7 @@ EditController::EditController(
     ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
     subject_emphasis_controller_ = std::make_unique<EditSubjectEmphasisController>(*this, backend_);
     paint_controller_ = std::make_unique<EditPaintController>(*this);
+    retouch_sources_ = std::make_unique<EditRetouchSources>(*this);
     auto_geometry_controller_ = std::make_unique<EditAutoGeometryController>(*this);
     persistence_task_coordinator_ =
         std::make_unique<EditPersistenceTaskCoordinator>(*this, [this] { finishStateTask(); });
@@ -162,6 +164,7 @@ EditController::EditController(
 }
 
 EditController::~EditController() {
+    retouch_sources_.reset();
     paint_controller_.reset();
     auto_geometry_controller_.reset();
     raw_foundation_controller_.reset();
@@ -182,6 +185,10 @@ EditController::~EditController() {
 
 QObject* EditController::paint() const noexcept {
     return paint_controller_.get();
+}
+
+QObject* EditController::retouchSources() const noexcept {
+    return retouch_sources_.get();
 }
 
 QObject* EditController::subjectEmphasis() const noexcept {

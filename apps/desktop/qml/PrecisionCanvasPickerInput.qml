@@ -13,6 +13,7 @@ Item {
 
     required property var editor
     required property Item previewItem
+    property Item samplePreviewItem: null
     required property rect previewContentRect
     required property bool previewFrameReady
     required property string readyPreviewGeneration
@@ -123,6 +124,31 @@ Item {
         visible: inputArea.retouchStrokeActive
         radiusPixels: inputArea.retouchBrushDiameter() / 2
         coverageColor: Theme.maskCoverageTint
+    }
+
+    PrecisionRetouchSourcePreview {
+        id: sourcePreview
+        readonly property var anchor: {
+            if (pickerInput.samplePreviewItem === null || !pickerInput.editor.retouchSourceSampled) return ({});
+            // Depend on source changes as well as pointer movement.
+            const sampled = pickerInput.editor.retouchSampledSource;
+            return pickerInput.editor.retouchSources.previewSourceAt(
+                inputArea.pointerX / Math.max(1, pickerInput.width),
+                inputArea.pointerY / Math.max(1, pickerInput.height));
+        }
+        sampleItem: pickerInput.samplePreviewItem
+        sourcePoint: Qt.point(Number(anchor.x || 0), Number(anchor.y || 0))
+        width: inputArea.retouchBrushDiameter()
+        height: width
+        x: inputArea.pointerX - width / 2
+        y: inputArea.pointerY - height / 2
+        z: 1
+        amount: pickerInput.editor.retouchSources.previewOpacity
+        visible: pickerInput.samplePreviewItem !== null && pickerInput.previewFrameReady
+            && pickerInput.editor.retouchPickerActive && !pickerInput.editor.retouchSourcePicking
+            && pickerInput.editor.retouchSourceSampled && pickerInput.editor.retouchSources.previewEnabled
+            && inputArea.containsMouse && !inputArea.retouchStrokeActive
+            && Number(anchor.x) >= 0 && Number(anchor.x) <= 1 && Number(anchor.y) >= 0 && Number(anchor.y) <= 1
     }
 
     MouseArea {

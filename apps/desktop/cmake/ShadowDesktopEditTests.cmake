@@ -1587,6 +1587,7 @@
             qml/PrecisionActiveStrokeCoverage.qml
             qml/PrecisionCanvasZoomInput.qml
             qml/PrecisionCanvasPickerInput.qml
+            qml/PrecisionRetouchSourcePreview.qml
             qml/PrecisionCropOverlay.qml
             qml/PrecisionLiquifyOverlay.qml
             qml/PrecisionLocalMaskOverlay.qml

@@ -196,6 +196,15 @@ ColumnLayout {
         onGestureFinished: regionInspector.editor.endParameterEdit(regionInspector.historyKey("strength"))
     }
 
+    ShadowButton {
+        Layout.fillWidth: true
+        text: qsTr("Try another source")
+        enabled: regionInspector.controlsEnabled && Number(regionInspector.region.sourceRotation) === 0
+            && Number(regionInspector.region.sourceScale) === 1
+            && !regionInspector.region.sourceFlipHorizontal && !regionInspector.region.sourceFlipVertical
+        onClicked: regionInspector.editor.retouchSources.nextCandidate(regionInspector.continuous, regionInspector.region.index)
+    }
+
     ShadowSlider {
         Layout.fillWidth: true
         label: qsTr("Feather")

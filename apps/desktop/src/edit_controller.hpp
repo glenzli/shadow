@@ -35,6 +35,7 @@ class EditAiCompletionController;
 class EditAiMaskController;
 class EditSubjectEmphasisController;
 class EditPaintController;
+class EditRetouchSources;
 class EditAutoGeometryController;
 class EditPersistenceTaskCoordinator;
 class EditRawFoundationController;
@@ -607,6 +608,8 @@ class EditController final : public QObject {
     [[nodiscard]] bool maskCoverageShowsSelectedComponent() const noexcept;
     [[nodiscard]] QObject* subjectEmphasis() const noexcept;
     QObject* paint() const noexcept;
+    Q_PROPERTY(QObject* retouchSources READ retouchSources CONSTANT)
+    QObject* retouchSources() const noexcept;
     [[nodiscard]] bool aiMaskPromptActive() const noexcept;
     [[nodiscard]] bool aiMaskBusy() const noexcept;
     [[nodiscard]] bool aiMaskFaceRegionMode() const noexcept;
@@ -1178,6 +1181,7 @@ class EditController final : public QObject {
     friend class EditAiMaskController;
     friend class EditSubjectEmphasisController;
     friend class EditPaintController;
+    friend class EditRetouchSources;
     friend class EditAutoGeometryController;
     friend class EditRawFoundationController;
 
@@ -1190,6 +1194,7 @@ class EditController final : public QObject {
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
     std::unique_ptr<EditSubjectEmphasisController> subject_emphasis_controller_;
     std::unique_ptr<EditPaintController> paint_controller_;
+    std::unique_ptr<EditRetouchSources> retouch_sources_;
     std::unique_ptr<EditAutoGeometryController> auto_geometry_controller_;
     std::unique_ptr<EditPersistenceTaskCoordinator> persistence_task_coordinator_;
     std::unique_ptr<EditRawFoundationController> raw_foundation_controller_;

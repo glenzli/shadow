@@ -328,6 +328,7 @@ select_edit_retouch_donor(const EditRetouchDonorRequest& request) {
     double second_best_score = std::numeric_limits<double>::infinity();
     std::optional<QPointF> best;
     std::size_t candidate_count = 0U;
+    std::vector<std::pair<double, QPointF>> ranked;
     for (const double distance : distances) {
         if (distance > maximum_offset_radii) {
             continue;
@@ -359,6 +360,7 @@ select_edit_retouch_donor(const EditRetouchDonorRequest& request) {
                 continue;
             }
             ++candidate_count;
+            ranked.emplace_back(score, QPointF(offset_x_radii, offset_y_radii));
             if (score < best_score) {
                 second_best_score = best_score;
                 best_score = score;
@@ -380,9 +382,22 @@ select_edit_retouch_donor(const EditRetouchDonorRequest& request) {
         std::isfinite(second_best_score) && second_best_score > 1.0e-12
             ? std::clamp((second_best_score - best_score) / second_best_score, 0.0, 1.0)
             : 0.0;
+    std::stable_sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) {
+        return a.first < b.first;
+    });
+    std::vector<QPointF> alternatives;
+    for (const auto& [score, offset] : ranked) {
+        if (std::none_of(alternatives.begin(), alternatives.end(), [&](QPointF previous) {
+                return std::hypot(previous.x() - offset.x(), previous.y() - offset.y()) < 1.0;
+            }))
+            alternatives.push_back(offset);
+        if (alternatives.size() == 5)
+            break;
+    }
     return EditRetouchDonorSelection{
         .offset_radii = *best,
         .confidence = std::clamp(absolute_quality * (0.82 + 0.18 * separation), 0.0, 1.0),
         .candidate_count = candidate_count,
+        .ranked_offsets = std::move(alternatives),
     };
 }

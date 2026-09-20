@@ -20,6 +20,7 @@
 class FakeRetouchEditor final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool active READ active CONSTANT)
+    Q_PROPERTY(QVariantMap retouchSources READ retouchSources CONSTANT)
     Q_PROPERTY(bool stateBusy READ stateBusy CONSTANT)
     Q_PROPERTY(QVariantList retouchStrokes READ retouchStrokes NOTIFY parametersChanged)
     Q_PROPERTY(QVariantList retouchSpots READ retouchSpots NOTIFY parametersChanged)
@@ -34,6 +35,14 @@ class FakeRetouchEditor final : public QObject {
 
   public:
     using QObject::QObject;
+    QVariantMap retouchSources() const {
+        return {
+            {"saved", QVariantList{false, false, false}},
+            {"status", ""},
+            {"previewOpacity", 0.5},
+            {"previewEnabled", false}
+        };
+    }
 
     [[nodiscard]] bool active() const noexcept {
         return true;

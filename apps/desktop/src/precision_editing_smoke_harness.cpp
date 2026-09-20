@@ -1,6 +1,7 @@
 #include "precision_editing_smoke_harness.hpp"
 #include "edit_condition_mask_controller.hpp"
 #include "edit_controller.hpp"
+#include "edit_retouch_sources.hpp"
 #include "pipeline_run_controller.hpp"
 #include <QCoreApplication>
 #include <QDebug>
@@ -10,6 +11,7 @@
 #include <QJsonObject>
 #include <QQmlApplicationEngine>
 #include <QTimer>
+#include <QUrlQuery>
 #include <memory>
 
 void installPrecisionEditingSmokeHarness(
@@ -71,6 +73,10 @@ void installPrecisionEditingSmokeHarness(
         case 1: {
             if (editor.maskCoverageSource().isEmpty())
                 return;
+            auto* overlay = workspace->findChild<QObject*>("precisionMaskCoverageOverlay");
+            if (!overlay || !overlay->property("coverageReady").toBool()
+                || !overlay->property("visible").toBool())
+                return;
             const auto before = editor.gradeStackForInterchange();
             state->gesture.start();
             editor.beginParameterEdit("local_mask/conditions");
@@ -121,6 +127,56 @@ void installPrecisionEditingSmokeHarness(
         case 4:
             if (editor.maskCoverageSource().isEmpty())
                 return;
+            QMetaObject::invokeMethod(workspace, "setActiveSpecialTool", Q_ARG(QVariant, 3));
+            editor.setRetouchCreationMode(0);
+            editor.setRetouchBrushRadius(64);
+            editor.clearRetouchSource();
+            editor.addRetouchStrokeFromPreview(
+                {QVariantMap{{"x", 0.35}, {"y", 0.25}}},
+                QUrlQuery(QUrl(editor.previewSource())).queryItemValue("generation"),
+                int(editor.levelZeroWidth()),
+                int(editor.levelZeroHeight())
+            );
+            state->stage = 8;
+            return;
+        case 8: {
+            const auto before = editor.gradeStackForInterchange();
+            if (before.retouch_strokes.size() != 1
+                || (before.retouch_strokes[0].source_offset_x_radii == 0
+                    && before.retouch_strokes[0].source_offset_y_radii == 0)) {
+                fail("Settled preview did not provide an automatic donor");
+                return;
+            }
+            auto* sources = qobject_cast<EditRetouchSources*>(editor.retouchSources());
+            sources->nextCandidate(true, 0);
+            const auto after = editor.gradeStackForInterchange();
+            if (after == before) {
+                fail("Candidate cycling did not change the source");
+                return;
+            }
+            editor.undo();
+            if (editor.gradeStackForInterchange() != before) {
+                fail("Source cycling undo was not exact");
+                return;
+            }
+            editor.redo();
+            if (editor.gradeStackForInterchange() != after) {
+                fail("Source cycling redo was not exact");
+                return;
+            }
+            editor.setRetouchSourceFromPreview(0.34, 0.25);
+            sources->remember();
+            editor.clearRetouchSource();
+            sources->recall(0);
+            if (!editor.retouchSourceSampled()
+                || editor.retouchSampledSource().value("x").toDouble() != 0.34) {
+                fail("Remembered source was not restored");
+                return;
+            }
+            state->stage = 9;
+            return;
+        }
+        case 9:
             state->saved = editor.gradeStackForInterchange();
             editor.setMaskToolActive(false);
             state->stage = 5;
@@ -129,6 +185,13 @@ void installPrecisionEditingSmokeHarness(
         case 5:
             if (pipeline.currentIndex() != 1)
                 return;
+            if (qobject_cast<EditRetouchSources*>(editor.retouchSources())
+                    ->saved()
+                    .first()
+                    .toBool()) {
+                fail("Remembered source leaked to another photo");
+                return;
+            }
             if (!editor.gradeStackForInterchange()
                      .grade_nodes.front()
                      .local_mask_components.isEmpty()) {
