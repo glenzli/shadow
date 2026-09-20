@@ -190,6 +190,8 @@ Application startup is split from environment-driven automation:
   editors and composite search fields retain their own geometry. `Theme.qml` defines the shared
   type scale; micro text is reserved for plot coordinates and thumbnail badges. Monochrome SVG
   icons use white RGB with alpha coverage so `ShadowIcon` can tint them in both appearances.
+  [`qml/ShadowAdjustmentSection.qml`](qml/ShadowAdjustmentSection.qml) owns collapsible inspector
+  sections and their optional header-action slot; supplied actions keep behavior in the feature pane.
   [`qml/ReviewGalleryActionsMenu.qml`](qml/ReviewGalleryActionsMenu.qml) owns secondary gallery
   commands, while the toolbar prioritizes search, browsing, comparison, editing and export.
   Together with `Theme.qml` and the remaining `Shadow*` primitives they form the desktop's internal

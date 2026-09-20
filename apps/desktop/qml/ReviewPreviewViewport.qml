@@ -159,51 +159,62 @@ Item {
         onContinuousZoomFinished: view.finishContinuousZoom()
     }
 
-    Row {
+    Rectangle {
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.margins: 8
-        spacing: 4
+        anchors.margins: 10
+        width: previewCommands.implicitWidth + 12
+        height: previewCommands.implicitHeight + 8
+        radius: Theme.controlRadius
+        color: Theme.chrome
+        border.width: 1
+        border.color: Theme.border
         visible: viewport.selectionKey.length > 0
 
-        ShadowIconButton {
-            objectName: "reviewPreviewZoomOut"
-            source: "qrc:/icons/zoom-out.svg"
-            variant: ShadowIconButton.Secondary
-            accessibleName: qsTr("Zoom out preview")
-            toolTipText: accessibleName
-            enabled: viewport.imageReady && !viewport.fitView
-            onClicked: viewport.zoomBy(1 / 1.5)
-        }
-        ShadowIconButton {
-            objectName: "reviewPreviewZoomIn"
-            source: "qrc:/icons/zoom-in.svg"
-            variant: ShadowIconButton.Secondary
-            accessibleName: qsTr("Zoom in preview")
-            toolTipText: accessibleName
-            enabled: viewport.imageReady && (viewport.fitView || viewport.zoomFactor < 4)
-            onClicked: viewport.zoomBy(1.5)
-        }
-        ShadowButton {
-            objectName: "reviewPreviewActualSize"
-            text: "100%"
-            accessibleName: qsTr("Preview 100%")
-            compact: true
-            minimumButtonWidth: 64
-            selected: !viewport.fitView && Math.abs(viewport.zoomFactor - 1.0) < 0.001
-            toolTipText: qsTr("Show preview pixels at 100%; use Precision for original detail")
-            enabled: viewport.imageReady
-            onClicked: viewport.zoomAt(viewport.width / 2, viewport.height / 2, 1)
-        }
-        ShadowIconButton {
-            objectName: "reviewPreviewFit"
-            source: "qrc:/icons/fit-view.svg"
-            variant: ShadowIconButton.Secondary
-            accessibleName: qsTr("Fit")
-            selected: viewport.fitView
-            toolTipText: qsTr("Fit preview to window")
-            enabled: viewport.imageReady
-            onClicked: viewport.resetView()
+        Row {
+            id: previewCommands
+            anchors.centerIn: parent
+            spacing: 8
+            ShadowIconButton {
+                objectName: "reviewPreviewZoomOut"
+                source: "qrc:/icons/zoom-out.svg"
+                variant: ShadowIconButton.Ghost
+                accessibleName: qsTr("Zoom out preview")
+                toolTipText: accessibleName
+                enabled: viewport.imageReady && !viewport.fitView
+                onClicked: viewport.zoomBy(1 / 1.5)
+            }
+            ShadowIconButton {
+                objectName: "reviewPreviewZoomIn"
+                source: "qrc:/icons/zoom-in.svg"
+                variant: ShadowIconButton.Ghost
+                accessibleName: qsTr("Zoom in preview")
+                toolTipText: accessibleName
+                enabled: viewport.imageReady && (viewport.fitView || viewport.zoomFactor < 4)
+                onClicked: viewport.zoomBy(1.5)
+            }
+            ShadowButton {
+                objectName: "reviewPreviewActualSize"
+                text: "100%"
+                accessibleName: qsTr("Preview 100%")
+                compact: true
+                minimumButtonWidth: 54
+                variant: ShadowButton.Ghost
+                selected: !viewport.fitView && Math.abs(viewport.zoomFactor - 1.0) < 0.001
+                toolTipText: qsTr("Show preview pixels at 100%; use Precision for original detail")
+                enabled: viewport.imageReady
+                onClicked: viewport.zoomAt(viewport.width / 2, viewport.height / 2, 1)
+            }
+            ShadowIconButton {
+                objectName: "reviewPreviewFit"
+                source: "qrc:/icons/fit-view.svg"
+                variant: ShadowIconButton.Ghost
+                accessibleName: qsTr("Fit")
+                selected: viewport.fitView
+                toolTipText: qsTr("Fit preview to window")
+                enabled: viewport.imageReady
+                onClicked: viewport.resetView()
+            }
         }
     }
 }

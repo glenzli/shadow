@@ -54,10 +54,10 @@ ColumnLayout {
 
         Layout.fillWidth: true
         Layout.preferredHeight: pane.review.selectedHasFocusObservation
-            ? Math.min(width, 238) : Math.max(40, noFocusLabel.implicitHeight + 20)
+            ? Math.min(width, 238) : noFocusLabel.implicitHeight + 8
         radius: 7
-        color: Theme.photoCanvas
-        border.width: 1
+        color: pane.review.selectedHasFocusObservation ? Theme.photoCanvas : Theme.transparent
+        border.width: pane.review.selectedHasFocusObservation ? 1 : 0
         border.color: pane.review.border
         clip: true
 
@@ -106,11 +106,11 @@ ColumnLayout {
         Label {
             id: noFocusLabel
             anchors.centerIn: parent
-            width: parent.width - 28
+            width: parent.width
             visible: !pane.review.selectedHasFocusObservation
             text: qsTr("No camera focus record")
             color: pane.review.textMuted
-            horizontalAlignment: Text.AlignHCenter
+            horizontalAlignment: Text.AlignLeft
             wrapMode: Text.WordWrap
             font.pixelSize: Theme.fontMeta
         }

@@ -42,12 +42,8 @@ ColumnLayout {
         resetToolTipText: qsTr("Restore the white balance recorded by the camera")
         onResetRequested: foundation.editor.resetFoundationWhiteBalance()
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            spacing: 6
-            Item { Layout.fillWidth: true }
+        headerActions: Row {
+            spacing: 8
             ShadowButton {
                 objectName: "foundationAutoWhiteBalanceButton"
                 text: qsTr("AUTO")
@@ -143,12 +139,8 @@ ColumnLayout {
         onResetRequested:
             foundation.editor.resetSelectedAdjustmentSection("white_balance")
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            spacing: 6
-            Item { Layout.fillWidth: true }
+        headerActions: Row {
+            spacing: 8
             ShadowIconButton {
                 source: "qrc:/icons/eyedropper.svg"
                 selected: foundation.editor.whiteBalancePickerActive

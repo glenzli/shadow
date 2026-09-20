@@ -235,6 +235,8 @@ Rectangle {
         }
 
         Rectangle {
+            Layout.leftMargin: 4
+            Layout.rightMargin: 4
             Layout.preferredWidth: 1
             Layout.preferredHeight: 18
             color: toolbar.workspace.border
@@ -283,32 +285,32 @@ Rectangle {
             }
         }
 
-        ShadowButton {
+        ShadowIconButton {
             objectName: "reviewEditButton"
-            text: qsTr("Edit")
-            compact: true
-            variant: ShadowButton.Tinted
+            source: "qrc:/icons/edit.svg"
+            accessibleName: qsTr("Edit")
+            variant: ShadowIconButton.Tinted
             enabled: toolbar.workspace.canOpenSelectedPhoto
             toolTipText: qsTr("Edit selected photo")
             onClicked: toolbar.workspace.openSelectedPhoto()
         }
 
-        ShadowButton {
+        ShadowIconButton {
             objectName: "reviewExportButton"
-            text: qsTr("Export…")
-            compact: true
+            source: "qrc:/icons/export.svg"
+            accessibleName: qsTr("Export…")
             enabled: toolbar.workspace.selectedPhotoCount > 0
                 && !toolbar.workspace.controller.remoteLibraryBusy
             toolTipText: qsTr("Export selected photos")
             onClicked: toolbar.exportRequested(toolbar.workspace.batchSelectionTargets())
         }
 
-        ShadowButton {
+        ShadowIconButton {
             id: moreButton
             objectName: "reviewMoreButton"
-            text: qsTr("More…")
-            compact: true
-            variant: ShadowButton.Ghost
+            source: "qrc:/icons/more-horizontal.svg"
+            accessibleName: qsTr("More…")
+            toolTipText: accessibleName
             selected: actionsMenu.opened
             onClicked: actionsMenu.popup(moreButton, moreButton.width - actionsMenu.width, moreButton.height)
         }

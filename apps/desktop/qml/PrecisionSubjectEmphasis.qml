@@ -12,10 +12,13 @@ ColumnLayout {
     Layout.fillWidth: true
     Layout.leftMargin: 12
     Layout.rightMargin: 12
-    spacing: 7
+    Layout.topMargin: 4
+    Layout.bottomMargin: 4
+    spacing: 8
 
     RowLayout {
         Layout.fillWidth: true
+        spacing: 8
         Label {
             Layout.fillWidth: true
             text: qsTr("Subject emphasis")
@@ -23,20 +26,16 @@ ColumnLayout {
             font.pixelSize: Theme.fontSection
             font.weight: Font.DemiBold
         }
-        Label {
-            text: qsTr("Local AI · Preview")
-            color: Theme.textMuted
-            font.pixelSize: Theme.fontCaption
+        ShadowIconButton {
+            objectName: "analyzeSubjectEmphasis"
+            source: "qrc:/icons/scopes.svg"
+            visible: !root.controller.active
+            accessibleName: qsTr("Analyze locally")
+            toolTipText: accessibleName + "\n" + qsTr("Local AI · Preview") + "\n"
+                + qsTr("Use local QwenVL to describe this photo, then choose the subject. No cloud upload.")
+            enabled: root.editor.active && !root.editor.stateBusy && !root.controller.busy
+            onClicked: root.controller.analyze()
         }
-    }
-    ShadowButton {
-        objectName: "analyzeSubjectEmphasis"
-        Layout.fillWidth: true
-        visible: !root.controller.active
-        text: qsTr("Analyze locally")
-        toolTipText: qsTr("Use local QwenVL to describe this photo, then choose the subject. No cloud upload.")
-        enabled: root.editor.active && !root.editor.stateBusy && !root.controller.busy
-        onClicked: root.controller.analyze()
     }
     Label {
         Layout.fillWidth: true
@@ -87,13 +86,14 @@ ColumnLayout {
     }
     Flow {
         Layout.fillWidth: true
-        spacing: 4
+        spacing: 8
         visible: root.controller.active && root.controller.analyzed
         Repeater {
             model: root.controller.queries
             ShadowButton {
                 required property string modelData
                 compact: true
+                variant: ShadowButton.Ghost
                 text: modelData
                 enabled: !root.controller.busy
                 onClicked: {
@@ -105,6 +105,7 @@ ColumnLayout {
     }
     RowLayout {
         Layout.fillWidth: true
+        spacing: 8
         visible: root.controller.active && root.controller.analyzed
         ShadowTextField {
             id: query
@@ -115,9 +116,10 @@ ColumnLayout {
             enabled: !root.controller.busy
             onAccepted: root.controller.selectSubject(text)
         }
-        ShadowButton {
-            compact: true
-            text: qsTr("Select")
+        ShadowIconButton {
+            source: "qrc:/icons/check.svg"
+            accessibleName: qsTr("Select")
+            toolTipText: accessibleName
             enabled: query.text.trim().length > 0 && !root.controller.busy
             onClicked: root.controller.selectSubject(query.text)
         }
@@ -141,15 +143,18 @@ ColumnLayout {
     }
     RowLayout {
         Layout.fillWidth: true
+        spacing: 8
         visible: root.controller.active
         ShadowButton {
-            Layout.fillWidth: true
+            compact: true
+            variant: ShadowButton.Ghost
             text: qsTr("Cancel")
             enabled: !root.controller.applying
             onClicked: root.controller.cancel()
         }
+        Item { Layout.fillWidth: true }
         ShadowButton {
-            Layout.fillWidth: true
+            compact: true
             objectName: "applySubjectEmphasis"
             text: qsTr("Apply emphasis")
             variant: ShadowButton.Primary

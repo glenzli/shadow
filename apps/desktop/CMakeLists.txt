@@ -678,6 +678,7 @@ qt_add_resources(
         icons/mask-radial.svg
         icons/mask-subtract.svg
         icons/metadata.svg
+        icons/more-horizontal.svg
         icons/move-down.svg
         icons/move-up.svg
         icons/network.svg

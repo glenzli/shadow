@@ -10,7 +10,7 @@ Item {
 
     required property var editor
 
-    implicitWidth: 152
+    implicitWidth: Math.min(140, Math.max(86, variantName.implicitWidth + 38))
     implicitHeight: 30
 
     function displayName(variant) {
@@ -36,11 +36,28 @@ Item {
         objectName: "precisionVariantSelectorButton"
         anchors.fill: parent
         compact: true
-        variant: ShadowButton.Secondary
+        variant: ShadowButton.Ghost
         text: root.activeName()
-        toolTipText: qsTr("Photo variants")
+        toolTipText: qsTr("Photo variants") + " · " + root.activeName()
         enabled: root.editor.active
         onClicked: variantMenu.open()
+        contentItem: RowLayout {
+            spacing: 6
+            Label {
+                id: variantName
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: root.activeName()
+                elide: Text.ElideRight
+                font.pixelSize: Theme.fontSection
+                color: root.editor.active ? Theme.textSecondary : Theme.textDisabled
+            }
+            ShadowIcon {
+                source: "qrc:/icons/chevron-down.svg"
+                size: 12
+                color: root.editor.active ? Theme.textSecondary : Theme.textDisabled
+            }
+        }
     }
 
     Popup {

@@ -65,9 +65,13 @@ ShadowTitleBar {
             height: parent.height
 
             Row {
-                anchors.centerIn: parent
+                anchors.verticalCenter: parent.verticalCenter
+                // Keep workspace targets in the same place when editor-only
+                // status and undo actions appear on the right.
+                x: Math.max(0, Math.min(parent.width - width,
+                    (titleBar.width - width) / 2 - titleBar.leftPadding - navigationArea.x))
                 height: titleBar.availableHeight
-                spacing: 10
+                spacing: 12
 
                 ShadowTabButton {
                     height: parent.height
@@ -75,7 +79,7 @@ ShadowTitleBar {
                         === titleBar.reviewWorkspaceIndex
                     iconSource: "qrc:/icons/review-grid.svg"
                     iconSize: 18
-                    showLabelWithIcon: navigationArea.width >= 410
+                    showLabelWithIcon: false
                     minimumTabWidth: 46
                     underlineInset: 22
                     underlineBottomMargin: -titleBar.bottomPadding
@@ -90,7 +94,7 @@ ShadowTitleBar {
                         === titleBar.precisionWorkspaceIndex
                     iconSource: "qrc:/icons/edit.svg"
                     iconSize: 18
-                    showLabelWithIcon: navigationArea.width >= 410
+                    showLabelWithIcon: false
                     minimumTabWidth: 46
                     underlineInset: 22
                     underlineBottomMargin: -titleBar.bottomPadding
@@ -107,7 +111,7 @@ ShadowTitleBar {
                         === titleBar.mapWorkspaceIndex
                     iconSource: "qrc:/icons/map.svg"
                     iconSize: 18
-                    showLabelWithIcon: navigationArea.width >= 410
+                    showLabelWithIcon: false
                     minimumTabWidth: 46
                     underlineInset: 22
                     underlineBottomMargin: -titleBar.bottomPadding
@@ -122,7 +126,7 @@ ShadowTitleBar {
                         === titleBar.peopleWorkspaceIndex
                     iconSource: "qrc:/icons/people.svg"
                     iconSize: 18
-                    showLabelWithIcon: navigationArea.width >= 410
+                    showLabelWithIcon: false
                     minimumTabWidth: 46
                     underlineInset: 22
                     underlineBottomMargin: -titleBar.bottomPadding
@@ -137,44 +141,65 @@ ShadowTitleBar {
             id: windowActions
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 4
+            spacing: 8
 
-            Row {
+            Item {
+                id: saveStatus
                 visible: titleBar.workspaceIndex
                     === titleBar.precisionWorkspaceIndex
                     && titleBar.editor.active
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 6
+                implicitWidth: saveStatusContent.implicitWidth + 12
+                implicitHeight: 30
+                readonly property string statusText: !titleBar.editor.dirty ? qsTr("SAVED")
+                    : titleBar.editor.autosaveFailed ? qsTr("SAVE FAILED")
+                    : titleBar.editor.autosavePending ? qsTr("SAVING") : qsTr("DRAFT")
+                Accessible.name: statusText
 
-                Rectangle {
-                    width: 7
-                    height: 7
-                    anchors.verticalCenter: parent.verticalCenter
-                    radius: width / 2
-                    color: !titleBar.editor.dirty ? Theme.savedText
-                        : titleBar.editor.autosaveFailed
-                            ? Theme.errorText : Theme.warningText
+                Row {
+                    id: saveStatusContent
+                    anchors.centerIn: parent
+                    spacing: 6
+
+                    Rectangle {
+                        width: 7
+                        height: 7
+                        anchors.verticalCenter: parent.verticalCenter
+                        radius: width / 2
+                        color: !titleBar.editor.dirty ? Theme.savedText
+                            : titleBar.editor.autosaveFailed
+                                ? Theme.errorText : Theme.warningText
+                    }
+
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: titleBar.editor.dirty
+                        text: saveStatus.statusText
+                        color: !titleBar.editor.dirty ? Theme.savedText
+                            : titleBar.editor.autosaveFailed
+                                ? Theme.errorText : Theme.warningText
+                        font.pixelSize: Theme.fontCaption
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.65
+                    }
                 }
 
-                Label {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: !titleBar.editor.dirty ? qsTr("SAVED")
-                        : titleBar.editor.autosaveFailed ? qsTr("SAVE FAILED")
-                        : titleBar.editor.autosavePending ? qsTr("SAVING") : qsTr("DRAFT")
-                    color: !titleBar.editor.dirty ? Theme.savedText
-                        : titleBar.editor.autosaveFailed
-                            ? Theme.errorText : Theme.warningText
-                    font.pixelSize: Theme.fontCaption
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 0.65
+                MouseArea {
+                    id: saveStatusHover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    acceptedButtons: Qt.NoButton
                 }
+                ToolTip.visible: saveStatusHover.containsMouse
+                ToolTip.text: statusText
+                ToolTip.delay: 450
             }
 
             Row {
                 visible: titleBar.workspaceIndex
                     === titleBar.precisionWorkspaceIndex
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 2
+                spacing: 8
 
                 ShadowIconButton {
                     source: "qrc:/icons/undo.svg"
