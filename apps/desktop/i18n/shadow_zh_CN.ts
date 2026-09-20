@@ -9970,6 +9970,114 @@ R %2 · G %3 · B %4</translation>
         <source>Apply emphasis</source>
         <translation>应用增强</translation>
     </message>
+    <message numerus="yes">
+        <source>%n PAINT LAYER(S)</source>
+        <translation><numerusform>%n 个绘制层</numerusform></translation>
+    </message>
+    <message>
+        <source>Paint · color repair and light shaping</source>
+        <translation>绘制 · 补色与明暗修饰</translation>
+    </message>
+    <message>
+        <source>PAINT</source>
+        <translation>绘制</translation>
+    </message>
+    <message>
+        <source>Subtle color repair and light shaping on separate layers. Original pixels stay intact.</source>
+        <translation>在独立图层上细调颜色与明暗，保留原始像素。</translation>
+    </message>
+    <message>
+        <source>Draw to create a layer</source>
+        <translation>绘制时自动创建图层</translation>
+    </message>
+    <message>
+        <source>Add paint layer</source>
+        <translation>添加绘制层</translation>
+    </message>
+    <message>
+        <source>Remove paint layer</source>
+        <translation>移除绘制层</translation>
+    </message>
+    <message>
+        <source>Layer visible</source>
+        <translation>显示图层</translation>
+    </message>
+    <message>
+        <source>Move paint layer down</source>
+        <translation>下移绘制层</translation>
+    </message>
+    <message>
+        <source>Move paint layer up</source>
+        <translation>上移绘制层</translation>
+    </message>
+    <message>
+        <source>Normal · cover</source>
+        <translation>正常 · 覆盖</translation>
+    </message>
+    <message>
+        <source>Color · preserve lightness</source>
+        <translation>颜色 · 保持明度</translation>
+    </message>
+    <message>
+        <source>Soft light · shape light</source>
+        <translation>柔光 · 调整明暗</translation>
+    </message>
+    <message>
+        <source>Layer opacity</source>
+        <translation>图层不透明度</translation>
+    </message>
+    <message>
+        <source>Sample paint color · Alt-click</source>
+        <translation>取色 · 按住 Alt 单击</translation>
+    </message>
+    <message>
+        <source>Color…</source>
+        <translation>颜色…</translation>
+    </message>
+    <message>
+        <source>Darken</source>
+        <translation>压暗</translation>
+    </message>
+    <message>
+        <source>Lighten</source>
+        <translation>提亮</translation>
+    </message>
+    <message>
+        <source>Neutral gray</source>
+        <translation>中性灰</translation>
+    </message>
+    <message>
+        <source>Paint color</source>
+        <translation>绘制颜色</translation>
+    </message>
+    <message>
+        <source>Diameter relative to the original photo&#x27;s shorter edge. Use [ and ] to resize.</source>
+        <translation>直径相对于原图短边的比例。使用 [ 和 ] 调整大小。</translation>
+    </message>
+    <message>
+        <source>Opacity</source>
+        <translation>不透明度</translation>
+    </message>
+    <message>
+        <source>Flow</source>
+        <translation>流量</translation>
+    </message>
+    <message>
+        <source>Click the photo to sample a color.</source>
+        <translation>单击照片取色。</translation>
+    </message>
+    <message>
+        <source>Enable the layer to paint.</source>
+        <translation>请启用图层后再绘制。</translation>
+    </message>
+    <message>
+        <source>Low flow builds up gradually. Erase reveals the layers below. Each stroke can be undone.</source>
+        <translation>低流量可逐渐叠加效果；擦除显示下方图层。每一笔均可撤销。</translation>
+    </message>
+    <message>
+        <source>Paint layers</source>
+        <translation>绘制层</translation>
+    </message>
 </context>
 <context>
     <name>QObject</name>
@@ -14621,6 +14729,29 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     <message>
         <source>Cancelled. The photo and edit history are unchanged.</source>
         <translation>已取消，照片和编辑历史未改变。</translation>
+    </message>
+</context>
+<context>
+    <name>EditPaintController</name>
+    <message>
+        <source>Paint layer</source>
+        <translation>绘制层</translation>
+    </message>
+    <message>
+        <source>This layer is full. Add a new paint layer to continue.</source>
+        <translation>此绘制层已满，请添加新绘制层后继续。</translation>
+    </message>
+    <message>
+        <source>Could not map the paint stroke through Liquify.</source>
+        <translation>无法将笔触映射到液化后的照片。</translation>
+    </message>
+    <message>
+        <source>Stroke limit reached. Release the pointer to finish.</source>
+        <translation>笔触已达到上限，请松开指针结束绘制。</translation>
+    </message>
+    <message>
+        <source>Wait for the preview, then sample again.</source>
+        <translation>请等待预览完成后重新取色。</translation>
     </message>
 </context>
 </TS>

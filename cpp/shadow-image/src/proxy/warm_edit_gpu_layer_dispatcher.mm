@@ -471,6 +471,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         [encoder setBuffer:display_program.buffers.perceptual_mixer.get() offset:0U atIndex:9U];
         [encoder setBuffer:display_program.buffers.perceptual_range.get() offset:0U atIndex:10U];
         [encoder setBuffer:display_program.buffers.selective_color.get() offset:0U atIndex:11U];
+        [encoder setBuffer:display_program.buffers.paint.get() offset:0U atIndex:12U];
         dispatch_warm_gpu_raster(encoder, context.display_pipeline(), output_dimensions);
         [encoder endEncoding];
 

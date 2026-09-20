@@ -145,3 +145,10 @@ cancelled or superseded jobs cannot apply. There is no cross-session analysis ca
 use the existing native-resolution soft-mask renderer, with the same Recipe for preview, detail,
 and export. Adjusting node strength invalidates only downstream grading; it performs no AI call,
 RAW re-decode, or repeated mask creation. Fine hair/transparent-edge matting is outside this preview.
+
+Photo-local paint lives in `recipe_v1::paint` (ordered render compilation) and
+`recipe_v1::ffi_adapter::paint` (strict Qt projection). `GradeStackDraft` carries the complete
+validated layer/stroke state; snapshot decode/encode preserves it independently of shared Grade
+Nodes and Canvas. Paint is deliberately excluded from LUT export as a spatial operation, with an
+explicit exclusion reason. Persisted Recipe identity includes the strokes, while warm source
+identity remains independent of paint edits.

@@ -533,6 +533,7 @@ mod ffi {
         Sharpen,
         SpotHeal,
         ImageCompletion,
+        PaintLayer,
     }
 
     #[derive(Debug, Clone, Copy)]

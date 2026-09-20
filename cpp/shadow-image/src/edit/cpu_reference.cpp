@@ -22,6 +22,7 @@
 #include "technical_detail_cpu.hpp"
 #include "tone_curve_internal.hpp"
 #include "working_color_math.hpp"
+#include <shadow/image/paint.hpp>
 
 #include <algorithm>
 #include <array>
@@ -238,6 +239,8 @@ validate_node(const AdjustmentNode& node, const std::size_t index) {
                 } catch (const EditError& error) {
                     throw_node_error(error.code(), index, node, error.what());
                 }
+            } else if constexpr (std::is_same_v<Parameters, PaintLayerAdjustment>) {
+                detail::validate_paint_layer(parameters);
             } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
                 try {
                     validate_image_completion(parameters);
@@ -349,6 +352,8 @@ prepare_adjustment_nodes(const std::span<const AdjustmentNode> nodes) {
                 return value.intensity == 0.0;
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 return value.spots.empty() && value.strokes.empty();
+            } else if constexpr (std::is_same_v<Parameters, PaintLayerAdjustment>) {
+                return value.strokes.empty() || value.opacity == 0;
             } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
                 return value.patches.empty()
                        || std::ranges::all_of(value.patches, [](const auto& patch) {
@@ -524,6 +529,8 @@ void apply_node(
                 apply_spot_heal(image, parameters, context);
             } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
                 apply_image_completion(image, parameters, context);
+            } else if constexpr (std::is_same_v<Parameters, PaintLayerAdjustment>) {
+                detail::apply_paint_layer(image, parameters, context);
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 switch (parameters.execution_pass) {
                 case DetailEffectsExecutionPass::technical_detail:
@@ -563,6 +570,7 @@ AdjustmentLocality locality(const AdjustmentOperation operation) noexcept {
     case AdjustmentOperation::perceptual_color:
     case AdjustmentOperation::oklab_color_warper:
     case AdjustmentOperation::lut_3d:
+    case AdjustmentOperation::paint_layer:
     case AdjustmentOperation::image_completion:
         return AdjustmentLocality::pixel_local;
     case AdjustmentOperation::selective_tone:

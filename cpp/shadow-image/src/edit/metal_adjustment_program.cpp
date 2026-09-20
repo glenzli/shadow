@@ -53,6 +53,8 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
         };
     }
 
+    std::vector<PreparedPaintOverlay> paint_overlays(nodes.size());
+    std::size_t paint_entry_count = 0;
     std::size_t step_count = 0U;
     std::size_t curve_segment_count = 0U;
     std::size_t lut_entry_count = 0U;
@@ -91,7 +93,28 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                 };
             }
             std::size_t emitted_operation_count = 1U;
-            if (step.operation == AdjustmentOperation::oklab_lightness_tone_curve) {
+            if (step.operation == AdjustmentOperation::paint_layer) {
+                if (static_cast<std::uint64_t>(input.dimensions.width) * input.dimensions.height
+                    > 16U * 1024U * 1024U)
+                    return {
+                        .program = std::nullopt,
+                        .diagnostic = "Large paint output uses bounded CPU tiles"
+                    };
+                paint_overlays[step.node_index] = prepare_paint_overlay(
+                    std::get<PaintLayerAdjustment>(node.parameters),
+                    input,
+                    context
+                );
+                if (!checked_resource_add(
+                        paint_entry_count,
+                        paint_overlays[step.node_index].pixels.size()
+                    )
+                    || paint_entry_count > 16U * 1024U * 1024U)
+                    return {
+                        .program = std::nullopt,
+                        .diagnostic = "Metal paint resource budget exceeded"
+                    };
+            } else if (step.operation == AdjustmentOperation::oklab_lightness_tone_curve) {
                 const auto& parameters = std::get<OklabLightnessToneCurve>(node.parameters);
                 if (parameters.lightness.points.size() < 2U
                     || !checked_resource_add(
@@ -205,6 +228,8 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
         static_cast<std::uint32_t>(perceptual_mixer_entry_count);
     prepared.invocation.perceptual_range_entry_count =
         static_cast<std::uint32_t>(perceptual_range_entry_count);
+    prepared.invocation.paint_entry_count = static_cast<std::uint32_t>(paint_entry_count);
+    prepared.paint_entries.reserve(paint_entry_count);
     prepared.invocation.selective_color_entry_count =
         static_cast<std::uint32_t>(selective_color_entry_count);
     prepared.operations.reserve(step_count);
@@ -990,6 +1015,29 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                 // adjustment kinds.
                 continue;
             }
+            case AdjustmentOperation::paint_layer: {
+                const auto& paint = std::get<PaintLayerAdjustment>(node.parameters);
+                const auto& overlay = paint_overlays[step.node_index];
+                operation_record.opcode =
+                    static_cast<std::uint32_t>(MetalAdjustmentOpcode::paint_layer);
+                operation_record.resource_offset =
+                    static_cast<std::uint32_t>(prepared.paint_entries.size());
+                operation_record.resource_count = static_cast<std::uint32_t>(overlay.pixels.size());
+                operation_record.parameter_0 = {
+                    static_cast<float>(overlay.left),
+                    static_cast<float>(overlay.top),
+                    static_cast<float>(overlay.width),
+                    static_cast<float>(overlay.height)
+                };
+                operation_record.parameter_1 =
+                    {static_cast<float>(paint.opacity), static_cast<float>(paint.blend), 0, 0};
+                for (const auto& pixel : overlay.pixels)
+                    prepared.paint_entries.push_back({pixel});
+                if (!working_transform)
+                    working_transform =
+                        prepare_working_space_transform(input.working_space, node, step.node_index);
+                break;
+            }
             case AdjustmentOperation::selective_tone:
             case AdjustmentOperation::spot_heal:
             case AdjustmentOperation::image_completion:
@@ -1020,7 +1068,8 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
             .diagnostic = "Metal working-space transform exceeds finite fp32 range",
         };
     }
-    if (prepared.operations.size() != step_count
+    if (prepared.paint_entries.size() != paint_entry_count
+        || prepared.operations.size() != step_count
         || prepared.curve_segments.size() != curve_segment_count
         || prepared.lut_entries.size() != lut_entry_count
         || prepared.perceptual_mixer_entries.size() != perceptual_mixer_entry_count

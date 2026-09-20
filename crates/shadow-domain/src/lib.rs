@@ -87,3 +87,8 @@ pub use recipe_diff::{
     LayerModification, LayerMove, NodeModification, RecipeDiff, RecipeDiffSummary, SharedLayerDiff,
     ValueChange, diff_recipe_snapshots,
 };
+
+pub use recipe::{
+    MAX_PAINT_LAYERS, MAX_PAINT_POINTS, MAX_PAINT_STROKES, PaintBlendMode, PaintLayer, PaintPoint,
+    PaintStroke,
+};

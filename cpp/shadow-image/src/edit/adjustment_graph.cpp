@@ -31,6 +31,8 @@ AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentOperation::lut_3d;
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 return AdjustmentOperation::spot_heal;
+            } else if constexpr (std::is_same_v<Parameters, PaintLayerAdjustment>) {
+                return AdjustmentOperation::paint_layer;
             } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
                 return AdjustmentOperation::image_completion;
             } else {
@@ -68,6 +70,8 @@ std::string_view operation_id(const AdjustmentOperation operation) noexcept {
         return "shadow.sharpen";
     case AdjustmentOperation::spot_heal:
         return "shadow.spot_heal";
+    case AdjustmentOperation::paint_layer:
+        return "shadow.paint_layer";
     case AdjustmentOperation::image_completion:
         return "shadow.image_completion";
     }

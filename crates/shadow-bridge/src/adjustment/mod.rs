@@ -11,6 +11,8 @@ use super::{BridgeError, MAX_WARM_EDIT_PREVIEW_EDGE};
 mod detail_effects;
 mod geometry;
 mod image_completion;
+mod paint;
+pub use paint::{AdjustmentPaintLayer, AdjustmentPaintPoint, AdjustmentPaintStroke};
 mod liquify;
 mod local_mask;
 mod lut;
@@ -148,6 +150,9 @@ pub enum AdjustmentRenderOperation {
     },
     /// Accepted photo-local generated pixels. Alpha in every RGBA8 patch is
     /// the exact user-authored selection and bounds use original-image space.
+    PaintLayer {
+        layer: Box<AdjustmentPaintLayer>,
+    },
     ImageCompletion {
         patches: Vec<AdjustmentImageCompletionPatch>,
     },
@@ -342,6 +347,7 @@ pub(super) fn validate_render_operation(
         AdjustmentRenderOperation::SpotHeal { targets, strokes } => {
             validate_spot_heal(targets, strokes)
         }
+        AdjustmentRenderOperation::PaintLayer { layer } => paint::validate_paint(layer),
         AdjustmentRenderOperation::ImageCompletion { patches } => {
             validate_image_completion(patches)
         }

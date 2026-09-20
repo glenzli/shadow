@@ -359,6 +359,8 @@ qt_add_executable(
     src/edit_adjustment_reset_controller.cpp
     src/subject_emphasis_smoke_harness.cpp
     src/subject_emphasis_smoke_harness.hpp
+    src/edit_paint_controller.cpp
+    src/edit_paint_controller.hpp
     src/edit_subject_emphasis_controller.cpp
     src/edit_subject_emphasis_controller.hpp
     src/edit_ai_mask_controller.cpp
@@ -476,6 +478,8 @@ qt_add_executable(
     src/main.cpp
     src/pipeline_launch.cpp
     src/pipeline_launch.hpp
+    src/paint_smoke_harness.cpp
+    src/paint_smoke_harness.hpp
     src/pipeline_smoke_harness.cpp
     src/pipeline_smoke_harness.hpp
     src/pipeline_runtime.cpp
@@ -868,6 +872,8 @@ qt_add_qml_module(
         qml/PrecisionDetailLoupeState.qml
         qml/PrecisionActiveStrokeCoverage.qml
         qml/PrecisionAiMaskPromptOverlay.qml
+        qml/PrecisionPaintOverlay.qml
+        qml/PrecisionPaintTools.qml
         qml/PrecisionAiCompletionOverlay.qml
         qml/PrecisionAiCompletionTools.qml
         qml/PrecisionPeopleMaskSelector.qml

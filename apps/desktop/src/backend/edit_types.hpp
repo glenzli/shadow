@@ -339,6 +339,27 @@ struct BackendImageCompletionRegion final {
     bool operator==(const BackendImageCompletionRegion&) const = default;
 };
 
+struct BackendPaintPoint final {
+    double x = 0, y = 0, pressure = 1;
+    bool operator==(const BackendPaintPoint&) const = default;
+};
+struct BackendPaintStroke final {
+    QVector<BackendPaintPoint> points;
+    double radius = 0.01, hardness = 0, opacity = 1, flow = 0.1;
+    double red = 0.5, green = 0.5, blue = 0.5;
+    bool erase = false;
+    bool operator==(const BackendPaintStroke&) const = default;
+};
+struct BackendPaintLayer final {
+    QString id, label;
+    bool enabled = true;
+    double opacity = 1;
+    std::uint8_t blend = 1;
+    std::uint32_t coordinate_width = 0, coordinate_height = 0;
+    QVector<BackendPaintStroke> strokes;
+    bool operator==(const BackendPaintLayer&) const = default;
+};
+
 struct BackendGradeStack final {
     // One optional fixed, photo-local AI source node before Foundation. It
     // cannot be duplicated, reordered, masked, or shared. Presence is distinct
@@ -401,6 +422,7 @@ struct BackendGradeStack final {
     QVector<BackendRetouchStroke> retouch_strokes;
     // The photo-local Repair node keeps all authored areas while bypassed.
     bool retouch_enabled = true;
+    QVector<BackendPaintLayer> paint_layers;
     QVector<BackendImageCompletionRegion> image_completions;
     bool image_completion_enabled = true;
     // Empty strokes plus false is the canonical absent-node projection.

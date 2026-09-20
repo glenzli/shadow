@@ -31,6 +31,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         assert_eq!(id.get_version_num(), 7);
     }
     let decoded = decode_grade_stack_draft_recipe_v1(&ffi::FfiEditSettings {
+        paint_layers: Vec::new(),
         foundation: ffi::FfiPhotoFoundationSettings {
             enabled: true,
             raw_highlight_repair_enabled: false,
@@ -104,6 +105,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     assert!(created.fine.oklab_lightness_curve_points.is_empty());
 
     let incoming = ffi::FfiEditSettings {
+        paint_layers: Vec::new(),
         foundation: ffi::FfiPhotoFoundationSettings {
             enabled: true,
             raw_highlight_repair_enabled: true,
@@ -224,6 +226,7 @@ fn explicit_fine_edit_render_op_ids_survive_recipe_ffi_recipe_round_trip() {
 
     let snapshot = grade_stack_recipe_v1_snapshot(
         &GradeStackDraft {
+            paint_layers: Vec::new(),
             raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
             foundation: PhotoFoundationNode::default(),
             grade_nodes: vec![grade_node],
@@ -353,6 +356,7 @@ fn current_single_layer_snapshot_round_trips_without_identity_or_label_loss() {
     let mut grade_node = GradeNodeDraft::neutral("Custom grade");
     grade_node.basic.exposure_stops = 0.75;
     let grade_stack = GradeStackDraft {
+        paint_layers: Vec::new(),
         raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![grade_node],

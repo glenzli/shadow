@@ -42,6 +42,7 @@ metal_ineligibility(const EditExecutionPlan& plan, const std::span<const Adjustm
             case AdjustmentOperation::oklab_opponent_tone_curves:
             case AdjustmentOperation::oklab_color_warper:
             case AdjustmentOperation::lut_3d:
+            case AdjustmentOperation::paint_layer:
                 break;
             case AdjustmentOperation::perceptual_color: {
                 const auto* parameters =
@@ -112,9 +113,9 @@ std::string_view adjustment_backend_identity(const AdjustmentBackend backend) no
     case AdjustmentBackend::cpu:
         return "shadow-adjustment-cpu-v1;math=f64";
     case AdjustmentBackend::metal:
-        return "shadow-adjustment-metal-v1;abi=1;math=f32-safe;"
+        return "shadow-adjustment-metal-v1;abi=2;math=f32-safe;"
                "ops=wb,exposure,contrast,saturation,perceptual,opponent-balance,selective-color,"
-               "curve,opponent-curves,grading,lut";
+               "curve,opponent-curves,grading,lut,paint";
     }
     return "shadow-adjustment-unknown";
 }

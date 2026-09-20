@@ -155,6 +155,7 @@ pub(crate) struct GradeStackDraft {
     pub(crate) retouch_enabled: bool,
     /// Accepted photo-local AI completion patches. These form one fixed node
     /// after Retouch and before Liquify/Canvas.
+    pub(crate) paint_layers: Vec<shadow_domain::PaintLayer>,
     pub(crate) image_completions: Vec<ImageCompletionRegion>,
     pub(crate) image_completion_enabled: bool,
     /// Optional singleton photo-private Liquify node. It is structural,
@@ -173,6 +174,7 @@ impl Default for GradeStackDraft {
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
             retouch_enabled: true,
+            paint_layers: Vec::new(),
             image_completions: Vec::new(),
             image_completion_enabled: true,
             liquify: None,

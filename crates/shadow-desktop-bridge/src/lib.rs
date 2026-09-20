@@ -1633,6 +1633,35 @@ mod ffi {
     /// Complete editable photo stack. Foundation is evaluated first, followed
     /// by Grade Node zero through the final output-nearest Grade Node.
     #[derive(Debug, Clone)]
+    struct FfiPaintPoint {
+        x: f64,
+        y: f64,
+        pressure: f64,
+    }
+    #[derive(Debug, Clone)]
+    struct FfiPaintStroke {
+        points: Vec<FfiPaintPoint>,
+        radius: f64,
+        hardness: f64,
+        opacity: f64,
+        flow: f64,
+        red: f64,
+        green: f64,
+        blue: f64,
+        erase: bool,
+    }
+    #[derive(Debug, Clone)]
+    struct FfiPaintLayer {
+        id: String,
+        label: String,
+        enabled: bool,
+        opacity: f64,
+        blend: u8,
+        coordinate_width: u32,
+        coordinate_height: u32,
+        strokes: Vec<FfiPaintStroke>,
+    }
+    #[derive(Debug, Clone)]
     struct FfiEditSettings {
         foundation: FfiPhotoFoundationSettings,
         grade_nodes: Vec<FfiGradeNode>,
@@ -1640,6 +1669,7 @@ mod ffi {
         retouch_strokes: Vec<FfiRetouchStroke>,
         /// Node-level bypass for the complete photo-local repair stage.
         retouch_enabled: bool,
+        paint_layers: Vec<FfiPaintLayer>,
         image_completions: Vec<FfiImageCompletionRegion>,
         image_completion_enabled: bool,
         /// False with an empty stroke vector is the canonical absent node.

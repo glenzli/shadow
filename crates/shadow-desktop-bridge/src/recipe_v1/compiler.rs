@@ -197,6 +197,7 @@ fn compile_recipe_render_plan_with_resolver(
         &mut compiled,
         &mut compiled_node_ids,
     )?;
+    super::paint::append_paint_nodes(snapshot, use_layer_boundaries, &mut compiled)?;
     if compiled.len() > MAX_ADJUSTMENT_RENDER_NODES {
         bail!("Recipe render compiler supports at most 256 executable nodes");
     }

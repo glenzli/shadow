@@ -21,6 +21,7 @@ impl RecipeDiff {
 /// Stable aggregate counts suitable for a history or comparison UI.
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Serialize)]
 pub struct RecipeDiffSummary {
+    pub paint_layers_changed: bool,
     pub recipe_schema_changed: bool,
     pub input_settings_changed: bool,
     pub layers_added: usize,
@@ -46,6 +47,7 @@ pub struct RecipeDiffSummary {
 impl From<&RecipeDiff> for RecipeDiffSummary {
     fn from(diff: &RecipeDiff) -> Self {
         let mut summary = Self {
+            paint_layers_changed: diff.paint_layers.is_some(),
             recipe_schema_changed: diff.schema_version.is_some(),
             input_settings_changed: diff.input_settings.is_some(),
             layers_added: diff.added_layers.len(),
@@ -91,6 +93,9 @@ impl From<&RecipeDiff> for RecipeDiffSummary {
 impl fmt::Display for RecipeDiffSummary {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = Vec::new();
+        if self.paint_layers_changed {
+            parts.push("paint layers changed".to_owned());
+        }
         if self.recipe_schema_changed {
             parts.push("recipe schema changed".to_owned());
         }

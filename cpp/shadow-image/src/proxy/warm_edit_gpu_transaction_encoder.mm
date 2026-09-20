@@ -40,6 +40,7 @@ void bind_warm_gpu_adjustment(
     [encoder setBuffer:prepared.buffers.perceptual_mixer.get() offset:0U atIndex:9U];
     [encoder setBuffer:prepared.buffers.perceptual_range.get() offset:0U atIndex:10U];
     [encoder setBuffer:prepared.buffers.selective_color.get() offset:0U atIndex:11U];
+    [encoder setBuffer:prepared.buffers.paint.get() offset:0U atIndex:12U];
 }
 
 id<MTLBuffer> encode_warm_gpu_transaction_prefix(

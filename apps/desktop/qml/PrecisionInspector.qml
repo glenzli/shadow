@@ -47,6 +47,7 @@ Rectangle {
     readonly property int toolRepair: 3
     readonly property int toolLiquify: 4
     readonly property int toolCompletion: 5
+    readonly property int toolPaint: 6
 
     function manualOpticsActive() {
         return Number(editor.manualOpticsDistortion) !== 0 || Number(editor.manualOpticsTcaRedCyan) !== 0 || Number(editor.manualOpticsTcaBlueYellow) !== 0 || Number(editor.manualOpticsVignettingAmount) !== 0;
@@ -123,11 +124,11 @@ Rectangle {
                 anchors.fill: parent
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
-                spacing: 8
+                spacing: 4
 
                 ShadowIconButton {
                     id: maskToolButton
-                    buttonSize: 34
+                    buttonSize: 32
                     iconSize: 19
                     source: selected ? "qrc:/icons/mask.svg" : "qrc:/icons/mask-create.svg"
                     selected: inspector.activeToolMode === inspector.toolMask
@@ -144,7 +145,7 @@ Rectangle {
                 }
 
                 ShadowIconButton {
-                    buttonSize: 34
+                    buttonSize: 32
                     iconSize: 19
                     source: "qrc:/icons/crop.svg"
                     selected: inspector.activeToolMode === inspector.toolCrop
@@ -155,7 +156,7 @@ Rectangle {
                 }
 
                 ShadowIconButton {
-                    buttonSize: 34
+                    buttonSize: 32
                     iconSize: 19
                     source: "qrc:/icons/retouch.svg"
                     selected: inspector.activeToolMode === inspector.toolRepair
@@ -166,7 +167,7 @@ Rectangle {
                 }
 
                 ShadowIconButton {
-                    buttonSize: 34
+                    buttonSize: 32
                     iconSize: 19
                     source: "qrc:/icons/brush.svg"
                     selected: inspector.activeToolMode === inspector.toolLiquify
@@ -178,7 +179,7 @@ Rectangle {
                 }
 
                 ShadowIconButton {
-                    buttonSize: 34
+                    buttonSize: 32
                     iconSize: 19
                     source: "qrc:/icons/candidate.svg"
                     selected: inspector.activeToolMode === inspector.toolCompletion
@@ -188,6 +189,18 @@ Rectangle {
                         && (!inspector.editor.stateBusy || selected)
                     onClicked:
                         inspector.toolModeRequested(inspector.toolCompletion)
+                }
+
+                ShadowIconButton {
+                    objectName: "paintToolButton"
+                    buttonSize: 32
+                    iconSize: 19
+                    source: "qrc:/icons/edit.svg"
+                    selected: inspector.activeToolMode === inspector.toolPaint
+                    toolTipText: qsTr("Paint · color repair and light shaping")
+                    accessibleName: toolTipText
+                    enabled: inspector.editor.active && inspector.previewFrameReady && !inspector.editor.stateBusy
+                    onClicked: inspector.toolModeRequested(inspector.toolPaint)
                 }
 
                 Item {
@@ -203,7 +216,7 @@ Rectangle {
 
                 ShadowIconButton {
                     visible: inspector.activeToolMode === inspector.toolMask
-                    buttonSize: 34
+                    buttonSize: 32
                     iconSize: 19
                     source: inspector.maskOverlayVisible ? "qrc:/icons/overlay-show.svg" : "qrc:/icons/overlay-hide.svg"
                     selected: inspector.maskOverlayVisible
@@ -215,7 +228,7 @@ Rectangle {
 
                 ShadowIconButton {
                     visible: inspector.activeToolMode !== inspector.toolNone
-                    buttonSize: 34
+                    buttonSize: 32
                     iconSize: 20
                     source: "qrc:/icons/check.svg"
                     variant: ShadowIconButton.Ghost
@@ -227,7 +240,7 @@ Rectangle {
 
                 ShadowIconButton {
                     visible: inspector.activeToolMode === inspector.toolNone
-                    buttonSize: 34
+                    buttonSize: 32
                     iconSize: 19
                     source: "qrc:/icons/reset-all.svg"
                     variant: ShadowIconButton.Ghost
@@ -354,7 +367,7 @@ Rectangle {
                                 accent: inspector.accent
                             }
 
-                            PrecisionAiCompletionTools {
+                        PrecisionAiCompletionTools {
                                 Layout.fillWidth: true
                                 visible:
                                     inspector.editor.selectedRecipeNodeKind === "completion"
@@ -638,6 +651,15 @@ Rectangle {
                                 === inspector.toolLiquify
                             inspector: inspector
                             currentTabIndex: 0
+                        }
+
+                        PrecisionPaintTools {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 12
+                            Layout.rightMargin: 12
+                            Layout.topMargin: 12
+                            visible: inspector.activeToolMode === inspector.toolPaint
+                            editor: inspector.editor
                         }
 
                         PrecisionAiCompletionTools {

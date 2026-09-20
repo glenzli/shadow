@@ -24,6 +24,7 @@ mod input_settings;
 mod layer;
 mod local_mask;
 mod mask_creation;
+mod paint;
 mod photo_foundation;
 mod photo_geometry;
 mod photo_liquify;
@@ -99,3 +100,8 @@ pub use snapshot::{
 };
 pub use validation_error::RecipeValidationError;
 pub use value::{BranchName, FiniteF64, OperationId, ParameterKey, UnitInterval, VersionName};
+
+pub use paint::{
+    MAX_PAINT_LAYERS, MAX_PAINT_POINTS, MAX_PAINT_STROKES, PaintBlendMode, PaintLayer, PaintPoint,
+    PaintStroke,
+};

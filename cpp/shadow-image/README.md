@@ -30,6 +30,20 @@ by CMake and direct Cargo builds. Portable, Metal, and non-Metal fallback
 translation units are selected there; adding Windows acceleration must add a distinct manifest
 and backend owner rather than duplicate the portable kernel or fork this library.
 
+## Photographic paint
+
+[`paint.hpp`](include/shadow/image/paint.hpp) and [`src/edit/paint.cpp`](src/edit/paint.cpp)
+validate bounded, resolution-independent strokes and replay flow/pressure into premultiplied
+working-RGB coverage. CPU execution uses bounded tiles; Metal receives only the touched overlay
+and composites it against the resident image. Layer opacity and blend leave overlay content
+unchanged, allowing reuse of the GPU side resource. The final source, RAW preparation and AI
+results remain upstream reusable state. Render cancellation follows the existing request identity
+and latest-generation publication policy; CPU dab preparation is bounded but not interruptible
+inside a dab. Preview, detail and export share path spacing and coverage, with the same original
+coordinate extent and explicit tile origin. Color preserves Oklab lightness; Soft Light changes
+only Oklab lightness and treats encoded 50% gray as neutral. These are photographic blend modes,
+not a Photoshop compatibility contract. Very large untiled outputs use the tiled CPU fallback.
+
 ## Linear composite raster
 
 [`include/shadow/image/linear_raster.hpp`](include/shadow/image/linear_raster.hpp) and

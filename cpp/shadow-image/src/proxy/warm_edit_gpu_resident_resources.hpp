@@ -68,6 +68,7 @@ struct WarmProgramBuffers final {
     RetainedMetalBuffer perceptual_mixer;
     RetainedMetalBuffer perceptual_range;
     RetainedMetalBuffer selective_color;
+    RetainedMetalBuffer paint;
 };
 
 struct WarmProgramBufferAttempt final {

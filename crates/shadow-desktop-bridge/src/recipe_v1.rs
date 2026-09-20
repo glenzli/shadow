@@ -32,6 +32,7 @@ mod ffi_adapter;
 mod foundation_development;
 mod identity;
 mod managed_raster_resolution;
+mod paint;
 mod render_request;
 mod snapshot_decode;
 mod snapshot_encode;

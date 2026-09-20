@@ -236,6 +236,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
             display_invocation.perceptual_mixer_entry_count = 0U;
             display_invocation.perceptual_range_entry_count = 0U;
             display_invocation.selective_color_entry_count = 0U;
+            display_invocation.paint_entry_count = 0U;
         }
         // Interactive display never writes linear output, but Metal still requires a valid
         // binding. Reuse the ordinary buffer instead of allocating an unused alternate.
@@ -259,6 +260,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
         [encoder setBuffer:transaction.final_program.buffers.perceptual_range.get()
                     offset:0U
                    atIndex:10U];
+        [encoder setBuffer:transaction.final_program.buffers.paint.get() offset:0U atIndex:12U];
         [encoder setBuffer:transaction.final_program.buffers.selective_color.get()
                     offset:0U
                    atIndex:11U];

@@ -32,7 +32,8 @@ bool run(const QString& executable, const QString& scenario) {
     if (!image.save(second))
         return false;
     const auto first_bytes = contents(first), second_bytes = contents(second);
-    const bool direct = scenario == "interactive";
+    const bool paint = scenario == "paint";
+    const bool direct = scenario == "interactive" || paint;
     const bool single = scenario == "legacy";
     const bool cancel = scenario == "cancel";
     const QString output1 = root.filePath("output1.png");
@@ -64,7 +65,7 @@ bool run(const QString& executable, const QString& scenario) {
     env.insert("QT_QPA_PLATFORM", "offscreen");
     env.insert("QT_QUICK_BACKEND", "software");
     env.insert("SHADOW_DESKTOP_DATA_ROOT", normal_root);
-    env.insert("SHADOW_PIPELINE_SMOKE_ACTION", cancel ? "cancel" : "complete");
+    env.insert("SHADOW_PIPELINE_SMOKE_ACTION", cancel ? "cancel" : paint ? "paint" : "complete");
     env.insert("SHADOW_PIPELINE_SMOKE_OUTPUT", root.path());
     const QString collision = root.filePath("first-edited.png");
     if (direct && !write(collision, "existing output stays unchanged"))
@@ -106,6 +107,19 @@ bool run(const QString& executable, const QString& scenario) {
         if (QImage(root.filePath("first-edited-1.png")).isNull()
             || QImage(root.filePath("second-edited.png")).isNull())
             return false;
+        if (paint) {
+            const QImage rendered(root.filePath("first-edited-1.png"));
+            const QImage original(first);
+            if (rendered.size() != original.size()
+                || rendered.pixelColor(48, 32).red() <= original.pixelColor(48, 32).red() + 10
+                || std::abs(rendered.pixelColor(0, 0).red() - original.pixelColor(0, 0).red()) > 2
+                || !diagnostics.contains(
+                    "Paint undo/redo/cancel/erase/persistence/isolation checks passed"
+                )) {
+                qCritical() << "Paint export did not preserve local coverage" << diagnostics;
+                return false;
+            }
+        }
     } else {
         const auto receipt = QJsonDocument::fromJson(contents(result)).object();
         if (receipt["outcome"]

@@ -36,6 +36,7 @@ kernel void execute_adjustment_program_v1(
     device const float4* perceptual_mixer_entries [[buffer(7)]],
     device const MetalPerceptualRange* perceptual_range_entries [[buffer(8)]],
     device const float4* selective_color_entries [[buffer(9)]],
+    device const float4* paint_entries [[buffer(10)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= invocation.width || position.y >= invocation.height) {
@@ -63,6 +64,8 @@ kernel void execute_adjustment_program_v1(
             perceptual_mixer_entries,
             perceptual_range_entries,
             selective_color_entries,
+            paint_entries,
+            position,
             invocation,
             status
         )) {
@@ -285,6 +288,7 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
             != program.perceptual_range_entries.size()
         || program.invocation.selective_color_entry_count
             != program.selective_color_entries.size()
+        || program.invocation.paint_entry_count != program.paint_entries.size()
         || program.operations.empty()) {
         return MetalAdjustmentAttempt{
             .output = std::nullopt,
@@ -292,6 +296,7 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
         };
     }
 
+    std::size_t paint_bytes = 0U;
     std::size_t row_bytes = 0U;
     std::size_t operation_bytes = 0U;
     std::size_t curve_bytes = 0U;
@@ -334,6 +339,7 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
             sizeof(MetalSelectiveColorEntry),
             selective_color_bytes
         )
+        || !checked_multiply(program.paint_entries.size(), sizeof(MetalPaintPixel), paint_bytes)
         || row_bytes == 0U || operation_bytes == 0U) {
         return MetalAdjustmentAttempt{
             .output = std::nullopt,
@@ -343,7 +349,7 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
 
     const std::size_t maximum_buffer_bytes =
         static_cast<std::size_t>(context.device().maxBufferLength);
-    if (row_bytes > maximum_buffer_bytes
+    if (paint_bytes > maximum_buffer_bytes || row_bytes > maximum_buffer_bytes
         || operation_bytes > maximum_buffer_bytes
         || curve_bytes > maximum_buffer_bytes
         || lut_bytes > maximum_buffer_bytes
@@ -484,7 +490,14 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
                     : selective_color_bytes
                 options:MTLResourceStorageModeShared]
         );
-        if (!input_buffer || !output_buffer || !operations_buffer || !status_buffer
+        const MetalPaintPixel empty_paint{};
+        OwnedObjectiveCObject paint_buffer([context.device()
+            newBufferWithBytes:program.paint_entries.empty()
+                                   ? static_cast<const void*>(&empty_paint)
+                                   : static_cast<const void*>(program.paint_entries.data())
+                        length:program.paint_entries.empty() ? sizeof(empty_paint) : paint_bytes
+                       options:MTLResourceStorageModeShared]);
+        if (!paint_buffer || !input_buffer || !output_buffer || !operations_buffer || !status_buffer
             || !curve_buffer || !lut_buffer || !perceptual_mixer_buffer
             || !perceptual_range_buffer || !selective_color_buffer) {
             return MetalAdjustmentAttempt{
@@ -541,6 +554,7 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
             *status = MetalAdjustmentStatus{};
             MetalAdjustmentInvocation invocation = program.invocation;
             invocation.height = current_rows;
+            invocation.paint_row_origin = first_row;
 
             id<MTLCommandBuffer> command_buffer = [context.queue() commandBuffer];
             id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
@@ -584,6 +598,9 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
                         static_cast<id<MTLBuffer>>(selective_color_buffer.get())
                         offset:0U
                        atIndex:9U];
+            [encoder setBuffer:static_cast<id<MTLBuffer>>(paint_buffer.get())
+                        offset:0U
+                       atIndex:10U];
             [encoder dispatchThreads:MTLSizeMake(
                     input.dimensions.width,
                     current_rows,

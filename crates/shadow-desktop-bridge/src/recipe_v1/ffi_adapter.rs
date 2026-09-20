@@ -23,6 +23,7 @@ use shadow_domain::{
 };
 
 use crate::ffi;
+mod paint;
 
 use super::{
     CompositeMaskDraft, FineEditParameters, GradeNodeDraft, GradeNodeRecipeV1Identity,
@@ -782,6 +783,7 @@ pub(crate) fn new_basic_grade_node(label: &str) -> AnyResult<ffi::FfiGradeNode> 
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
         retouch_enabled: true,
+        paint_layers: Vec::new(),
         image_completions: Vec::new(),
         image_completion_enabled: true,
         liquify: None,
@@ -903,6 +905,11 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
             })
             .collect::<AnyResult<Vec<_>>>()?,
         retouch_enabled: settings.retouch_enabled,
+        paint_layers: settings
+            .paint_layers
+            .iter()
+            .map(paint::decode)
+            .collect::<AnyResult<_>>()?,
         image_completions: settings
             .image_completions
             .iter()
@@ -1426,6 +1433,7 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
             })
             .collect(),
         retouch_enabled: grade_stack.retouch_enabled,
+        paint_layers: grade_stack.paint_layers.iter().map(paint::encode).collect(),
         image_completions: grade_stack
             .image_completions
             .into_iter()

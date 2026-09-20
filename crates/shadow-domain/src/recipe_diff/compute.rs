@@ -78,6 +78,10 @@ pub fn diff_recipe_snapshots(before: &RecipeSnapshot, after: &RecipeSnapshot) ->
     }
 
     RecipeDiff {
+        paint_layers: changed(
+            before.paint_layers().to_vec(),
+            after.paint_layers().to_vec(),
+        ),
         schema_version,
         input_settings,
         added_layers,

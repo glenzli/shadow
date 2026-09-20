@@ -105,6 +105,8 @@ Application startup is split from environment-driven automation:
   owns the independent window; [`qml/PipelineExportDialog.qml`](qml/PipelineExportDialog.qml)
   owns interactive output choices. [`src/pipeline_smoke_harness.*`](src/pipeline_smoke_harness.hpp)
   drives opt-in packaged session acceptance, registered in `ShadowDesktopPipelineTests.cmake`.
+  [`src/paint_smoke_harness.*`](src/paint_smoke_harness.hpp) owns the paint-specific
+  undo, cancellation, photo isolation, persistence and export acceptance sequence.
 - [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,
   authorization-gated anonymous-people analysis lifecycle: persisted local-summary loading, worker
   admission, safe failure presentation, conflict-safe group selection, durable merge delegation,
@@ -492,6 +494,16 @@ Its implementation follows the same navigation:
   and Clone. [`src/edit_retouch_donor_selection.*`](src/edit_retouch_donor_selection.hpp) owns the
   deterministic, generation-matched preview analysis used to author an in-bounds donor into new
   Heal and Clone regions; later renders consume that stored offset without re-running analysis.
+- [`src/edit_paint_controller.*`](src/edit_paint_controller.hpp) owns photo-local finishing layers,
+  brush settings, bounded live paths, explicit preview color sampling, and one-stroke history and
+  autosave checkpoints. [`qml/PrecisionPaintTools.qml`](qml/PrecisionPaintTools.qml) and
+  [`qml/PrecisionPaintOverlay.qml`](qml/PrecisionPaintOverlay.qml) compose this tool into Precision
+  and the independent editor. Paint follows Repair/AI Completion and precedes Liquify/Canvas;
+  authoring reverses Canvas and the native Liquify sampler into original-image coordinates.
+  Eight layers support Normal, perceptual Color, and lightness Soft Light, with destination-out
+  erasing and reversible layer visibility, opacity and order. Mouse input currently authors unit
+  pressure; persisted points retain pressure for future tablet input. No text, shapes or brush
+  library are included.
 - [`src/edit_liquify_controller.cpp`](src/edit_liquify_controller.cpp) owns the photo-private
   singleton Liquify projection, node bypass, Push/Reconstruct brush mode, and one-gesture/one-
   history boundary. Push prefers the local display mesh, then falls back to the same provisional
@@ -1578,13 +1590,15 @@ be new files in existing directories. DNG source-stage export is excluded becaus
 apply editing adjustments. Relative paths, when supplied, resolve against the process working
 directory. Requests are limited to 1 MiB and 256 photos.
 
-`SHADOW_PIPELINE_SMOKE_ACTION=complete|cancel` enables the otherwise inert packaged acceptance
+`SHADOW_PIPELINE_SMOKE_ACTION=complete|cancel|paint` enables the otherwise inert packaged acceptance
 harness. The complete scenario changes the first photo's exposure, switches to another photo,
 checks state separation, returns and checks persistence, then exports. Interactive smoke also
 requires `SHADOW_PIPELINE_SMOKE_OUTPUT`. Use only disposable test outputs. The registered tests
 create synthetic raster fixtures and verify original bytes and a separate Library sentinel. For native-window
 checks, `SHADOW_PIPELINE_SMOKE_ACTION=window-chrome` with an empty `--isolate` session logs only
 window geometry and visibility changes; it opens no photo and performs no automatic edits.
+The `paint` scenario checks whole-stroke undo/redo, cancelled and erased strokes, exact per-photo
+restoration and PNG output pixels. It requires `SHADOW_PIPELINE_SMOKE_OUTPUT` and disposable inputs.
 
 ## Local subject emphasis preview
 

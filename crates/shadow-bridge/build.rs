@@ -23,6 +23,7 @@ const BRIDGE_ADDITIONAL_INPUTS: &[&str] = &[
     "include/shadow/image/adjustment_graph.hpp",
     "include/shadow/image/adjustment_layers.hpp",
     "include/shadow/image/adjustment_parameters.hpp",
+    "include/shadow/image/paint.hpp",
     "include/shadow/image/cpu_edit_reference.hpp",
     "include/shadow/image/edit.hpp",
     "include/shadow/image/edit_error.hpp",

@@ -25,6 +25,7 @@ Rectangle {
     signal cropToolRequested
     signal repairToolRequested
     signal liquifyToolRequested
+    signal paintToolRequested
     signal completionToolRequested
 
     color: pane.panel
@@ -227,6 +228,16 @@ Rectangle {
                 pane.editor.selectLiquifyNode()
                 pane.liquifyToolRequested()
             }
+        }
+
+        StructuralNodeRow {
+            objectName: "paintNodeRow"
+            visible: pane.editor.paint.layers.length > 0 || pane.editor.selectedRecipeNodeKind === "paint"
+            nodeLabel: qsTr("Paint layers")
+            nodeStatus: qsTr("%n PAINT LAYER(S)", "", pane.editor.paint.layers.length)
+            nodeGlyph: "P"
+            nodeSelected: pane.editor.selectedRecipeNodeKind === "paint"
+            onActivated: pane.paintToolRequested()
         }
 
         StructuralNodeRow {

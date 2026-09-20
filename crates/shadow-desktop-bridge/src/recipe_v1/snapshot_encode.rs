@@ -126,6 +126,7 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
             grade_stack.image_completion_enabled,
         )
     })
+    .and_then(|snapshot| snapshot.with_paint_layers(grade_stack.paint_layers.clone()))
     .map_err(Into::into)
 }
 

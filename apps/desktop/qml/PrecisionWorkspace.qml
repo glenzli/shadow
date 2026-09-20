@@ -28,6 +28,7 @@ Item {
     readonly property int toolRepair: 3
     readonly property int toolLiquify: 4
     readonly property int toolCompletion: 5
+    readonly property int toolPaint: 6
     property int activeSpecialTool: toolNone
     property bool selectedRetouchContinuous: true
     property int selectedRetouchIndex: -1
@@ -101,6 +102,8 @@ Item {
         }
         if (nextTool === toolRepair)
             editor.selectRetouchNode()
+        if (nextTool === toolPaint)
+            editor.paint.activate()
         if (nextTool === toolCompletion) {
             editor.selectImageCompletionNode()
             if (!editor.imageCompletionActive && !editor.beginImageCompletion())
@@ -124,6 +127,8 @@ Item {
     }
 
     function leaveSpecialTool() {
+        editor.paint.cancelStroke()
+        editor.paint.picking = false
         if (activeSpecialTool === toolNone) {
             editor.setRawWhiteBalancePickerActive(false)
             return
@@ -306,6 +311,10 @@ Item {
             onLiquifyToolRequested: {
                 if (precision.activeSpecialTool !== precision.toolLiquify)
                     precision.setActiveSpecialTool(precision.toolLiquify)
+            }
+            onPaintToolRequested: {
+                if (precision.activeSpecialTool !== precision.toolPaint)
+                    precision.setActiveSpecialTool(precision.toolPaint)
             }
             onCompletionToolRequested: {
                 if (precision.activeSpecialTool !== precision.toolCompletion)

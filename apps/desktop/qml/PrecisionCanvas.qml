@@ -38,6 +38,7 @@ Rectangle {
     readonly property int toolRepair: 3
     readonly property int toolLiquify: 4
     readonly property int toolCompletion: 5
+    readonly property int toolPaint: 6
 
     // Public viewport state.
     property alias zoomFactor: viewportState.zoomFactor
@@ -607,6 +608,16 @@ Rectangle {
                     levelZeroWidth: canvas.imagePixelWidth
                     levelZeroHeight: canvas.imagePixelHeight
                     onRegionSelected: (continuous, index) => canvas.retouchRegionSelectionRequested(continuous, index)
+                }
+
+                PrecisionPaintOverlay {
+                    anchors.fill: parent
+                    z: 105
+                    editor: canvas.editor
+                    previewReady: canvas.previewFrameReady
+                    previewGeneration: canvas.readyPreviewGeneration
+                    outputAspectRatio: canvas.imagePixelWidth / Math.max(1, canvas.imagePixelHeight)
+                    interactionEnabled: canvas.activeToolMode === canvas.toolPaint && !canvas.comparisonActive
                 }
 
                 PrecisionLiquifyOverlay {

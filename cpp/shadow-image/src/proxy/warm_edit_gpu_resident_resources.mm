@@ -146,6 +146,7 @@ struct ResidentSideTable final {
 } // namespace
 
 struct WarmGpuResidentResources::Impl final {
+    std::vector<ResidentSideTable> paint_tables;
     id<MTLDevice> device = nil;
     id<MTLBuffer> source = nil;
     // One byte per output pixel, copied once from source-domain physical-white evidence. This
@@ -206,6 +207,7 @@ struct WarmGpuResidentResources::Impl final {
         retouch_geometry_tables.clear();
         liquify_geometry_tables.clear();
         selective_color_tables.clear();
+        paint_tables.clear();
         perceptual_range_tables.clear();
         perceptual_mixer_tables.clear();
         lut_tables.clear();
@@ -233,7 +235,8 @@ struct WarmGpuResidentResources::Impl final {
             || std::is_same_v<Element, MetalPerceptualMixerEntry>
             || std::is_same_v<Element, MetalPerceptualRange>
             || std::is_same_v<Element, MetalSelectiveColorEntry>
-            || std::is_same_v<Element, std::uint32_t> || std::is_same_v<Element, WarmRetouchWord>
+            || std::is_same_v<Element, MetalPaintPixel> || std::is_same_v<Element, std::uint32_t>
+            || std::is_same_v<Element, WarmRetouchWord>
             || std::is_same_v<Element, WarmPhotoLiquifyWord>
         );
         if (cancellation.stop_requested()) {
@@ -249,7 +252,9 @@ struct WarmGpuResidentResources::Impl final {
         const std::span<const std::byte> bytes = std::as_bytes(values);
         const std::uint64_t content_hash = side_table_content_hash(bytes);
         auto& cache = [&]() -> std::vector<ResidentSideTable>& {
-            if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
+            if constexpr (std::is_same_v<Element, MetalPaintPixel>) {
+                return paint_tables;
+            } else if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
                 return curve_tables;
             } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
                 return lut_tables;
@@ -268,7 +273,9 @@ struct WarmGpuResidentResources::Impl final {
             }
         }();
         constexpr std::size_t capacity = [] {
-            if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
+            if constexpr (std::is_same_v<Element, MetalPaintPixel>) {
+                return 2U;
+            } else if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
                 return maximum_resident_curve_tables;
             } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
                 return maximum_resident_lut_tables;
@@ -366,7 +373,7 @@ struct WarmGpuResidentResources::Impl final {
         } else if constexpr (std::is_same_v<Element, WarmPhotoLiquifyWord>) {
             // The generic allocation/cache-hit counters are the public
             // observability contract for this structural side table.
-        } else {
+        } else if constexpr (std::is_same_v<Element, MetalSelectiveColorEntry>) {
             ++stats.selective_color_resource_upload_count;
         }
         return SideBufferAttempt{
@@ -448,6 +455,16 @@ struct WarmGpuResidentResources::Impl final {
             return result;
         }
         result.buffers.selective_color = std::move(selective_color.buffer);
+        auto paint = acquire_side_buffer(program.paint_entries, cancellation);
+        if (paint.cancelled) {
+            result.cancelled = true;
+            return result;
+        }
+        if (!paint.buffer) {
+            result.diagnostic = paint.diagnostic;
+            return result;
+        }
+        result.buffers.paint = std::move(paint.buffer);
         return result;
     }
 

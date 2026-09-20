@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_paint_controller.hpp"
 
 #include "edit_history_restore_projection.hpp"
 #include "edit_point_color_model.hpp"
@@ -46,10 +47,11 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
     const bool photo_local_foundation = parameter_key.startsWith(QStringLiteral("foundation/"));
     const bool photo_local_raw_denoise =
         parameter_key.startsWith(QStringLiteral("raw_ai_denoise/"));
+    const bool photo_local_paint = parameter_key.startsWith(QStringLiteral("paint/"));
     const bool photo_local_liquify = parameter_key.startsWith(QStringLiteral("liquify/"));
     if (!active_ || interactionLocked()
         || (!photo_local_retouch && !photo_local_geometry && !photo_local_foundation
-            && !photo_local_raw_denoise && !photo_local_liquify
+            && !photo_local_raw_denoise && !photo_local_liquify && !photo_local_paint
             && (grade_node == nullptr || !grade_node->enabled))
         || parameter_key.isEmpty()) {
         return;
@@ -96,6 +98,8 @@ void EditController::undo() {
     if (!active_ || interactionLocked()) {
         return;
     }
+    if (paint_controller_)
+        paint_controller_->cancelStroke();
     std::string history_key;
     const auto restored = history_.undo({grade_stack_, base_commit_id_}, &history_key);
     emit historyChanged();
@@ -122,6 +126,8 @@ void EditController::redo() {
     if (!active_ || interactionLocked()) {
         return;
     }
+    if (paint_controller_)
+        paint_controller_->cancelStroke();
     std::string history_key;
     const auto restored = history_.redo({grade_stack_, base_commit_id_}, &history_key);
     emit historyChanged();
@@ -258,6 +264,7 @@ void EditController::setGradeStack(
             && EditHistoryRestoreProjection::localMaskChanged(old_selected_value, *new_selected));
     const bool photo_local_changed = grade_stack_.retouch_spots != grade_stack.retouch_spots
                                      || grade_stack_.retouch_strokes != grade_stack.retouch_strokes
+                                     || grade_stack_.paint_layers != grade_stack.paint_layers
                                      || grade_stack_.liquify_enabled != grade_stack.liquify_enabled
                                      || grade_stack_.liquify_strokes != grade_stack.liquify_strokes
                                      || grade_stack_.geometry != grade_stack.geometry;
@@ -354,7 +361,7 @@ QString EditController::gradeNodeHistoryKey(const QString& key) const {
     if (key.startsWith(QStringLiteral("retouch/")) || key.startsWith(QStringLiteral("geometry/"))
         || key.startsWith(QStringLiteral("foundation/"))
         || key.startsWith(QStringLiteral("raw_ai_denoise/"))
-        || key.startsWith(QStringLiteral("liquify/"))) {
+        || key.startsWith(QStringLiteral("liquify/")) || key.startsWith(QStringLiteral("paint/"))) {
         return QStringLiteral("photo/%1").arg(key);
     }
     const auto* const grade_node = selectedGradeNode();
@@ -364,6 +371,8 @@ QString EditController::gradeNodeHistoryKey(const QString& key) const {
 }
 
 void EditController::finishActiveGesture() {
+    if (paint_controller_)
+        paint_controller_->cancelStroke();
     if (liquify_live_before_.has_value()) {
         cancelLiquifyLiveStroke();
     }

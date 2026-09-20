@@ -11,6 +11,8 @@ use super::{BranchName, GraphValidationError, VersionName};
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum RecipeValidationError {
+    #[error("invalid photographic paint: {0}")]
+    InvalidPaint(&'static str),
     #[error("persisted floating-point values must be finite")]
     NonFiniteNumber,
     #[error("value {0} is outside the inclusive range [0, 1]")]

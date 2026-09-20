@@ -16,7 +16,7 @@ if(BUILD_TESTING)
     target_compile_features(shadow-desktop-pipeline-session PRIVATE cxx_std_20)
     target_link_libraries(shadow-desktop-pipeline-session PRIVATE Qt6::Core Qt6::Gui)
     add_dependencies(shadow-desktop-pipeline-session shadow-desktop)
-    foreach(scenario legacy batch cancel interactive unsupported)
+    foreach(scenario legacy batch cancel interactive unsupported paint)
         add_test(NAME shadow-desktop-pipeline-${scenario}
             COMMAND shadow-desktop-pipeline-session $<TARGET_FILE:shadow-desktop> ${scenario})
         set_tests_properties(shadow-desktop-pipeline-${scenario} PROPERTIES TIMEOUT 120 LABELS "desktop;pipeline")

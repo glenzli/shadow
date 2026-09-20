@@ -1,5 +1,6 @@
 #include "pipeline_smoke_harness.hpp"
 #include "edit_controller.hpp"
+#include "paint_smoke_harness.hpp"
 #include "pipeline_run_controller.hpp"
 #include <QCoreApplication>
 #include <QDebug>
@@ -15,6 +16,10 @@ void installPipelineSmokeHarness(
     EditController& editor
 ) {
     const QString action = qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_ACTION");
+    if (action == QStringLiteral("paint")) {
+        installPaintSmokeHarness(pipeline, editor);
+        return;
+    }
     if (action.isEmpty())
         return;
     if (action == QStringLiteral("window-chrome")) {

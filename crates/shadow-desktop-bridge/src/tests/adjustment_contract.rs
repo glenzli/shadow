@@ -120,6 +120,7 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
         },
     };
     let grade_stack = GradeStackDraft {
+        paint_layers: Vec::new(),
         raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![GradeNodeDraft {
@@ -307,6 +308,7 @@ fn managed_lut_round_trips_and_compiles_the_exact_document_and_strength() {
         intensity: 0.37,
     };
     let grade_stack = GradeStackDraft {
+        paint_layers: Vec::new(),
         raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![grade_node],

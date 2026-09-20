@@ -77,6 +77,7 @@ void require_parameter_count(
     if (source.operation != FfiAdjustmentOperation::PerceptualColor
         && source.operation != FfiAdjustmentOperation::SpotHeal
         && source.operation != FfiAdjustmentOperation::ImageCompletion
+        && source.operation != FfiAdjustmentOperation::PaintLayer
         && !source.parameter_group_lengths.empty()) {
         throw_invalid_adjustment_plan(
             "only operations with grouped parameter contracts accept group lengths"
@@ -494,6 +495,55 @@ void require_parameter_count(
         result.parameters = std::move(parameters);
         break;
     }
+    case FfiAdjustmentOperation::PaintLayer: {
+        if (source.parameters.size() < 4U || source.parameter_group_lengths.size() > 128U)
+            throw_invalid_adjustment_plan("invalid paint wire extent");
+        const auto integer = [](double v, double maximum) {
+            return std::isfinite(v) && v >= 0 && v <= maximum && std::floor(v) == v;
+        };
+        if (!integer(source.parameters[0], 131072) || !integer(source.parameters[1], 131072)
+            || !integer(source.parameters[2], 2))
+            throw_invalid_adjustment_plan("invalid paint dimensions or blend");
+        image::PaintLayerAdjustment paint{
+            .coordinate_width = static_cast<std::uint32_t>(source.parameters[0]),
+            .coordinate_height = static_cast<std::uint32_t>(source.parameters[1]),
+            .blend = static_cast<std::uint8_t>(source.parameters[2]),
+            .opacity = source.parameters[3]
+        };
+        std::size_t offset = 4;
+        for (const auto count : source.parameter_group_lengths) {
+            if (!count || count > 2048 || source.parameters.size() - offset < 8U + 3U * count)
+                throw_invalid_adjustment_plan("invalid paint stroke wire");
+            if (!integer(source.parameters[offset + 7], 1))
+                throw_invalid_adjustment_plan("invalid paint eraser flag");
+            image::PaintStroke stroke{
+                .radius = source.parameters[offset],
+                .hardness = source.parameters[offset + 1],
+                .opacity = source.parameters[offset + 2],
+                .flow = source.parameters[offset + 3],
+                .color =
+                    {source.parameters[offset + 4],
+                     source.parameters[offset + 5],
+                     source.parameters[offset + 6]},
+                .erase = source.parameters[offset + 7] == 1
+            };
+            offset += 8;
+            for (std::uint32_t i = 0; i < count; ++i) {
+                stroke.points.push_back(
+                    {source.parameters[offset],
+                     source.parameters[offset + 1],
+                     source.parameters[offset + 2]}
+                );
+                offset += 3;
+            }
+            paint.strokes.push_back(std::move(stroke));
+        }
+        if (offset != source.parameters.size())
+            throw_invalid_adjustment_plan("trailing paint wire values");
+        image::detail::validate_paint_layer(paint);
+        result.parameters = std::move(paint);
+        break;
+    }
     case FfiAdjustmentOperation::ImageCompletion: {
         if (source.parameter_group_lengths.empty()) {
             throw_invalid_adjustment_plan("AI completion requires a patch count group");
@@ -562,10 +612,8 @@ void require_parameter_count(
 }
 
 template <typename Wire>
-[[nodiscard]] image::LocalMask local_mask_leaf(
-    const Wire& source,
-    const std::size_t parameter_offset
-) {
+[[nodiscard]] image::LocalMask
+local_mask_leaf(const Wire& source, const std::size_t parameter_offset) {
     if (source.parameters.size() < parameter_offset + 9U) {
         throw_invalid_adjustment_plan("local-mask leaf has an incomplete parameter record");
     }
@@ -576,8 +624,7 @@ template <typename Wire>
     }
     const double kind = source.parameters[parameter_offset];
     const double invert = source.parameters[parameter_offset + 8U];
-    if ((kind != 1.0 && kind != 2.0 && kind != 3.0 && kind != 4.0 && kind != 5.0
-         && kind != 6.0)
+    if ((kind != 1.0 && kind != 2.0 && kind != 3.0 && kind != 4.0 && kind != 5.0 && kind != 6.0)
         || (invert != 0.0 && invert != 1.0)) {
         throw_invalid_adjustment_plan("local-mask leaf kind or inversion is out of range");
     }
@@ -671,8 +718,7 @@ template <typename Wire>
 
     const auto dimension = [&](const std::size_t slot) {
         const double value = parameter(slot);
-        if (value < 1.0
-            || value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())
+        if (value < 1.0 || value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())
             || std::trunc(value) != value) {
             throw_invalid_adjustment_plan(
                 "managed raster mask dimensions must be positive integers"
@@ -683,8 +729,8 @@ template <typename Wire>
     const double encoding = parameter(5U);
     const double expansion = parameter(6U);
     const double feather = parameter(7U);
-    if ((encoding != 1.0 && encoding != 2.0) || expansion < -1.0 || expansion > 1.0
-        || feather < 0.0 || feather > 1.0) {
+    if ((encoding != 1.0 && encoding != 2.0) || expansion < -1.0 || expansion > 1.0 || feather < 0.0
+        || feather > 1.0) {
         throw_invalid_adjustment_plan(
             "managed raster mask encoding or refinement slots are invalid"
         );
@@ -776,8 +822,7 @@ adjustment_layers(const rust::Vec<FfiAdjustmentNode>& source) {
                 std::size_t raster_bytes = 0U;
                 for (std::size_t index = 0U; index < node.mask_components.size(); ++index) {
                     const FfiAdjustmentMaskComponent& component = node.mask_components[index];
-                    if (component.operation > 3U
-                        || (index == 0U && component.operation != 0U)
+                    if (component.operation > 3U || (index == 0U && component.operation != 0U)
                         || (index > 0U && component.operation == 0U)) {
                         throw_invalid_adjustment_plan(
                             "composite local-mask component operation or order is invalid"
@@ -786,7 +831,8 @@ adjustment_layers(const rust::Vec<FfiAdjustmentNode>& source) {
                     if (component.payload.size()
                         > image::maximum_composite_local_mask_raster_bytes - raster_bytes) {
                         throw_invalid_adjustment_plan(
-                            "composite local-mask raster payload exceeds the 64 MiB execution budget"
+                            "composite local-mask raster payload exceeds the 64 MiB execution "
+                            "budget"
                         );
                     }
                     raster_bytes += component.payload.size();

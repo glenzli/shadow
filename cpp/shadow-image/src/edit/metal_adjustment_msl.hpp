@@ -12,7 +12,7 @@ inline constexpr std::string_view metal_adjustment_msl_common = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
 
-constant uint parameter_abi_version = 1u;
+constant uint parameter_abi_version = 2u;
 constant uint plan_identity_version = 1u;
 constant uint opcode_white_balance = 1u;
 constant uint opcode_exposure = 2u;
@@ -26,6 +26,7 @@ constant uint opcode_selective_color = 9u;
 constant uint opcode_oklab_opponent_balance = 10u;
 constant uint opcode_oklab_opponent_tone_curves = 11u;
 constant uint opcode_oklab_color_warper = 12u;
+constant uint opcode_paint_layer = 13u;
 constant uint status_non_finite = 1u;
 constant uint status_bad_abi = 2u;
 constant uint status_bad_opcode = 4u;
@@ -60,6 +61,7 @@ struct MetalAdjustmentInvocation {
     float4 xyz_to_rgb_row_1;
     float4 xyz_to_rgb_row_2;
     float4 working_luminance;
+    uint paint_entry_count, paint_row_origin, paint_reserved_0, paint_reserved_1;
 };
 
 struct MetalAdjustmentOp {
@@ -734,12 +736,44 @@ inline bool execute_adjustment_program(
     device const float4* mixer_entries,
     device const MetalPerceptualRange* range_entries,
     device const float4* selective_color_entries,
+    device const float4* paint_entries,
+    uint2 position,
     constant MetalAdjustmentInvocation& invocation,
     device MetalAdjustmentStatus& status
 ) {
     for (uint step = 0u; step < invocation.step_count; ++step) {
         const MetalAdjustmentOp operation = operations[step];
         switch (operation.opcode) {
+        case opcode_paint_layer: {
+            const uint4 rect=uint4(operation.parameter_0);
+            const uint2 at=uint2(position.x,position.y+invocation.paint_row_origin);
+            if (at.x<rect.x || at.y<rect.y || at.x>=rect.x+rect.z || at.y>=rect.y+rect.w) break;
+            const uint local=(at.y-rect.y)*rect.z+(at.x-rect.x);
+            if(local>=operation.resource_count || operation.resource_offset>invocation.paint_entry_count || local>=invocation.paint_entry_count-operation.resource_offset) {
+                report_adjustment_failure(status,status_bad_resource,operation.source_node_index);return false;
+            }
+            const float4 p=paint_entries[operation.resource_offset+local];
+            if(p.a<=1e-8f) break;
+            const float alpha=p.a*operation.parameter_1.x;
+            const float3 ink=p.rgb/p.a;
+            const uint mode=uint(operation.parameter_1.y);
+            if(mode==0u) rgb=mix(rgb,ink,alpha);
+            else {
+                float3 original=working_rgb_to_oklab(rgb,invocation);
+                const float3 paint=working_rgb_to_oklab(ink,invocation);
+                if(mode==1u) original.yz=mix(original.yz,paint.yz,alpha);
+                else {
+                    const float b=clamp(original.x,0.0f,1.0f);
+                    const float light=pow(clamp(paint.x,0.0f,1.0f),3.0f);
+                    const float c=light<=0.0031308f?light*12.92f:1.055f*pow(light,1.0f/2.4f)-0.055f;
+                    const float d=b<=0.25f?((16.0f*b-12.0f)*b+4.0f)*b:sqrt(b);
+                    const float out=c<=0.5f?b-(1.0f-2.0f*c)*b*(1.0f-b):b+(2.0f*c-1.0f)*(d-b);
+                    original.x+=(out-b)*alpha;
+                }
+                rgb=oklab_to_working_rgb(original,invocation);
+            }
+            break;
+        }
         case opcode_white_balance:
             rgb = multiply_rows(
                 operation.parameter_0,

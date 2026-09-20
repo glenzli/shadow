@@ -540,6 +540,31 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
         settings.retouch_strokes.push_back(std::move(ffi_stroke));
     }
     settings.retouch_enabled = source.retouch_enabled;
+    for (const auto& layer : source.paint_layers) {
+        shadow::desktop::FfiPaintLayer value;
+        value.id = layer.id.toStdString();
+        value.label = layer.label.toStdString();
+        value.enabled = layer.enabled;
+        value.opacity = layer.opacity;
+        value.blend = layer.blend;
+        value.coordinate_width = layer.coordinate_width;
+        value.coordinate_height = layer.coordinate_height;
+        for (const auto& stroke : layer.strokes) {
+            shadow::desktop::FfiPaintStroke s;
+            s.radius = stroke.radius;
+            s.hardness = stroke.hardness;
+            s.opacity = stroke.opacity;
+            s.flow = stroke.flow;
+            s.red = stroke.red;
+            s.green = stroke.green;
+            s.blue = stroke.blue;
+            s.erase = stroke.erase;
+            for (const auto& p : stroke.points)
+                s.points.push_back({p.x, p.y, p.pressure});
+            value.strokes.push_back(std::move(s));
+        }
+        settings.paint_layers.push_back(std::move(value));
+    }
     settings.image_completions.reserve(static_cast<std::size_t>(source.image_completions.size()));
     for (const auto& region : source.image_completions) {
         settings.image_completions.push_back({
@@ -690,6 +715,32 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
         result.retouch_strokes.push_back(std::move(decoded));
     }
     result.retouch_enabled = source.retouch_enabled;
+    for (const auto& layer : source.paint_layers) {
+        BackendPaintLayer value;
+        value.id = QString::fromUtf8(layer.id.data(), static_cast<qsizetype>(layer.id.size()));
+        value.label =
+            QString::fromUtf8(layer.label.data(), static_cast<qsizetype>(layer.label.size()));
+        value.enabled = layer.enabled;
+        value.opacity = layer.opacity;
+        value.blend = layer.blend;
+        value.coordinate_width = layer.coordinate_width;
+        value.coordinate_height = layer.coordinate_height;
+        for (const auto& stroke : layer.strokes) {
+            BackendPaintStroke s;
+            s.radius = stroke.radius;
+            s.hardness = stroke.hardness;
+            s.opacity = stroke.opacity;
+            s.flow = stroke.flow;
+            s.red = stroke.red;
+            s.green = stroke.green;
+            s.blue = stroke.blue;
+            s.erase = stroke.erase;
+            for (const auto& p : stroke.points)
+                s.points.push_back({p.x, p.y, p.pressure});
+            value.strokes.push_back(std::move(s));
+        }
+        result.paint_layers.push_back(std::move(value));
+    }
     result.image_completions.reserve(
         checked_qt_vector_size(source.image_completions.size(), "image_completions")
     );

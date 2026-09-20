@@ -1,6 +1,7 @@
 #pragma once
 
 #include <shadow/image/lut.hpp>
+#include <shadow/image/paint.hpp>
 
 #include <array>
 #include <compare>
@@ -383,6 +384,7 @@ using AdjustmentParameters = std::variant<
     CubeLutAdjustment,
     SharpenAdjustment,
     SpotHealAdjustment,
-    ImageCompletionAdjustment>;
+    ImageCompletionAdjustment,
+    PaintLayerAdjustment>;
 
 } // namespace shadow::image

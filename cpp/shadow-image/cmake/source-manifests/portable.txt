@@ -31,6 +31,7 @@ src/edit/edit_error.cpp
 src/edit/finishing_effects_cpu.cpp
 src/edit/guided_selective_tone.cpp
 src/edit/image_completion.cpp
+src/edit/paint.cpp
 src/edit/local_mask.cpp
 src/edit/local_mask_coverage.cpp
 src/edit/local_mask_validation.cpp

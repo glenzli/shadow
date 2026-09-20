@@ -61,6 +61,7 @@ fn grade_stack_rejects_cross_grade_node_render_op_identity_reuse() {
     second.recipe_v1_identity.exposure_render_op_id =
         first.recipe_v1_identity.exposure_render_op_id;
     let invalid = GradeStackDraft {
+        paint_layers: Vec::new(),
         raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![first.clone(), second.clone()],
@@ -191,6 +192,7 @@ fn template_rejects_retained_identity_rewrite_and_deleted_node_reuse() {
     let mut replacement = GradeNodeDraft::neutral("Replacement Basic");
     replacement.recipe_v1_identity.exposure_render_op_id = deleted_exposure_id;
     let replacement_settings = GradeStackDraft {
+        paint_layers: Vec::new(),
         raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![base_settings.grade_nodes[1].clone(), replacement],
@@ -215,6 +217,7 @@ fn grade_stack_accepts_sixteen_grade_nodes_and_rejects_seventeen() {
     assert!(
         grade_stack_recipe_v1_snapshot(
             &GradeStackDraft {
+                paint_layers: Vec::new(),
                 raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
                 foundation: PhotoFoundationNode::default(),
                 grade_nodes: Vec::new(),
@@ -233,6 +236,7 @@ fn grade_stack_accepts_sixteen_grade_nodes_and_rejects_seventeen() {
         .contains("1 through 16")
     );
     let sixteen = GradeStackDraft {
+        paint_layers: Vec::new(),
         raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: (0..MAX_GRADE_NODES)

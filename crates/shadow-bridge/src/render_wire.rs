@@ -587,6 +587,37 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                 vec![],
             )
         }
+        AdjustmentRenderOperation::PaintLayer { layer } => {
+            let mut parameters = vec![
+                f64::from(layer.coordinate_width),
+                f64::from(layer.coordinate_height),
+                f64::from(layer.blend),
+                layer.opacity,
+            ];
+            let mut lengths = Vec::new();
+            for stroke in &layer.strokes {
+                lengths.push(u32::try_from(stroke.points.len()).expect("bounded paint points"));
+                parameters.extend([
+                    stroke.radius,
+                    stroke.hardness,
+                    stroke.opacity,
+                    stroke.flow,
+                    stroke.color[0],
+                    stroke.color[1],
+                    stroke.color[2],
+                    f64::from(u8::from(stroke.erase)),
+                ]);
+                for p in &stroke.points {
+                    parameters.extend([p.x, p.y, p.pressure]);
+                }
+            }
+            (
+                ffi::FfiAdjustmentOperation::PaintLayer,
+                parameters,
+                lengths,
+                vec![],
+            )
+        }
         AdjustmentRenderOperation::ImageCompletion { patches } => {
             let mut parameters = Vec::with_capacity(patches.len() * 9);
             let mut group_lengths = Vec::with_capacity(patches.len() + 1);

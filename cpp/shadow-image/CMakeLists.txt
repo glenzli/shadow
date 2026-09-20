@@ -687,6 +687,9 @@ if(BUILD_TESTING)
         tests/selective_color_contract_test.cpp
     )
 
+    shadow_image_add_contract(shadow-image-paint-tests shadow-image-paint-contract tests/paint_contract_test.cpp)
+    target_include_directories(shadow-image-paint-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/edit")
+
     shadow_image_add_contract(
         shadow-image-oklab-color-warper-tests
         shadow-image-oklab-color-warper-contract

@@ -56,6 +56,7 @@ fn project(source: GradeStackDraft, selected_node_id: &str) -> Result<LutExportP
         ),
         (!source.image_completions.is_empty(), "completion"),
         (source.liquify.is_some(), "liquify"),
+        (!source.paint_layers.is_empty(), "paint layers"),
         (source.canvas != PhotoCanvasNode::identity(), "canvas"),
     ] {
         if present {

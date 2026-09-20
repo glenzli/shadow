@@ -68,6 +68,8 @@ pub struct RecipeSnapshot {
     #[serde(flatten)]
     structural_nodes: PhotoStructuralNodes,
     layers: Vec<LayerInstance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    paint_layers: Vec<super::PaintLayer>,
 }
 
 impl RecipeSnapshot {
@@ -289,6 +291,7 @@ impl RecipeSnapshot {
             retouch_spots,
             retouch_strokes,
             retouch_enabled: true,
+            paint_layers: Vec::new(),
             image_completions: Vec::new(),
             image_completion_enabled: true,
             structural_nodes,
@@ -306,6 +309,7 @@ impl RecipeSnapshot {
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
             retouch_enabled: true,
+            paint_layers: Vec::new(),
             image_completions: Vec::new(),
             image_completion_enabled: true,
             structural_nodes: PhotoStructuralNodes::default(),
@@ -369,6 +373,25 @@ impl RecipeSnapshot {
     pub const fn with_retouch_enabled(mut self, enabled: bool) -> Self {
         self.retouch_enabled = enabled;
         self
+    }
+
+    /// Returns photo-local finishing layers in bottom-to-top compositing order.
+    pub fn paint_layers(&self) -> &[super::PaintLayer] {
+        &self.paint_layers
+    }
+
+    /// Replaces the photo-local finishing layers while validating the complete recipe.
+    ///
+    /// # Errors
+    /// Returns a validation error for invalid layers, duplicate identities or an invalid recipe.
+    pub fn with_paint_layers(
+        mut self,
+        layers: Vec<super::PaintLayer>,
+    ) -> Result<Self, RecipeValidationError> {
+        super::paint::validate_paint_layers(&layers)?;
+        self.paint_layers = layers;
+        self.validate()?;
+        Ok(self)
     }
 
     pub fn image_completions(&self) -> &[ImageCompletionRegion] {
@@ -465,6 +488,7 @@ impl RecipeSnapshot {
         for stroke in &self.retouch_strokes {
             stroke.validate()?;
         }
+        super::paint::validate_paint_layers(&self.paint_layers)?;
         if self.image_completions.len() > MAX_IMAGE_COMPLETION_REGIONS_PER_RECIPE {
             return Err(RecipeValidationError::TooManyImageCompletionRegions(
                 self.image_completions.len(),

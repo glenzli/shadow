@@ -14,7 +14,7 @@
 
 namespace shadow::image::detail {
 
-inline constexpr std::uint32_t metal_adjustment_parameter_abi_version = 1U;
+inline constexpr std::uint32_t metal_adjustment_parameter_abi_version = 2U;
 
 enum class MetalAdjustmentOpcode : std::uint32_t {
     rgb_white_balance = 1U,
@@ -29,6 +29,7 @@ enum class MetalAdjustmentOpcode : std::uint32_t {
     oklab_opponent_balance = 10U,
     oklab_opponent_tone_curves = 11U,
     oklab_color_warper = 12U,
+    paint_layer = 13U,
 };
 
 // Fixed-width transient ABI shared with the runtime-compiled Metal kernel. This is deliberately
@@ -53,6 +54,8 @@ struct alignas(16) MetalAdjustmentInvocation final {
     std::array<float, 4U> xyz_to_rgb_row_1{};
     std::array<float, 4U> xyz_to_rgb_row_2{};
     std::array<float, 4U> working_luminance{};
+    std::uint32_t paint_entry_count = 0, paint_row_origin = 0;
+    std::uint32_t paint_reserved_0 = 0, paint_reserved_1 = 0;
 };
 
 struct alignas(16) MetalAdjustmentOp final {
@@ -100,7 +103,7 @@ struct alignas(16) MetalSelectiveColorEntry final {
     std::array<float, 4U> cmyk{};
 };
 
-static_assert(sizeof(MetalAdjustmentInvocation) == 160U);
+static_assert(sizeof(MetalAdjustmentInvocation) == 176U);
 static_assert(alignof(MetalAdjustmentInvocation) == 16U);
 static_assert(offsetof(MetalAdjustmentInvocation, curve_segment_count) == 28U);
 static_assert(offsetof(MetalAdjustmentInvocation, lut_entry_count) == 32U);
@@ -128,6 +131,10 @@ static_assert(alignof(MetalPerceptualRange) == 16U);
 static_assert(sizeof(MetalSelectiveColorEntry) == 16U);
 static_assert(alignof(MetalSelectiveColorEntry) == 16U);
 
+struct alignas(16) MetalPaintPixel final {
+    std::array<float, 4> value{};
+};
+
 struct PreparedMetalAdjustment final {
     MetalAdjustmentInvocation invocation;
     std::vector<MetalAdjustmentOp> operations;
@@ -136,6 +143,7 @@ struct PreparedMetalAdjustment final {
     std::vector<MetalPerceptualMixerEntry> perceptual_mixer_entries;
     std::vector<MetalPerceptualRange> perceptual_range_entries;
     std::vector<MetalSelectiveColorEntry> selective_color_entries;
+    std::vector<MetalPaintPixel> paint_entries;
 };
 
 struct MetalAdjustmentPreparation final {
@@ -146,11 +154,14 @@ struct MetalAdjustmentPreparation final {
 // The portable host compiler owns two-pass resource planning and lowering while reusing the
 // semantic owners' prepared color transforms, curves, grading, and perceptual-stage contracts.
 [[nodiscard]] MetalAdjustmentPreparation prepare_metal_adjustment(
-    const FloatRgbImage& input, std::span<const AdjustmentNode> nodes,
-    const EditExecutionPlan& plan, AdjustmentExecutionContext context,
+    const FloatRgbImage& input,
+    std::span<const AdjustmentNode> nodes,
+    const EditExecutionPlan& plan,
+    AdjustmentExecutionContext context,
     // WarmEditPreviewSession validates and uploads its immutable source once. Its resident Metal
     // backend may skip the repeated full-raster finiteness/layout scan while retaining all
     // plan, context, color-space, and parameter validation below.
-    bool input_already_validated = false);
+    bool input_already_validated = false
+);
 
 } // namespace shadow::image::detail
