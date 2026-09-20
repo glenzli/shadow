@@ -17,6 +17,8 @@ subject_mask_terminal(const shadow::desktop::FfiSubjectMaskTerminal terminal) {
     switch (terminal) {
     case shadow::desktop::FfiSubjectMaskTerminal::Staged:
         return BackendSubjectMaskTerminal::Staged;
+    case shadow::desktop::FfiSubjectMaskTerminal::AnalysisReady:
+        return BackendSubjectMaskTerminal::AnalysisReady;
     case shadow::desktop::FfiSubjectMaskTerminal::PeopleReady:
         return BackendSubjectMaskTerminal::PeopleReady;
     case shadow::desktop::FfiSubjectMaskTerminal::Unavailable:
@@ -39,6 +41,10 @@ ffi_subject_mask_kind(const BackendSubjectMaskKind kind) {
         return shadow::desktop::FfiSubjectMaskKind::PeopleDiscovery;
     case BackendSubjectMaskKind::PeopleRegions:
         return shadow::desktop::FfiSubjectMaskKind::PeopleRegions;
+    case BackendSubjectMaskKind::SubjectAnalysis:
+        return shadow::desktop::FfiSubjectMaskKind::SubjectAnalysis;
+    case BackendSubjectMaskKind::SubjectEmphasis:
+        return shadow::desktop::FfiSubjectMaskKind::SubjectEmphasis;
     case BackendSubjectMaskKind::SemanticQuery:
         return shadow::desktop::FfiSubjectMaskKind::SemanticQuery;
     }
@@ -107,6 +113,16 @@ BackendSubjectMaskResult DesktopBackend::executeSubjectMaskJob(
         .preview_height = result.preview_height,
         .preview_samples = qbytes(result.preview_samples),
     };
+    projected.description = qstring(result.description);
+    projected.analysis_preview_jpeg = qbytes(result.analysis_preview_jpeg);
+    projected.analysis_model = qstring(result.analysis_model);
+    projected.emphasis_exposure = result.emphasis_exposure;
+    projected.emphasis_saturation = result.emphasis_saturation;
+    projected.emphasis_background = result.emphasis_background;
+    projected.emphasis_reason = result.emphasis_reason;
+    for (const auto& query : result.subject_queries) {
+        projected.subject_queries.push_back(qstring(query));
+    }
     projected.people.reserve(static_cast<qsizetype>(result.people.size()));
     for (const auto& person : result.people) {
         projected.people.push_back({

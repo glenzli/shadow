@@ -40,6 +40,33 @@ fn ffi_mask_component(kind: u8) -> ffi::FfiMaskComponent {
 }
 
 #[test]
+fn legacy_leaf_component_identity_survives_repeated_projection_and_autosave() {
+    let mut draft = GradeStackDraft::default();
+    draft.grade_nodes[0].local_mask = Some(
+        MaskDefinition::linear_gradient(unit(0.1), unit(0.2), unit(0.8), unit(0.9), false)
+            .expect("legacy leaf"),
+    );
+    let snapshot = super::grade_stack_recipe_v1_snapshot(&draft, None).expect("persist leaf");
+    let first = encode_grade_stack_draft_recipe_v1(draft.clone()).expect("first projection");
+    let second = encode_grade_stack_draft_recipe_v1(draft).expect("second projection");
+    let identity = &first.grade_nodes[0].local_mask_components[0].component_id;
+    assert_eq!(
+        identity,
+        &second.grade_nodes[0].local_mask_components[0].component_id
+    );
+    let restored = decode_grade_stack_draft_recipe_v1(&first).expect("decode desktop draft");
+    let saved =
+        super::grade_stack_recipe_v1_snapshot(&restored, Some(&snapshot)).expect("autosave");
+    let reopened = crate::recipe_v1::decode_grade_stack_draft_from_recipe_v1_snapshot(&saved)
+        .expect("reopen saved snapshot");
+    let reopened = encode_grade_stack_draft_recipe_v1(reopened).expect("reproject");
+    assert_eq!(
+        identity,
+        &reopened.grade_nodes[0].local_mask_components[0].component_id
+    );
+}
+
+#[test]
 fn grade_node_strength_round_trips_and_rejects_invalid_values() {
     let mut draft = GradeStackDraft::default();
     draft.grade_nodes[0].opacity = unit(0.37);

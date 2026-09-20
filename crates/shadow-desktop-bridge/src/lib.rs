@@ -50,8 +50,8 @@ mod session_preview_store;
 // Non-destructive edit contracts and shared Grade Node application.
 mod edit_version_diff;
 mod image_completion_runtime;
-mod infer_runtime_credentials;
 mod image_completion_service;
+mod infer_runtime_credentials;
 mod lut_export;
 mod raw_foundation_noise_assessment;
 mod raw_foundation_render_source;
@@ -67,6 +67,7 @@ mod session_image_completion;
 mod session_raw_foundation;
 mod session_recipe_import;
 mod session_shared_grade;
+mod session_subject_emphasis;
 mod session_subject_mask;
 mod shared_grade_application;
 mod shared_grade_library;
@@ -1774,6 +1775,8 @@ mod ffi {
         PeopleDiscovery,
         PeopleRegions,
         SemanticQuery,
+        SubjectAnalysis,
+        SubjectEmphasis,
     }
 
     #[derive(Debug)]
@@ -1809,6 +1812,7 @@ mod ffi {
     enum FfiSubjectMaskTerminal {
         Staged,
         PeopleReady,
+        AnalysisReady,
         Unavailable,
         Cancelled,
         Failed,
@@ -1829,6 +1833,14 @@ mod ffi {
         preview_height: u32,
         preview_samples: Vec<u8>,
         people: Vec<FfiSubjectMaskPerson>,
+        description: String,
+        subject_queries: Vec<String>,
+        analysis_preview_jpeg: Vec<u8>,
+        analysis_model: String,
+        emphasis_exposure: f64,
+        emphasis_saturation: f64,
+        emphasis_background: bool,
+        emphasis_reason: u8,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

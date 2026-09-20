@@ -130,3 +130,18 @@ Run focused validation with build output outside the shared source worktree:
 sh scripts/local_shared_workspace_guard.sh
 CARGO_TARGET_DIR=/absolute/task-private/path cargo test -p shadow-desktop-bridge --lib
 ```
+
+### Subject emphasis
+
+`session_subject_emphasis` owns current-crop Qwen evidence and the bounded light/color policy.
+It uses the existing typed description capability; keywords are suggestions requiring user
+selection, not ranked assertions of photographic intent. `session_subject_mask` retains cancellable
+input sessions, semantic grounding/SAM, immutable mask staging, and checked application.
+
+One analysis materializes a display-sized JPEG from current edits; selection separately prepares
+and reuses the original-space SAM JPEG. These explicit CPU image transfers leave reusable upstream
+RAW/foundation state intact. Results are tied to the captured photo, source, Recipe and generation;
+cancelled or superseded jobs cannot apply. There is no cross-session analysis cache. Accepted masks
+use the existing native-resolution soft-mask renderer, with the same Recipe for preview, detail,
+and export. Adjusting node strength invalidates only downstream grading; it performs no AI call,
+RAW re-decode, or repeated mask creation. Fine hair/transparent-edge matting is outside this preview.

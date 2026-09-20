@@ -268,10 +268,9 @@ void EditController::requestPresentationCommit() {
     before_requested_ = false;
     detail_queued_ = false;
     resetDetailState();
-    setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
-        "EditController",
-        "Updating the Library preview…"
-    )));
+    setStatusMessage(
+        edit_message(QT_TRANSLATE_NOOP("EditController", "Updating the Library preview…"))
+    );
     if (current_rendering_ || before_rendering_) {
         preview_queued_ = true;
         cancelActivePreview(true);
@@ -384,7 +383,7 @@ void EditController::saveVersion(const QString& version_name) {
         ));
         return;
     }
-    history_.finishGesture(grade_stack_);
+    history_.finishGesture({grade_stack_, base_commit_id_});
     emit historyChanged();
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Creating Library version “%1”…"), {name})
@@ -567,8 +566,9 @@ void EditController::finishStateTask() {
             );
             setAutosaveFailure(failure);
             setStatusMessage(failure);
-        } else if (result.kind == EditStateTaskKind::Open
-                   && incompatible_development_recipe(result.error)) {
+        } else if (
+            result.kind == EditStateTaskKind::Open && incompatible_development_recipe(result.error)
+        ) {
             recipe_recovery_message_ = edit_message(QT_TRANSLATE_NOOP(
                 "EditController",
                 "This photo uses an earlier development edit recipe that this build cannot read. "
@@ -818,7 +818,7 @@ void EditController::startAutosave() {
         return;
     }
     clearAutosaveFailure();
-    history_.finishGesture(grade_stack_);
+    history_.finishGesture({grade_stack_, base_commit_id_});
     emit historyChanged();
     persistence_state_.captureAutosaveSnapshot(working_revision_);
     emit autosavePendingChanged();
@@ -860,7 +860,11 @@ bool EditController::applyAutosavedState(BackendPhotoEditState state) {
     }
     setVersionDraft(false);
     clearAutosaveFailure();
-    setEditBaseCommitId(state.base_commit_id);
+    // A newer undo/redo may have restored masks absent from this older save.
+    // Advance only the CAS head in that case; preserve the draft's own anchor.
+    if (!changed_after_snapshot) {
+        setEditBaseCommitId(state.base_commit_id);
+    }
     durable_working_commit_id_ = state.base_commit_id;
     committed_grade_stack_ = saved_stack;
     setPhotoVariants(std::move(state.active_variant_id), std::move(state.variants));

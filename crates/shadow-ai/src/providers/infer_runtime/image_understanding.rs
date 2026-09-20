@@ -142,6 +142,41 @@ pub trait ClassificationReviewProvider {
     ) -> Result<ClassificationReviewEvidence, InferRuntimeClientError>;
 }
 
+impl InferRuntimeClient {
+    /// Local, bounded image evidence with prompt-lifecycle cancellation.
+    ///
+    /// # Errors
+    /// Returns SDK transport failures or rejected semantic evidence.
+    pub fn describe_image_cancellable(
+        &self,
+        image: &[u8],
+        source_revision: &str,
+        cancellation: &crate::CancellationToken,
+    ) -> Result<Option<ImageUnderstandingEvidence>, InferRuntimeClientError> {
+        if cancellation.is_cancelled() {
+            return Ok(None);
+        }
+        let (staged, media_type) = Self::stage_image(image, "image/jpeg", source_revision)?;
+        let metadata = local_metadata("interactive", Some("foundational"));
+        let request =
+            self.sdk()
+                .describe_image(staged.path(), media_type, source_revision, "en", &metadata);
+        let response = self.runtime.block_on(async {
+            tokio::select! {
+                response = request => response.map(Some),
+                () = async {
+                    while !cancellation.is_cancelled() {
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                    }
+                } => Ok(None),
+            }
+        })?;
+        response
+            .map(|response| admit_description(response, source_revision, "en"))
+            .transpose()
+    }
+}
+
 impl ImageUnderstandingProvider for InferRuntimeClient {
     fn describe_image(
         &self,

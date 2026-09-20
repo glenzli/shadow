@@ -250,7 +250,7 @@ impl SubjectMaskRuntime {
         }
     }
 
-    fn client(&self) -> Result<InferRuntimeClient, SubjectMaskRuntimeError> {
+    pub(crate) fn client(&self) -> Result<InferRuntimeClient, SubjectMaskRuntimeError> {
         Ok(InferRuntimeClient::from_credential_file_with_discovery(
             self.infer_base_url_override.as_deref(),
             &self.infer_credential_file,

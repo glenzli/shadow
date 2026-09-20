@@ -543,6 +543,18 @@ Rectangle {
                     interactionEnabled: canvas.activeToolMode === canvas.toolMask && !canvas.comparisonActive && !canvas.editor.aiMaskPromptActive && !canvas.editor.pointColorPickerActive && !canvas.editor.whiteBalancePickerActive && !canvas.editor.retouchPickerActive
                 }
 
+                Image {
+                    objectName: "subjectEmphasisCandidateOverlay"
+                    anchors.fill: parent
+                    z: 100
+                    source: canvas.editor.subjectEmphasis && canvas.editor.subjectEmphasis.active
+                        ? canvas.editor.subjectEmphasis.maskSource : ""
+                    visible: !canvas.comparisonActive && canvas.previewFrameReady
+                        && source.toString().length > 0
+                    fillMode: Image.Stretch
+                    cache: false
+                }
+
                 PrecisionAiMaskPromptOverlay {
                     anchors.fill: parent
                     z: 101

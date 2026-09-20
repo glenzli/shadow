@@ -3,6 +3,7 @@
 #include "desktop_backend.hpp"
 #include "edit_before_preview_state.hpp"
 #include "edit_history.hpp"
+#include "edit_history_snapshot.hpp"
 #include "edit_persistence_state.hpp"
 #include "edit_preview_contract.hpp"
 #include "edit_preview_provider.hpp"
@@ -32,6 +33,7 @@
 class EditPreviewPresentationContext;
 class EditAiCompletionController;
 class EditAiMaskController;
+class EditSubjectEmphasisController;
 class EditAutoGeometryController;
 class EditPersistenceTaskCoordinator;
 class EditRawFoundationController;
@@ -244,6 +246,7 @@ class EditController final : public QObject {
         bool maskCoverageShowsSelectedComponent READ maskCoverageShowsSelectedComponent WRITE
             setMaskCoverageShowsSelectedComponent NOTIFY maskCoverageModeChanged
     )
+    Q_PROPERTY(QObject* subjectEmphasis READ subjectEmphasis CONSTANT)
     Q_PROPERTY(bool aiMaskPromptActive READ aiMaskPromptActive NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskBusy READ aiMaskBusy NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskFaceRegionMode READ aiMaskFaceRegionMode NOTIFY aiMaskPromptChanged)
@@ -595,6 +598,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool maskToolActive() const noexcept;
     [[nodiscard]] QString maskCoverageSource() const;
     [[nodiscard]] bool maskCoverageShowsSelectedComponent() const noexcept;
+    [[nodiscard]] QObject* subjectEmphasis() const noexcept;
     [[nodiscard]] bool aiMaskPromptActive() const noexcept;
     [[nodiscard]] bool aiMaskBusy() const noexcept;
     [[nodiscard]] bool aiMaskFaceRegionMode() const noexcept;
@@ -1164,6 +1168,7 @@ class EditController final : public QObject {
 
     friend class EditAiCompletionController;
     friend class EditAiMaskController;
+    friend class EditSubjectEmphasisController;
     friend class EditAutoGeometryController;
     friend class EditRawFoundationController;
 
@@ -1174,6 +1179,7 @@ class EditController final : public QObject {
     EditPersistenceState persistence_state_;
     std::unique_ptr<EditAiCompletionController> image_completion_controller_;
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
+    std::unique_ptr<EditSubjectEmphasisController> subject_emphasis_controller_;
     std::unique_ptr<EditAutoGeometryController> auto_geometry_controller_;
     std::unique_ptr<EditPersistenceTaskCoordinator> persistence_task_coordinator_;
     std::unique_ptr<EditRawFoundationController> raw_foundation_controller_;
@@ -1185,7 +1191,7 @@ class EditController final : public QObject {
     QTimer preview_debounce_;
     QTimer detail_debounce_;
     QTimer detail_warmup_debounce_;
-    SessionEditHistory<BackendGradeStack> history_;
+    SessionEditHistory<EditHistorySnapshot> history_;
     // Slider/curve gestures render a deliberately smaller proxy so the first
     // useful frame wins over pixel-perfect fidelity. Once every gesture ends,
     // the controller queues the normal edit preview for the settled recipe.

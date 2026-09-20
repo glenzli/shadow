@@ -317,102 +317,26 @@ Rectangle {
                     ColumnLayout {
                         width: parent.width
                         spacing: 7
-                        enabled: inspector.editor.active && !inspector.editor.stateBusy
+                        enabled: inspector.editor.active
 
-                        Item {
-                            Layout.preferredHeight: 8
-                        }
-
-                        PrecisionFoundationAdjustments {
-                            Layout.fillWidth: true
-                            visible: !inspector.editor.rawDenoiseSelected
-                                && inspector.editor.selectedRecipeNodeKind !== "completion"
-                                && inspectorTabStrip.currentIndex === 0
+                        PrecisionSubjectEmphasis {
                             editor: inspector.editor
-                            gradeControlsEnabled: inspector.editor.gradeNodeEnabled
-                            panelRaised: inspector.panelRaised
-                            panelBorder: inspector.panelBorder
-                            textPrimary: inspector.textPrimary
-                            textMuted: inspector.textMuted
-                            accent: inspector.accent
-                        }
-
-                        PrecisionRawDenoiseAdjustments {
-                            Layout.fillWidth: true
-                            visible: inspector.editor.rawDenoiseSelected
-                                && inspectorTabStrip.currentIndex === 0
-                            editor: inspector.editor
-                            textPrimary: inspector.textPrimary
-                            textMuted: inspector.textMuted
-                            accent: inspector.accent
-                        }
-
-                        PrecisionAiCompletionTools {
-                            Layout.fillWidth: true
-                            visible:
-                                inspector.editor.selectedRecipeNodeKind === "completion"
-                                && inspectorTabStrip.currentIndex === 0
-                            editor: inspector.editor
-                            authoring: false
-                            onStartRequested:
-                                inspector.toolModeRequested(inspector.toolCompletion)
+                            visible: inspectorTabStrip.currentIndex === 0
+                            Layout.topMargin: 10
                         }
 
                         ColumnLayout {
-                            objectName: "gradeNodeInspector"
                             Layout.fillWidth: true
-                            visible: !inspector.editor.rawDenoiseSelected
-                                && inspector.editor.selectedRecipeNodeKind !== "completion"
-                            spacing: 8
-                            enabled: inspector.editor.foundationSelected
-                                || inspector.editor.gradeNodeEnabled
-                            opacity: enabled ? 1.0 : 0.42
+                            spacing: 7
+                            enabled: !inspector.editor.stateBusy
 
-                            Behavior on opacity {
-                                NumberAnimation {
-                                    duration: 100
-                                }
-                            }
-
-                            ShadowAdjustmentSection {
+                            PrecisionFoundationAdjustments {
                                 Layout.fillWidth: true
-                                visible: !inspector.editor.foundationSelected
-                                    && inspectorTabStrip.currentIndex === 0
-                                title: qsTr("NODE STRENGTH")
-                                summary: qsTr("%1%").arg(
-                                    Math.round(inspector.editor.gradeNodeStrength * 100))
-                                toolTipText: qsTr("Blend the complete Grade Node with its input. Zero bypasses the node; the adjustment graph is evaluated only once.")
-                                resetAvailable: true
-                                resetEnabled: Math.abs(inspector.editor.gradeNodeStrength - 1.0) > 0.000001
-                                onResetRequested: inspector.editor.gradeNodeStrength = 1.0
-
-                                ShadowSlider {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 14
-                                    Layout.rightMargin: 14
-                                    label: qsTr("Strength")
-                                    from: 0
-                                    to: 1
-                                    neutralValue: 1
-                                    fillFromMinimum: true
-                                    stepSize: 0.01
-                                    decimals: 0
-                                    displayMultiplier: 100
-                                    suffix: "%"
-                                    value: inspector.editor.gradeNodeStrength
-                                    onGestureStarted: inspector.editor.beginParameterEdit(
-                                        "node/strength")
-                                    onEdited: value => inspector.editor.gradeNodeStrength = value
-                                    onGestureFinished: inspector.editor.endParameterEdit(
-                                        "node/strength")
-                                }
-                            }
-
-                            PrecisionColorMixer {
-                                Layout.fillWidth: true
-                                visible: !inspector.editor.foundationSelected
+                                visible: !inspector.editor.rawDenoiseSelected
+                                    && inspector.editor.selectedRecipeNodeKind !== "completion"
                                     && inspectorTabStrip.currentIndex === 0
                                 editor: inspector.editor
+                                gradeControlsEnabled: inspector.editor.gradeNodeEnabled
                                 panelRaised: inspector.panelRaised
                                 panelBorder: inspector.panelBorder
                                 textPrimary: inspector.textPrimary
@@ -420,163 +344,247 @@ Rectangle {
                                 accent: inspector.accent
                             }
 
-                            PrecisionSelectiveColor {
+                            PrecisionRawDenoiseAdjustments {
                                 Layout.fillWidth: true
-                                visible: !inspector.editor.foundationSelected
+                                visible: inspector.editor.rawDenoiseSelected
                                     && inspectorTabStrip.currentIndex === 0
                                 editor: inspector.editor
-                                panelBorder: inspector.panelBorder
-                            }
-
-                            PrecisionPointColorSection {
-                                Layout.fillWidth: true
-                                visible: !inspector.editor.foundationSelected
-                                    && inspectorTabStrip.currentIndex === 0
-                                editor: inspector.editor
-                                analysisScope: analysisScope
-                                previewFrameReady: inspector.previewFrameReady
-                                readyPreviewGeneration: inspector.readyPreviewGeneration
-                                comparisonActive: inspector.comparisonActive
-                                accent: inspector.accent
-                            }
-
-                            ShadowAdjustmentSection {
-                                Layout.fillWidth: true
-                                visible: !inspector.editor.foundationSelected
-                                    && inspectorTabStrip.currentIndex === 0
-                                title: qsTr("COLOR MAP")
-                                summary: qsTr("OKLAB 5×5")
-                                toolTipText: qsTr("Move a smooth connected Oklab mesh after Color Mixer and Point Color. This is a separate chroma-field correction, not a hue-keyed slider.")
-                                resetAvailable: true
-                                onResetRequested: inspector.editor.resetColorWarper()
-
-                                ColorWarperEditor {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 14
-                                    Layout.rightMargin: 14
-                                    Layout.bottomMargin: 3
-                                    controller: inspector.editor
-                                }
-                            }
-
-                            PrecisionLutSection {
-                                Layout.fillWidth: true
-                                visible: !inspector.editor.foundationSelected
-                                    && inspectorTabStrip.currentIndex === 1
-                                editor: inspector.editor
-                                lutLibrary: inspector.lutLibrary
                                 textPrimary: inspector.textPrimary
-                                textSecondary: inspector.textSecondary
                                 textMuted: inspector.textMuted
                                 accent: inspector.accent
-                                onOpenLibraryRequested: inspector.openLutLibraryRequested()
                             }
 
-                            ShadowAdjustmentSection {
+                            PrecisionAiCompletionTools {
                                 Layout.fillWidth: true
-                                visible: !inspector.editor.foundationSelected
-                                    && inspectorTabStrip.currentIndex === 1
-                                title: qsTr("COLOR GRADING")
-                                toolTipText: qsTr("Tint shadows, midtones, and highlights independently with perceptual color wheels.")
-                                resetAvailable: true
-                                onResetRequested:
-                                    inspector.editor.resetSelectedAdjustmentSection(
-                                        "color_grading")
+                                visible:
+                                    inspector.editor.selectedRecipeNodeKind === "completion"
+                                    && inspectorTabStrip.currentIndex === 0
+                                editor: inspector.editor
+                                authoring: false
+                                onStartRequested:
+                                    inspector.toolModeRequested(inspector.toolCompletion)
+                            }
 
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 12
-                                    Layout.rightMargin: 12
-                                    spacing: 8
+                            ColumnLayout {
+                                objectName: "gradeNodeInspector"
+                                Layout.fillWidth: true
+                                visible: !inspector.editor.rawDenoiseSelected
+                                    && inspector.editor.selectedRecipeNodeKind !== "completion"
+                                spacing: 8
+                                enabled: inspector.editor.foundationSelected
+                                    || inspector.editor.gradeNodeEnabled
+                                opacity: enabled ? 1.0 : 0.42
 
-                                    Repeater {
-                                        model: [
-                                            {
-                                                "range": "shadows",
-                                                "label": qsTr("Shadows"),
-                                                "hue": "shadows_hue",
-                                                "saturation": "shadows_saturation",
-                                                "luminance": "shadows_luminance"
-                                            },
-                                            {
-                                                "range": "midtones",
-                                                "label": qsTr("Midtones"),
-                                                "hue": "midtones_hue",
-                                                "saturation": "midtones_saturation",
-                                                "luminance": "midtones_luminance"
-                                            },
-                                            {
-                                                "range": "highlights",
-                                                "label": qsTr("Highlights"),
-                                                "hue": "highlights_hue",
-                                                "saturation": "highlights_saturation",
-                                                "luminance": "highlights_luminance"
-                                            }
-                                        ]
-                                        delegate: ShadowColorWheel {
-                                            required property var modelData
-                                            Layout.fillWidth: true
-                                            label: modelData.label
-                                            hue: inspector.fineValue(modelData.hue)
-                                            saturation: inspector.fineValue(modelData.saturation)
-                                            luminance: inspector.fineValue(modelData.luminance)
-                                            onWheelGestureStarted: inspector.editor.beginParameterEdit("color_grading/" + modelData.range + "/wheel")
-                                            onWheelEdited: (hue, saturation) => inspector.editor.setColorGradingWheel(modelData.range, hue, saturation)
-                                            onWheelGestureFinished: inspector.editor.endParameterEdit("color_grading/" + modelData.range + "/wheel")
-                                            onLuminanceGestureStarted: inspector.editor.beginParameterEdit(modelData.luminance)
-                                            onLuminanceEdited: value => inspector.editor.setParameterValue(modelData.luminance, value)
-                                            onLuminanceGestureFinished: inspector.editor.endParameterEdit(modelData.luminance)
-                                        }
+                                Behavior on opacity {
+                                    NumberAnimation {
+                                        duration: 100
                                     }
                                 }
 
-                                Repeater {
-                                    model: [
-                                        {
-                                            "key": "grading_blending",
-                                            "name": qsTr("Blending"),
-                                            "from": 0,
-                                            "neutral": 0.5
-                                        },
-                                        {
-                                            "key": "grading_balance",
-                                            "name": qsTr("Balance"),
-                                            "from": -1,
-                                            "neutral": 0
-                                        }
-                                    ]
-                                    delegate: ShadowSlider {
-                                        required property var modelData
+                                ShadowAdjustmentSection {
+                                    Layout.fillWidth: true
+                                    visible: !inspector.editor.foundationSelected
+                                        && inspectorTabStrip.currentIndex === 0
+                                    title: qsTr("NODE STRENGTH")
+                                    summary: qsTr("%1%").arg(
+                                        Math.round(inspector.editor.gradeNodeStrength * 100))
+                                    toolTipText: qsTr("Blend the complete Grade Node with its input. Zero bypasses the node; the adjustment graph is evaluated only once.")
+                                    resetAvailable: true
+                                    resetEnabled: Math.abs(inspector.editor.gradeNodeStrength - 1.0) > 0.000001
+                                    onResetRequested: inspector.editor.gradeNodeStrength = 1.0
+
+                                    ShadowSlider {
                                         Layout.fillWidth: true
                                         Layout.leftMargin: 14
                                         Layout.rightMargin: 14
-                                        label: modelData.name
-                                        from: modelData.from
+                                        label: qsTr("Strength")
+                                        from: 0
                                         to: 1
-                                        neutralValue: modelData.neutral
+                                        neutralValue: 1
+                                        fillFromMinimum: true
                                         stepSize: 0.01
                                         decimals: 0
                                         displayMultiplier: 100
                                         suffix: "%"
-                                        value: inspector.fineValue(modelData.key)
-                                        onGestureStarted: inspector.editor.beginParameterEdit(modelData.key)
-                                        onEdited: value => inspector.editor.setParameterValue(modelData.key, value)
-                                        onGestureFinished: inspector.editor.endParameterEdit(modelData.key)
+                                        value: inspector.editor.gradeNodeStrength
+                                        onGestureStarted: inspector.editor.beginParameterEdit(
+                                            "node/strength")
+                                        onEdited: value => inspector.editor.gradeNodeStrength = value
+                                        onGestureFinished: inspector.editor.endParameterEdit(
+                                            "node/strength")
                                     }
+                                }
+
+                                PrecisionColorMixer {
+                                    Layout.fillWidth: true
+                                    visible: !inspector.editor.foundationSelected
+                                        && inspectorTabStrip.currentIndex === 0
+                                    editor: inspector.editor
+                                    panelRaised: inspector.panelRaised
+                                    panelBorder: inspector.panelBorder
+                                    textPrimary: inspector.textPrimary
+                                    textMuted: inspector.textMuted
+                                    accent: inspector.accent
+                                }
+
+                                PrecisionSelectiveColor {
+                                    Layout.fillWidth: true
+                                    visible: !inspector.editor.foundationSelected
+                                        && inspectorTabStrip.currentIndex === 0
+                                    editor: inspector.editor
+                                    panelBorder: inspector.panelBorder
+                                }
+
+                                PrecisionPointColorSection {
+                                    Layout.fillWidth: true
+                                    visible: !inspector.editor.foundationSelected
+                                        && inspectorTabStrip.currentIndex === 0
+                                    editor: inspector.editor
+                                    analysisScope: analysisScope
+                                    previewFrameReady: inspector.previewFrameReady
+                                    readyPreviewGeneration: inspector.readyPreviewGeneration
+                                    comparisonActive: inspector.comparisonActive
+                                    accent: inspector.accent
+                                }
+
+                                ShadowAdjustmentSection {
+                                    Layout.fillWidth: true
+                                    visible: !inspector.editor.foundationSelected
+                                        && inspectorTabStrip.currentIndex === 0
+                                    title: qsTr("COLOR MAP")
+                                    summary: qsTr("OKLAB 5×5")
+                                    toolTipText: qsTr("Move a smooth connected Oklab mesh after Color Mixer and Point Color. This is a separate chroma-field correction, not a hue-keyed slider.")
+                                    resetAvailable: true
+                                    onResetRequested: inspector.editor.resetColorWarper()
+
+                                    ColorWarperEditor {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 14
+                                        Layout.rightMargin: 14
+                                        Layout.bottomMargin: 3
+                                        controller: inspector.editor
+                                    }
+                                }
+
+                                PrecisionLutSection {
+                                    Layout.fillWidth: true
+                                    visible: !inspector.editor.foundationSelected
+                                        && inspectorTabStrip.currentIndex === 1
+                                    editor: inspector.editor
+                                    lutLibrary: inspector.lutLibrary
+                                    textPrimary: inspector.textPrimary
+                                    textSecondary: inspector.textSecondary
+                                    textMuted: inspector.textMuted
+                                    accent: inspector.accent
+                                    onOpenLibraryRequested: inspector.openLutLibraryRequested()
+                                }
+
+                                ShadowAdjustmentSection {
+                                    Layout.fillWidth: true
+                                    visible: !inspector.editor.foundationSelected
+                                        && inspectorTabStrip.currentIndex === 1
+                                    title: qsTr("COLOR GRADING")
+                                    toolTipText: qsTr("Tint shadows, midtones, and highlights independently with perceptual color wheels.")
+                                    resetAvailable: true
+                                    onResetRequested:
+                                        inspector.editor.resetSelectedAdjustmentSection(
+                                            "color_grading")
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 12
+                                        Layout.rightMargin: 12
+                                        spacing: 8
+
+                                        Repeater {
+                                            model: [
+                                                {
+                                                    "range": "shadows",
+                                                    "label": qsTr("Shadows"),
+                                                    "hue": "shadows_hue",
+                                                    "saturation": "shadows_saturation",
+                                                    "luminance": "shadows_luminance"
+                                                },
+                                                {
+                                                    "range": "midtones",
+                                                    "label": qsTr("Midtones"),
+                                                    "hue": "midtones_hue",
+                                                    "saturation": "midtones_saturation",
+                                                    "luminance": "midtones_luminance"
+                                                },
+                                                {
+                                                    "range": "highlights",
+                                                    "label": qsTr("Highlights"),
+                                                    "hue": "highlights_hue",
+                                                    "saturation": "highlights_saturation",
+                                                    "luminance": "highlights_luminance"
+                                                }
+                                            ]
+                                            delegate: ShadowColorWheel {
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                label: modelData.label
+                                                hue: inspector.fineValue(modelData.hue)
+                                                saturation: inspector.fineValue(modelData.saturation)
+                                                luminance: inspector.fineValue(modelData.luminance)
+                                                onWheelGestureStarted: inspector.editor.beginParameterEdit("color_grading/" + modelData.range + "/wheel")
+                                                onWheelEdited: (hue, saturation) => inspector.editor.setColorGradingWheel(modelData.range, hue, saturation)
+                                                onWheelGestureFinished: inspector.editor.endParameterEdit("color_grading/" + modelData.range + "/wheel")
+                                                onLuminanceGestureStarted: inspector.editor.beginParameterEdit(modelData.luminance)
+                                                onLuminanceEdited: value => inspector.editor.setParameterValue(modelData.luminance, value)
+                                                onLuminanceGestureFinished: inspector.editor.endParameterEdit(modelData.luminance)
+                                            }
+                                        }
+                                    }
+
+                                    Repeater {
+                                        model: [
+                                            {
+                                                "key": "grading_blending",
+                                                "name": qsTr("Blending"),
+                                                "from": 0,
+                                                "neutral": 0.5
+                                            },
+                                            {
+                                                "key": "grading_balance",
+                                                "name": qsTr("Balance"),
+                                                "from": -1,
+                                                "neutral": 0
+                                            }
+                                        ]
+                                        delegate: ShadowSlider {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 14
+                                            Layout.rightMargin: 14
+                                            label: modelData.name
+                                            from: modelData.from
+                                            to: 1
+                                            neutralValue: modelData.neutral
+                                            stepSize: 0.01
+                                            decimals: 0
+                                            displayMultiplier: 100
+                                            suffix: "%"
+                                            value: inspector.fineValue(modelData.key)
+                                            onGestureStarted: inspector.editor.beginParameterEdit(modelData.key)
+                                            onEdited: value => inspector.editor.setParameterValue(modelData.key, value)
+                                            onGestureFinished: inspector.editor.endParameterEdit(modelData.key)
+                                        }
+                                    }
+                                }
+
+                                PrecisionTechnicalTools {
+                                    Layout.fillWidth: true
+                                    inspector: inspector
+                                    currentTabIndex: inspectorTabStrip.currentIndex
+                                    foundationSelected: inspector.editor.foundationSelected
+                                    onOpenOpticsProfileLibraryRequested: inspector.openOpticsProfileLibraryRequested()
                                 }
                             }
 
-                            PrecisionTechnicalTools {
-                                Layout.fillWidth: true
-                                inspector: inspector
-                                currentTabIndex: inspectorTabStrip.currentIndex
-                                foundationSelected: inspector.editor.foundationSelected
-                                onOpenOpticsProfileLibraryRequested: inspector.openOpticsProfileLibraryRequested()
+                            Item {
+                                Layout.preferredHeight: 14
                             }
-                        }
-
-                        Item {
-                            Layout.preferredHeight: 14
                         }
                     }
                 }

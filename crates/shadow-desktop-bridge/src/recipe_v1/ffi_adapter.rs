@@ -569,7 +569,11 @@ fn ffi_mask_components(
     };
     Ok((
         vec![ffi_mask_component(
-            MaskComponentId::from_uuid(uuid::Uuid::new_v4()),
+            // A legacy leaf has no stored component ID. Its sole Base role is
+            // scoped to this Grade Node, so reuse that stable typed identity.
+            // Random IDs made every autosave appear to replace the mask and
+            // invalidated otherwise unchanged undo/redo snapshots.
+            MaskComponentId::from_uuid(grade_node.recipe_v1_identity.grade_node_id.as_uuid()),
             MaskComponentOperation::Base,
             true,
             &definition,

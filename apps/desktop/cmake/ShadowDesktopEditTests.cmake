@@ -247,6 +247,12 @@
     endif()
     add_test(NAME shadow-desktop-edit-history COMMAND shadow-edit-history-test)
 
+    add_executable(shadow-edit-history-snapshot-test tests/edit_history_snapshot_test.cpp)
+    target_compile_features(shadow-edit-history-snapshot-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-edit-history-snapshot-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-edit-history-snapshot-test PRIVATE Qt6::Core Qt6::Gui)
+    add_test(NAME shadow-desktop-edit-history-snapshot COMMAND shadow-edit-history-snapshot-test)
+
     add_executable(
         shadow-edit-history-restore-projection-test
         tests/edit_history_restore_projection_test.cpp

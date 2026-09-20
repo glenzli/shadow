@@ -109,11 +109,15 @@ impl DesktopSession {
             request.target_grade_node_index,
             &request.target_grade_node_id,
         )?;
+        if request.kind == ffi::FfiSubjectMaskKind::SubjectAnalysis {
+            return self.analyze_subject_emphasis(photo_id, source_path, request);
+        }
         let display_points = match request.kind {
             ffi::FfiSubjectMaskKind::PromptedSubject => subject_mask_points(&request.points)?,
             ffi::FfiSubjectMaskKind::PeopleDiscovery
             | ffi::FfiSubjectMaskKind::PeopleRegions
-            | ffi::FfiSubjectMaskKind::SemanticQuery => Vec::new(),
+            | ffi::FfiSubjectMaskKind::SemanticQuery
+            | ffi::FfiSubjectMaskKind::SubjectEmphasis => Vec::new(),
             _ => bail!("subject-mask selection kind is unsupported"),
         };
         let input_identity = SubjectMaskRenderInputIdentity {
@@ -346,7 +350,7 @@ impl DesktopSession {
                     parsed,
                 }
             }
-            ffi::FfiSubjectMaskKind::SemanticQuery => {
+            ffi::FfiSubjectMaskKind::SemanticQuery | ffi::FfiSubjectMaskKind::SubjectEmphasis => {
                 if !request.points.is_empty() {
                     bail!("semantic-mask request cannot also carry point prompts");
                 }
@@ -502,6 +506,18 @@ impl DesktopSession {
                 result.preview_width = output_extent.width;
                 result.preview_height = output_extent.height;
                 result.preview_samples = preview_samples;
+                if request.kind == ffi::FfiSubjectMaskKind::SubjectEmphasis {
+                    let preview = self.subject_masks.proposal_preview(proposal_token)?;
+                    if let Err(error) = super::session_subject_emphasis::recommend_emphasis(
+                        &prepared_input,
+                        &preview,
+                        grade_stack.canvas.effective_geometry(),
+                        &mut result,
+                    ) {
+                        let _ = self.subject_masks.discard_proposal(proposal_token);
+                        return Err(error);
+                    }
+                }
                 result.people = project_people(
                     self.subject_masks
                         .people_snapshot(request.input_session_token, &input_identity)?
@@ -742,7 +758,7 @@ const fn identity_ffi_geometry() -> ffi::FfiPhotoGeometry {
     }
 }
 
-fn subject_mask_terminal(
+pub(crate) fn subject_mask_terminal(
     request: &ffi::FfiSubjectMaskRequest,
     terminal: ffi::FfiSubjectMaskTerminal,
     proposal_token: u64,
@@ -758,6 +774,14 @@ fn subject_mask_terminal(
         preview_height: 0,
         preview_samples: Vec::new(),
         people: Vec::new(),
+        description: String::new(),
+        subject_queries: Vec::new(),
+        analysis_preview_jpeg: Vec::new(),
+        analysis_model: String::new(),
+        emphasis_exposure: 0.0,
+        emphasis_saturation: 1.0,
+        emphasis_background: false,
+        emphasis_reason: 0,
     }
 }
 

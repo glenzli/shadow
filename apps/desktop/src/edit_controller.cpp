@@ -2,6 +2,7 @@
 #include "ai_preferences.hpp"
 #include "edit_ai_completion_controller.hpp"
 #include "edit_ai_mask_controller.hpp"
+#include "edit_subject_emphasis_controller.hpp"
 #include "edit_auto_geometry_controller.hpp"
 #include "edit_persistence_task_coordinator.hpp"
 #include "edit_raw_foundation_controller.hpp"
@@ -49,6 +50,7 @@ EditController::EditController(
     versions_(this), tone_curve_points_(this) {
     image_completion_controller_ = std::make_unique<EditAiCompletionController>(*this, backend_);
     ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
+    subject_emphasis_controller_ = std::make_unique<EditSubjectEmphasisController>(*this, backend_);
     auto_geometry_controller_ = std::make_unique<EditAutoGeometryController>(*this);
     persistence_task_coordinator_ =
         std::make_unique<EditPersistenceTaskCoordinator>(*this, [this] { finishStateTask(); });
@@ -160,6 +162,7 @@ EditController::EditController(
 EditController::~EditController() {
     auto_geometry_controller_.reset();
     raw_foundation_controller_.reset();
+    subject_emphasis_controller_.reset();
     ai_mask_controller_.reset();
     image_completion_controller_.reset();
     preview_debounce_.stop();
@@ -174,12 +177,17 @@ EditController::~EditController() {
     detail_warmup_watcher_.waitForFinished();
 }
 
+QObject* EditController::subjectEmphasis() const noexcept {
+    return subject_emphasis_controller_.get();
+}
+
 bool EditController::active() const noexcept {
     return active_;
 }
 
 bool EditController::busy() const noexcept {
     return stateTaskRunning() || current_rendering_ || before_rendering_ || detail_rendering_
+           || (subject_emphasis_controller_ && subject_emphasis_controller_->busy())
            || (ai_mask_controller_ && ai_mask_controller_->busy())
            || (image_completion_controller_ && image_completion_controller_->busy())
            || (auto_geometry_controller_ && auto_geometry_controller_->busy());
@@ -197,6 +205,7 @@ bool EditController::interactionLocked() const noexcept {
     // remain interaction-locking operations.
     return persistence_state_.hasPendingVersionSave() || persistence_state_.hasPendingVersionLoad()
            || (stateTaskRunning() && stateTaskKind() != EditStateTaskKind::Autosave)
+           || (subject_emphasis_controller_ && subject_emphasis_controller_->active())
            || (ai_mask_controller_ && ai_mask_controller_->locksInteraction())
            || (image_completion_controller_ && image_completion_controller_->locksInteraction());
 }

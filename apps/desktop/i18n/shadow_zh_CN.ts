@@ -9942,6 +9942,34 @@ R %2 · G %3 · B %4</translation>
         <source>Import Shadow Recipe…</source>
         <translation>导入 Shadow Recipe…</translation>
     </message>
+    <message>
+        <source>Subject emphasis</source>
+        <translation>主体增强</translation>
+    </message>
+    <message>
+        <source>Local AI · Preview</source>
+        <translation>本地 AI · 预览版</translation>
+    </message>
+    <message>
+        <source>Analyze locally</source>
+        <translation>本地分析</translation>
+    </message>
+    <message>
+        <source>Use local QwenVL to describe this photo, then choose the subject. No cloud upload.</source>
+        <translation>使用本地 QwenVL 理解照片，再由你选择主体，不上传云端。</translation>
+    </message>
+    <message>
+        <source>Subject, e.g. bird</source>
+        <translation>主体，例如 bird（鸟）</translation>
+    </message>
+    <message>
+        <source>Select</source>
+        <translation>选择</translation>
+    </message>
+    <message>
+        <source>Apply emphasis</source>
+        <translation>应用增强</translation>
+    </message>
 </context>
 <context>
     <name>QObject</name>
@@ -14502,6 +14530,97 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/XmpImportDialog.qml" line="301"/>
         <source>All files (*)</source>
         <translation>所有文件 (*)</translation>
+    </message>
+</context>
+<context>
+    <name>EditSubjectEmphasisController</name>
+    <message>
+        <source>Enable local image understanding and subject selection in Settings first.</source>
+        <translation>请先在设置中启用本地图像理解和主体选择。</translation>
+    </message>
+    <message>
+        <source>Subject emphasis needs room for one adjustment node.</source>
+        <translation>主体增强需要一个可用的调整节点位置。</translation>
+    </message>
+    <message>
+        <source>Subject emphasis</source>
+        <translation>主体增强</translation>
+    </message>
+    <message>
+        <source>Could not start local analysis · %1</source>
+        <translation>无法启动本地分析 · %1</translation>
+    </message>
+    <message>
+        <source>Preparing the current photo for local QwenVL…</source>
+        <translation>正在为本地 QwenVL 准备当前照片…</translation>
+    </message>
+    <message>
+        <source>Selecting “%1” locally…</source>
+        <translation>正在本地选择“%1”…</translation>
+    </message>
+    <message>
+        <source>Save the current adjustments before analyzing.</source>
+        <translation>请先保存当前调整，再进行分析。</translation>
+    </message>
+    <message>
+        <source>Local analysis failed · %1</source>
+        <translation>本地分析失败 · %1</translation>
+    </message>
+    <message>
+        <source>QwenVL is analyzing locally. The first run may take a minute…</source>
+        <translation>QwenVL 正在本地分析，首次运行可能需要一分钟…</translation>
+    </message>
+    <message>
+        <source>%1 · choose the intended subject, or enter an English object name.</source>
+        <translation>%1 · 请选择想要突出的主体，或输入英文物体名称。</translation>
+    </message>
+    <message>
+        <source>The selection preview is invalid. Try another subject.</source>
+        <translation>选区预览无效，请尝试其他主体。</translation>
+    </message>
+    <message>
+        <source>Suggested: gently lift the subject (+0.18 EV). Check the blue selection before applying.</source>
+        <translation>建议：轻微提亮主体（+0.18 EV）。应用前请检查蓝色选区。</translation>
+    </message>
+    <message>
+        <source>Suggested: gently restrain the background (−0.12 EV), preserving subject highlights.</source>
+        <translation>建议：轻微压暗背景（−0.12 EV），保留主体高光。</translation>
+    </message>
+    <message>
+        <source>The selection is too broad, too small, or uncertain. Try a more specific subject.</source>
+        <translation>选区过大、过小或不够明确，请尝试更具体的主体名称。</translation>
+    </message>
+    <message>
+        <source>The subject is already distinct, or the lighting may be intentional. No adjustment is suggested.</source>
+        <translation>主体已经突出，或当前明暗可能是有意安排，建议保持原样。</translation>
+    </message>
+    <message>
+        <source>Local selection is unavailable · %1</source>
+        <translation>本地选区不可用 · %1</translation>
+    </message>
+    <message>
+        <source>Subject emphasis · background</source>
+        <translation>主体增强 · 背景</translation>
+    </message>
+    <message>
+        <source>Subject emphasis · subject</source>
+        <translation>主体增强 · 主体</translation>
+    </message>
+    <message>
+        <source>Applying subject emphasis…</source>
+        <translation>正在应用主体增强…</translation>
+    </message>
+    <message>
+        <source>Could not apply subject emphasis · %1</source>
+        <translation>无法应用主体增强 · %1</translation>
+    </message>
+    <message>
+        <source>Applied as an editable node. Adjust strength, compare before/after, or undo once.</source>
+        <translation>已添加可编辑节点，可调整强度、对比前后效果，或一次撤销。</translation>
+    </message>
+    <message>
+        <source>Cancelled. The photo and edit history are unchanged.</source>
+        <translation>已取消，照片和编辑历史未改变。</translation>
     </message>
 </context>
 </TS>

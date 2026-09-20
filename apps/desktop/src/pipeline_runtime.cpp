@@ -1,5 +1,6 @@
 #include "pipeline_run_controller.hpp"
 #include "pipeline_smoke_harness.hpp"
+#include "subject_emphasis_smoke_harness.hpp"
 
 #include "ai_preferences.hpp"
 #include "backend/export_backend.hpp"
@@ -28,6 +29,7 @@
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
 #include <QSaveFile>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QtConcurrent>
@@ -53,6 +55,15 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow Pipeline"));
     configurePipelineDecodeHelper();
+    // Explicitly share the installed application's service identity, while all
+    // catalog, Recipe, derived-raster and preference state remains temporary.
+    // Never copy credentials into the session directory or widen its ACL.
+    if (qEnvironmentVariableIsEmpty("SHADOW_INFER_CREDENTIAL_FILE")) {
+        const QString credential =
+            QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
+                .filePath(QStringLiteral("Shadow/credentials/infer-runtime-shadow.token"));
+        qputenv("SHADOW_INFER_CREDENTIAL_FILE", credential.toUtf8());
+    }
 
     QTemporaryDir runtime_root;
     if (!runtime_root.isValid()) {
@@ -141,6 +152,7 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
         }
         preview_context->attach(root_window);
         installPipelineSmokeHarness(engine, pipeline, editor);
+        installSubjectEmphasisSmokeHarness(engine, pipeline, editor);
         QTimer::singleShot(0, &pipeline, &PipelineRunController::start);
         return application.exec();
     }();

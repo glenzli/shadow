@@ -357,6 +357,10 @@ qt_add_executable(
     src/edit_variant_controller.cpp
     src/edit_adjustment_controller.cpp
     src/edit_adjustment_reset_controller.cpp
+    src/subject_emphasis_smoke_harness.cpp
+    src/subject_emphasis_smoke_harness.hpp
+    src/edit_subject_emphasis_controller.cpp
+    src/edit_subject_emphasis_controller.hpp
     src/edit_ai_mask_controller.cpp
     src/edit_ai_mask_controller.hpp
     src/edit_ai_completion_controller.cpp
@@ -898,6 +902,7 @@ qt_add_qml_module(
         qml/PrecisionRetouchSpotHandle.qml
         qml/PrecisionRetouchStrokeCoverage.qml
         qml/PrecisionRetouchStrokeHandle.qml
+        qml/PrecisionSubjectEmphasis.qml
         qml/PrecisionLocalMaskTools.qml
         qml/PrecisionMaskCreateMenu.qml
         qml/PrecisionSemanticMaskPanel.qml

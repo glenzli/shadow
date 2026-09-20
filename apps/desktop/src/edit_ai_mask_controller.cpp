@@ -349,6 +349,7 @@ void EditController::applySubjectMaskState(
     if (persistence_state_.clearAutosaveRequest()) {
         emit autosavePendingChanged();
     }
+    const QString before_base_commit_id = base_commit_id_;
     base_commit_id_ = state.base_commit_id;
     durable_working_commit_id_ = state.base_commit_id;
     committed_grade_stack_ = state.grade_stack;
@@ -363,8 +364,8 @@ void EditController::applySubjectMaskState(
     }
     history_.record(
         QStringLiteral("grade_node/%1/local_mask/ai").arg(target_grade_node_id).toStdString(),
-        before,
-        grade_stack_
+        {before, before_base_commit_id},
+        {grade_stack_, base_commit_id_}
     );
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
@@ -1030,6 +1031,7 @@ void EditAiMaskController::finishExecution() {
         ));
         publishStateChange(previous_busy, previously_locked);
         return;
+    case BackendSubjectMaskTerminal::AnalysisReady:
     case BackendSubjectMaskTerminal::Failed:
         owner_.setStatusMessage(ai_mask_message(
             QT_TRANSLATE_NOOP("EditController", "AI Mask failed · %1"),

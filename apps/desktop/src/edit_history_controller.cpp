@@ -60,7 +60,10 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
         first_interactive_frame_presented_ = false;
     }
     active_parameter_gestures_.insert(parameter_key);
-    history_.beginGesture(gradeNodeHistoryKey(parameter_key).toStdString(), grade_stack_);
+    history_.beginGesture(
+        gradeNodeHistoryKey(parameter_key).toStdString(),
+        {grade_stack_, base_commit_id_}
+    );
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
@@ -72,7 +75,10 @@ void EditController::endParameterEdit(const QString& parameter_key) {
     }
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.endGesture(gradeNodeHistoryKey(parameter_key).toStdString(), grade_stack_);
+    history_.endGesture(
+        gradeNodeHistoryKey(parameter_key).toStdString(),
+        {grade_stack_, base_commit_id_}
+    );
     const bool ended_active_gesture = active_parameter_gestures_.remove(parameter_key) > 0;
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
@@ -91,20 +97,21 @@ void EditController::undo() {
         return;
     }
     std::string history_key;
-    const auto restored = history_.undo(grade_stack_, &history_key);
+    const auto restored = history_.undo({grade_stack_, base_commit_id_}, &history_key);
     emit historyChanged();
     if (!restored) {
         return;
     }
     const QString preferred_id = EditHistoryRestoreProjection::preferredGradeNodeForRestore(
         history_key,
-        *restored,
+        restored->stack,
         selected_grade_node_index_
     );
     persistence_state_.requestAutosave();
     clearAutosaveFailure();
     ++working_revision_;
-    setGradeStack(*restored, preferred_id);
+    setEditBaseCommitId(restored->base_commit_id);
+    setGradeStack(restored->stack, preferred_id);
     schedulePreview(0);
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Undid the last session adjustment"))
@@ -116,7 +123,7 @@ void EditController::redo() {
         return;
     }
     std::string history_key;
-    const auto restored = history_.redo(grade_stack_, &history_key);
+    const auto restored = history_.redo({grade_stack_, base_commit_id_}, &history_key);
     emit historyChanged();
     if (!restored) {
         return;
@@ -124,11 +131,12 @@ void EditController::redo() {
     persistence_state_.requestAutosave();
     clearAutosaveFailure();
     ++working_revision_;
+    setEditBaseCommitId(restored->base_commit_id);
     setGradeStack(
-        *restored,
+        restored->stack,
         EditHistoryRestoreProjection::preferredGradeNodeForRestore(
             history_key,
-            *restored,
+            restored->stack,
             selected_grade_node_index_
         )
     );
@@ -364,7 +372,7 @@ void EditController::finishActiveGesture() {
     cancelActivePreview(true);
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.finishGesture(grade_stack_);
+    history_.finishGesture({grade_stack_, base_commit_id_});
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
@@ -381,7 +389,7 @@ void EditController::clearSessionHistory() {
 void EditController::recordWorkingTransition(const QString& key, const BackendGradeStack& before) {
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.record(key.toStdString(), before, grade_stack_);
+    history_.record(key.toStdString(), {before, base_commit_id_}, {grade_stack_, base_commit_id_});
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }

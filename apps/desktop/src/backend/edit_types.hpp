@@ -494,6 +494,8 @@ enum class BackendSubjectMaskKind : std::uint8_t {
     PeopleDiscovery,
     PeopleRegions,
     SemanticQuery,
+    SubjectAnalysis,
+    SubjectEmphasis,
 };
 
 enum class BackendFaceRegion : std::uint8_t {
@@ -513,6 +515,7 @@ enum class BackendFaceRegion : std::uint8_t {
 enum class BackendSubjectMaskTerminal : std::uint8_t {
     Staged,
     PeopleReady,
+    AnalysisReady,
     Unavailable,
     Cancelled,
     Failed,
@@ -553,6 +556,14 @@ struct BackendSubjectMaskResult final {
     std::uint32_t preview_height = 0;
     QByteArray preview_samples;
     QVector<BackendSubjectMaskPerson> people;
+    QString description;
+    QStringList subject_queries;
+    QByteArray analysis_preview_jpeg;
+    QString analysis_model;
+    double emphasis_exposure = 0.0;
+    double emphasis_saturation = 1.0;
+    bool emphasis_background = false;
+    std::uint8_t emphasis_reason = 0;
 };
 
 struct BackendSubjectMaskApplyRequest final {

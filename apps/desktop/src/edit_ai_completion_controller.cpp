@@ -799,11 +799,16 @@ void EditController::applyImageCompletionState(
     if (persistence_state_.clearAutosaveRequest()) {
         emit autosavePendingChanged();
     }
+    const QString before_base_commit_id = base_commit_id_;
     base_commit_id_ = state.base_commit_id;
     durable_working_commit_id_ = state.base_commit_id;
     committed_grade_stack_ = state.grade_stack;
     setGradeStack(std::move(state.grade_stack));
-    history_.record("image_completion/apply", before, grade_stack_);
+    history_.record(
+        "image_completion/apply",
+        {before, before_base_commit_id},
+        {grade_stack_, base_commit_id_}
+    );
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }

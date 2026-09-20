@@ -1443,6 +1443,8 @@ Valid persisted curves contain 2 through 256 finite points with exact x endpoint
 
 Precision also keeps a bounded, in-memory undo/redo history for the current edit session. All updates between a slider press/release or one curve-point drag are coalesced into one meaningful full-stack step; Grade Node add/duplicate/delete/reorder/bypass, point add/remove, curve reset, Grade Node reset, and revert are undoable transitions. Grade Node selection is transient UI state and does not make the Recipe dirty. Opening a photo or loading a saved version as a draft clears session history. Autosave preserves this session history; a named version establishes a new durable checkpoint and clears it. Standard Undo/Redo shortcuts use the platform mapping (`Cmd+Z` and `Cmd+Shift+Z` on macOS), with visible controls in the preview toolbar.
 
+`edit_history_snapshot.hpp` keeps the immutable Recipe content anchor with each session undo/redo snapshot, so managed masks remain recoverable after an intervening autosave removes them from the working head. Autosave updates the CAS head separately and preserves the anchor of any newer draft.
+
 Each durable version row summarizes its parent-relative Recipe diff. Renderer-backed controls use readable labels such as `Exposure · Tone Curve · Saturation`; curve edits, additions, and resets share the stable `Tone Curve` change label, while topology and future adjustment types use semantic fallbacks without exposing internal parameter keys or commit identifiers. The current-version badge and exact parent count remain visible beside that summary.
 
 RAW preparation is cached for up to two recent `(representation, source fingerprint, edge)` sessions. A slider, point-curve, structure, reorder, or Grade-Node-visible update reruns the render plan and JPEG encoder; it does not reopen or decode the RAW. For a bounded AI RAW preview, strength also rebinds the retained original/full-strength-AI Camera RGB bases in memory; it does not reread `.shadowrawf`, reopen the source, rerun the model, or mix the full-resolution artifact. Once AI RAW denoise is active, a settled overview no longer speculatively prepares the hundreds-of-MiB 1:1 source; only an explicit detail viewport request pays that cost. Undo and redo restore the complete working stack through the same generation-checked preview path. Continuous gestures use a leading-edge 16 ms throttle: they cannot postpone the first frame indefinitely. A render in flight does not disable controls; a newer revision is queued while the prior render finishes, and a completed same-photo intermediate frame may be presented without declaring the generation settled. Only the exact latest generation publishes histogram state or the current-status message. A deliberately hidden selected Grade Node is different—the controls remain visible but read-only and dimmed so its preserved values stay inspectable. Preview buffers are bounded, rebuildable, and never become Catalog facts. Shared sliders reset to their declared default on double-click; adjustment sliders preserve one undoable gesture, while amount controls such as AI strength fill from the logical minimum rather than painting backward from their reset value.
@@ -1578,3 +1580,24 @@ harness. The complete scenario changes the first photo's exposure, switches to a
 checks state separation, returns and checks persistence, then exports. Interactive smoke also
 requires `SHADOW_PIPELINE_SMOKE_OUTPUT`. Use only disposable test outputs. The registered tests
 create synthetic raster fixtures and verify original bytes and a separate Library sentinel.
+
+## Local subject emphasis preview
+
+`edit_subject_emphasis_controller` owns an independent Precision draft: local QwenVL describes the
+current edited crop, the user confirms an English subject query, and GroundingDINO/SAM return a
+selection preview. Visible subject/background measurements choose one restrained adjustment or
+recommend leaving the image unchanged. Applying adds one ordinary masked Grade Node in one undo
+transition. Strength uses existing node rendering; it never reruns inference. The preview is a
+selection preview, not a simulated edited image. Normal before/after remains available after apply.
+
+The independent editor explicitly uses the installed Shadow Infer Runtime credential (or the
+existing `SHADOW_INFER_CREDENTIAL_FILE` override). Catalog, derived masks, cache, and preferences
+remain private to that editing session. All requests retain local-only, offline, no-fallback policy.
+
+For explicit local-provider acceptance, launch a disposable `--pipeline-edit` request with
+`SHADOW_SUBJECT_EMPHASIS_SMOKE_QUERY` set to a known visible English subject. The inert-by-default
+`subject_emphasis_smoke_harness` verifies cancellation before mutation, real Qwen evidence, semantic
+selection, the main-canvas overlay, one-node apply, exact undo/redo, strength-only changes, and then
+runs the request's normal export. The fixture must admit a restrained adjustment; no-adjustment
+policy cases live in the bridge owner's unit tests. This opt-in check requires installed local
+providers and a valid Shadow credential; it never substitutes an external or cloud provider.
