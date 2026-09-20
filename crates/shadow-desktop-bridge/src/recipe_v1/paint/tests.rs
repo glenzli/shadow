@@ -27,6 +27,13 @@ fn paint_survives_desktop_snapshot_and_render_compilation() {
             flow: UnitInterval::new(0.2).unwrap(),
             color: [UnitInterval::ONE; 3],
             erase: false,
+            roundness: 0.35,
+            angle_degrees: 37.0,
+            spacing: 0.08,
+            texture: 2,
+            texture_strength: 0.7,
+            pressure_size: true,
+            pressure_flow: false,
         }],
     };
     let draft = GradeStackDraft {

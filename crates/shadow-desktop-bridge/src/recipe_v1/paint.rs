@@ -75,6 +75,14 @@ pub(super) fn append_paint_nodes(
                             flow: s.flow.get(),
                             color: s.color.map(shadow_domain::UnitInterval::get),
                             erase: s.erase,
+                            roundness: s.roundness,
+                            angle_degrees: s.angle_degrees,
+                            spacing: s.spacing,
+                            texture: s.texture,
+                            texture_strength: s.texture_strength,
+                            pressure_size: s.pressure_size,
+                            pressure_flow: s.pressure_flow,
+
                             points: s
                                 .points
                                 .iter()

@@ -88,6 +88,115 @@ void tile_and_pressure_contract() {
         p.pressure = 0;
     expect(render(source, layer).samples == source.samples, "zero pressure lays no ink");
 }
+void brush_tip_and_dynamics_contract() {
+    auto layer = paint();
+    auto& brush = layer.strokes[0];
+    brush.points = {{0.5, 0.5, 1}};
+    brush.radius = 0.2;
+    brush.hardness = 1;
+    brush.flow = 1;
+    brush.roundness = 0.2;
+    const auto source = input(160, 160);
+    const auto horizontal = render(source, layer);
+    const auto at = [](const auto& im, int x, int y) {
+        return im.samples[(static_cast<std::size_t>(y) * 160 + static_cast<std::size_t>(x)) * 3];
+    };
+    expect(
+        at(horizontal, 95, 80) != 0.2f && at(horizontal, 80, 95) == 0.2f,
+        "ellipse has the authored axes"
+    );
+    brush.angle_degrees = 90;
+    const auto vertical = render(source, layer);
+    expect(
+        at(vertical, 95, 80) == 0.2f && at(vertical, 80, 95) != 0.2f,
+        "angle rotates the ellipse"
+    );
+    brush.roundness = 1;
+    brush.angle_degrees = 0;
+    brush.pressure_size = true;
+    brush.pressure_flow = false;
+    brush.points[0].pressure = 0.1;
+    const auto small = render(source, layer);
+    brush.points[0].pressure = 1;
+    expect(
+        at(small, 95, 80) == 0.2f && at(render(source, layer), 95, 80) != 0.2f,
+        "pressure changes size separately from flow"
+    );
+    const auto full_pressure = render(source, layer);
+    brush.points = {{0.5, 0.5, 0.1}, {0.5, 0.5, 1.0}};
+    expect(
+        render(source, layer).samples == full_pressure.samples,
+        "stationary pressure increase updates the contact dab"
+    );
+    brush.points.resize(1);
+    brush.pressure_size = false;
+    brush.points[0].pressure = 0.1;
+    expect(
+        render(source, layer).samples != source.samples,
+        "disabled pressure flow retains ink at low pressure"
+    );
+    brush.points = {{0.2, 0.5, 1}, {0.8, 0.5, 1}};
+    brush.radius = 0.04;
+    brush.flow = 0.1;
+    brush.spacing = 0.05;
+    const auto dense = render(source, layer);
+    brush.spacing = 0.8;
+    const auto sparse = render(source, layer);
+    expect(dense.samples != sparse.samples, "spacing changes overlap without changing opacity");
+    for (std::uint8_t texture = 1; texture <= 2; ++texture) {
+        brush.texture = texture;
+        brush.texture_strength = 0.8;
+        brush.spacing = 0.125;
+        brush.roundness = 0.4;
+        brush.angle_degrees = 32;
+        brush.pressure_size = true;
+        brush.points = {{0.2, 0.3, 0.2}, {0.7, 0.6, 0.9}};
+        const auto full = render(source, layer);
+        expect(full.samples == render(source, layer).samples, "texture replay is deterministic");
+        const auto first = brush.points.front(), last = brush.points.back();
+        brush.points.insert(
+            brush.points.begin() + 1,
+            {(first.x + last.x) / 2, (first.y + last.y) / 2, (first.pressure + last.pressure) / 2}
+        );
+        const auto segmented = render(source, layer);
+        for (std::size_t i = 0; i < full.samples.size(); ++i)
+            expect_close_double(
+                segmented.samples[i],
+                full.samples[i],
+                1e-6,
+                "adaptive pressure spacing is independent of event density"
+            );
+        auto tile = render(
+            input(71, 63),
+            layer,
+            {.origin_x = 41, .origin_y = 37, .full_dimensions = source.dimensions}
+        );
+        for (std::uint32_t y = 0; y < 63; ++y)
+            for (std::uint32_t x = 0; x < 71; ++x)
+                for (std::size_t c = 0; c < 3; ++c)
+                    expect_close(
+                        tile.samples[(static_cast<std::size_t>(y) * 71 + x) * 3 + c],
+                        full.samples[(static_cast<std::size_t>(y + 37) * 160 + x + 41) * 3 + c],
+                        "textured ellipse has no tile seams"
+                    );
+        if (image::adjustment_backend_available(image::AdjustmentBackend::metal)) {
+            const auto gpu = image::execute_adjustment_nodes_with_backend(
+                source,
+                std::array{image::AdjustmentNode{.node_id = "paint", .parameters = layer}},
+                {},
+                image::AdjustmentBackendMode::metal
+            );
+            expect(!gpu.fell_back, "dynamic texture uses real Metal");
+            for (std::size_t i = 0; i < full.samples.size(); ++i)
+                expect_close_double(
+                    full.samples[i],
+                    gpu.pixels.samples[i],
+                    2e-5,
+                    "dynamic brush CPU/Metal parity"
+                );
+        }
+    }
+}
 void perceptual_color_and_gpu_parity() {
     const auto source = input();
     auto layer = paint();
@@ -134,6 +243,12 @@ void resident_editing_and_sampling_contract() {
     const auto source = input(1537, 1025);
     auto layer = paint();
     layer.strokes[0].radius = 0.012;
+    layer.strokes[0].roundness = 0.35;
+    layer.strokes[0].angle_degrees = 37;
+    layer.strokes[0].texture = 2;
+    layer.strokes[0].texture_strength = 0.7;
+    layer.strokes[0].pressure_size = true;
+    layer.strokes[0].points.front().pressure = 0.2;
     auto prepared = image::detail::prepare_warm_edit_gpu_session(source);
     if (!prepared.session) {
         expect(
@@ -227,6 +342,7 @@ void neutral_soft_light_and_path_sampling() {
 } // namespace
 int main() {
     immutable_input_and_eraser();
+    brush_tip_and_dynamics_contract();
     tile_and_pressure_contract();
     perceptual_color_and_gpu_parity();
     neutral_soft_light_and_path_sampling();

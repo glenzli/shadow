@@ -20,6 +20,10 @@ struct PaintStroke final {
     double flow = 0.1;
     std::array<double, 3> color{}; // unassociated display-sRGB
     bool erase = false;
+    double roundness = 1.0, angle_degrees = 0.0, spacing = 0.125;
+    std::uint8_t texture = 0;
+    double texture_strength = 0.5;
+    bool pressure_size = false, pressure_flow = true;
 };
 // 0 Normal, 1 Oklab Color, 2 Oklab-lightness Soft Light.
 struct PaintLayerAdjustment final {

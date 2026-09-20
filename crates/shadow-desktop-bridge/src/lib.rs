@@ -1640,6 +1640,14 @@ mod ffi {
     }
     #[derive(Debug, Clone)]
     struct FfiPaintStroke {
+        roundness: f64,
+        angle_degrees: f64,
+        spacing: f64,
+        texture: u8,
+        texture_strength: f64,
+        pressure_size: bool,
+        pressure_flow: bool,
+
         points: Vec<FfiPaintPoint>,
         radius: f64,
         hardness: f64,

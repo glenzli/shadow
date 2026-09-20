@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <shadow/image/edit_error.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/paint.hpp>
@@ -24,10 +25,37 @@ std::vector<Dab> dabs(const PaintStroke& stroke, const PaintLayerAdjustment& lay
     const double short_side = std::min(layer.coordinate_width, layer.coordinate_height);
     const double sx = layer.coordinate_width / short_side,
                  sy = layer.coordinate_height / short_side;
-    const double spacing = stroke.radius * 0.25;
+    const double spacing = stroke.radius * 2.0 * stroke.spacing;
     std::vector<Dab> result{
         {stroke.points.front().x, stroke.points.front().y, stroke.points.front().pressure}
     };
+    // Pressure-size strokes use an adaptive arc-length step, with a conservative
+    // 10%-size workload bound at admission. The legacy branch remains byte-for-byte equivalent.
+    if (stroke.pressure_size) {
+        double remaining = spacing * (0.1 + 0.9 * stroke.points.front().pressure);
+        for (std::size_t i = 1; i < stroke.points.size(); ++i) {
+            const auto& a = stroke.points[i - 1];
+            const auto& b = stroke.points[i];
+            const double length = std::hypot((b.x - a.x) * sx, (b.y - a.y) * sy);
+            if (length <= 1e-12) {
+                auto& last = result.back();
+                if (std::hypot(last.x - b.x, last.y - b.y) <= 1e-12)
+                    last.pressure = std::max(last.pressure, b.pressure);
+                continue;
+            }
+            double distance = remaining;
+            while (distance <= length) {
+                if (result.size() >= 32'768U)
+                    invalid("Paint stroke exceeds the dab budget");
+                const double t = distance / length;
+                const double pressure = a.pressure + (b.pressure - a.pressure) * t;
+                result.push_back({a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, pressure});
+                distance += spacing * (0.1 + 0.9 * pressure);
+            }
+            remaining = distance - length;
+        }
+        return result;
+    }
     double carry = 0;
     for (std::size_t i = 1; i < stroke.points.size(); ++i) {
         const auto& a = stroke.points[i - 1];
@@ -49,6 +77,26 @@ std::vector<Dab> dabs(const PaintStroke& stroke, const PaintLayerAdjustment& lay
         carry = length - (distance - spacing);
     }
     return result;
+}
+double texture_noise(double x, double y, std::uint8_t texture) {
+    const double scale = texture == 1 ? 24.0 : 9.0;
+    x = (x + 2.0) * scale;
+    y = (y + 2.0) * scale;
+    const auto ix = static_cast<std::uint32_t>(std::floor(x));
+    const auto iy = static_cast<std::uint32_t>(std::floor(y));
+    const auto hash = [](std::uint32_t a, std::uint32_t b) {
+        std::uint32_t n = a * 374761393U + b * 668265263U + 0x9e3779b9U;
+        n = (n ^ (n >> 13U)) * 1274126177U;
+        n ^= n >> 16U;
+        return static_cast<double>(n & 0xffffU) / 65535.0;
+    };
+    double u = x - ix, v = y - iy;
+    u = u * u * (3 - 2 * u);
+    v = v * v * (3 - 2 * v);
+    const double a = std::lerp(hash(ix, iy), hash(ix + 1, iy), u);
+    const double b = std::lerp(hash(ix, iy + 1), hash(ix + 1, iy + 1), u);
+    const double n = std::lerp(a, b, v);
+    return texture == 1 ? 0.2 + 0.8 * n : std::clamp((n - 0.3) / 0.5, 0.0, 1.0);
 }
 struct Rect {
     int l = 0, t = 0, r = 0, b = 0;
@@ -105,6 +153,10 @@ void validate_paint_layer(const PaintLayerAdjustment& layer) {
         if (stroke.points.empty() || stroke.points.size() > 2048 || count > 32768
             || !unit(stroke.radius) || stroke.radius < 0.0001 || stroke.radius > 0.25
             || !unit(stroke.hardness) || !unit(stroke.flow) || !unit(stroke.opacity)
+            || !std::isfinite(stroke.roundness) || stroke.roundness < 0.1 || stroke.roundness > 1
+            || !std::isfinite(stroke.angle_degrees) || std::abs(stroke.angle_degrees) > 180
+            || !std::isfinite(stroke.spacing) || stroke.spacing < 0.02 || stroke.spacing > 1
+            || stroke.texture > 2 || !unit(stroke.texture_strength)
             || !std::all_of(stroke.color.begin(), stroke.color.end(), unit))
             invalid("Invalid paint stroke parameters");
         for (const auto& p : stroke.points)
@@ -116,7 +168,10 @@ void validate_paint_layer(const PaintLayerAdjustment& layer) {
                 (stroke.points[i].x - stroke.points[i - 1].x) * layer.coordinate_width / short_side,
                 (stroke.points[i].y - stroke.points[i - 1].y) * layer.coordinate_height / short_side
             );
-        const double dabs = 1 + distance / (stroke.radius * 0.25);
+        const double dabs =
+            1
+            + distance
+                  / (stroke.radius * 2.0 * stroke.spacing * (stroke.pressure_size ? 0.1 : 1.0));
         total_dabs += dabs;
         if (dabs > 32760 || total_dabs > 262144)
             invalid("Paint dab budget exceeded");
@@ -186,16 +241,24 @@ PreparedPaintOverlay prepare_paint_overlay(
                 box.r - box.l,
                 0.0f
             );
+        const double angle = stroke.angle_degrees * std::numbers::pi / 180.0;
+        const double cosine = std::cos(angle), sine = std::sin(angle);
         for (const auto& dab : paths[si]) {
+            const double size = stroke.pressure_size ? 0.1 + 0.9 * dab.pressure : 1.0;
+            const double extent_x = rx * size * std::hypot(cosine, stroke.roundness * sine);
+            const double extent_y = ry * size * std::hypot(sine, stroke.roundness * cosine);
             const double cx = dab.x * full.width - context.origin_x,
                          cy = dab.y * full.height - context.origin_y;
-            const int l = std::max(box.l, static_cast<int>(std::floor(cx - rx))),
-                      r = std::min(box.r, static_cast<int>(std::ceil(cx + rx)));
-            const int t = std::max(box.t, static_cast<int>(std::floor(cy - ry))),
-                      b = std::min(box.b, static_cast<int>(std::ceil(cy + ry)));
+            const int l = std::max(box.l, static_cast<int>(std::floor(cx - extent_x))),
+                      r = std::min(box.r, static_cast<int>(std::ceil(cx + extent_x)));
+            const int t = std::max(box.t, static_cast<int>(std::floor(cy - extent_y))),
+                      b = std::min(box.b, static_cast<int>(std::ceil(cy + extent_y)));
             for (int y = t; y < b; ++y)
                 for (int x = l; x < r; ++x) {
-                    const double d = std::hypot((x + 0.5 - cx) / rx, (y + 0.5 - cy) / ry);
+                    const double dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
+                    const double u = (cosine * dx + sine * dy) / size;
+                    const double v = (-sine * dx + cosine * dy) / (size * stroke.roundness);
+                    const double d = std::hypot(u, v);
                     if (d >= 1)
                         continue;
                     double a = 1;
@@ -203,7 +266,10 @@ PreparedPaintOverlay prepare_paint_overlay(
                         const double u = (d - stroke.hardness) / (1 - stroke.hardness);
                         a = 1 - u * u * (3 - 2 * u);
                     }
-                    a *= stroke.flow * dab.pressure;
+                    if (stroke.texture != 0 && stroke.texture_strength > 0)
+                        a *= 1 - stroke.texture_strength
+                             + stroke.texture_strength * texture_noise(u, v, stroke.texture);
+                    a *= stroke.flow * (stroke.pressure_flow ? dab.pressure : 1.0);
                     auto& c = coverage
                         [static_cast<std::size_t>(y - region.t) * result.width
                          + static_cast<std::size_t>(x - region.l)];

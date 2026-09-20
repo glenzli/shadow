@@ -510,9 +510,18 @@ void require_parameter_count(
             .blend = static_cast<std::uint8_t>(source.parameters[2]),
             .opacity = source.parameters[3]
         };
+        std::size_t legacy_size = 4;
+        for (const auto count : source.parameter_group_lengths) {
+            if (!count || count > 2048) throw_invalid_adjustment_plan("invalid paint point count");
+            legacy_size += 8U + 3U * count;
+        }
+        const bool extended = source.parameters.size() == legacy_size + 7U * source.parameter_group_lengths.size();
+        if (!extended && source.parameters.size() != legacy_size)
+            throw_invalid_adjustment_plan("invalid paint brush wire length");
+        const std::size_t header_size = extended ? 15U : 8U;
         std::size_t offset = 4;
         for (const auto count : source.parameter_group_lengths) {
-            if (!count || count > 2048 || source.parameters.size() - offset < 8U + 3U * count)
+            if (!count || count > 2048 || source.parameters.size() - offset < header_size + 3U * count)
                 throw_invalid_adjustment_plan("invalid paint stroke wire");
             if (!integer(source.parameters[offset + 7], 1))
                 throw_invalid_adjustment_plan("invalid paint eraser flag");
@@ -527,7 +536,20 @@ void require_parameter_count(
                      source.parameters[offset + 6]},
                 .erase = source.parameters[offset + 7] == 1
             };
-            offset += 8;
+            if (extended) {
+                if (!integer(source.parameters[offset + 11], 2)
+                    || !integer(source.parameters[offset + 13], 1)
+                    || !integer(source.parameters[offset + 14], 1))
+                    throw_invalid_adjustment_plan("invalid paint tip identity or dynamics");
+                stroke.roundness = source.parameters[offset + 8];
+                stroke.angle_degrees = source.parameters[offset + 9];
+                stroke.spacing = source.parameters[offset + 10];
+                stroke.texture = static_cast<std::uint8_t>(source.parameters[offset + 11]);
+                stroke.texture_strength = source.parameters[offset + 12];
+                stroke.pressure_size = source.parameters[offset + 13] == 1;
+                stroke.pressure_flow = source.parameters[offset + 14] == 1;
+            }
+            offset += header_size;
             for (std::uint32_t i = 0; i < count; ++i) {
                 stroke.points.push_back(
                     {source.parameters[offset],

@@ -22,6 +22,13 @@ fn layer() -> PaintLayer {
             flow: UnitInterval::new(0.1).unwrap(),
             color: [UnitInterval::ONE, UnitInterval::ZERO, UnitInterval::ZERO],
             erase: false,
+            roundness: 1.0,
+            angle_degrees: 0.0,
+            spacing: 0.125,
+            texture: 0,
+            texture_strength: 0.5,
+            pressure_size: false,
+            pressure_flow: true,
         }],
     }
 }
@@ -62,4 +69,36 @@ fn invalid_paint_is_rejected_without_changing_snapshot() {
     invalid = paint;
     invalid.coordinate_width = 0;
     assert!(invalid.validate().is_err());
+}
+
+#[test]
+fn legacy_stroke_bytes_and_new_tip_parameters_round_trip() {
+    let mut brush = layer().strokes.remove(0);
+    let old = serde_json::to_string(&brush).unwrap();
+    assert!(!old.contains("spacing") && !old.contains("pressure_flow"));
+    let restored: PaintStroke = serde_json::from_str(&old).unwrap();
+    assert_eq!(serde_json::to_string(&restored).unwrap(), old);
+    brush.roundness = 0.3;
+    brush.angle_degrees = -47.0;
+    brush.spacing = 0.05;
+    brush.texture = 2;
+    brush.texture_strength = 0.72;
+    brush.pressure_size = true;
+    brush.pressure_flow = false;
+    let encoded = serde_json::to_string(&brush).unwrap();
+    assert_eq!(
+        serde_json::from_str::<PaintStroke>(&encoded).unwrap(),
+        brush
+    );
+    let mut p = layer();
+    p.strokes = vec![brush];
+    p.validate().unwrap();
+    p.strokes[0].spacing = 0.0;
+    assert!(p.validate().is_err());
+    p.strokes[0].spacing = 0.125;
+    p.strokes[0].texture = 3;
+    assert!(p.validate().is_err());
+    p.strokes[0].texture = 0;
+    p.strokes[0].roundness = f64::NAN;
+    assert!(p.validate().is_err());
 }

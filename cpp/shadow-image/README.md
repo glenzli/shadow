@@ -43,6 +43,14 @@ inside a dab. Preview, detail and export share path spacing and coverage, with t
 coordinate extent and explicit tile origin. Color preserves Oklab lightness; Soft Light changes
 only Oklab lightness and treats encoded 50% gray as neutral. These are photographic blend modes,
 not a Photoshop compatibility contract. Very large untiled outputs use the tiled CPU fallback.
+Elliptical tips rotate in authored photo pixels. Spacing is a fraction of diameter; pressure-size
+strokes step adaptively in arc length with a conservative 10%-diameter admission budget. Fine-grain
+and soft-speckle tips use deterministic grayscale noise in tip coordinates, shared across preview,
+tiled export and GPU coverage preparation. Legacy strokes retain the original circular tip and
+one-quarter-radius spacing. Native wire decoding accepts both old eight-value and new fifteen-value
+stroke headers. Per-dab bounds shrink with ellipse and pressure size; layer rasterization still
+replays its strokes when geometry/coverage changes, so long dense layers remain CPU preparation
+work rather than a guaranteed frame-time budget.
 
 ## Linear composite raster
 

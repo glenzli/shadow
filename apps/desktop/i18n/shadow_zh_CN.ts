@@ -9983,10 +9983,6 @@ R %2 · G %3 · B %4</translation>
         <translation>绘制</translation>
     </message>
     <message>
-        <source>Subtle color repair and light shaping on separate layers. Original pixels stay intact.</source>
-        <translation>在独立图层上细调颜色与明暗，保留原始像素。</translation>
-    </message>
-    <message>
         <source>Draw to create a layer</source>
         <translation>绘制时自动创建图层</translation>
     </message>
@@ -10071,12 +10067,104 @@ R %2 · G %3 · B %4</translation>
         <translation>请启用图层后再绘制。</translation>
     </message>
     <message>
-        <source>Low flow builds up gradually. Erase reveals the layers below. Each stroke can be undone.</source>
-        <translation>低流量可逐渐叠加效果；擦除显示下方图层。每一笔均可撤销。</translation>
-    </message>
-    <message>
         <source>Paint layers</source>
         <translation>绘制层</translation>
+    </message>
+    <message>
+        <source>Brush tip and dynamics</source>
+        <translation>笔尖与动态</translation>
+    </message>
+    <message>
+        <source>Save brush…</source>
+        <translation>保存笔刷…</translation>
+    </message>
+    <message>
+        <source>Remove preset</source>
+        <translation>移除预设</translation>
+    </message>
+    <message>
+        <source>Save brush preset</source>
+        <translation>保存笔刷预设</translation>
+    </message>
+    <message>
+        <source>Preset name</source>
+        <translation>预设名称</translation>
+    </message>
+    <message>
+        <source>A matching name replaces that preset.</source>
+        <translation>同名保存会替换已有预设。</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>保存</translation>
+    </message>
+    <message>
+        <source>Layer controls</source>
+        <translation>图层设置</translation>
+    </message>
+    <message>
+        <source>A preset with a different blend starts a new layer on the next stroke. Existing strokes keep their settings.</source>
+        <translation>切换到混合模式不同的预设后，下一笔将新建图层，已有笔画保留各自的设置。</translation>
+    </message>
+    <message>
+        <source>Custom brush</source>
+        <translation>自定义笔刷</translation>
+    </message>
+    <message>
+        <source>Brush A</source>
+        <translation>笔刷 A</translation>
+    </message>
+    <message>
+        <source>Switch brush A/B · X</source>
+        <translation>切换笔刷 A/B · X</translation>
+    </message>
+    <message>
+        <source>Brush B</source>
+        <translation>笔刷 B</translation>
+    </message>
+    <message>
+        <source>Tip angle</source>
+        <translation>笔尖角度</translation>
+    </message>
+    <message>
+        <source>Spacing</source>
+        <translation>间距</translation>
+    </message>
+    <message>
+        <source>Distance between impressions, relative to brush diameter. Lower spacing builds coverage faster.</source>
+        <translation>笔印间距相对于笔尖直径的比例。间距越小，叠加速度越快。</translation>
+    </message>
+    <message>
+        <source>Smoothing</source>
+        <translation>平滑</translation>
+    </message>
+    <message>
+        <source>Steadies the path while drawing. Release completes the stroke at the pointer.</source>
+        <translation>绘制时平滑路径，松开时将笔画补全至指针位置。</translation>
+    </message>
+    <message>
+        <source>Pressure</source>
+        <translation>压感</translation>
+    </message>
+    <message>
+        <source>A pen controls pressure; a mouse uses full pressure. Size ranges from 10% to the selected diameter.</source>
+        <translation>数位笔控制压力，鼠标按满压力绘制。压感大小范围为所选直径的 10%–100%。</translation>
+    </message>
+    <message>
+        <source>Solid tip</source>
+        <translation>实心笔尖</translation>
+    </message>
+    <message>
+        <source>Fine grain</source>
+        <translation>细颗粒</translation>
+    </message>
+    <message>
+        <source>Soft speckle</source>
+        <translation>柔和斑点</translation>
+    </message>
+    <message>
+        <source>Texture strength</source>
+        <translation>纹理强度</translation>
     </message>
 </context>
 <context>
@@ -14752,6 +14840,41 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     <message>
         <source>Wait for the preview, then sample again.</source>
         <translation>请等待预览完成后重新取色。</translation>
+    </message>
+    <message>
+        <source>Eight layers are in use. Select a matching layer or remove an unused one.</source>
+        <translation>已使用八个图层，请选择混合模式相同的图层，或移除不用的图层。</translation>
+    </message>
+    <message>
+        <source>Use a name of 1–64 characters. Up to 12 custom brushes can be saved.</source>
+        <translation>名称须为 1–64 个字符，最多可保存 12 个自定义笔刷。</translation>
+    </message>
+</context>
+<context>
+    <name>PaintBrushPresets</name>
+    <message>
+        <source>Soft color repair</source>
+        <translation>柔和补色</translation>
+    </message>
+    <message>
+        <source>Gentle dodge</source>
+        <translation>轻柔提亮</translation>
+    </message>
+    <message>
+        <source>Gentle burn</source>
+        <translation>轻柔压暗</translation>
+    </message>
+    <message>
+        <source>Fine edge</source>
+        <translation>边缘精修</translation>
+    </message>
+    <message>
+        <source>Soft erase</source>
+        <translation>柔和擦除</translation>
+    </message>
+    <message>
+        <source>Fine texture</source>
+        <translation>细腻纹理</translation>
     </message>
 </context>
 </TS>

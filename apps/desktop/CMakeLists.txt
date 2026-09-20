@@ -361,6 +361,10 @@ qt_add_executable(
     src/subject_emphasis_smoke_harness.hpp
     src/edit_paint_controller.cpp
     src/edit_paint_controller.hpp
+    src/paint_brush_presets.cpp
+    src/paint_brush_presets.hpp
+    src/paint_stroke_input.cpp
+    src/paint_stroke_input.hpp
     src/edit_subject_emphasis_controller.cpp
     src/edit_subject_emphasis_controller.hpp
     src/edit_ai_mask_controller.cpp
@@ -874,6 +878,7 @@ qt_add_qml_module(
         qml/PrecisionAiMaskPromptOverlay.qml
         qml/PrecisionPaintOverlay.qml
         qml/PrecisionPaintTools.qml
+        qml/PrecisionPaintBrushSettings.qml
         qml/PrecisionAiCompletionOverlay.qml
         qml/PrecisionAiCompletionTools.qml
         qml/PrecisionPeopleMaskSelector.qml

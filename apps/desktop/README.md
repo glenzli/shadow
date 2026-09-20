@@ -495,15 +495,27 @@ Its implementation follows the same navigation:
   deterministic, generation-matched preview analysis used to author an in-bounds donor into new
   Heal and Clone regions; later renders consume that stored offset without re-running analysis.
 - [`src/edit_paint_controller.*`](src/edit_paint_controller.hpp) owns photo-local finishing layers,
-  brush settings, bounded live paths, explicit preview color sampling, and one-stroke history and
-  autosave checkpoints. [`qml/PrecisionPaintTools.qml`](qml/PrecisionPaintTools.qml) and
-  [`qml/PrecisionPaintOverlay.qml`](qml/PrecisionPaintOverlay.qml) compose this tool into Precision
-  and the independent editor. Paint follows Repair/AI Completion and precedes Liquify/Canvas;
-  authoring reverses Canvas and the native Liquify sampler into original-image coordinates.
+  bounded live paths, explicit preview color sampling, and one-stroke history/autosave checkpoints.
+  [`src/paint_brush_presets.*`](src/paint_brush_presets.hpp) owns six photographic presets,
+  twelve named custom brushes, and persistent A/B tool slots in `paint-brushes.ini`. These contain
+  tool settings only; applying a preset never rewrites existing strokes. A different blend starts
+  a new layer on the next stroke. [`src/paint_stroke_input.*`](src/paint_stroke_input.hpp) captures
+  mouse and tablet input, consumes tablet events before synthesized mouse delivery, retains real
+  pressure/eraser identity, and cancels on window deactivation or disabled input.
+  [`qml/PrecisionPaintTools.qml`](qml/PrecisionPaintTools.qml) keeps presets, size, flow, hardness
+  and opacity visible; [`qml/PrecisionPaintBrushSettings.qml`](qml/PrecisionPaintBrushSettings.qml)
+  holds optional tip/dynamics controls. [`qml/PrecisionPaintOverlay.qml`](qml/PrecisionPaintOverlay.qml)
+  composes pointer input and the bounded elliptical cursor into Precision and the independent editor.
+  Paint follows Repair/AI Completion and precedes Liquify/Canvas; authoring reverses Canvas and the
+  cached native Liquify sampler into original-image coordinates. Cursor axes use the local inverse
+  differential; very strong nonlinear deformation may bend the footprint beyond an ellipse.
   Eight layers support Normal, perceptual Color, and lightness Soft Light, with destination-out
-  erasing and reversible layer visibility, opacity and order. Mouse input currently authors unit
-  pressure; persisted points retain pressure for future tablet input. No text, shapes or brush
-  library are included.
+  erasing and reversible layer visibility, opacity and order. Each stroke snapshots roundness,
+  angle, diameter-relative spacing, deterministic grayscale tip/strength, and size/flow pressure
+  mapping. Size pressure spans 10–100%; mouse input authors unit pressure. Input smoothing affects
+  new path samples and completes at the release point. X switches A/B; [ and ] resize the brush.
+  Built-in procedural tips are solid, fine grain and soft speckle; external tip/ABR import, text
+  and shapes are outside this tool's scope.
 - [`src/edit_liquify_controller.cpp`](src/edit_liquify_controller.cpp) owns the photo-private
   singleton Liquify projection, node bypass, Push/Reconstruct brush mode, and one-gesture/one-
   history boundary. Push prefers the local display mesh, then falls back to the same provisional
@@ -1597,7 +1609,8 @@ requires `SHADOW_PIPELINE_SMOKE_OUTPUT`. Use only disposable test outputs. The r
 create synthetic raster fixtures and verify original bytes and a separate Library sentinel. For native-window
 checks, `SHADOW_PIPELINE_SMOKE_ACTION=window-chrome` with an empty `--isolate` session logs only
 window geometry and visibility changes; it opens no photo and performs no automatic edits.
-The `paint` scenario checks whole-stroke undo/redo, cancelled and erased strokes, exact per-photo
+The `paint` scenario checks whole-stroke undo/redo, cancelled and erased strokes, A/B isolation,
+new-blend layer creation, persisted tip/pressure settings, smoothing endpoints, and exact per-photo
 restoration and PNG output pixels. It requires `SHADOW_PIPELINE_SMOKE_OUTPUT` and disposable inputs.
 
 ## Local subject emphasis preview

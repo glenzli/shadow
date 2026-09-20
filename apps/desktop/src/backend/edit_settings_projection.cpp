@@ -559,6 +559,14 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
             s.green = stroke.green;
             s.blue = stroke.blue;
             s.erase = stroke.erase;
+            s.roundness = stroke.roundness;
+            s.angle_degrees = stroke.angle_degrees;
+            s.spacing = stroke.spacing;
+            s.texture = stroke.texture;
+            s.texture_strength = stroke.texture_strength;
+            s.pressure_size = stroke.pressure_size;
+            s.pressure_flow = stroke.pressure_flow;
+
             for (const auto& p : stroke.points)
                 s.points.push_back({p.x, p.y, p.pressure});
             value.strokes.push_back(std::move(s));
@@ -735,6 +743,14 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
             s.green = stroke.green;
             s.blue = stroke.blue;
             s.erase = stroke.erase;
+            s.roundness = stroke.roundness;
+            s.angle_degrees = stroke.angle_degrees;
+            s.spacing = stroke.spacing;
+            s.texture = stroke.texture;
+            s.texture_strength = stroke.texture_strength;
+            s.pressure_size = stroke.pressure_size;
+            s.pressure_flow = stroke.pressure_flow;
+
             for (const auto& p : stroke.points)
                 s.points.push_back({p.x, p.y, p.pressure});
             value.strokes.push_back(std::move(s));

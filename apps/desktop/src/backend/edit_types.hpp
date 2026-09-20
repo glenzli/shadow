@@ -348,6 +348,10 @@ struct BackendPaintStroke final {
     double radius = 0.01, hardness = 0, opacity = 1, flow = 0.1;
     double red = 0.5, green = 0.5, blue = 0.5;
     bool erase = false;
+    double roundness = 1.0, angle_degrees = 0.0, spacing = 0.125;
+    std::uint8_t texture = 0;
+    double texture_strength = 0.5;
+    bool pressure_size = false, pressure_flow = true;
     bool operator==(const BackendPaintStroke&) const = default;
 };
 struct BackendPaintLayer final {

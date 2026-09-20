@@ -1664,3 +1664,18 @@ foreach(contract IN ITEMS viewport detail_surface zoom_input)
     set_tests_properties(shadow-desktop-precision-${contract}-contract
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endforeach()
+
+# Tool preferences and raw pointer delivery are independent of photo/render state.
+foreach(contract IN ITEMS brush_presets stroke_input)
+    add_executable(shadow-paint-${contract}-test
+        tests/paint_${contract}_test.cpp
+        src/paint_${contract}.cpp
+        src/paint_${contract}.hpp)
+    set_target_properties(shadow-paint-${contract}-test PROPERTIES AUTOMOC ON)
+    target_compile_features(shadow-paint-${contract}-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-paint-${contract}-test PRIVATE src)
+    target_link_libraries(shadow-paint-${contract}-test PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick)
+    add_test(NAME shadow-desktop-paint-${contract} COMMAND shadow-paint-${contract}-test)
+    set_tests_properties(shadow-desktop-paint-${contract}
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()

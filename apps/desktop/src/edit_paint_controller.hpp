@@ -1,7 +1,9 @@
 #pragma once
 #include "backend/edit_types.hpp"
+#include "paint_brush_presets.hpp"
 #include <QColor>
 #include <QObject>
+#include <QPointF>
 #include <QVariantList>
 #include <functional>
 #include <optional>
@@ -19,6 +21,7 @@ class EditPaintController final : public QObject {
     Q_PROPERTY(bool layerEnabled READ layerEnabled WRITE setLayerEnabled NOTIFY changed)
     Q_PROPERTY(double layerOpacity READ layerOpacity WRITE setLayerOpacity NOTIFY changed)
     Q_PROPERTY(int blend READ blend WRITE setBlend NOTIFY changed)
+    Q_PROPERTY(int brushBlend READ brushBlend NOTIFY brushChanged)
     Q_PROPERTY(QString status READ status NOTIFY changed)
     Q_PROPERTY(double radius READ radius WRITE setRadius NOTIFY brushChanged)
     Q_PROPERTY(double hardness READ hardness WRITE setHardness NOTIFY brushChanged)
@@ -27,6 +30,19 @@ class EditPaintController final : public QObject {
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY brushChanged)
     Q_PROPERTY(bool erase READ erase WRITE setErase NOTIFY brushChanged)
     Q_PROPERTY(bool picking READ picking WRITE setPicking NOTIFY brushChanged)
+    Q_PROPERTY(double roundness READ roundness WRITE setRoundness NOTIFY brushChanged)
+    Q_PROPERTY(double angle READ angle WRITE setAngle NOTIFY brushChanged)
+    Q_PROPERTY(double spacing READ spacing WRITE setSpacing NOTIFY brushChanged)
+    Q_PROPERTY(int texture READ texture WRITE setTexture NOTIFY brushChanged)
+    Q_PROPERTY(
+        double textureStrength READ textureStrength WRITE setTextureStrength NOTIFY brushChanged
+    )
+    Q_PROPERTY(bool pressureSize READ pressureSize WRITE setPressureSize NOTIFY brushChanged)
+    Q_PROPERTY(bool pressureFlow READ pressureFlow WRITE setPressureFlow NOTIFY brushChanged)
+    Q_PROPERTY(double smoothing READ smoothing WRITE setSmoothing NOTIFY brushChanged)
+    Q_PROPERTY(int brushSlot READ brushSlot WRITE setBrushSlot NOTIFY brushChanged)
+    Q_PROPERTY(QVariantList presets READ presets NOTIFY brushChanged)
+    Q_PROPERTY(QString presetId READ presetId NOTIFY brushChanged)
   public:
     explicit EditPaintController(EditController& owner);
     QVariantList layers() const;
@@ -38,6 +54,9 @@ class EditPaintController final : public QObject {
     bool layerEnabled() const;
     double layerOpacity() const;
     int blend() const;
+    int brushBlend() const {
+        return default_blend_;
+    }
     QString status() const {
         return status_;
     }
@@ -62,6 +81,52 @@ class EditPaintController final : public QObject {
     bool picking() const {
         return picking_;
     }
+    double roundness() const {
+        return brush_.roundness;
+    }
+    void setRoundness(double value);
+    double angle() const {
+        return brush_.angle_degrees;
+    }
+    void setAngle(double value);
+    double spacing() const {
+        return brush_.spacing;
+    }
+    void setSpacing(double value);
+    int texture() const {
+        return brush_.texture;
+    }
+    void setTexture(int value);
+    double textureStrength() const {
+        return brush_.texture_strength;
+    }
+    void setTextureStrength(double value);
+    bool pressureSize() const {
+        return brush_.pressure_size;
+    }
+    void setPressureSize(bool value);
+    bool pressureFlow() const {
+        return brush_.pressure_flow;
+    }
+    void setPressureFlow(bool value);
+    double smoothing() const {
+        return smoothing_;
+    }
+    void setSmoothing(double value);
+    int brushSlot() const {
+        return presets_.slot();
+    }
+    void setBrushSlot(int value);
+    QVariantList presets() const {
+        return presets_.presets();
+    }
+    QString presetId() const {
+        return presets_.current().preset_id;
+    }
+    Q_INVOKABLE void applyPreset(const QString& id);
+    Q_INVOKABLE bool savePreset(const QString& name);
+    Q_INVOKABLE void removePreset(const QString& id);
+    Q_INVOKABLE QVariantMap cursorShape(double x, double y, double aspect) const;
     void setRadius(double value);
     void setHardness(double value);
     void setOpacity(double value);
@@ -77,7 +142,7 @@ class EditPaintController final : public QObject {
     Q_INVOKABLE void addLayer();
     Q_INVOKABLE void removeLayer();
     Q_INVOKABLE void moveLayer(int offset);
-    Q_INVOKABLE bool beginStroke(double x, double y, double aspect);
+    Q_INVOKABLE bool beginStroke(double x, double y, double aspect, double pressure = 1.0);
     Q_INVOKABLE void appendPoint(double x, double y, double pressure = 1.0);
     Q_INVOKABLE void finishStroke();
     Q_INVOKABLE void cancelStroke();
@@ -88,6 +153,9 @@ class EditPaintController final : public QObject {
     void brushChanged();
 
   private:
+    bool preparePointMapping() const;
+    void saveBrush();
+    void loadBrush();
     BackendPaintLayer freshLayer() const;
     const BackendPaintLayer* layer() const;
     bool editable() const;
@@ -95,8 +163,16 @@ class EditPaintController final : public QObject {
     EditController& owner_;
     QString selected_id_, status_;
     BackendPaintStroke brush_;
+    PaintBrushPresets presets_;
+    double smoothing_ = 0.2;
+    int default_blend_ = 1;
+    bool finishing_ = false;
+    double last_x_ = 0, last_y_ = 0, last_pressure_ = 1;
     std::optional<BackendGradeStack> before_;
-    shadow::image::PreparedPhotoLiquify prepared_liquify_;
+    mutable shadow::image::PreparedPhotoLiquify prepared_liquify_;
+    mutable QVector<BackendLiquifyStroke> mapping_strokes_;
+    mutable QSize mapping_extent_;
+    mutable bool mapping_ready_ = false;
     quint64 generation_ = 0;
     double aspect_ = 1, stroke_distance_ = 0, dab_budget_ = 32760;
     int stroke_index_ = -1;

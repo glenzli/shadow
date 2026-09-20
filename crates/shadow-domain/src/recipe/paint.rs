@@ -34,6 +34,22 @@ pub struct PaintStroke {
     /// Unassociated display-sRGB, converted to the working space by the renderer.
     pub color: [UnitInterval; 3],
     pub erase: bool,
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub roundness: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub angle_degrees: f64,
+    /// Distance between dabs as a fraction of the full brush diameter.
+    #[serde(default = "legacy_spacing", skip_serializing_if = "is_legacy_spacing")]
+    pub spacing: f64,
+    /// 0 solid, 1 fine grain, 2 soft speckle; deterministic procedural grayscale tips.
+    #[serde(default, skip_serializing_if = "is_zero_texture")]
+    pub texture: u8,
+    #[serde(default = "half", skip_serializing_if = "is_half")]
+    pub texture_strength: f64,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pressure_size: bool,
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub pressure_flow: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,6 +62,40 @@ pub struct PaintLayer {
     pub coordinate_width: u32,
     pub coordinate_height: u32,
     pub strokes: Vec<PaintStroke>,
+}
+
+fn one() -> f64 {
+    1.0
+}
+fn half() -> f64 {
+    0.5
+}
+fn legacy_spacing() -> f64 {
+    0.125
+}
+fn yes() -> bool {
+    true
+}
+fn is_one(v: &f64) -> bool {
+    *v == 1.0
+}
+fn is_half(v: &f64) -> bool {
+    *v == 0.5
+}
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+fn is_legacy_spacing(v: &f64) -> bool {
+    *v == 0.125
+}
+fn is_zero_texture(v: &u8) -> bool {
+    *v == 0
+}
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+fn is_true(v: &bool) -> bool {
+    *v
 }
 
 impl PaintLayer {
@@ -80,6 +130,18 @@ impl PaintLayer {
             if !(0.0001..=0.25).contains(&stroke.radius.get()) {
                 return Err(invalid("paint radius must be within 0.0001 through 0.25"));
             }
+            if !stroke.roundness.is_finite()
+                || !(0.1..=1.0).contains(&stroke.roundness)
+                || !stroke.angle_degrees.is_finite()
+                || !(-180.0..=180.0).contains(&stroke.angle_degrees)
+                || !stroke.spacing.is_finite()
+                || !(0.02..=1.0).contains(&stroke.spacing)
+                || stroke.texture > 2
+                || !stroke.texture_strength.is_finite()
+                || !(0.0..=1.0).contains(&stroke.texture_strength)
+            {
+                return Err(invalid("invalid brush tip or dynamics"));
+            }
             let distance: f64 = stroke
                 .points
                 .windows(2)
@@ -91,7 +153,12 @@ impl PaintLayer {
                         )
                 })
                 .sum();
-            let count = 1.0 + distance / (stroke.radius.get() * 0.25);
+            let count = 1.0
+                + distance
+                    / (stroke.radius.get()
+                        * 2.0
+                        * stroke.spacing
+                        * if stroke.pressure_size { 0.1 } else { 1.0 });
             dabs += count;
             if count > 32_760.0 || dabs > 262_144.0 {
                 return Err(invalid("paint dab budget exceeded"));

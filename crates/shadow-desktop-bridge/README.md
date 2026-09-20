@@ -151,4 +151,7 @@ Photo-local paint lives in `recipe_v1::paint` (ordered render compilation) and
 validated layer/stroke state; snapshot decode/encode preserves it independently of shared Grade
 Nodes and Canvas. Paint is deliberately excluded from LUT export as a spatial operation, with an
 explicit exclusion reason. Persisted Recipe identity includes the strokes, while warm source
-identity remains independent of paint edits.
+identity remains independent of paint edits. Each stroke carries tip roundness/angle, diameter-relative
+spacing, deterministic texture strength, and independent size/flow pressure flags through FFI and
+render compilation. Missing fields preserve the legacy round-brush defaults; tool presets and
+input smoothing are desktop preferences rather than recipe-wide mutable settings.

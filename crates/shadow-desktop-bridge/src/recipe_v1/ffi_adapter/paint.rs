@@ -32,6 +32,14 @@ pub(super) fn decode(value: &ffi::FfiPaintLayer) -> Result<PaintLayer> {
                         UnitInterval::new(s.blue)?,
                     ],
                     erase: s.erase,
+                    roundness: s.roundness,
+                    angle_degrees: s.angle_degrees,
+                    spacing: s.spacing,
+                    texture: s.texture,
+                    texture_strength: s.texture_strength,
+                    pressure_size: s.pressure_size,
+                    pressure_flow: s.pressure_flow,
+
                     points: s
                         .points
                         .iter()
@@ -75,6 +83,14 @@ pub(super) fn encode(value: &PaintLayer) -> ffi::FfiPaintLayer {
                 green: s.color[1].get(),
                 blue: s.color[2].get(),
                 erase: s.erase,
+                roundness: s.roundness,
+                angle_degrees: s.angle_degrees,
+                spacing: s.spacing,
+                texture: s.texture,
+                texture_strength: s.texture_strength,
+                pressure_size: s.pressure_size,
+                pressure_flow: s.pressure_flow,
+
                 points: s
                     .points
                     .iter()

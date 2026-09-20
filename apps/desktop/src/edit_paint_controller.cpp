@@ -6,11 +6,14 @@
 #include <QVariantMap>
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace {
 const QString stroke_key = QStringLiteral("paint/stroke");
 }
-EditPaintController::EditPaintController(EditController& owner) : QObject(&owner), owner_(owner) {
+EditPaintController::EditPaintController(EditController& owner) :
+    QObject(&owner), owner_(owner), presets_(PaintBrushPresets::defaultSettingsFile()) {
+    loadBrush();
     connect(&owner_, &EditController::parametersChanged, this, &EditPaintController::changed);
     connect(&owner_, &EditController::stateBusyChanged, this, &EditPaintController::changed);
     connect(&owner_, &EditController::sourceIdentityChanged, this, [this] {
@@ -68,12 +71,13 @@ double EditPaintController::layerOpacity() const {
 }
 int EditPaintController::blend() const {
     const auto* l = layer();
-    return l ? l->blend : 1;
+    return l ? l->blend : default_blend_;
 }
 BackendPaintLayer EditPaintController::freshLayer() const {
     BackendPaintLayer result;
     result.label = QStringLiteral("Paint layer");
     result.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    result.blend = static_cast<std::uint8_t>(default_blend_);
     result.coordinate_width = owner_.level_zero_width_;
     result.coordinate_height = owner_.level_zero_height_;
     return result;
@@ -95,6 +99,8 @@ void EditPaintController::selectLayer(int index) {
         return;
     owner_.finishActiveGesture();
     selected_id_ = owner_.grade_stack_.paint_layers[index].id;
+    default_blend_ = layer()->blend;
+    saveBrush();
     emit changed();
 }
 void EditPaintController::addLayer() {
@@ -147,33 +153,37 @@ void EditPaintController::setLayerOpacity(double value) {
         editLayer(QStringLiteral("paint/layer/opacity"), [value](auto& l) { l.opacity = value; });
 }
 void EditPaintController::setBlend(int value) {
-    if (value >= 0 && value <= 2)
-        editLayer(QStringLiteral("paint/layer/blend"), [value](auto& l) {
-            l.blend = std::uint8_t(value);
-        });
+    if (value < 0 || value > 2 || strokeActive())
+        return;
+    default_blend_ = value;
+    saveBrush();
+    editLayer(QStringLiteral("paint/layer/blend"), [value](auto& l) {
+        l.blend = std::uint8_t(value);
+    });
+    emit changed();
 }
 void EditPaintController::setRadius(double v) {
     if (std::isfinite(v) && v >= 0.0001 && v <= 0.25 && !strokeActive()) {
         brush_.radius = v;
-        emit brushChanged();
+        saveBrush();
     }
 }
 void EditPaintController::setHardness(double v) {
     if (std::isfinite(v) && v >= 0 && v <= 1 && !strokeActive()) {
         brush_.hardness = v;
-        emit brushChanged();
+        saveBrush();
     }
 }
 void EditPaintController::setOpacity(double v) {
     if (std::isfinite(v) && v >= 0 && v <= 1 && !strokeActive()) {
         brush_.opacity = v;
-        emit brushChanged();
+        saveBrush();
     }
 }
 void EditPaintController::setFlow(double v) {
     if (std::isfinite(v) && v >= 0 && v <= 1 && !strokeActive()) {
         brush_.flow = v;
-        emit brushChanged();
+        saveBrush();
     }
 }
 void EditPaintController::setColor(QColor v) {
@@ -181,14 +191,14 @@ void EditPaintController::setColor(QColor v) {
         brush_.red = v.redF();
         brush_.green = v.greenF();
         brush_.blue = v.blueF();
-        emit brushChanged();
+        saveBrush();
     }
 }
 void EditPaintController::setErase(bool v) {
     if (!strokeActive()) {
         brush_.erase = v;
         picking_ = false;
-        emit brushChanged();
+        saveBrush();
     }
 }
 void EditPaintController::setPicking(bool v) {
@@ -214,45 +224,14 @@ double EditPaintController::displayRadius(double aspect) const {
                            * 0.001 / scale
                      : radius();
 }
-bool EditPaintController::beginStroke(double x, double y, double aspect) {
-    if (!canPaint() || strokeActive() || !std::isfinite(aspect) || aspect <= 0 || !std::isfinite(x)
-        || !std::isfinite(y))
-        return false;
-    owner_.finishActiveGesture();
-    const auto* l = layer();
-    qsizetype points = 0;
-    if (l)
-        for (const auto& s : l->strokes)
-            points += s.points.size();
-    if (l && (l->strokes.size() >= 128 || points >= 32768)) {
-        status_ = tr("This layer is full. Add a new paint layer to continue.");
-        emit changed();
-        return false;
-    }
-    generation_ = owner_.photo_generation_;
-    aspect_ = aspect;
-    stroke_distance_ = 0;
-    double used_dabs = 0;
-    if (l)
-        for (const auto& s : l->strokes) {
-            double distance = 0;
-            for (qsizetype i = 1; i < s.points.size(); ++i)
-                distance += std::hypot(
-                    (s.points[i].x - s.points[i - 1].x) * l->coordinate_width,
-                    (s.points[i].y - s.points[i - 1].y) * l->coordinate_height
-                );
-            used_dabs +=
-                1
-                + distance
-                      / (s.radius * 0.25 * std::min(l->coordinate_width, l->coordinate_height));
-        }
-    dab_budget_ = std::min(32760.0, 262144.0 - used_dabs);
-    if (dab_budget_ < 2) {
-        status_ = tr("This layer is full. Add a new paint layer to continue.");
-        emit changed();
-        return false;
-    }
-    // Prepare the exact inverse deformation once per gesture, never per sample.
+bool EditPaintController::preparePointMapping() const {
+    const auto& strokes = owner_.grade_stack_.liquify_strokes;
+    const QSize extent(owner_.level_zero_width_, owner_.level_zero_height_);
+    const bool enabled = owner_.grade_stack_.liquify_enabled && !strokes.isEmpty();
+    if (mapping_ready_ && mapping_extent_ == extent
+        && (enabled ? mapping_strokes_ == strokes : mapping_strokes_.isEmpty()))
+        return true;
+    mapping_ready_ = false;
     prepared_liquify_ = {};
     if (owner_.grade_stack_.liquify_enabled && !owner_.grade_stack_.liquify_strokes.isEmpty()) {
         shadow::image::PhotoLiquify liquify;
@@ -285,27 +264,85 @@ bool EditPaintController::beginStroke(double x, double y, double aspect) {
                 liquify
             );
         } catch (const std::exception&) {
-            status_ = tr("Could not map the paint stroke through Liquify.");
-            emit changed();
             return false;
         }
+    }
+    mapping_extent_ = extent;
+    mapping_strokes_ = enabled ? strokes : QVector<BackendLiquifyStroke>{};
+    mapping_ready_ = true;
+    return true;
+}
+bool EditPaintController::beginStroke(double x, double y, double aspect, double pressure) {
+    if (!canPaint() || strokeActive() || !std::isfinite(aspect) || aspect <= 0 || !std::isfinite(x)
+        || !std::isfinite(y) || !std::isfinite(pressure))
+        return false;
+    owner_.finishActiveGesture();
+    const auto* l = layer();
+    const bool needs_layer =
+        !l || (!brush_.erase && l->blend != default_blend_ && !l->strokes.isEmpty());
+    if (needs_layer && owner_.grade_stack_.paint_layers.size() >= 8) {
+        status_ = tr("Eight layers are in use. Select a matching layer or remove an unused one.");
+        emit changed();
+        return false;
+    }
+    if (needs_layer)
+        l = nullptr;
+    qsizetype points = 0;
+    if (l)
+        for (const auto& s : l->strokes)
+            points += s.points.size();
+    if (l && (l->strokes.size() >= 128 || points >= 32768)) {
+        status_ = tr("This layer is full. Add a new paint layer to continue.");
+        emit changed();
+        return false;
+    }
+    generation_ = owner_.photo_generation_;
+    aspect_ = aspect;
+    stroke_distance_ = 0;
+    double used_dabs = 0;
+    if (l)
+        for (const auto& s : l->strokes) {
+            double distance = 0;
+            for (qsizetype i = 1; i < s.points.size(); ++i)
+                distance += std::hypot(
+                    (s.points[i].x - s.points[i - 1].x) * l->coordinate_width,
+                    (s.points[i].y - s.points[i - 1].y) * l->coordinate_height
+                );
+            used_dabs += 1
+                         + distance
+                               / (s.radius * 2.0 * s.spacing * (s.pressure_size ? 0.1 : 1.0)
+                                  * std::min(l->coordinate_width, l->coordinate_height));
+        }
+    dab_budget_ = std::min(32760.0, 262144.0 - used_dabs);
+    if (dab_budget_ < 2) {
+        status_ = tr("This layer is full. Add a new paint layer to continue.");
+        emit changed();
+        return false;
+    }
+    // Reuse the inverse map shared with the cursor until Liquify or source extent changes.
+    if (!preparePointMapping()) {
+        status_ = tr("Could not map the paint stroke through Liquify.");
+        emit changed();
+        return false;
     }
     owner_.beginParameterEdit(stroke_key);
     if (!owner_.active_parameter_gestures_.contains(stroke_key))
         return false;
     before_ = owner_.grade_stack_;
     owner_.persistence_state_.stopAutosaveDebounce();
-    if (!layer()) {
+    if (needs_layer) {
         auto next = freshLayer();
         selected_id_ = next.id;
         owner_.grade_stack_.paint_layers.push_back(next);
     }
     selected_id_ = layer()->id;
     auto& target = owner_.grade_stack_.paint_layers[selectedIndex()];
+    if (target.strokes.isEmpty() && !brush_.erase)
+        target.blend = static_cast<std::uint8_t>(default_blend_);
     stroke_index_ = int(target.strokes.size());
     target.strokes.push_back(brush_);
     status_.clear();
-    appendPoint(x, y);
+    appendPoint(x, y, pressure);
     emit changed();
     return true;
 }
@@ -336,23 +373,41 @@ void EditPaintController::appendPoint(double x, double y, double pressure) {
         emit changed();
         return;
     }
-    const BackendPaintPoint next{
+    last_x_ = x;
+    last_y_ = y;
+    last_pressure_ = pressure;
+    BackendPaintPoint next{
         std::clamp(point.x, 0.0, 1.0),
         std::clamp(point.y, 0.0, 1.0),
         point.pressure
     };
     if (!points.isEmpty()) {
         const auto& last = points.last();
+        if (!finishing_ && smoothing_ > 0) {
+            const double d = std::hypot(
+                (next.x - last.x) * target.coordinate_width,
+                (next.y - last.y) * target.coordinate_height
+            );
+            const double lag =
+                smoothing_ * radius() * std::min(target.coordinate_width, target.coordinate_height);
+            const double alpha = lag > 0 ? -std::expm1(-d / lag) : 1;
+            next.x = last.x + (next.x - last.x) * alpha;
+            next.y = last.y + (next.y - last.y) * alpha;
+        }
         const double distance = std::hypot(
             (next.x - last.x) * target.coordinate_width,
             (next.y - last.y) * target.coordinate_height
         );
-        if (distance
-            < radius() * std::min(target.coordinate_width, target.coordinate_height) * 0.12)
+        if (distance < 1e-8 && std::abs(next.pressure - last.pressure) < 0.005)
+            return;
+        if (!finishing_
+            && distance < radius() * std::min(target.coordinate_width, target.coordinate_height)
+                              * std::min(0.06, brush_.spacing) * brush_.roundness
+            && std::abs(next.pressure - last.pressure) < 0.02)
             return;
         if (1
                 + (stroke_distance_ + distance)
-                      / (radius() * 0.25
+                      / (radius() * 2.0 * brush_.spacing * (brush_.pressure_size ? 0.1 : 1.0)
                          * std::min(target.coordinate_width, target.coordinate_height))
             > dab_budget_) {
             status_ = tr("Stroke limit reached. Release the pointer to finish.");
@@ -375,6 +430,9 @@ void EditPaintController::finishStroke() {
         stroke_index_ = -1;
         return;
     }
+    finishing_ = true;
+    appendPoint(last_x_, last_y_, last_pressure_);
+    finishing_ = false;
     before_.reset();
     stroke_index_ = -1;
     owner_.endParameterEdit(stroke_key);
@@ -454,4 +512,133 @@ bool EditPaintController::sampleColor(double x, double y, const QString& generat
     status_.clear();
     emit changed();
     return true;
+}
+
+void EditPaintController::saveBrush() {
+    PaintBrushProfile p{brush_, smoothing_, default_blend_, {}};
+    presets_.setCurrent(std::move(p));
+    emit brushChanged();
+}
+void EditPaintController::loadBrush() {
+    const auto& p = presets_.current();
+    brush_ = p.stroke;
+    smoothing_ = p.smoothing;
+    default_blend_ = p.blend;
+    picking_ = false;
+    status_.clear();
+    emit brushChanged();
+    emit changed();
+}
+void EditPaintController::setBrushSlot(int value) {
+    if (strokeActive() || value < 0 || value > 1)
+        return;
+    presets_.selectSlot(value);
+    loadBrush();
+}
+void EditPaintController::applyPreset(const QString& id) {
+    if (!strokeActive() && presets_.apply(id))
+        loadBrush();
+}
+bool EditPaintController::savePreset(const QString& name) {
+    if (strokeActive())
+        return false;
+    if (!presets_.save(name)) {
+        status_ = tr("Use a name of 1–64 characters. Up to 12 custom brushes can be saved.");
+        emit changed();
+        return false;
+    }
+    status_.clear();
+    emit changed();
+    emit brushChanged();
+    return true;
+}
+void EditPaintController::removePreset(const QString& id) {
+    if (!strokeActive() && presets_.remove(id))
+        emit brushChanged();
+}
+void EditPaintController::setRoundness(double value) {
+    if (!strokeActive() && std::isfinite(value) && value >= 0.1 && value <= 1) {
+        brush_.roundness = value;
+        saveBrush();
+    }
+}
+void EditPaintController::setAngle(double value) {
+    if (!strokeActive() && std::isfinite(value) && value >= -180 && value <= 180) {
+        brush_.angle_degrees = value;
+        saveBrush();
+    }
+}
+void EditPaintController::setSpacing(double value) {
+    if (!strokeActive() && std::isfinite(value) && value >= 0.02 && value <= 1) {
+        brush_.spacing = value;
+        saveBrush();
+    }
+}
+void EditPaintController::setTextureStrength(double value) {
+    if (!strokeActive() && std::isfinite(value) && value >= 0 && value <= 1) {
+        brush_.texture_strength = value;
+        saveBrush();
+    }
+}
+void EditPaintController::setTexture(int value) {
+    if (!strokeActive() && value >= 0 && value <= 2) {
+        brush_.texture = static_cast<std::uint8_t>(value);
+        saveBrush();
+    }
+}
+void EditPaintController::setPressureSize(bool value) {
+    if (!strokeActive()) {
+        brush_.pressure_size = value;
+        saveBrush();
+    }
+}
+void EditPaintController::setPressureFlow(bool value) {
+    if (!strokeActive()) {
+        brush_.pressure_flow = value;
+        saveBrush();
+    }
+}
+void EditPaintController::setSmoothing(double value) {
+    if (!strokeActive() && std::isfinite(value) && value >= 0 && value <= 1) {
+        smoothing_ = value;
+        saveBrush();
+    }
+}
+QVariantMap EditPaintController::cursorShape(double x, double y, double aspect) const {
+    const auto geometry = owner_.grade_stack_.geometry.enabled ? owner_.grade_stack_.geometry
+                                                               : BackendPhotoGeometry{};
+    if (!preparePointMapping())
+        return {};
+    const auto sample = [&](double a, double b) -> std::optional<QPointF> {
+        const auto mapped =
+            EditLiquifyCoordinates::originalPointForOutput({a, b}, aspect, geometry);
+        if (!mapped)
+            return std::nullopt;
+        const auto point = shadow::image::photo_liquify_source_point(
+            prepared_liquify_,
+            {mapped->x(), mapped->y(), 1}
+        );
+        return QPointF(point.x, point.y);
+    };
+    const auto p = sample(x, y), px = sample(x + 0.0001, y), py = sample(x, y + 0.0001);
+    if (!p || !px || !py)
+        return {};
+    const double a = (px->x() - p->x()) * owner_.level_zero_width_ / 0.0001;
+    const double b = (py->x() - p->x()) * owner_.level_zero_width_ / 0.0001;
+    const double c = (px->y() - p->y()) * owner_.level_zero_height_ / 0.0001;
+    const double d = (py->y() - p->y()) * owner_.level_zero_height_ / 0.0001;
+    const double det = a * d - b * c;
+    if (std::abs(det) < 1e-10)
+        return {};
+    const double angle = brush_.angle_degrees * std::numbers::pi / 180;
+    const double r = radius() * std::min(owner_.level_zero_width_, owner_.level_zero_height_);
+    const double ux = r * std::cos(angle), uy = r * std::sin(angle);
+    const double vx = -r * brush_.roundness * std::sin(angle),
+                 vy = r * brush_.roundness * std::cos(angle);
+    return {
+        {"ux", (d * ux - b * uy) / det},
+        {"uy", (-c * ux + a * uy) / det},
+        {"vx", (d * vx - b * vy) / det},
+        {"vy", (-c * vx + a * vy) / det}
+    };
 }

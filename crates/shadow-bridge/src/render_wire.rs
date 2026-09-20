@@ -606,6 +606,13 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                     stroke.color[1],
                     stroke.color[2],
                     f64::from(u8::from(stroke.erase)),
+                    stroke.roundness,
+                    stroke.angle_degrees,
+                    stroke.spacing,
+                    f64::from(stroke.texture),
+                    stroke.texture_strength,
+                    f64::from(u8::from(stroke.pressure_size)),
+                    f64::from(u8::from(stroke.pressure_flow)),
                 ]);
                 for p in &stroke.points {
                     parameters.extend([p.x, p.y, p.pressure]);
