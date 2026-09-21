@@ -32,8 +32,20 @@ Item {
     property int gestureAnchor: -1
     property string gestureComponent: ""
 
+    // One immutable snapshot per visible parameter revision. Canvas geometry
+    // and labels must not repeatedly cross the controller boundary while painting.
+    readonly property var anchorValues: {
+        const revision = parameterRevision
+        const values = []
+        if (visible && revision >= 0 && controller && bands) {
+            for (let index = 0; index < bands.length; ++index)
+                values.push(Number(controller.colorMixerValue(index, curveComponent)))
+        }
+        return values
+    }
+
     implicitWidth: 320
-    implicitHeight: 298
+    implicitHeight: curveContents.implicitHeight
 
     function clamp(value, lower, upper) {
         return Math.max(lower, Math.min(upper, value))
@@ -45,9 +57,7 @@ Item {
     }
 
     function anchorValue(index) {
-        const revision = parameterRevision
-        return revision >= 0 && controller && index >= 0 && index < bands.length
-            ? Number(controller.colorMixerValue(index, curveComponent)) : 0
+        return index >= 0 && index < anchorValues.length ? anchorValues[index] : 0
     }
 
     function formattedValue(value) {
@@ -77,14 +87,6 @@ Item {
             : curveComponent === "saturation"
                 ? qsTr("Drag a color anchor vertically to change its chroma")
                 : qsTr("Drag a color anchor vertically to change its lightness")
-    }
-
-    function componentDescription() {
-        return curveComponent === "hue"
-            ? qsTr("Hue → Hue edits Color Mixer hue shifts.")
-            : curveComponent === "saturation"
-                ? qsTr("Hue → Chroma edits Color Mixer chroma amounts.")
-                : qsTr("Hue → Lightness edits Color Mixer Oklab lightness amounts.")
     }
 
     function hueGradient(context, left, right) {
@@ -198,7 +200,7 @@ Item {
         controller.endParameterEdit("color_mixer/" + component + "/" + index)
     }
 
-    onParameterRevisionChanged: curveCanvas.requestPaint()
+    onAnchorValuesChanged: curveCanvas.requestPaint()
     onBandsChanged: curveCanvas.requestPaint()
     onCurveComponentChanged: {
         finishGesture()
@@ -220,6 +222,7 @@ Item {
     }
 
     ColumnLayout {
+        id: curveContents
         anchors.fill: parent
         spacing: 7
 
@@ -322,16 +325,13 @@ Item {
                         context.lineJoin = "round"
                         context.strokeStyle = root.accentColor
                         context.beginPath()
-                        const sampleCount = Math.max(97, Math.ceil(right - left))
-                        for (let index = 0; index <= sampleCount; ++index) {
-                            const hue = index / sampleCount * 360
-                            const x = root.xForHue(hue)
-                            const y = root.yForValue(root.valueAtHue(hue))
-                            if (index === 0)
-                                context.moveTo(x, y)
-                            else
-                                context.lineTo(x, y)
-                        }
+                        // The authored curve is piecewise linear with a wrapped
+                        // red seam. Draw its exact vertices, independent of width.
+                        context.moveTo(left, root.yForValue(root.valueAtHue(0)))
+                        for (let index = 0; index < root.bands.length; ++index)
+                            context.lineTo(root.xForHue(root.anchorHue(index)),
+                                           root.yForValue(root.anchorValue(index)))
+                        context.lineTo(right, root.yForValue(root.valueAtHue(360)))
                         context.stroke()
 
                         for (let index = 0; index < root.bands.length; ++index) {
@@ -406,6 +406,7 @@ Item {
                     : root.idleInstruction()
                 color: root.mutedTextColor
                 font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
             }
 
             Label {
@@ -417,15 +418,5 @@ Item {
             }
         }
 
-        Label {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            text: root.componentDescription()
-                + " " + qsTr("All three views share the same eight persisted anchors; no second color transform is added.")
-            color: root.mutedTextColor
-            font.pixelSize: Theme.fontCaption
-            wrapMode: Text.WordWrap
-        }
     }
 }

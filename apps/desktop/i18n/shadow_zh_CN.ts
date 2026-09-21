@@ -3741,7 +3741,7 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/HueCurveEditor.qml" line="78"/>
         <source>Drag a color anchor vertically to change its chroma</source>
-        <translation>垂直拖动颜色锚点以调整彩度</translation>
+        <translation>垂直拖动颜色锚点以调整色度</translation>
     </message>
     <message>
         <location filename="../qml/HueCurveEditor.qml" line="79"/>
@@ -3756,7 +3756,7 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/HueCurveEditor.qml" line="238"/>
         <source>HUE → CHROMA</source>
-        <translation>色相 → 彩度</translation>
+        <translation>色相 → 色度</translation>
     </message>
     <message>
         <location filename="../qml/HueCurveEditor.qml" line="239"/>
@@ -3767,26 +3767,6 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/HueCurveEditor.qml" line="404"/>
         <source>INPUT HUE</source>
         <translation>输入色相</translation>
-    </message>
-    <message>
-        <location filename="../qml/HueCurveEditor.qml" line="84"/>
-        <source>Hue → Hue edits Color Mixer hue shifts.</source>
-        <translation>“色相 → 色相”编辑“颜色混合”的色相偏移。</translation>
-    </message>
-    <message>
-        <location filename="../qml/HueCurveEditor.qml" line="86"/>
-        <source>Hue → Chroma edits Color Mixer chroma amounts.</source>
-        <translation>“色相 → 彩度”编辑“颜色混合”的彩度增减。</translation>
-    </message>
-    <message>
-        <location filename="../qml/HueCurveEditor.qml" line="87"/>
-        <source>Hue → Lightness edits Color Mixer Oklab lightness amounts.</source>
-        <translation>“色相 → 明度”编辑“颜色混合”的 Oklab 明度增减。</translation>
-    </message>
-    <message>
-        <location filename="../qml/HueCurveEditor.qml" line="417"/>
-        <source>All three views share the same eight persisted anchors; no second color transform is added.</source>
-        <translation>三种视图共享同一组八个持久化锚点，不会新增第二套颜色变换。</translation>
     </message>
 </context>
 <context>

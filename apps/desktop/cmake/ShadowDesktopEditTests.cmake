@@ -1502,6 +1502,7 @@
         QML_FILES
             qml/HueCurveEditor.qml
             qml/PrecisionColorMixer.qml
+            qml/ShadowColorLabelButton.qml
             qml/ShadowAdjustmentSection.qml
             qml/ShadowIcon.qml
             qml/ShadowIconButton.qml
@@ -1510,6 +1511,10 @@
             qml/ShadowTabButton.qml
             qml/Theme.qml
     )
+    qt_add_resources(shadow-precision-color-mixer-contract-test color-mixer-contract-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/chevron-down.svg icons/reset-all.svg icons/settings.svg
+            icons/color-mixer-colors.svg icons/color-mixer-curves.svg)
     if(MSVC)
         target_compile_options(
             shadow-precision-color-mixer-contract-test

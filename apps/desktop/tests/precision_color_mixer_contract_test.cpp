@@ -29,6 +29,7 @@ class ColorMixerEditorStub final : public QObject {
     }
 
     Q_INVOKABLE double colorMixerValue(const int band, const QString& component) const {
+        ++value_read_count;
         if (band < 0 || band >= static_cast<int>(hue.size())) {
             return 0.0;
         }
@@ -79,6 +80,7 @@ class ColorMixerEditorStub final : public QObject {
     int begin_count = 0;
     int set_count = 0;
     int end_count = 0;
+    mutable int value_read_count = 0;
 
   signals:
     void parametersChanged();
@@ -196,6 +198,74 @@ int main(int argc, char* argv[]) {
             return EXIT_FAILURE;
         }
     }
+    auto* const curve_view = findVisualChild(mixer_item, QStringLiteral("colorMixerCurveView"));
+    click_tab(curve_view);
+    QTest::qWait(100);
+    editor.value_read_count = 0;
+    // One model revision must read a bounded anchor snapshot, rather than
+    // crossing the controller boundary for every painted screen pixel.
+    ++editor.parameter_revision;
+    emit editor.parametersChanged();
+    QTest::qWait(100);
+    const int curve_revision_reads = editor.value_read_count;
+    std::cout << "curve revision controller reads: " << curve_revision_reads << '\n';
+    if (!require(
+            curve_revision_reads <= 24,
+            "one curve revision must read only a bounded eight-anchor snapshot"
+        )) {
+        return EXIT_FAILURE;
+    }
+    auto* const curve = findVisualChild(mixer_item, QStringLiteral("colorMixerCurveEditor"));
+    editor.value_read_count = 0;
+    curve->setProperty("selectedAnchor", 3);
+    QTest::qWait(100);
+    if (!require(editor.value_read_count == 0, "selection-only repaint must reuse anchor values")) {
+        return EXIT_FAILURE;
+    }
+    auto curve_value = [&](double hue) {
+        QVariant result;
+        QMetaObject::invokeMethod(
+            curve,
+            "valueAtHue",
+            Q_RETURN_ARG(QVariant, result),
+            Q_ARG(QVariant, QVariant(hue))
+        );
+        return result.toDouble();
+    };
+    if (!require(
+            std::abs(curve_value(29.2339) + 0.25) < 1e-6,
+            "the visible curve must pass through its authored red anchor"
+        )
+        || !require(
+            std::abs(curve_value(0) - curve_value(360)) < 1e-6,
+            "the visible curve must remain continuous across the red seam"
+        )) {
+        return EXIT_FAILURE;
+    }
+    click_tab(findVisualChild(mixer_item, QStringLiteral("colorMixerColorView")));
+    for (int band : {0, 7}) {
+        auto* choice =
+            findVisualChild(mixer_item, QStringLiteral("colorMixerBandChoice_%1").arg(band));
+        if (!require(
+                choice && choice->width() >= 26 && choice->height() >= 26,
+                "color choices must expose consistent pointer targets"
+            ))
+            return EXIT_FAILURE;
+        const auto left = choice->mapToItem(mixer_item, QPointF{}).x();
+        if (!require(
+                left >= 0 && left + choice->width() <= mixer_item->width(),
+                "all eight color choices must fit the narrow inspector"
+            ))
+            return EXIT_FAILURE;
+        click_tab(choice);
+        if (!require(
+                mixer->property("selectedBand").toInt() == band
+                    && choice->property("selected").toBool(),
+                "color choice must expose the selected family without a Recipe mutation"
+            ))
+            return EXIT_FAILURE;
+    }
+    click_tab(findVisualChild(mixer_item, QStringLiteral("colorMixerParameterView")));
     mixer_item->setWidth(420.0);
     drainBindings();
 

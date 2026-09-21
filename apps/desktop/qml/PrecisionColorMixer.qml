@@ -204,41 +204,30 @@ ShadowAdjustmentSection {
     RowLayout {
         visible: mixer.viewMode === 1
         Layout.fillWidth: true
-        Layout.leftMargin: 20
-        Layout.rightMargin: 20
-        Layout.topMargin: visible ? 7 : 0
-        Layout.bottomMargin: visible ? 5 : 0
+        Layout.leftMargin: 14
+        Layout.rightMargin: 14
+        Layout.topMargin: visible ? 3 : 0
+        Layout.bottomMargin: visible ? 3 : 0
         Layout.preferredHeight: visible ? 30 : 0
-        spacing: 8
+        spacing: 4
 
         Item { Layout.fillWidth: true }
 
         Repeater {
             model: mixer.bands
 
-            delegate: Rectangle {
+            delegate: ShadowColorLabelButton {
                 id: bandSwatch
 
                 required property int index
                 required property var modelData
-                Layout.preferredWidth: 18
-                Layout.preferredHeight: 18
+                objectName: "colorMixerBandChoice_" + index
+                buttonSize: 26
                 Layout.alignment: Qt.AlignHCenter
-                radius: 9
-                color: bandSwatch.modelData.color
-                border.width: mixer.selectedBand === bandSwatch.index ? 2 : 1
-                border.color: mixer.selectedBand === bandSwatch.index
-                    ? Theme.selectionForeground : Theme.borderStrong
-                opacity: mixer.selectedBand === bandSwatch.index ? 1 : 0.72
-
-                TapHandler {
-                    onTapped: mixer.selectedBand = bandSwatch.index
-                }
-
-                ToolTip.visible: swatchHover.hovered
-                ToolTip.delay: 450
-                ToolTip.text: bandSwatch.modelData.name
-                HoverHandler { id: swatchHover }
+                labelColor: bandSwatch.modelData.color
+                selected: mixer.selectedBand === bandSwatch.index
+                toolTipText: bandSwatch.modelData.name
+                onClicked: mixer.selectedBand = bandSwatch.index
             }
         }
 
@@ -295,6 +284,7 @@ ShadowAdjustmentSection {
     }
 
     HueCurveEditor {
+        objectName: "colorMixerCurveEditor"
         visible: mixer.viewMode === 2
         Layout.fillWidth: true
         Layout.leftMargin: 14
