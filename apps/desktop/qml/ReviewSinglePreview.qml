@@ -14,6 +14,16 @@ Item {
 
     property bool selectingFromFilmstrip: false
 
+    function restoreSelection() {
+        if (!visible)
+            return
+        selectInitialPhoto()
+        filmstrip.syncCurrentSelection()
+    }
+
+    onVisibleChanged: Qt.callLater(restoreSelection)
+    onModelChanged: Qt.callLater(restoreSelection)
+
     function selectFilmstripPhoto(photo, modifiers) {
         // Keep the pointer target stationary through successive clicks and the
         // second click of a double-click, including partially visible cards.
@@ -138,6 +148,7 @@ Item {
 
         ListView {
             id: filmstrip
+            objectName: "reviewFilmstrip"
             anchors.fill: parent
             anchors.leftMargin: 14
             anchors.rightMargin: 14
@@ -152,19 +163,18 @@ Item {
             highlightRangeMode: ListView.NoHighlightRange
 
             function syncCurrentSelection() {
-                for (let index = 0; index < count; ++index) {
-                    const item = itemAtIndex(index)
-                    if (item && item.photoId === root.review.selectedPhotoId
-                            && item.representationId === root.review.selectedRepresentationId) {
-                        currentIndex = index
-                        positionViewAtIndex(index, ListView.Contain)
-                        return
-                    }
+                if (!root.visible || root.selectingFromFilmstrip)
+                    return
+                const index = root.model.indexOfPhoto(
+                    root.review.selectedPhotoId, root.review.selectedRepresentationId)
+                currentIndex = index
+                if (index >= 0) {
+                    positionViewAtIndex(index, ListView.Contain)
                 }
             }
 
-            Component.onCompleted: Qt.callLater(root.selectInitialPhoto)
-            onCountChanged: Qt.callLater(root.selectInitialPhoto)
+            Component.onCompleted: Qt.callLater(root.restoreSelection)
+            onCountChanged: Qt.callLater(root.restoreSelection)
             Keys.onPressed: event => {
                 if (event.key === Qt.Key_Left)
                     root.navigate(-1)
@@ -341,6 +351,12 @@ Item {
                 }
             }
         }
+    }
+
+    Connections {
+        target: root.model
+        function onModelReset() { Qt.callLater(root.restoreSelection) }
+        function onLayoutChanged() { Qt.callLater(root.restoreSelection) }
     }
 
     Connections {

@@ -85,6 +85,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     /// smart category. Unlike semantic search this filter preserves grid order.
     void setSmartCategoryRepresentationKeys(const QStringList& member_keys);
     Q_INVOKABLE void clearFilters();
+    /// Resolves a visible-model row without instantiating offscreen delegates.
+    Q_INVOKABLE int indexOfPhoto(const QString& photo_id, const QString& representation_id) const;
 
   signals:
     void filtersChanged();

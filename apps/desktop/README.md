@@ -778,7 +778,9 @@ Review presentation keeps the workspace focused on selection and orchestration:
   summary and undo.
 - [`qml/ReviewPhotoCard.qml`](qml/ReviewPhotoCard.qml) and
   [`qml/ReviewSinglePreview.qml`](qml/ReviewSinglePreview.qml) own grid-card and filmstrip
-  geometry. [`qml/ReviewPreviewViewport.qml`](qml/ReviewPreviewViewport.qml) owns the filmstrip
+  geometry. Filmstrip selection resolves against `ReviewFilterModel` identities, independently of
+  delegate residency, and restores visibility after view, filter, or ordering changes while keeping
+  pointer-selected cards stationary. [`qml/ReviewPreviewViewport.qml`](qml/ReviewPreviewViewport.qml) owns the filmstrip
   and ordinary comparison's display-only zoom, pan, and selection reset, reusing the Precision
   view transform and gesture components. Comparison optionally links magnification and normalized
   image centers; a loading peer retains only the latest transform. Gestures reuse the same bounded

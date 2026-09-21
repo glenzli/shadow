@@ -9,6 +9,21 @@
 #include <limits>
 #include <utility>
 
+int ReviewFilterModel::indexOfPhoto(
+    const QString& photo_id,
+    const QString& representation_id
+) const {
+    if (photo_id.isEmpty() || representation_id.isEmpty())
+        return -1;
+    for (int row = 0; row < rowCount(); ++row) {
+        const QModelIndex candidate = index(row, 0);
+        if (data(candidate, ReviewModel::PhotoIdRole).toString() == photo_id
+            && data(candidate, ReviewModel::RepresentationIdRole).toString() == representation_id)
+            return row;
+    }
+    return -1;
+}
+
 namespace {
 
 // Match Catalog's library_equipment_key: trim, ASCII lowercase, omit empty parts.
