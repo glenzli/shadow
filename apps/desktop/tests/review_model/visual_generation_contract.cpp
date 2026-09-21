@@ -25,12 +25,11 @@ void visual_sources_use_encoded_tickets_and_current_generation() {
     );
     require(
         query.queryItemValue(QStringLiteral("generation"), QUrl::FullyDecoded)
-                == QStringLiteral("7")
+                == QStringLiteral("0")
             && query.queryItemValue(QStringLiteral("lifetime"), QUrl::FullyDecoded)
-                == QStringLiteral("grid")
-            && query.queryItemValue(QStringLiteral("ticket"), QUrl::FullyDecoded)
-                == grid_ticket,
-        "grid source must preserve the exact opaque ticket, generation, and lifetime"
+                   == QStringLiteral("grid")
+            && query.queryItemValue(QStringLiteral("ticket"), QUrl::FullyDecoded) == grid_ticket,
+        "grid source must preserve the exact opaque ticket and use a stable cache identity"
     );
     require(
         !source_text.contains(QStringLiteral("representation-should-not-be-used")),
@@ -80,7 +79,7 @@ void visual_sources_use_encoded_tickets_and_current_generation() {
     );
 }
 
-void generation_advance_reissues_retained_visual_sources() {
+void generation_advance_reuses_immutable_grid_visuals() {
     ReviewItem first = keyed_item("a", "A");
     first.visual_handle = QStringLiteral("visual-a");
     first.has_visual = true;
@@ -100,27 +99,30 @@ void generation_advance_reissues_retained_visual_sources() {
     const QString current_source =
         value(model, 0, ReviewModel::VisualSourceRole).toString();
     require(
-        model.isGenerationCurrent(3) && current_source != old_source
-            && QUrlQuery(QUrl(current_source))
-                    .queryItemValue(QStringLiteral("generation"), QUrl::FullyDecoded)
-                == QStringLiteral("3")
-            && QUrlQuery(QUrl(current_source))
-                    .queryItemValue(QStringLiteral("lifetime"), QUrl::FullyDecoded)
-                == QStringLiteral("grid"),
-        "advancing the generation must bind retained visuals to the current provider URL"
+        model.isGenerationCurrent(3) && current_source == old_source,
+        "query navigation must reuse the same signed immutable grid URL"
     );
     require(
         observed.resets == 0 && observed.inserted == 0 && observed.removed == 0
-            && observed.moved == 0 && observed.changed == 1
-            && observed.first_changed_row == 0 && observed.last_changed_row == 1
-            && observed.last_changed_roles == QList<int>{ReviewModel::VisualSourceRole},
-        "generation advance must reissue every retained visual in one precise role update"
+            && observed.moved == 0 && observed.changed == 0,
+        "generation advance must not reload retained grid images"
     );
-
-    model.setGeneration(3);
     require(
-        observed.changed == 1,
-        "setting the current generation again must be a signal-free no-op"
+        QUrlQuery(QUrl(model.visualSourceFor(QStringLiteral("comparison"))))
+                .queryItemValue(QStringLiteral("generation"), QUrl::FullyDecoded)
+            == QStringLiteral("3"),
+        "comparison requests remain bound to the current generation"
+    );
+    model.setGeneration(3);
+    require(observed.changed == 0, "repeating a generation is signal-free");
+
+    first.visual_handle = QStringLiteral("new-artifact-a");
+    require(model.reconcileSnapshot({first, second}, 3), "changed artifacts reconcile");
+    require(
+        value(model, 0, ReviewModel::VisualSourceRole).toString() != old_source
+            && observed.changed == 1
+            && observed.last_changed_roles.contains(ReviewModel::VisualSourceRole),
+        "an actual artifact change must still invalidate the grid image"
     );
 }
 

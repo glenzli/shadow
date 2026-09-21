@@ -182,19 +182,40 @@ void ReviewController::setPersonFilter(
 ) {
     if (id == person_filter_id_ && name == person_filter_name_ && photos == person_photo_ids_)
         return;
+    const bool membership_changed = id != person_filter_id_ || photos != person_photo_ids_;
     person_filter_id_ = id;
     person_filter_name_ = name;
     person_photo_ids_ = photos;
+    filtered_model_.setPhotoScope(!id.isEmpty(), photos);
     emit filtersChanged();
-    refreshRemoteLibraryPresentation();
-    scheduleFilterQuery();
+    if (membership_changed) {
+        refreshRemoteLibraryPresentation();
+        scheduleFilterQuery();
+    }
 }
 void ReviewController::clearPersonFilter() {
     setPersonFilter({}, {}, {});
 }
 
+void ReviewController::openPerson(
+    const QString& id,
+    const QString& name,
+    const QStringList& photos
+) {
+    // Install membership before clearing controls, so opening the Library never
+    // instantiates unrelated retained rows. One immediate request replaces all
+    // debounced filter notifications emitted by this navigation transaction.
+    setPersonFilter(id, name, photos);
+    clearLibraryFilterControls();
+    requestLibraryReset();
+}
+
 void ReviewController::clearFilters() {
     clearPersonFilter();
+    clearLibraryFilterControls();
+}
+
+void ReviewController::clearLibraryFilterControls() {
     availability_filter_settings_->setValue(QStringLiteral("library/hide_offline_uncached"), false);
     availability_filter_settings_->setValue(QStringLiteral("library/only_editable"), false);
     filtered_model_.clearFilters();

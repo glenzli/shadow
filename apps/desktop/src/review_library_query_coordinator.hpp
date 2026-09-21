@@ -4,6 +4,7 @@
 #include "localized_ui_message.hpp"
 #include "review_model.hpp"
 
+#include <QElapsedTimer>
 #include <QFutureWatcher>
 #include <QObject>
 #include <QTimer>
@@ -83,6 +84,7 @@ class ReviewLibraryQueryCoordinator final : public QObject {
         quint64 generation = 0;
         quint64 request_id = 0;
         PageKind kind = PageKind::InitialReset;
+        qint64 backend_ms = 0;
     };
 
     struct CountTaskResult final {
@@ -143,6 +145,7 @@ class ReviewLibraryQueryCoordinator final : public QObject {
     bool count_pending_ = false;
     bool terminal_refresh_active_ = false;
     bool has_more_ = false;
+    QElapsedTimer request_clock_;
     QTimer debounce_timer_;
     QFutureWatcher<PageTaskResult> page_watcher_;
     QFutureWatcher<CountTaskResult> count_watcher_;

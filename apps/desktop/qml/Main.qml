@@ -231,8 +231,7 @@ ApplicationWindow {
     Connections {
         target: window.peopleAnalysisController
         function onGroupOpened(groupId, name, photoIds) {
-            window.controller.clearFilters()
-            window.controller.setPersonFilter(groupId, name, photoIds)
+            window.controller.openPerson(groupId, name, photoIds)
             window.showReview()
         }
         function onResultsChanged() {
@@ -357,10 +356,9 @@ ApplicationWindow {
         ReviewWorkspace {
             id: reviewWorkspace
             peopleController: window.peopleAnalysisController
-            onReturnToPeopleRequested: {
-                window.controller.clearPersonFilter()
-                window.leavePrecision(window.peopleWorkspacePage)
-            }
+            // Preserve the last person's view while browsing people. Opening
+            // another person replaces it; All Photos explicitly leaves the scope.
+            onReturnToPeopleRequested: window.showPeople()
             Layout.fillWidth: true
             Layout.fillHeight: true
             controller: window.controller

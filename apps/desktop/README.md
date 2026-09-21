@@ -27,7 +27,7 @@ remote Mac manifest / client-local proxy cache
   → normal local Catalog identity → Precision + local RecipePreview precedence
 ```
 
-QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
+QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests use a stable URL across Library generations, allowing Qt to reuse decoded images and textures when the ticket is unchanged; comparison requests retain their generation identity. Grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
 
 ## HDR and panorama composition
 
@@ -1151,12 +1151,14 @@ Review presentation keeps the workspace as the composition and compatibility sur
   generation-bound Library page and count projection: one immutable active filter, keyset cursor,
   reset debounce/coalescing, page/count workers, stale-result rejection, cursor validation,
   snapshot/prefix/append reconciliation, query status, and destruction wait. `ReviewController`
-  supplies filter snapshots and cross-workflow state while the coordinator emits only facet,
+  supplies filter snapshots and cross-workflow state. Person navigation bypasses typing debounce,
+  projects exact photo membership over retained rows immediately, and discards superseded pages
+  before they can reach the grid. The coordinator emits only facet,
   decision, status, and work-state boundaries. Its
   [`tests/review_library_query_coordinator/`](tests/review_library_query_coordinator/) contracts
   cover projection, pagination, reset coalescing, stale completion, failures, and lifetime.
 - [`src/review_model.cpp`](src/review_model.cpp) owns the photo-keyed Qt row projection, stable QML
-  roles, exact-location source-availability application, visual-generation URLs, merged
+  roles, exact-location source-availability application, immutable grid and generation-bound comparison URLs, merged
   local/remote presentation ordering, and reset/prefix/append reconciliation. Its single test runner
   routes to responsibility-named contracts under
   [`tests/review_model/`](tests/review_model/) for roles, mutable Library/decision state, visual

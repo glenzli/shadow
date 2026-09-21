@@ -1,4 +1,5 @@
 #include "people_analysis_controller.hpp"
+#include <QElapsedTimer>
 
 #include "ai_preferences.hpp"
 
@@ -387,8 +388,15 @@ QString PeopleAnalysisController::groupName(const QString& id) const {
     return {};
 }
 void PeopleAnalysisController::openGroup(const QString& id) {
-    if (!groupPhotoIds(id).isEmpty())
-        emit groupOpened(id, groupName(id), groupPhotoIds(id));
+    const auto photos = groupPhotoIds(id);
+    if (photos.isEmpty())
+        return;
+    QElapsedTimer clock;
+    clock.start();
+    emit groupOpened(id, groupName(id), photos);
+    if (qEnvironmentVariableIsSet("SHADOW_INTERACTIVE_TIMING"))
+        qInfo() << "People navigation" << "members" << photos.size() << "dispatch_ms"
+                << clock.elapsed();
 }
 void PeopleAnalysisController::splitGroupPhotos(const QString& id, const QStringList& photo_ids) {
     if (busy() || !operations_.split)

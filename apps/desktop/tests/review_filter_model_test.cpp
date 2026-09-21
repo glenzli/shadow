@@ -357,9 +357,33 @@ void offline_availability_filters_preserve_cached_previews_and_unknown_origins()
     );
 }
 
+void photo_navigation_projects_retained_rows_before_the_query_finishes() {
+    ReviewModel source;
+    source.replace({item("a", "ra", "picked", 5), item("b", "rb", "unflagged", 0)}, 1);
+    ReviewFilterModel filtered;
+    filtered.setSourceModel(&source);
+    filtered.setPhotoScope(true, {QStringLiteral("b"), QStringLiteral("not-loaded")});
+    require(
+        filtered.rowCount() == 1
+            && filtered.data(filtered.index(0, 0), ReviewModel::PhotoIdRole).toString() == "b",
+        "navigation immediately hides unrelated rows without waiting for catalog IO"
+    );
+    filtered.setMinimumRating(5);
+    require(filtered.rowCount() == 0, "ordinary filters intersect the navigation membership");
+    filtered.clearFilters();
+    require(filtered.rowCount() == 1, "clearing controls preserves the active navigation scope");
+    source.append({item("not-loaded", "rc", "unflagged", 0), item("unrelated", "rd", "picked", 5)});
+    require(filtered.rowCount() == 2, "later pages obey the same exact photo membership");
+    filtered.setPhotoScope(true, {});
+    require(filtered.rowCount() == 0, "an empty active person never exposes the whole library");
+    filtered.setPhotoScope(false, {});
+    require(filtered.rowCount() == 4, "leaving the person restores retained library rows");
+}
+
 } // namespace
 
 int main() {
+    photo_navigation_projects_retained_rows_before_the_query_finishes();
     offline_availability_filters_preserve_cached_previews_and_unknown_origins();
     combined_lightroom_filters_intersect();
     catalog_metadata_facets_remain_typed_server_filters();

@@ -547,16 +547,9 @@ void ReviewModel::replace(QVector<ReviewItem> items, const quint64 generation) {
 }
 
 void ReviewModel::setGeneration(const quint64 generation) {
-    const quint64 previous = generation_.exchange(generation, std::memory_order_acq_rel);
-    if (previous == generation || items_.isEmpty()) {
-        return;
-    }
-
-    emit dataChanged(
-        index(0, 0),
-        index(static_cast<int>(items_.size() - 1), 0),
-        {VisualSourceRole}
-    );
+    // Only comparison requests depend on the query generation. Grid visuals
+    // change through their signed artifact ticket during snapshot reconciliation.
+    generation_.store(generation, std::memory_order_release);
 }
 
 void ReviewModel::append(QVector<ReviewItem> items) {

@@ -2,6 +2,7 @@
 
 #include "review_decision_coordinator.hpp"
 
+#include <QDebug>
 #include <QtConcurrentRun>
 
 #include <algorithm>
@@ -148,6 +149,7 @@ void ReviewLibraryQueryCoordinator::requestReset(
     BackendLibraryPhotoFilter filter,
     const BackendLibraryPhotoOrder order
 ) {
+    request_clock_.start();
     debounce_timer_.stop();
     requested_filter_ = std::move(filter);
     requested_order_ = order;
@@ -164,6 +166,7 @@ void ReviewLibraryQueryCoordinator::scheduleReset(
     BackendLibraryPhotoFilter filter,
     const BackendLibraryPhotoOrder order
 ) {
+    request_clock_.start();
     requested_filter_ = std::move(filter);
     requested_order_ = order;
     reset_pending_ = true;
@@ -195,6 +198,8 @@ ReviewLibraryQueryCoordinator::PageTaskResult ReviewLibraryQueryCoordinator::run
     const quint64 request_id,
     const PageKind kind
 ) {
+    QElapsedTimer clock;
+    clock.start();
     PageTaskResult result;
     result.generation = generation;
     result.request_id = request_id;
@@ -204,6 +209,7 @@ ReviewLibraryQueryCoordinator::PageTaskResult ReviewLibraryQueryCoordinator::run
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
+    result.backend_ms = clock.elapsed();
     return result;
 }
 
@@ -311,6 +317,10 @@ void ReviewLibraryQueryCoordinator::beginReset() {
     if (!scan_running_) {
         terminal_refresh_active_ = true;
     }
+    if (qEnvironmentVariableIsSet("SHADOW_INTERACTIVE_TIMING"))
+        qInfo() << "Review query start" << "generation" << generation_ << "person_members"
+                << active_filter_.photo_ids.size() << "request_wait_ms"
+                << (request_clock_.isValid() ? request_clock_.elapsed() : 0);
     emit queryStarted(active_filter_, generation_);
     startPage(PageKind::InitialReset);
 }
@@ -344,11 +354,13 @@ void ReviewLibraryQueryCoordinator::startPage(const PageKind kind) {
 }
 
 void ReviewLibraryQueryCoordinator::finishPage() {
+    QElapsedTimer projection_clock;
+    projection_clock.start();
     PageTaskResult result = page_watcher_.result();
     page_running_ = false;
     page_reset_running_ = false;
-    const bool accepted =
-        result.generation == generation_ && result.request_id == active_page_request_id_;
+    const bool accepted = !reset_pending_ && result.generation == generation_
+                          && result.request_id == active_page_request_id_;
     const auto continue_pending = [this]() {
         emit workStateChanged();
         if (reset_pending_ && !debounce_timer_.isActive()) {
@@ -440,6 +452,11 @@ void ReviewLibraryQueryCoordinator::finishPage() {
     if (result.kind == PageKind::InitialReset && !scan_running_) {
         terminal_refresh_active_ = false;
     }
+    if (qEnvironmentVariableIsSet("SHADOW_INTERACTIVE_TIMING"))
+        qInfo() << "Review query presented" << "generation" << result.generation << "backend_ms"
+                << result.backend_ms << "projection_ms" << projection_clock.elapsed()
+                << "request_to_rows_ms" << (request_clock_.isValid() ? request_clock_.elapsed() : 0)
+                << "rows" << model_->rowCount();
     emit decisionsReconciled();
     if (reset_pending_ && !debounce_timer_.isActive()) {
         emit workStateChanged();
@@ -475,8 +492,8 @@ void ReviewLibraryQueryCoordinator::startCount() {
 void ReviewLibraryQueryCoordinator::finishCount() {
     const CountTaskResult result = count_watcher_.result();
     count_running_ = false;
-    const bool accepted =
-        result.generation == generation_ && result.request_id == active_count_request_id_;
+    const bool accepted = !reset_pending_ && result.generation == generation_
+                          && result.request_id == active_count_request_id_;
     if (accepted && result.error.isEmpty()) {
         if (total_items_ != result.count) {
             total_items_ = result.count;
@@ -490,7 +507,11 @@ void ReviewLibraryQueryCoordinator::finishCount() {
     }
     if (count_pending_ || !accepted) {
         count_pending_ = false;
-        startCount();
+        // The next initial page owns Catalog priority and schedules its count.
+        // Do not enqueue an obsolete aggregate ahead of pending navigation.
+        if (!reset_pending_ && !page_reset_running_) {
+            startCount();
+        }
         return;
     }
     if (!scan_running_ && !page_running_) {

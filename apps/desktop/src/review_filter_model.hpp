@@ -84,6 +84,10 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     /// Restricts the loaded Review model to exact members of one published
     /// smart category. Unlike semantic search this filter preserves grid order.
     void setSmartCategoryRepresentationKeys(const QStringList& member_keys);
+    /// Immediately projects a navigation scope over retained rows while its
+    /// authoritative catalog page loads. An enabled empty scope shows no photos.
+    /// Ordinary filter clearing preserves this separately owned navigation scope.
+    void setPhotoScope(bool enabled, const QStringList& photo_ids);
     Q_INVOKABLE void clearFilters();
     /// Resolves a visible-model row without instantiating offscreen delegates.
     Q_INVOKABLE int indexOfPhoto(const QString& photo_id, const QString& representation_id) const;
@@ -134,4 +138,6 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     QStringList excluded_keyword_ids_any_;
     QHash<QString, qsizetype> semantic_rank_by_key_;
     QSet<QString> smart_category_keys_;
+    bool photo_scope_enabled_ = false;
+    QSet<QString> photo_scope_ids_;
 };

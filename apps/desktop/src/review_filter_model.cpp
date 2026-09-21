@@ -424,6 +424,17 @@ void ReviewFilterModel::setSmartCategoryRepresentationKeys(const QStringList& me
     emit smartCategoryFilterChanged();
 }
 
+void ReviewFilterModel::setPhotoScope(const bool enabled, const QStringList& photo_ids) {
+    const QSet<QString> next =
+        enabled ? QSet<QString>(photo_ids.cbegin(), photo_ids.cend()) : QSet<QString>{};
+    if (photo_scope_enabled_ == enabled && photo_scope_ids_ == next) {
+        return;
+    }
+    photo_scope_enabled_ = enabled;
+    photo_scope_ids_ = next;
+    refreshRowsFilter();
+}
+
 void ReviewFilterModel::clearFilters() {
     const bool changed =
         hide_offline_uncached_ || only_editable_ || flag_filter_ != QStringLiteral("all")
@@ -496,6 +507,12 @@ bool ReviewFilterModel::filterAcceptsRow(
 ) const {
     const QModelIndex row = sourceModel()->index(source_row, 0, source_parent);
     if (!row.isValid()) {
+        return false;
+    }
+    if (photo_scope_enabled_
+        && !photo_scope_ids_.contains(
+            sourceModel()->data(row, ReviewModel::PhotoIdRole).toString()
+        )) {
         return false;
     }
     if (!semantic_rank_by_key_.isEmpty()

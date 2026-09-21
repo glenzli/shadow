@@ -558,6 +558,7 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void materializeRemotePhoto(const QString& photo_id);
     Q_INVOKABLE bool prepareRemoteExport(const QVariantList& targets);
     Q_INVOKABLE void clearFilters();
+    Q_INVOKABLE void openPerson(const QString& id, const QString& name, const QStringList& photos);
     QString personFilterId() const {
         return person_filter_id_;
     }
@@ -732,6 +733,7 @@ class ReviewController final : public QObject {
     void initializeCoordinatorWiring();
     void requestLibraryReset();
     void scheduleFilterQuery();
+    void clearLibraryFilterControls();
     void refreshRemoteLibraryPresentation();
     [[nodiscard]] bool remoteLibraryPresentationEligible() const;
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
