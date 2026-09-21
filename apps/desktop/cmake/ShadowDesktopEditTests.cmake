@@ -1791,3 +1791,22 @@ endif()
     add_test(NAME shadow-desktop-auto-start-panel COMMAND shadow-auto-start-panel-contract-test)
     set_tests_properties(shadow-desktop-auto-start-panel PROPERTIES TIMEOUT 30 LABELS "desktop;grading"
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic")
+
+if(BUILD_TESTING)
+    qt_add_executable(shadow-color-warper-interaction-test tests/color_warper_interaction_test.cpp)
+    target_compile_features(shadow-color-warper-interaction-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-color-warper-interaction-test PRIVATE Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    target_compile_definitions(shadow-color-warper-interaction-test PRIVATE
+        SHADOW_WARPER_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+    add_dependencies(shadow-color-warper-interaction-test shadow-desktop-release-translations)
+    qt_add_qml_module(shadow-color-warper-interaction-test
+        URI Shadow.WarperContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/ColorWarperEditor.qml qml/PrecisionColorWarperPanel.qml
+            qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/ShadowSlider.qml
+            qml/ShadowInlineSlider.qml qml/Theme.qml)
+    qt_add_resources(shadow-color-warper-interaction-test warper-icons PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons" FILES icons/redo.svg icons/reset-all.svg icons/close.svg)
+    add_test(NAME shadow-desktop-color-warper-interaction COMMAND shadow-color-warper-interaction-test)
+    set_tests_properties(shadow-desktop-color-warper-interaction PROPERTIES TIMEOUT 30 LABELS "desktop;grading"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic")
+endif()

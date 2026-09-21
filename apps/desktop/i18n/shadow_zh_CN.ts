@@ -218,6 +218,30 @@
 <context>
     <name>ColorWarperEditor</name>
     <message>
+        <source>Color map control grid</source>
+        <translation>颜色映射控制网格</translation>
+    </message>
+    <message>
+        <source>Control point %1</source>
+        <translation>控制点 %1</translation>
+    </message>
+    <message>
+        <source>Select a control point</source>
+        <translation>请选择控制点</translation>
+    </message>
+    <message>
+        <source>Reset selected point</source>
+        <translation>重置所选控制点</translation>
+    </message>
+    <message>
+        <source>Green / Red</source>
+        <translation>绿 / 红</translation>
+    </message>
+    <message>
+        <source>Blue / Yellow</source>
+        <translation>蓝 / 黄</translation>
+    </message>
+    <message>
         <location filename="../qml/ColorWarperEditor.qml" line="291"/>
         <source>Green</source>
         <translation>绿色</translation>
@@ -7300,6 +7324,10 @@ R %2 · G %3 · B %4</translation>
 </context>
 <context>
     <name>PrecisionWorkspace</name>
+    <message>
+        <source>Expand color map</source>
+        <translation>展开颜色映射</translation>
+    </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="349"/>
         <source> · %L1 MASK PART(S)</source>
@@ -15463,6 +15491,21 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/XmpImportDialog.qml" line="301"/>
         <source>All files (*)</source>
         <translation>所有文件 (*)</translation>
+    </message>
+</context>
+<context>
+    <name>PrecisionColorWarperPanel</name>
+    <message>
+        <source>Color map</source>
+        <translation>颜色映射</translation>
+    </message>
+    <message>
+        <source>Return to adjustments</source>
+        <translation>返回调整面板</translation>
+    </message>
+    <message>
+        <source>Drag a point. Hold Shift for fine control; arrow keys nudge the selected point.</source>
+        <translation>拖动控制点；按住 Shift 精细调整，方向键微调所选点。</translation>
     </message>
 </context>
 </TS>

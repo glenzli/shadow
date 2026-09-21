@@ -8,6 +8,9 @@ Item {
     id: root
 
     required property var controller
+    property bool expanded: false
+    property real availableMeshHeight: 520
+    readonly property bool hasSelectedPoint: selectedPoint >= 0 && selectedPoint < controlPoints.length
 
     readonly property int gridSide: 5
     readonly property real maximumOffset: 0.32
@@ -16,7 +19,8 @@ Item {
     // A 5×5 field needs enough room for a deliberate drag, but it should not
     // dominate the inspector or reserve a mystery-sized blank canvas.
     readonly property int meshDisplaySize: hasCompleteMesh
-        ? Math.max(154, Math.min(196, width - 4)) : 0
+        ? expanded ? Math.max(120, Math.min(600, width - 4, availableMeshHeight))
+                   : Math.max(154, Math.min(196, width - 4)) : 0
     readonly property bool editable: Boolean(controller && controller.active
                                               && controller.gradeNodeEnabled)
     readonly property real strength: {
@@ -27,9 +31,15 @@ Item {
     property int selectedPoint: -1
     property bool gestureActive: false
     property int gesturePoint: -1
+    property real lastPointerX: 0
+    property real lastPointerY: 0
+    property bool keyboardGesture: false
+    activeFocusOnTab: editable
+    Accessible.role: Accessible.Graphic
+    Accessible.name: qsTr("Color map control grid")
 
     implicitWidth: 320
-    implicitHeight: hasCompleteMesh ? meshDisplaySize + 64 : 0
+    implicitHeight: hasCompleteMesh ? meshDisplaySize + (expanded ? 166 : 64) : 0
 
     function clamp(value, lower, upper) {
         return Math.max(lower, Math.min(upper, value))
@@ -80,7 +90,7 @@ Item {
         return closest
     }
 
-    function beginPointGesture(index) {
+    function beginPointGesture(index, x, y) {
         if (!editable || index < 0)
             return
         if (gestureActive)
@@ -88,21 +98,98 @@ Item {
         selectedPoint = index
         gestureActive = true
         gesturePoint = index
+        lastPointerX = Number.isFinite(x) ? x : pointX(index)
+        lastPointerY = Number.isFinite(y) ? y : pointY(index)
         controller.beginParameterEdit("color_warper/point/" + index)
     }
 
-    function movePointGesture(x, y) {
+    function movePointGesture(x, y, modifiers) {
         if (!gestureActive || gesturePoint < 0)
             return
         const value = point(gesturePoint)
         if (!value)
             return
-        const a = clamp((x - sourceX(Number(value.column))) / warperFrame.meshPadding
-                        * maximumOffset, -maximumOffset, maximumOffset)
-        const b = clamp((sourceY(Number(value.row)) - y) / warperFrame.meshPadding
-                        * maximumOffset, -maximumOffset, maximumOffset)
+        // Relative movement retains the press offset and lets Shift change
+        // sensitivity mid-drag without snapping the point to a new position.
+        const factor = (modifiers & Qt.ShiftModifier) ? 0.1 : 1
+        const scale = maximumOffset / warperFrame.meshPadding * factor
+        const a = clamp(Number(value.aOffset) + (x - lastPointerX) * scale,
+                        -maximumOffset, maximumOffset)
+        const b = clamp(Number(value.bOffset) - (y - lastPointerY) * scale,
+                        -maximumOffset, maximumOffset)
+        lastPointerX = x
+        lastPointerY = y
         controller.setColorWarperControlPoint(gesturePoint, a, b)
     }
+
+    function setSelectedAxis(horizontal, value) {
+        const selected = point(selectedPoint)
+        if (selected && editable)
+            controller.setColorWarperControlPoint(selectedPoint,
+                horizontal ? value : Number(selected.aOffset),
+                horizontal ? Number(selected.bOffset) : value)
+    }
+
+    function resetSelectedPoint() {
+        if (!hasSelectedPoint || !editable)
+            return
+        finishPointGesture()
+        controller.beginParameterEdit("color_warper/point/" + selectedPoint)
+        controller.setColorWarperControlPoint(selectedPoint, 0, 0)
+        controller.endParameterEdit("color_warper/point/" + selectedPoint)
+    }
+
+    function finishEditing() {
+        finishPointGesture()
+        // A typed but uncommitted value must never follow a new photo/node.
+        if (axisA) {
+            if (axisA.valueEditing) axisA.cancelValueEdit()
+            axisA.finishGesture()
+        }
+        if (axisB) {
+            if (axisB.valueEditing) axisB.cancelValueEdit()
+            axisB.finishGesture()
+        }
+    }
+
+    Keys.onPressed: event => {
+        if (!editable)
+            return
+        const dx = event.key === Qt.Key_Right ? 1 : event.key === Qt.Key_Left ? -1 : 0
+        const dy = event.key === Qt.Key_Up ? 1 : event.key === Qt.Key_Down ? -1 : 0
+        if (!dx && !dy)
+            return
+        if (!hasSelectedPoint)
+            selectedPoint = 12
+        if (!keyboardGesture) {
+            beginPointGesture(selectedPoint)
+            keyboardGesture = true
+        }
+        const value = point(selectedPoint)
+        const step = (event.modifiers & Qt.ShiftModifier) ? 0.0002 : 0.002
+        controller.setColorWarperControlPoint(selectedPoint,
+            clamp(Number(value.aOffset) + dx * step, -maximumOffset, maximumOffset),
+            clamp(Number(value.bOffset) + dy * step, -maximumOffset, maximumOffset))
+        event.accepted = true
+    }
+    Keys.onReleased: event => {
+        if (keyboardGesture && [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].indexOf(event.key) >= 0) {
+            if (!event.isAutoRepeat)
+                finishPointGesture()
+            event.accepted = true
+        }
+    }
+    onActiveFocusChanged: {
+        if (!activeFocus && keyboardGesture)
+            finishPointGesture()
+    }
+    onVisibleChanged: {
+        if (!visible)
+            finishEditing()
+        else
+            warperCanvas.requestPaint()
+    }
+    Component.onDestruction: finishEditing()
 
     function finishPointGesture() {
         if (!gestureActive)
@@ -110,27 +197,33 @@ Item {
         const index = gesturePoint
         gestureActive = false
         gesturePoint = -1
+        keyboardGesture = false
         controller.endParameterEdit("color_warper/point/" + index)
     }
 
     function resetMesh() {
-        finishPointGesture()
+        finishEditing()
         selectedPoint = -1
         controller.resetColorWarper()
     }
 
-    onControlPointsChanged: warperCanvas.requestPaint()
+    onControlPointsChanged: { if (visible) warperCanvas.requestPaint() }
     onSelectedPointChanged: warperCanvas.requestPaint()
     onEditableChanged: {
         if (!editable)
-            finishPointGesture()
+            finishEditing()
     }
 
     Connections {
         target: root.controller
 
         function onSelectedGradeNodeChanged() {
-            root.finishPointGesture()
+            root.finishEditing()
+            root.selectedPoint = -1
+        }
+
+        function onSourceIdentityChanged() {
+            root.finishEditing()
             root.selectedPoint = -1
         }
     }
@@ -148,6 +241,7 @@ Item {
 
             Rectangle {
                 id: warperFrame
+                objectName: "colorWarperFrame"
 
                 readonly property real leftInset: 20
                 readonly property real rightInset: 20
@@ -168,7 +262,7 @@ Item {
                 height: width
                 radius: 5
                 color: Theme.chrome
-                border.color: Theme.borderStrong
+                border.color: root.activeFocus ? Theme.focusRing : Theme.borderStrong
                 clip: true
 
                 // Do not make the color field depend on Canvas repaint timing.
@@ -290,7 +384,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Green")
                     color: Theme.textMuted
-                    font.pixelSize: Theme.fontMicro
+                    font.pixelSize: root.expanded ? Theme.fontMeta : Theme.fontMicro
                     rotation: -90
                     transformOrigin: Item.Center
                 }
@@ -301,7 +395,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Red")
                     color: Theme.textMuted
-                    font.pixelSize: Theme.fontMicro
+                    font.pixelSize: root.expanded ? Theme.fontMeta : Theme.fontMicro
                     rotation: 90
                     transformOrigin: Item.Center
                 }
@@ -312,7 +406,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: qsTr("Yellow")
                     color: Theme.textMuted
-                    font.pixelSize: Theme.fontMicro
+                    font.pixelSize: root.expanded ? Theme.fontMeta : Theme.fontMicro
                 }
 
                 Label {
@@ -321,10 +415,11 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: qsTr("Blue")
                     color: Theme.textMuted
-                    font.pixelSize: Theme.fontMicro
+                    font.pixelSize: root.expanded ? Theme.fontMeta : Theme.fontMicro
                 }
 
                 MouseArea {
+                    objectName: "colorWarperPointer"
                     anchors.fill: parent
                     enabled: root.editable
                     hoverEnabled: true
@@ -333,12 +428,12 @@ Item {
                         const index = root.nearestPoint(mouse.x, mouse.y)
                         if (index < 0)
                             return
-                        root.beginPointGesture(index)
-                        root.movePointGesture(mouse.x, mouse.y)
+                        root.forceActiveFocus(Qt.MouseFocusReason)
+                        root.beginPointGesture(index, mouse.x, mouse.y)
                     }
                     onPositionChanged: mouse => {
                         if (pressed)
-                            root.movePointGesture(mouse.x, mouse.y)
+                            root.movePointGesture(mouse.x, mouse.y, mouse.modifiers)
                     }
                     onReleased: root.finishPointGesture()
                     onCanceled: root.finishPointGesture()
@@ -353,7 +448,26 @@ Item {
             Layout.preferredHeight: root.hasCompleteMesh ? implicitHeight : 0
             visible: root.hasCompleteMesh
 
-            Item { Layout.fillWidth: true }
+            Label {
+                Layout.fillWidth: true
+                visible: root.expanded
+                text: root.hasSelectedPoint ? qsTr("Control point %1").arg(root.selectedPoint + 1)
+                                           : qsTr("Select a control point")
+                font.pixelSize: Theme.fontMeta
+                color: Theme.textSecondary
+            }
+            Item { Layout.fillWidth: true; visible: !root.expanded }
+            ShadowIconButton {
+                objectName: "colorWarperResetPoint"
+                visible: root.expanded
+                buttonSize: 26
+                iconSize: 16
+                source: "qrc:/icons/reset-all.svg"
+                toolTipText: qsTr("Reset selected point")
+                accessibleName: toolTipText
+                enabled: root.editable && root.hasSelectedPoint
+                onClicked: root.resetSelectedPoint()
+            }
 
             ShadowIconButton {
                 buttonSize: 26
@@ -364,6 +478,56 @@ Item {
                 accessibleName: toolTipText
                 enabled: root.editable
                 onClicked: root.resetMesh()
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: root.expanded
+            spacing: 6
+            ShadowSlider {
+                id: axisA
+                objectName: "colorWarperAxisA"
+                Layout.fillWidth: true
+                label: qsTr("Green / Red")
+                labelWidth: 84
+                valueWidth: 64
+                from: -root.maximumOffset
+                to: root.maximumOffset
+                neutralValue: 0
+                stepSize: 0.0001
+                decimals: 4
+                value: root.hasSelectedPoint ? Number(root.point(root.selectedPoint).aOffset) : 0
+                enabled: root.editable && root.hasSelectedPoint
+                onGestureStarted: {
+                    root.finishPointGesture()
+                    root.controller.beginParameterEdit("color_warper/point/" + root.selectedPoint)
+                }
+                onEdited: value => root.setSelectedAxis(true, value)
+                onGestureFinished: root.controller.endParameterEdit("color_warper/point/" + root.selectedPoint)
+            }
+            ShadowSlider {
+                id: axisB
+                objectName: "colorWarperAxisB"
+                Layout.fillWidth: true
+                label: qsTr("Blue / Yellow")
+                labelWidth: 84
+                valueWidth: 64
+                from: -root.maximumOffset
+                to: root.maximumOffset
+                neutralValue: 0
+                stepSize: 0.0001
+                decimals: 4
+                value: root.hasSelectedPoint ? Number(root.point(root.selectedPoint).bOffset) : 0
+                enabled: root.editable && root.hasSelectedPoint
+                onGestureStarted: {
+                    root.finishPointGesture()
+                    root.controller.beginParameterEdit("color_warper/point/" + root.selectedPoint)
+                }
+                onEdited: value => root.setSelectedAxis(false, value)
+                onGestureFinished: root.controller.endParameterEdit("color_warper/point/" + root.selectedPoint)
             }
         }
 

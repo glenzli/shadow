@@ -375,6 +375,8 @@ qt_add_executable(
     src/edit_auto_start_controller.hpp
     src/auto_start_smoke_harness.cpp
     src/auto_start_smoke_harness.hpp
+    src/color_warper_smoke_harness.cpp
+    src/color_warper_smoke_harness.hpp
     src/edit_subject_emphasis_controller.cpp
     src/edit_subject_emphasis_controller.hpp
     src/edit_ai_mask_controller.cpp
@@ -934,6 +936,7 @@ qt_add_qml_module(
         qml/PrecisionColorMixer.qml
         qml/PrecisionSelectiveColor.qml
         qml/ColorWarperEditor.qml
+        qml/PrecisionColorWarperPanel.qml
         qml/HueCurveEditor.qml
         qml/PrecisionGeometryTools.qml
         qml/PrecisionGradeNodeMenus.qml

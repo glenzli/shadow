@@ -1682,6 +1682,24 @@ runs the request's normal export. The fixture must admit a restrained adjustment
 policy cases live in the bridge owner's unit tests. This opt-in check requires installed local
 providers and a valid Shadow credential; it never substitutes an external or cloud provider.
 
+### Expanded color map
+
+`qml/ColorWarperEditor.qml` owns the shared compact/expanded 5×5 Oklab grid and complete pointer,
+keyboard and numeric gesture transactions. `qml/PrecisionColorWarperPanel.qml` provides the docked
+editor and resize affordance. `PrecisionWorkspace` exchanges the inspector for this panel and hides
+the node list; the photograph keeps at least half the workspace and never sits beneath the panel.
+Closing, changing photos/variants or selecting another tool retires the expanded interaction.
+
+Point movement changes only the selected Grade Node through the existing parameter scheduler.
+The warm scene-linear input and upstream RAW/Foundation state remain reusable; the invalidation
+frontier is the affected grade suffix. No new image readback, upload, inference or source cache key
+is introduced by the UI. Panel geometry is display-only. Existing revision cancellation, transient
+interactive frames and settled publication remain authoritative; preview/detail/export compile the
+same unchanged Oklab field. Relative drags preserve the initial grab offset, Shift scales movement
+by 0.1, arrows nudge by 0.002 (Shift: 0.0002), and numeric controls retain the normal single-gesture
+undo boundary. `SHADOW_PIPELINE_SMOKE_ACTION=color-warper` checks the real expanded RAW workspace,
+resizing, transient preview and exact undo/redo; `SHADOW_WARPER_EVIDENCE_DIR` enables bounded captures.
+
 ### Automatic adjustments
 
 `src/edit_auto_start_controller.*` owns the cancellable, disposable suggestion and one-undo apply.

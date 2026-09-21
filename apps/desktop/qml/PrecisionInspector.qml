@@ -40,6 +40,7 @@ Rectangle {
     signal cropAspectRatioRequested(real ratio)
     signal maskOverlayVisibilityRequested(bool visible)
     signal retouchRegionSelectionRequested(bool continuous, int index)
+    signal colorWarperRequested()
 
     readonly property int toolNone: 0
     readonly property int toolMask: 1
@@ -472,6 +473,18 @@ Rectangle {
                                     toolTipText: qsTr("Move a smooth connected Oklab mesh after Color Mixer and Point Color. This is a separate chroma-field correction, not a hue-keyed slider.")
                                     resetAvailable: true
                                     onResetRequested: inspector.editor.resetColorWarper()
+                                    headerActions: Component {
+                                        ShadowIconButton {
+                                            objectName: "expandColorWarper"
+                                            buttonSize: 24
+                                            iconSize: 16
+                                            source: "qrc:/icons/fit-view.svg"
+                                            toolTipText: qsTr("Expand color map")
+                                            accessibleName: toolTipText
+                                            enabled: inspector.editor.active && inspector.editor.gradeNodeEnabled
+                                            onClicked: inspector.colorWarperRequested()
+                                        }
+                                    }
 
                                     ColorWarperEditor {
                                         Layout.fillWidth: true
