@@ -195,7 +195,7 @@ Rectangle {
                     objectName: "paintToolButton"
                     buttonSize: 32
                     iconSize: 19
-                    source: "qrc:/icons/edit.svg"
+                    source: "qrc:/icons/brush.svg"
                     selected: inspector.activeToolMode === inspector.toolPaint
                     toolTipText: qsTr("Paint · color repair and light shaping")
                     accessibleName: toolTipText

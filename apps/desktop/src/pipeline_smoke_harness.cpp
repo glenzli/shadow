@@ -2,6 +2,7 @@
 #include "direct_edit_smoke_harness.hpp"
 #include "edit_controller.hpp"
 #include "paint_smoke_harness.hpp"
+#include "paint_interaction_smoke_harness.hpp"
 #include "pipeline_run_controller.hpp"
 #include "precision_editing_smoke_harness.hpp"
 #include "rgb_curve_smoke_harness.hpp"
@@ -21,6 +22,10 @@ void installPipelineSmokeHarness(
     EditController& editor
 ) {
     const QString action = qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_ACTION");
+    if (action == QStringLiteral("paint-interaction")) {
+        installPaintInteractionSmokeHarness(engine, pipeline, editor);
+        return;
+    }
     if (action == QStringLiteral("direct-edit")) {
         installDirectEditSmokeHarness(engine, pipeline, editor);
         return;

@@ -495,6 +495,8 @@ qt_add_executable(
     src/pipeline_launch.hpp
     src/paint_smoke_harness.cpp
     src/paint_smoke_harness.hpp
+    src/paint_interaction_smoke_harness.cpp
+    src/paint_interaction_smoke_harness.hpp
     src/precision_editing_smoke_harness.cpp
     src/precision_editing_smoke_harness.hpp
     src/direct_edit_smoke_harness.cpp

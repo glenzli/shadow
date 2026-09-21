@@ -4,6 +4,7 @@
 #include <QColor>
 #include <QObject>
 #include <QPointF>
+#include <QTimer>
 #include <QVariantList>
 #include <functional>
 #include <optional>
@@ -172,6 +173,7 @@ class EditPaintController final : public QObject {
     bool editable() const;
     void editLayer(const QString& key, const std::function<void(BackendPaintLayer&)>& edit);
     EditController& owner_;
+    QTimer preview_timer_;
     QString selected_id_, status_;
     BackendPaintStroke brush_;
     PaintBrushPresets presets_;

@@ -84,8 +84,10 @@ void EditController::undo() {
     }
     if (targeted_curve_controller_)
         targeted_curve_controller_->finish(true);
-    if (paint_controller_)
+    if (paint_controller_ && paint_controller_->strokeActive()) {
         paint_controller_->cancelStroke();
+        return; // Undo the live stroke only, preserving the previous completed stroke.
+    }
     std::string history_key;
     const auto restored = history_.undo({grade_stack_, base_commit_id_}, &history_key);
     emit historyChanged();

@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_paint_controller.hpp"
 #include "edit_persistence_task_coordinator.hpp"
 #include "edit_source_admission.hpp"
 
@@ -805,7 +806,8 @@ void EditController::clearAutosaveFailure() {
 }
 
 void EditController::scheduleAutosave() {
-    if (!active_ || !dirty_ || !persistence_state_.autosaveRequested() || stateTaskRunning()) {
+    if (!active_ || !dirty_ || !persistence_state_.autosaveRequested() || stateTaskRunning()
+        || (paint_controller_ && paint_controller_->strokeActive())) {
         return;
     }
     persistence_state_.scheduleAutosave(EDIT_AUTOSAVE_DEBOUNCE_MS);
@@ -814,7 +816,8 @@ void EditController::scheduleAutosave() {
 
 void EditController::startAutosave() {
     persistence_state_.stopAutosaveDebounce();
-    if (!active_ || !dirty_ || !persistence_state_.autosaveRequested() || stateTaskRunning()) {
+    if (!active_ || !dirty_ || !persistence_state_.autosaveRequested() || stateTaskRunning()
+        || (paint_controller_ && paint_controller_->strokeActive())) {
         return;
     }
     clearAutosaveFailure();

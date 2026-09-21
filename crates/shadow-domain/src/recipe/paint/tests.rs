@@ -46,6 +46,33 @@ fn strokes_and_erasers_survive_snapshot_round_trip() {
     restored.validate().unwrap();
     assert_eq!(restored.paint_layers(), &[paint]);
 }
+
+#[test]
+fn continuous_pointer_coordinates_survive_repeated_json_checkouts_exactly() {
+    let mut paint = layer();
+    paint.strokes[0].points = (0..120)
+        .map(|i| {
+            let t = f64::from(i) / 120.0;
+            PaintPoint {
+                x: UnitInterval::new(0.2 + t * 0.6).unwrap(),
+                y: UnitInterval::new(0.5 + 0.12 * (t * 18.0).sin()).unwrap(),
+                pressure: UnitInterval::new(0.1 + t * 0.8).unwrap(),
+            }
+        })
+        .collect();
+    let original = RecipeSnapshot::empty()
+        .with_paint_layers(vec![paint])
+        .unwrap();
+    let mut snapshot = original.clone();
+    for _ in 0..5 {
+        let bytes = serde_json::to_vec(&snapshot).unwrap();
+        snapshot = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            snapshot, original,
+            "autosave checkout must preserve history identity"
+        );
+    }
+}
 #[test]
 fn old_snapshots_remain_without_paint_fields() {
     let old = RecipeSnapshot::empty();

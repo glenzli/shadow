@@ -111,6 +111,10 @@ Application startup is split from environment-driven automation:
   and dedicated Dodge/Burn history, cancellation, photo isolation and export acceptance.
   [`src/paint_smoke_harness.*`](src/paint_smoke_harness.hpp) owns the paint-specific
   undo, cancellation, photo isolation, persistence and export acceptance sequence.
+  [`src/paint_interaction_smoke_harness.*`](src/paint_interaction_smoke_harness.hpp) exercises
+  continuous input and preview cadence while a preceding autosave completes. Paint publishes
+  inspector state at gesture boundaries; its one in-flight preview consumes the latest accumulated
+  points without cancelling every frame. Release/cancel supersedes that preview immediately.
 - [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,
   authorization-gated anonymous-people analysis lifecycle: persisted local-summary loading, worker
   admission, safe failure presentation, conflict-safe group selection, durable merge delegation,

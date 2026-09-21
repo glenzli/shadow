@@ -14,9 +14,26 @@ const QString stroke_key = QStringLiteral("paint/stroke");
 EditPaintController::EditPaintController(EditController& owner) :
     QObject(&owner), owner_(owner), presets_(PaintBrushPresets::defaultSettingsFile()) {
     loadBrush();
+    preview_timer_.setSingleShot(true);
+    preview_timer_.setInterval(16);
+    connect(&preview_timer_, &QTimer::timeout, this, [this] {
+        if (!strokeActive() || generation_ != owner_.photo_generation_)
+            return;
+        // Publish an in-flight paint snapshot before dispatching the newest
+        // accumulated points. Cancelling on every input sample can starve
+        // every frame when pointer frequency exceeds rendering frequency.
+        // There is one worker and one mutable latest draft, never a frame queue.
+        if (owner_.current_rendering_
+            && owner_.in_flight_preview_policy_ == EditPreviewPolicy::Interactive) {
+            preview_timer_.start();
+            return;
+        }
+        owner_.schedulePreview(0);
+    });
     connect(&owner_, &EditController::parametersChanged, this, &EditPaintController::changed);
     connect(&owner_, &EditController::stateBusyChanged, this, &EditPaintController::changed);
     connect(&owner_, &EditController::sourceIdentityChanged, this, [this] {
+        preview_timer_.stop();
         before_.reset();
         stroke_index_ = -1;
         selected_id_.clear();
@@ -361,7 +378,12 @@ bool EditPaintController::beginStroke(
     target.strokes.push_back(std::move(stroke));
     status_.clear();
     appendPoint(x, y, pressure);
-    emit changed();
+    if (target.strokes[stroke_index_].points.isEmpty()) {
+        cancelStroke();
+        return false;
+    }
+    owner_.notifyParametersChanged();
+    emit owner_.historyChanged();
     return true;
 }
 void EditPaintController::appendPoint(double x, double y, double pressure) {
@@ -435,10 +457,15 @@ void EditPaintController::appendPoint(double x, double y, double pressure) {
         stroke_distance_ += distance;
     }
     points.push_back(next);
+    // An older in-flight autosave must never replace a live stroke. Advancing
+    // the draft revision does not create a history entry or save partial ink.
+    ++owner_.working_revision_;
     owner_.setFullResolutionState(false, false, 0);
-    owner_.notifyParametersChanged();
-    owner_.setDirty(owner_.version_draft_ || owner_.grade_stack_ != owner_.committed_grade_stack_);
-    owner_.schedulePreview(32);
+    // Geometry, brush controls and layer rows do not change per pointer sample.
+    // Publish those projections at the gesture boundaries, not at pointer rate.
+    owner_.setDirty(true);
+    if (!preview_timer_.isActive())
+        preview_timer_.start();
 }
 void EditPaintController::finishStroke() {
     if (!before_)
@@ -451,9 +478,12 @@ void EditPaintController::finishStroke() {
     finishing_ = true;
     appendPoint(last_x_, last_y_, last_pressure_);
     finishing_ = false;
+    preview_timer_.stop();
     before_.reset();
     stroke_index_ = -1;
     owner_.endParameterEdit(stroke_key);
+    owner_.notifyParametersChanged();
+    emit owner_.historyChanged();
     ++owner_.working_revision_;
     owner_.persistence_state_.requestAutosave();
     owner_.clearAutosaveFailure();
@@ -462,6 +492,7 @@ void EditPaintController::finishStroke() {
     emit changed();
 }
 void EditPaintController::cancelStroke() {
+    preview_timer_.stop();
     if (!before_)
         return;
     auto before = std::move(*before_);
@@ -469,8 +500,10 @@ void EditPaintController::cancelStroke() {
     stroke_index_ = -1;
     if (generation_ != owner_.photo_generation_)
         return;
+    ++owner_.working_revision_;
     owner_.setGradeStack(std::move(before));
     owner_.endParameterEdit(stroke_key);
+    emit owner_.historyChanged();
     if (owner_.persistence_state_.autosaveRequested())
         owner_.scheduleAutosave();
     emit changed();

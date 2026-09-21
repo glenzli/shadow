@@ -331,11 +331,11 @@ bool EditController::variantActionsEnabled() const noexcept {
 }
 
 bool EditController::canUndo() const noexcept {
-    return history_.canUndo();
+    return history_.canUndo() || (paint_controller_ && paint_controller_->strokeActive());
 }
 
 bool EditController::canRedo() const noexcept {
-    return history_.canRedo();
+    return history_.canRedo() && !(paint_controller_ && paint_controller_->strokeActive());
 }
 
 QString EditController::photoId() const {

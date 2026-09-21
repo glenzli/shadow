@@ -1728,3 +1728,17 @@ if(BUILD_TESTING)
     set_tests_properties(shadow-desktop-targeted-curve-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic" TIMEOUT 30 LABELS "desktop;grading")
 endif()
+
+if(BUILD_TESTING)
+    qt_add_executable(shadow-paint-overlay-contract-test tests/paint_overlay_contract_test.cpp)
+    target_compile_features(shadow-paint-overlay-contract-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-paint-overlay-contract-test PRIVATE src)
+    target_link_libraries(shadow-paint-overlay-contract-test PRIVATE Qt6::Quick Qt6::Qml Qt6::Test)
+    qt_add_qml_module(shadow-paint-overlay-contract-test
+        URI Shadow.PaintContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        SOURCES src/paint_stroke_input.cpp src/paint_stroke_input.hpp
+        QML_FILES qml/PrecisionPaintOverlay.qml)
+    add_test(NAME shadow-desktop-paint-overlay-contract COMMAND shadow-paint-overlay-contract-test)
+    set_tests_properties(shadow-desktop-paint-overlay-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30 LABELS "desktop;paint")
+endif()

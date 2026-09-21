@@ -29,7 +29,9 @@ Item {
         id: input
         objectName: "paintStrokeInput"
         anchors.fill: parent
-        enabled: overlay.interactionEnabled && (overlay.paint.strokeActive || (overlay.previewReady && overlay.paint.canPaint))
+        // A replacement preview can briefly be loading between two strokes.
+        // The current photo's established source geometry remains paintable.
+        enabled: overlay.interactionEnabled && (overlay.paint.strokeActive || (overlay.paint.canPaint && (overlay.previewReady || overlay.editor.previewSource.length > 0)))
         pointerCursor: overlay.paint.picking ? Qt.CrossCursor : Qt.BlankCursor
         onStrokePressed: (x, y, pressure, modifiers, eraser) => {
             overlay.forceActiveFocus()

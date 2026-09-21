@@ -33,8 +33,9 @@ bool run(const QString& executable, const QString& scenario) {
         return false;
     const auto first_bytes = contents(first), second_bytes = contents(second);
     const bool paint = scenario == "paint";
+    const bool paint_interaction = scenario == "paint-interaction";
     const bool retry = scenario == "retry";
-    const bool direct = scenario == "interactive" || paint || retry;
+    const bool direct = scenario == "interactive" || paint || paint_interaction || retry;
     const bool single = scenario == "legacy";
     const bool cancel = scenario == "cancel";
     const QString output1 = root.filePath("output1.png");
@@ -68,7 +69,11 @@ bool run(const QString& executable, const QString& scenario) {
     env.insert("SHADOW_DESKTOP_DATA_ROOT", normal_root);
     env.insert(
         "SHADOW_PIPELINE_SMOKE_ACTION",
-        cancel ? "cancel" : paint ? "paint" : retry ? "retry" : "complete"
+        cancel              ? "cancel"
+        : paint_interaction ? "paint-interaction"
+        : paint             ? "paint"
+        : retry             ? "retry"
+                            : "complete"
     );
     env.insert("SHADOW_PIPELINE_SMOKE_OUTPUT", root.path());
     const QString collision = root.filePath("first-edited.png");
@@ -106,7 +111,10 @@ bool run(const QString& executable, const QString& scenario) {
         return false;
     }
     if (direct) {
-        if (retry && !diagnostics.contains("Partial export edit and retry preserved completed bytes")) {
+        if (paint_interaction)
+            return diagnostics.contains("Paint interaction acceptance completed");
+        if (retry
+            && !diagnostics.contains("Partial export edit and retry preserved completed bytes")) {
             qCritical() << "Missing partial recovery acceptance" << diagnostics;
             return false;
         }
