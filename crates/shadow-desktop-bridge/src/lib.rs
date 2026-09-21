@@ -1351,6 +1351,11 @@ mod ffi {
         /// Optional Oklab-L perceptual curve, flattened as x/y pairs. An empty
         /// vector is the canonical neutral/no-node representation.
         oklab_lightness_curve_points: Vec<f64>,
+        rgb_curve_master_points: Vec<f64>,
+        rgb_curve_red_points: Vec<f64>,
+        rgb_curve_green_points: Vec<f64>,
+        rgb_curve_blue_points: Vec<f64>,
+
         /// Fixed 5×5 Oklab Color Warper lattice, flattened row-major as
         /// `(a_offset, b_offset)` pairs. The desktop boundary always carries
         /// all 25 points; Recipe v1 elides the all-zero lattice.

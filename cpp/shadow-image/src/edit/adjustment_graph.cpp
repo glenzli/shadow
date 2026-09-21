@@ -13,6 +13,8 @@ AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentOperation::exposure;
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
                 return AdjustmentOperation::contrast;
+            } else if constexpr (std::is_same_v<Parameters, RgbToneCurves>) {
+                return AdjustmentOperation::rgb_tone_curves;
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 return AdjustmentOperation::oklab_lightness_tone_curve;
             } else if constexpr (std::is_same_v<Parameters, OklabOpponentToneCurves>) {
@@ -50,6 +52,8 @@ std::string_view operation_id(const AdjustmentOperation operation) noexcept {
         return "shadow.exposure";
     case AdjustmentOperation::contrast:
         return "shadow.contrast";
+    case AdjustmentOperation::rgb_tone_curves:
+        return "shadow.rgb_tone_curves";
     case AdjustmentOperation::oklab_lightness_tone_curve:
         return "shadow.oklab_lightness_tone_curve";
     case AdjustmentOperation::oklab_opponent_tone_curves:

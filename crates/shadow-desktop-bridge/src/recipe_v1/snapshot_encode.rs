@@ -417,6 +417,18 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
     // here, not in the UI: foundational color and the user curve run before
     // technical recovery; color wheels stay in CreativeColor, and physical
     // finishing is last.
+    let perceptual_tone_input = if let Some(curves) = &fine.rgb_tone_curves {
+        nodes.push(super::rgb_tone_curves::rgb_tone_curves_render_op(
+            identity.rgb_tone_curves_render_op_id,
+            NodeInput::Node {
+                node_id: perceptual_tone_input,
+            },
+            curves,
+        )?);
+        identity.rgb_tone_curves_render_op_id
+    } else {
+        perceptual_tone_input
+    };
     nodes.push(recipe_detail_effects_render_op(
         technical_detail_id,
         TECHNICAL_DETAIL_OPERATION_ID,

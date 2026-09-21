@@ -156,3 +156,7 @@ identity remains independent of paint edits. Each stroke carries tip roundness/a
 spacing, deterministic texture strength, and independent size/flow pressure flags through FFI and
 render compilation. Missing fields preserve the legacy round-brush defaults; tool presets and
 input smoothing are desktop preferences rather than recipe-wide mutable settings.
+
+`src/recipe_v1/rgb_tone_curves.rs` owns the optional four-channel RGB curve contract shared by
+snapshot decoding and render compilation. Absent curves preserve the legacy graph; populated
+curves retain one deterministic Grade-local slot and independent point sets.

@@ -34,6 +34,7 @@ mod identity;
 mod managed_raster_resolution;
 mod paint;
 mod render_request;
+mod rgb_tone_curves;
 mod snapshot_decode;
 mod snapshot_encode;
 mod snapshot_layout;

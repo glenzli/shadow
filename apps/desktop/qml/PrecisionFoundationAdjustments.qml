@@ -556,9 +556,9 @@ ColumnLayout {
         enabled: foundation.gradeControlsEnabled
         opacity: enabled ? 1.0 : 0.42
         title: qsTr("CURVE")
-        toolTipText: qsTr("Perceptual lightness curve; hue and chroma are preserved.")
+        toolTipText: qsTr("Lightness and RGB curves. Reset clears all channels.")
         resetAvailable: true
-        onResetRequested: foundation.editor.resetToneCurve()
+        onResetRequested: foundation.editor.resetAllToneCurves()
 
         ToneCurveEditor {
             Layout.fillWidth: true

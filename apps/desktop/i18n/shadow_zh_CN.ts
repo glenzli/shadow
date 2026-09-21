@@ -2679,6 +2679,10 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>EditVersionModel</name>
     <message>
+        <source>RGB Curves</source>
+        <translation>RGB 曲线</translation>
+    </message>
+    <message>
         <location filename="../src/edit_version_presentation.cpp" line="17"/>
         <source>Exposure</source>
         <translation>曝光</translation>
@@ -8449,8 +8453,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="567"/>
-        <source>Perceptual lightness curve; hue and chroma are preserved.</source>
-        <translation>感知明度曲线；保持色相与色度不变。</translation>
+        <source>Lightness and RGB curves. Reset clears all channels.</source>
+        <translation>明度与 RGB 曲线。重置会清除全部通道。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionColorMixer.qml" line="225"/>
@@ -15075,8 +15079,32 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/ToneCurveEditor.qml" line="457"/>
-        <source>Reset curve</source>
-        <translation>重置曲线</translation>
+        <source>Reset current channel</source>
+        <translation>重置当前通道</translation>
+    </message>
+    <message>
+        <source>Lightness</source>
+        <translation>明度</translation>
+    </message>
+    <message>
+        <source>Perceptual lightness</source>
+        <translation>感知明度</translation>
+    </message>
+    <message>
+        <source>RGB master curve</source>
+        <translation>RGB 总曲线</translation>
+    </message>
+    <message>
+        <source>Red channel</source>
+        <translation>红色通道</translation>
+    </message>
+    <message>
+        <source>Green channel</source>
+        <translation>绿色通道</translation>
+    </message>
+    <message>
+        <source>Blue channel</source>
+        <translation>蓝色通道</translation>
     </message>
 </context>
 <context>

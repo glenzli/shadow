@@ -380,6 +380,21 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
             vec![],
             vec![],
         ),
+        AdjustmentRenderOperation::RgbToneCurves { curves } => (
+            ffi::FfiAdjustmentOperation::RgbToneCurves,
+            curves
+                .channels
+                .iter()
+                .flat_map(|points| {
+                    std::iter::once(f64::from(
+                        u32::try_from(points.len()).expect("validated curve point count"),
+                    ))
+                    .chain(points.iter().flat_map(|point| [point.x, point.y]))
+                })
+                .collect(),
+            vec![],
+            vec![],
+        ),
         AdjustmentRenderOperation::OklabLightnessToneCurve { curve } => (
             ffi::FfiAdjustmentOperation::OklabLightnessToneCurve,
             curve

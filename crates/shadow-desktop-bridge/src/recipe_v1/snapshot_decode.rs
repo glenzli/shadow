@@ -313,6 +313,10 @@ pub(crate) fn fine_parameters_from_nodes(
         perceptual_color,
         oklab_color_warper,
         oklab_lightness_curve,
+        rgb_tone_curves: nodes
+            .rgb_tone_curves
+            .map(super::rgb_tone_curves::decode_rgb_tone_curves)
+            .transpose()?,
         lut,
         sharpen,
     };
@@ -378,7 +382,10 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
     preserved_managed_raster: Option<PreservedManagedRasterSettings>,
 ) -> AnyResult<GradeNodeDraft> {
     let nodes = grade_node_recipe_v1_render_ops(layer)?;
-    if nodes.color_grading.id() != recipe_color_grading_render_op_id(layer.id())
+    if nodes
+        .rgb_tone_curves
+        .is_some_and(|node| node.id() != super::recipe_v1_rgb_tone_curves_render_op_id(layer.id()))
+        || nodes.color_grading.id() != recipe_color_grading_render_op_id(layer.id())
         || nodes.finishing_effects.id() != recipe_finishing_effects_render_op_id(layer.id())
         || nodes.oklab_lightness_curve.is_some_and(|node| {
             node.id() != recipe_v1_oklab_lightness_tone_curve_render_op_id(layer.id())
@@ -394,6 +401,7 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
     Ok(GradeNodeDraft {
         recipe_v1_identity: GradeNodeRecipeV1Identity {
             grade_node_id: layer.id(),
+            rgb_tone_curves_render_op_id: super::recipe_v1_rgb_tone_curves_render_op_id(layer.id()),
             exposure_render_op_id: nodes.exposure.id(),
             contrast_render_op_id: nodes.contrast.id(),
             oklab_lightness_curve_render_op_id: nodes.oklab_lightness_curve.map_or_else(

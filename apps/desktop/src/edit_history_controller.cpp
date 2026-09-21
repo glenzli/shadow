@@ -21,23 +21,6 @@ constexpr int EDIT_PREVIEW_THROTTLE_MS = 16;
     return {"EditController", source, arguments};
 }
 
-[[nodiscard]] QVector<ToneCurvePoint>
-tone_curve_model_points(const BackendGradeNode* const grade_node) {
-    if (grade_node == nullptr) {
-        return {{0.0, 0.0}, {1.0, 1.0}};
-    }
-    const auto& source = grade_node->fine.oklab_lightness_curve_points;
-    if (source.isEmpty() || source.size() % 2 != 0) {
-        return {{0.0, 0.0}, {1.0, 1.0}};
-    }
-    QVector<ToneCurvePoint> points;
-    points.reserve(source.size() / 2);
-    for (qsizetype index = 0; index < source.size(); index += 2) {
-        points.push_back({.x = source[index], .y = source[index + 1]});
-    }
-    return points;
-}
-
 } // namespace
 
 void EditController::beginParameterEdit(const QString& parameter_key) {
@@ -270,11 +253,13 @@ void EditController::setGradeStack(
                                      || grade_stack_.geometry != grade_stack.geometry;
     const bool curve_changed = selection_changed || had_old_selection != has_new_selection
                                || (had_old_selection && has_new_selection
-                                   && old_selected_value.fine.oklab_lightness_curve_points
-                                          != new_selected->fine.oklab_lightness_curve_points);
+                                   && (old_selected_value.fine.oklab_lightness_curve_points
+                                           != new_selected->fine.oklab_lightness_curve_points
+                                       || old_selected_value.fine.rgb_curve_points
+                                              != new_selected->fine.rgb_curve_points));
     const bool list_changed =
         EditHistoryRestoreProjection::gradeNodeListChanged(grade_stack_, grade_stack);
-    const auto model_points = tone_curve_model_points(new_selected);
+    const auto model_points = toneCurveModelPoints(new_selected);
     if (tone_curve_points_.points() != model_points && !tone_curve_points_.replace(model_points)) {
         setStatusMessage(edit_message(
             QT_TRANSLATE_NOOP("EditController", "The saved Tone Curve cannot be represented safely")

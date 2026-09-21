@@ -19,6 +19,9 @@ namespace {
     if (key == QStringLiteral("contrast_factor")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Contrast"));
     }
+    if (key == QStringLiteral("rgb_tone_curves")) {
+        return translated(QT_TRANSLATE_NOOP("EditVersionModel", "RGB Curves"));
+    }
     if (key == QStringLiteral("oklab_lightness_curve")) {
         return translated(QT_TRANSLATE_NOOP("EditVersionModel", "Perceptual Lightness Curve"));
     }

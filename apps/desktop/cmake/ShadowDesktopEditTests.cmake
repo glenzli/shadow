@@ -1401,6 +1401,7 @@
             qml/ShadowSwitch.qml
             qml/Theme.qml
             qml/ToneCurveEditor.qml
+            qml/ShadowTabButton.qml
     )
     if(MSVC)
         target_compile_options(
@@ -1692,3 +1693,23 @@ foreach(contract IN ITEMS brush_presets stroke_input)
     set_tests_properties(shadow-desktop-paint-${contract}
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endforeach()
+
+if(BUILD_TESTING)
+    add_executable(shadow-tone-curve-editor-contract-test
+        tests/tone_curve_editor_contract_test.cpp
+        src/tone_curve_point_model.cpp src/tone_curve_point_model.hpp)
+    target_compile_features(shadow-tone-curve-editor-contract-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-tone-curve-editor-contract-test PRIVATE src)
+    target_link_libraries(shadow-tone-curve-editor-contract-test PRIVATE
+        Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+    qt_add_qml_module(shadow-tone-curve-editor-contract-test
+        URI Shadow.CurveContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/ToneCurveEditor.qml qml/ShadowTabButton.qml
+        qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/Theme.qml)
+    qt_add_resources(shadow-tone-curve-editor-contract-test curve-test-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/trash.svg icons/redo.svg)
+    add_test(NAME shadow-desktop-tone-curve-editor-contract COMMAND shadow-tone-curve-editor-contract-test)
+    set_tests_properties(shadow-desktop-tone-curve-editor-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+endif()

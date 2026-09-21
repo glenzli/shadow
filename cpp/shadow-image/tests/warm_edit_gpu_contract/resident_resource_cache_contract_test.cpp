@@ -64,55 +64,64 @@ void expect(const bool condition, const std::string_view message) {
     return lut;
 }
 
-[[nodiscard]] std::array<image::AdjustmentNode, 3U> advanced_nodes(
-    const double curve_midpoint = 0.76,
-    const double lut_intensity = 0.64
-) {
+[[nodiscard]] std::array<image::AdjustmentNode, 4U>
+advanced_nodes(const double curve_midpoint = 0.76, const double lut_intensity = 0.64) {
     return {
         image::AdjustmentNode{
             .node_id = "oklab-lightness-curve",
-            .parameter_schema_version =
-                image::oklab_lightness_tone_curve_parameter_schema_version,
-            .implementation_version =
-                image::oklab_lightness_tone_curve_implementation_version,
-            .parameters = image::OklabLightnessToneCurve{
-                .lightness = {
-                    .points = {
-                        {0.0, 0.0},
-                        {0.18, 0.11},
-                        {0.62, curve_midpoint},
-                        {1.0, 1.08},
-                    },
+            .parameter_schema_version = image::oklab_lightness_tone_curve_parameter_schema_version,
+            .implementation_version = image::oklab_lightness_tone_curve_implementation_version,
+            .parameters =
+                image::OklabLightnessToneCurve{
+                    .lightness =
+                        {
+                            .points =
+                                {
+                                    {0.0, 0.0},
+                                    {0.18, 0.11},
+                                    {0.62, curve_midpoint},
+                                    {1.0, 1.08},
+                                },
+                        },
                 },
-            },
         },
         image::AdjustmentNode{
             .node_id = "pure-color-grading",
-            .parameter_schema_version =
-                image::detail_effects_parameter_schema_version,
-            .implementation_version =
-                image::color_grading_implementation_version,
-            .parameters = image::SharpenAdjustment{
-                .execution_pass =
-                    image::DetailEffectsExecutionPass::color_grading,
-                .shadows_hue = 28.0,
-                .shadows_saturation = 0.32,
-                .shadows_luminance = -0.16,
-                .midtones_hue = 118.0,
-                .midtones_saturation = 0.20,
-                .midtones_luminance = 0.08,
-                .highlights_hue = 248.0,
-                .highlights_saturation = 0.38,
-                .highlights_luminance = 0.18,
-                .grading_blending = 0.66,
-                .grading_balance = -0.24,
-            },
+            .parameter_schema_version = image::detail_effects_parameter_schema_version,
+            .implementation_version = image::color_grading_implementation_version,
+            .parameters =
+                image::SharpenAdjustment{
+                    .execution_pass = image::DetailEffectsExecutionPass::color_grading,
+                    .shadows_hue = 28.0,
+                    .shadows_saturation = 0.32,
+                    .shadows_luminance = -0.16,
+                    .midtones_hue = 118.0,
+                    .midtones_saturation = 0.20,
+                    .midtones_luminance = 0.08,
+                    .highlights_hue = 248.0,
+                    .highlights_saturation = 0.38,
+                    .highlights_luminance = 0.18,
+                    .grading_blending = 0.66,
+                    .grading_balance = -0.24,
+                },
         },
         image::AdjustmentNode{
             .node_id = "cube-lut",
-            .parameters = image::CubeLutAdjustment{
-                .lut = advanced_test_lut(),
-                .intensity = lut_intensity,
+            .parameters =
+                image::CubeLutAdjustment{
+                    .lut = advanced_test_lut(),
+                    .intensity = lut_intensity,
+                },
+        },
+        image::AdjustmentNode{
+            .node_id = "rgb-channel-curves",
+            .parameters = image::RgbToneCurves{
+                .channels = {
+                    image::ToneCurveSet{.points = {{0, 0}, {0.6, 0.64}, {1, 1}}},
+                    image::ToneCurveSet{.points = {{0, 0}, {0.5, 0.54}, {1, 1}}},
+                    image::ToneCurveSet{},
+                    image::ToneCurveSet{.points = {{0, 0.02}, {0.4, 0.37}, {1, 1}}},
+                }
             },
         },
     };
@@ -187,10 +196,8 @@ void expect(const bool condition, const std::string_view message) {
     return {
         image::AdjustmentNode{
             .node_id = "warm-perceptual-color",
-            .parameter_schema_version =
-                image::perceptual_color_parameter_schema_version,
-            .implementation_version =
-                image::perceptual_color_implementation_version,
+            .parameter_schema_version = image::perceptual_color_parameter_schema_version,
+            .implementation_version = image::perceptual_color_implementation_version,
             .parameters = std::move(parameters),
         },
     };
@@ -199,12 +206,9 @@ void expect(const bool condition, const std::string_view message) {
 [[nodiscard]] std::array<image::AdjustmentNode, 1U> color_warper_nodes() {
     image::OklabColorWarperAdjustment parameters;
     for (std::size_t row = 0U; row < image::oklab_color_warper_grid_side; ++row) {
-        for (std::size_t column = 0U;
-             column < image::oklab_color_warper_grid_side;
-             ++column) {
-            auto& point = parameters.control_points[
-                row * image::oklab_color_warper_grid_side + column
-            ];
+        for (std::size_t column = 0U; column < image::oklab_color_warper_grid_side; ++column) {
+            auto& point =
+                parameters.control_points[row * image::oklab_color_warper_grid_side + column];
             point.a_offset = 0.008 * static_cast<double>(column) - 0.016;
             point.b_offset = 0.007 * static_cast<double>(row) - 0.014;
         }
@@ -233,15 +237,14 @@ void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
 
     const auto initial = preparation.session->stats();
     expect(
-        initial.curve_resource_upload_count == 0U
-            && initial.lut_resource_upload_count == 0U
+        initial.curve_resource_upload_count == 0U && initial.lut_resource_upload_count == 0U
             && initial.resource_cache_hit_count == 0U,
         "a new warm session has an empty advanced-resource cache"
     );
     const auto render_and_compare = [&source, &preparation](
-        const std::span<const image::AdjustmentNode> nodes,
-        const std::string_view description
-    ) {
+                                        const std::span<const image::AdjustmentNode> nodes,
+                                        const std::string_view description
+                                    ) {
         const auto plan = image::compile_edit_execution_plan(nodes);
         const auto cpu = image::execute_adjustment_nodes_with_backend(
             source,
@@ -249,12 +252,11 @@ void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
             {.full_dimensions = source.dimensions},
             image::AdjustmentBackendMode::cpu
         );
-        const auto cpu_display =
-            image::render_linear_srgb_to_display_srgb8_with_backend(
-                cpu.pixels,
-                {.target_dimensions = source.dimensions},
-                image::DisplayOutputBackendMode::cpu
-            );
+        const auto cpu_display = image::render_linear_srgb_to_display_srgb8_with_backend(
+            cpu.pixels,
+            {.target_dimensions = source.dimensions},
+            image::DisplayOutputBackendMode::cpu
+        );
         const auto gpu = preparation.session->render(nodes, plan, true);
         if (!gpu.output.has_value() || !gpu.output->analyzed_linear.has_value()) {
             std::cerr << "Advanced warm render failed: " << gpu.diagnostic << '\n';
@@ -262,22 +264,14 @@ void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
             return;
         }
         double maximum_error = 0.0;
-        const bool linear_parity = linear_close(
-            *gpu.output->analyzed_linear,
-            cpu.pixels,
-            maximum_error,
-            8.0e-5
-        );
-        const auto display_difference =
-            rgb8_difference(gpu.output->rgb8, cpu_display.bytes);
+        const bool linear_parity =
+            linear_close(*gpu.output->analyzed_linear, cpu.pixels, maximum_error, 8.0e-5);
+        const auto display_difference = rgb8_difference(gpu.output->rgb8, cpu_display.bytes);
         if (!linear_parity) {
-            std::cerr << "Advanced warm linear parity max="
-                      << maximum_error << '\n';
+            std::cerr << "Advanced warm linear parity max=" << maximum_error << '\n';
         }
         expect(
-            linear_parity
-                && display_difference.maximum <= 1U
-                && display_difference.p99 <= 1U,
+            linear_parity && display_difference.maximum <= 1U && display_difference.p99 <= 1U,
             description
         );
     };
@@ -286,14 +280,10 @@ void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
     render_and_compare(nodes, "the first advanced warm render matches the CPU oracle");
     const auto after_first = preparation.session->stats();
     expect(
-        after_first.curve_resource_upload_count
-                == initial.curve_resource_upload_count + 1U
-            && after_first.lut_resource_upload_count
-                == initial.lut_resource_upload_count + 1U
-            && after_first.resource_cache_hit_count
-                == initial.resource_cache_hit_count
-            && after_first.gpu_buffer_allocation_count
-                == initial.gpu_buffer_allocation_count + 2U
+        after_first.curve_resource_upload_count == initial.curve_resource_upload_count + 1U
+            && after_first.lut_resource_upload_count == initial.lut_resource_upload_count + 1U
+            && after_first.resource_cache_hit_count == initial.resource_cache_hit_count
+            && after_first.gpu_buffer_allocation_count == initial.gpu_buffer_allocation_count + 2U
             && after_first.resident_bytes > initial.resident_bytes,
         "the first curve and LUT each publish one resident side-table buffer"
     );
@@ -301,14 +291,11 @@ void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
     render_and_compare(nodes, "an identical advanced warm render remains CPU-equivalent");
     const auto after_identical = preparation.session->stats();
     expect(
-        after_identical.curve_resource_upload_count
-                == after_first.curve_resource_upload_count
-            && after_identical.lut_resource_upload_count
-                == after_first.lut_resource_upload_count
-            && after_identical.resource_cache_hit_count
-                == after_first.resource_cache_hit_count + 2U
+        after_identical.curve_resource_upload_count == after_first.curve_resource_upload_count
+            && after_identical.lut_resource_upload_count == after_first.lut_resource_upload_count
+            && after_identical.resource_cache_hit_count == after_first.resource_cache_hit_count + 2U
             && after_identical.gpu_buffer_allocation_count
-                == after_first.gpu_buffer_allocation_count
+                   == after_first.gpu_buffer_allocation_count
             && after_identical.resident_bytes == after_first.resident_bytes,
         "an identical curve and LUT hit both caches without another upload"
     );
@@ -317,31 +304,27 @@ void advanced_resources_match_cpu_and_reuse_side_table_uploads() {
     render_and_compare(nodes, "changing LUT intensity remains CPU-equivalent");
     const auto after_intensity = preparation.session->stats();
     expect(
-        after_intensity.curve_resource_upload_count
-                == after_identical.curve_resource_upload_count
+        after_intensity.curve_resource_upload_count == after_identical.curve_resource_upload_count
             && after_intensity.lut_resource_upload_count
-                == after_identical.lut_resource_upload_count
+                   == after_identical.lut_resource_upload_count
             && after_intensity.resource_cache_hit_count
-                == after_identical.resource_cache_hit_count + 2U
+                   == after_identical.resource_cache_hit_count + 2U
             && after_intensity.gpu_buffer_allocation_count
-                == after_identical.gpu_buffer_allocation_count
+                   == after_identical.gpu_buffer_allocation_count
             && after_intensity.resident_bytes == after_identical.resident_bytes,
         "LUT intensity is an operation scalar and does not re-upload either side table"
     );
 
-    std::get<image::OklabLightnessToneCurve>(nodes[0U].parameters)
-        .lightness.points[2U].y = 0.68;
+    std::get<image::RgbToneCurves>(nodes[3U].parameters).channels[1].points[1].y = 0.61;
+    std::get<image::OklabLightnessToneCurve>(nodes[0U].parameters).lightness.points[2U].y = 0.68;
     render_and_compare(nodes, "changing the Oklab curve remains CPU-equivalent");
     const auto after_curve = preparation.session->stats();
     expect(
-        after_curve.curve_resource_upload_count
-                == after_intensity.curve_resource_upload_count + 1U
-            && after_curve.lut_resource_upload_count
-                == after_intensity.lut_resource_upload_count
-            && after_curve.resource_cache_hit_count
-                == after_intensity.resource_cache_hit_count + 1U
+        after_curve.curve_resource_upload_count == after_intensity.curve_resource_upload_count + 1U
+            && after_curve.lut_resource_upload_count == after_intensity.lut_resource_upload_count
+            && after_curve.resource_cache_hit_count == after_intensity.resource_cache_hit_count + 1U
             && after_curve.gpu_buffer_allocation_count
-                == after_intensity.gpu_buffer_allocation_count + 1U
+                   == after_intensity.gpu_buffer_allocation_count + 1U
             && after_curve.resident_bytes > after_intensity.resident_bytes,
         "changing only the curve publishes one curve buffer and reuses the LUT"
     );
@@ -367,9 +350,9 @@ void perceptual_resources_match_cpu_and_have_independent_caches() {
         "a new warm session has empty perceptual-color resource caches"
     );
     const auto render_and_compare = [&source, &preparation](
-        const std::span<const image::AdjustmentNode> nodes,
-        const std::string_view description
-    ) {
+                                        const std::span<const image::AdjustmentNode> nodes,
+                                        const std::string_view description
+                                    ) {
         const auto plan = image::compile_edit_execution_plan(nodes);
         const auto cpu = image::execute_adjustment_nodes_with_backend(
             source,
@@ -377,38 +360,28 @@ void perceptual_resources_match_cpu_and_have_independent_caches() {
             {.full_dimensions = source.dimensions},
             image::AdjustmentBackendMode::cpu
         );
-        const auto cpu_display =
-            image::render_linear_srgb_to_display_srgb8_with_backend(
-                cpu.pixels,
-                {.target_dimensions = source.dimensions},
-                image::DisplayOutputBackendMode::cpu
-            );
+        const auto cpu_display = image::render_linear_srgb_to_display_srgb8_with_backend(
+            cpu.pixels,
+            {.target_dimensions = source.dimensions},
+            image::DisplayOutputBackendMode::cpu
+        );
         const auto gpu = preparation.session->render(nodes, plan, true);
         if (!gpu.output.has_value() || !gpu.output->analyzed_linear.has_value()) {
-            std::cerr << "Perceptual warm render failed: "
-                      << gpu.diagnostic << '\n';
+            std::cerr << "Perceptual warm render failed: " << gpu.diagnostic << '\n';
             expect(false, description);
             return;
         }
         double maximum_error = 0.0;
-        const bool linear_parity = linear_close(
-            *gpu.output->analyzed_linear,
-            cpu.pixels,
-            maximum_error,
-            2.0e-4
-        );
-        const auto display_difference =
-            rgb8_difference(gpu.output->rgb8, cpu_display.bytes);
+        const bool linear_parity =
+            linear_close(*gpu.output->analyzed_linear, cpu.pixels, maximum_error, 2.0e-4);
+        const auto display_difference = rgb8_difference(gpu.output->rgb8, cpu_display.bytes);
         if (!linear_parity || display_difference.maximum > 1U) {
-            std::cerr << "Perceptual warm parity: linear max="
-                      << maximum_error << ", display max="
-                      << static_cast<unsigned int>(display_difference.maximum)
+            std::cerr << "Perceptual warm parity: linear max=" << maximum_error
+                      << ", display max=" << static_cast<unsigned int>(display_difference.maximum)
                       << '\n';
         }
         expect(
-            linear_parity
-                && display_difference.maximum <= 1U
-                && display_difference.p99 <= 1U,
+            linear_parity && display_difference.maximum <= 1U && display_difference.p99 <= 1U,
             description
         );
     };
@@ -423,13 +396,11 @@ void perceptual_resources_match_cpu_and_have_independent_caches() {
         after_first.perceptual_mixer_resource_upload_count
                 == initial.perceptual_mixer_resource_upload_count + 1U
             && after_first.perceptual_range_resource_upload_count
-                == initial.perceptual_range_resource_upload_count + 1U
+                   == initial.perceptual_range_resource_upload_count + 1U
             && after_first.selective_color_resource_upload_count
-                == initial.selective_color_resource_upload_count + 1U
-            && after_first.resource_cache_hit_count
-                == initial.resource_cache_hit_count
-            && after_first.gpu_buffer_allocation_count
-                == initial.gpu_buffer_allocation_count + 3U
+                   == initial.selective_color_resource_upload_count + 1U
+            && after_first.resource_cache_hit_count == initial.resource_cache_hit_count
+            && after_first.gpu_buffer_allocation_count == initial.gpu_buffer_allocation_count + 3U
             && after_first.resident_bytes > initial.resident_bytes,
         "the first perceptual render publishes one buffer per resource family"
     );
@@ -440,19 +411,17 @@ void perceptual_resources_match_cpu_and_have_independent_caches() {
         after_identical.perceptual_mixer_resource_upload_count
                 == after_first.perceptual_mixer_resource_upload_count
             && after_identical.perceptual_range_resource_upload_count
-                == after_first.perceptual_range_resource_upload_count
+                   == after_first.perceptual_range_resource_upload_count
             && after_identical.selective_color_resource_upload_count
-                == after_first.selective_color_resource_upload_count
-            && after_identical.resource_cache_hit_count
-                == after_first.resource_cache_hit_count + 3U
+                   == after_first.selective_color_resource_upload_count
+            && after_identical.resource_cache_hit_count == after_first.resource_cache_hit_count + 3U
             && after_identical.gpu_buffer_allocation_count
-                == after_first.gpu_buffer_allocation_count
+                   == after_first.gpu_buffer_allocation_count
             && after_identical.resident_bytes == after_first.resident_bytes,
         "an identical perceptual render hits all three immutable caches"
     );
 
-    auto& parameters =
-        std::get<image::PerceptualColorAdjustment>(nodes[0U].parameters);
+    auto& parameters = std::get<image::PerceptualColorAdjustment>(nodes[0U].parameters);
     parameters.vibrance = 0.47;
     parameters.color_range.center_degrees = 31.0;
     parameters.selective_color_relative = true;
@@ -463,13 +432,13 @@ void perceptual_resources_match_cpu_and_have_independent_caches() {
         after_scalars.perceptual_mixer_resource_upload_count
                 == after_identical.perceptual_mixer_resource_upload_count
             && after_scalars.perceptual_range_resource_upload_count
-                == after_identical.perceptual_range_resource_upload_count
+                   == after_identical.perceptual_range_resource_upload_count
             && after_scalars.selective_color_resource_upload_count
-                == after_identical.selective_color_resource_upload_count
+                   == after_identical.selective_color_resource_upload_count
             && after_scalars.resource_cache_hit_count
-                == after_identical.resource_cache_hit_count + 3U
+                   == after_identical.resource_cache_hit_count + 3U
             && after_scalars.gpu_buffer_allocation_count
-                == after_identical.gpu_buffer_allocation_count,
+                   == after_identical.gpu_buffer_allocation_count,
         "vibrance, primary range, relative mode, and L protection are operation scalars"
     );
 
@@ -480,13 +449,12 @@ void perceptual_resources_match_cpu_and_have_independent_caches() {
         after_mixer.perceptual_mixer_resource_upload_count
                 == after_scalars.perceptual_mixer_resource_upload_count + 1U
             && after_mixer.perceptual_range_resource_upload_count
-                == after_scalars.perceptual_range_resource_upload_count
+                   == after_scalars.perceptual_range_resource_upload_count
             && after_mixer.selective_color_resource_upload_count
-                == after_scalars.selective_color_resource_upload_count
-            && after_mixer.resource_cache_hit_count
-                == after_scalars.resource_cache_hit_count + 2U
+                   == after_scalars.selective_color_resource_upload_count
+            && after_mixer.resource_cache_hit_count == after_scalars.resource_cache_hit_count + 2U
             && after_mixer.gpu_buffer_allocation_count
-                == after_scalars.gpu_buffer_allocation_count + 1U,
+                   == after_scalars.gpu_buffer_allocation_count + 1U,
         "changing one color-mixer band uploads only the mixer table"
     );
 
@@ -497,13 +465,12 @@ void perceptual_resources_match_cpu_and_have_independent_caches() {
         after_range.perceptual_mixer_resource_upload_count
                 == after_mixer.perceptual_mixer_resource_upload_count
             && after_range.perceptual_range_resource_upload_count
-                == after_mixer.perceptual_range_resource_upload_count + 1U
+                   == after_mixer.perceptual_range_resource_upload_count + 1U
             && after_range.selective_color_resource_upload_count
-                == after_mixer.selective_color_resource_upload_count
-            && after_range.resource_cache_hit_count
-                == after_mixer.resource_cache_hit_count + 2U
+                   == after_mixer.selective_color_resource_upload_count
+            && after_range.resource_cache_hit_count == after_mixer.resource_cache_hit_count + 2U
             && after_range.gpu_buffer_allocation_count
-                == after_mixer.gpu_buffer_allocation_count + 1U,
+                   == after_mixer.gpu_buffer_allocation_count + 1U,
         "changing an additional Point Color range uploads only the range table"
     );
 
@@ -514,13 +481,12 @@ void perceptual_resources_match_cpu_and_have_independent_caches() {
         after_selective.perceptual_mixer_resource_upload_count
                 == after_range.perceptual_mixer_resource_upload_count
             && after_selective.perceptual_range_resource_upload_count
-                == after_range.perceptual_range_resource_upload_count
+                   == after_range.perceptual_range_resource_upload_count
             && after_selective.selective_color_resource_upload_count
-                == after_range.selective_color_resource_upload_count + 1U
-            && after_selective.resource_cache_hit_count
-                == after_range.resource_cache_hit_count + 2U
+                   == after_range.selective_color_resource_upload_count + 1U
+            && after_selective.resource_cache_hit_count == after_range.resource_cache_hit_count + 2U
             && after_selective.gpu_buffer_allocation_count
-                == after_range.gpu_buffer_allocation_count + 1U,
+                   == after_range.gpu_buffer_allocation_count + 1U,
         "changing the CMYK grid uploads only the Selective Color table"
     );
 }
@@ -537,9 +503,9 @@ void color_warper_matches_cpu_and_reuses_its_resident_table() {
     }
 
     const auto render_and_compare = [&source, &preparation](
-        const std::span<const image::AdjustmentNode> nodes,
-        const std::string_view description
-    ) {
+                                        const std::span<const image::AdjustmentNode> nodes,
+                                        const std::string_view description
+                                    ) {
         const auto plan = image::compile_edit_execution_plan(nodes);
         const auto cpu = image::execute_adjustment_nodes_with_backend(
             source,
@@ -549,21 +515,15 @@ void color_warper_matches_cpu_and_reuses_its_resident_table() {
         );
         const auto gpu = preparation.session->render(nodes, plan, true);
         if (!gpu.output.has_value() || !gpu.output->analyzed_linear.has_value()) {
-            std::cerr << "Color Warper warm render failed: "
-                      << gpu.diagnostic << '\n';
+            std::cerr << "Color Warper warm render failed: " << gpu.diagnostic << '\n';
             expect(false, description);
             return;
         }
         double maximum_error = 0.0;
-        const bool linear_parity = linear_close(
-            *gpu.output->analyzed_linear,
-            cpu.pixels,
-            maximum_error,
-            2.0e-4
-        );
+        const bool linear_parity =
+            linear_close(*gpu.output->analyzed_linear, cpu.pixels, maximum_error, 2.0e-4);
         if (!linear_parity) {
-            std::cerr << "Color Warper warm parity: linear max="
-                      << maximum_error << '\n';
+            std::cerr << "Color Warper warm parity: linear max=" << maximum_error << '\n';
         }
         expect(linear_parity, description);
     };
@@ -575,8 +535,7 @@ void color_warper_matches_cpu_and_reuses_its_resident_table() {
     expect(
         after_first.perceptual_mixer_resource_upload_count
                 == initial.perceptual_mixer_resource_upload_count + 1U
-            && after_first.gpu_buffer_allocation_count
-                == initial.gpu_buffer_allocation_count + 1U,
+            && after_first.gpu_buffer_allocation_count == initial.gpu_buffer_allocation_count + 1U,
         "Color Warper publishes one immutable control lattice in the existing pixel-local table"
     );
 
@@ -585,10 +544,9 @@ void color_warper_matches_cpu_and_reuses_its_resident_table() {
     expect(
         after_identical.perceptual_mixer_resource_upload_count
                 == after_first.perceptual_mixer_resource_upload_count
-            && after_identical.resource_cache_hit_count
-                == after_first.resource_cache_hit_count + 1U
+            && after_identical.resource_cache_hit_count == after_first.resource_cache_hit_count + 1U
             && after_identical.gpu_buffer_allocation_count
-                == after_first.gpu_buffer_allocation_count,
+                   == after_first.gpu_buffer_allocation_count,
         "an unchanged Color Warper control lattice hits its resident resource cache"
     );
 
@@ -600,7 +558,7 @@ void color_warper_matches_cpu_and_reuses_its_resident_table() {
         after_changed.perceptual_mixer_resource_upload_count
                 == after_identical.perceptual_mixer_resource_upload_count + 1U
             && after_changed.gpu_buffer_allocation_count
-                == after_identical.gpu_buffer_allocation_count + 1U,
+                   == after_identical.gpu_buffer_allocation_count + 1U,
         "changing Color Warper geometry uploads only its replacement lattice"
     );
 }

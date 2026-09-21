@@ -25,13 +25,16 @@ FloatRgbImage linear_image(Dimensions dimensions, std::vector<float> samples) {
         .pixel_format = FloatPixelFormat::rgb_f32_native_interleaved,
         .transfer_function = TransferFunction::linear,
         .reference = ImageReference::display_referred,
-        .working_space = {
-            .id = "srgb-d65-linear",
-            .primaries = {Chromaticity{0.6400, 0.3300}, Chromaticity{0.3000, 0.6000},
-                          Chromaticity{0.1500, 0.0600}},
-            .white_point = {0.3127, 0.3290},
-            .luminance_coefficients = {0.2126, 0.7152, 0.0722},
-        },
+        .working_space =
+            {
+                .id = "srgb-d65-linear",
+                .primaries =
+                    {Chromaticity{0.6400, 0.3300},
+                     Chromaticity{0.3000, 0.6000},
+                     Chromaticity{0.1500, 0.0600}},
+                .white_point = {0.3127, 0.3290},
+                .luminance_coefficients = {0.2126, 0.7152, 0.0722},
+            },
         .samples = std::move(samples),
     };
 }
@@ -61,26 +64,33 @@ void validate_layers(std::span<const AdjustmentLayer> layers) {
             if (!node.enabled) {
                 continue;
             }
-            const bool supported = std::visit([](const auto& parameters) {
-                using T = std::decay_t<decltype(parameters)>;
-                if constexpr (std::is_same_v<T, SharpenAdjustment>) {
-                    return parameters.execution_pass == DetailEffectsExecutionPass::color_grading
-                        && parameters.clarity == 0.0 && parameters.texture == 0.0
-                        && parameters.local_contrast == 0.0;
-                } else {
-                    return std::is_same_v<T, ExposureAdjustment>
-                        || std::is_same_v<T, ContrastAdjustment>
-                        || std::is_same_v<T, RgbWhiteBalanceAdjustment>
-                        || std::is_same_v<T, SaturationAdjustment>
-                        || std::is_same_v<T, OklabLightnessToneCurve>
-                        || std::is_same_v<T, OklabOpponentToneCurves>
-                        || std::is_same_v<T, PerceptualColorAdjustment>
-                        || std::is_same_v<T, OklabColorWarperAdjustment>
-                        || std::is_same_v<T, CubeLutAdjustment>;
-                }
-            }, node.parameters);
+            const bool supported = std::visit(
+                [](const auto& parameters) {
+                    using T = std::decay_t<decltype(parameters)>;
+                    if constexpr (std::is_same_v<T, SharpenAdjustment>) {
+                        return parameters.execution_pass
+                                   == DetailEffectsExecutionPass::color_grading
+                               && parameters.clarity == 0.0 && parameters.texture == 0.0
+                               && parameters.local_contrast == 0.0;
+                    } else {
+                        return std::is_same_v<T, ExposureAdjustment>
+                               || std::is_same_v<T, ContrastAdjustment>
+                               || std::is_same_v<T, RgbWhiteBalanceAdjustment>
+                               || std::is_same_v<T, SaturationAdjustment>
+                               || std::is_same_v<T, RgbToneCurves>
+                               || std::is_same_v<T, OklabLightnessToneCurve>
+                               || std::is_same_v<T, OklabOpponentToneCurves>
+                               || std::is_same_v<T, PerceptualColorAdjustment>
+                               || std::is_same_v<T, OklabColorWarperAdjustment>
+                               || std::is_same_v<T, CubeLutAdjustment>;
+                    }
+                },
+                node.parameters
+            );
             if (!supported) {
-                throw std::invalid_argument("LUT baking cannot represent this operation: " + node.node_id);
+                throw std::invalid_argument(
+                    "LUT baking cannot represent this operation: " + node.node_id
+                );
             }
         }
     }
@@ -160,11 +170,11 @@ CubeLutBakeResult bake_cube_lut(
     const auto reference = evaluate(layers, inputs, cancellation);
     double squared_error = 0.0;
     for (std::size_t offset = 0; offset < inputs.size(); offset += 3U) {
-        const auto sampled = sample_cube_lut(
-            result.lut, {inputs[offset], inputs[offset + 1U], inputs[offset + 2U]}
-        );
+        const auto sampled =
+            sample_cube_lut(result.lut, {inputs[offset], inputs[offset + 1U], inputs[offset + 2U]});
         for (std::size_t channel = 0; channel < 3U; ++channel) {
-            const double error = std::abs(static_cast<double>(sampled[channel]) - reference[offset + channel]);
+            const double error =
+                std::abs(static_cast<double>(sampled[channel]) - reference[offset + channel]);
             result.maximum_absolute_error = std::max(result.maximum_absolute_error, error);
             squared_error += error * error;
         }
@@ -200,9 +210,10 @@ DisplayRgb8Image render_cube_lut_reference(
     Dimensions dimensions,
     std::span<const float> encoded_srgb
 ) {
-    if (dimensions.width == 0U || dimensions.height == 0U
-        || dimensions.width > 512U || dimensions.height > 512U
-        || encoded_srgb.size() != static_cast<std::size_t>(dimensions.width) * dimensions.height * 3U) {
+    if (dimensions.width == 0U || dimensions.height == 0U || dimensions.width > 512U
+        || dimensions.height > 512U
+        || encoded_srgb.size()
+               != static_cast<std::size_t>(dimensions.width) * dimensions.height * 3U) {
         throw std::invalid_argument("invalid bounded LUT reference image");
     }
     auto source = linear_image(dimensions, {encoded_srgb.begin(), encoded_srgb.end()});
@@ -214,7 +225,8 @@ DisplayRgb8Image render_cube_lut_reference(
     };
     const auto edited = execute_adjustment_nodes(source, std::span{&node, 1U});
     return render_linear_srgb_to_display_srgb8_cpu_reference(
-        edited, {.target_dimensions = dimensions}
+        edited,
+        {.target_dimensions = dimensions}
     );
 }
 

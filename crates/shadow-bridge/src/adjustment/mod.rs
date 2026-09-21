@@ -22,6 +22,8 @@ mod oklab_lightness_curve;
 mod parameter_validation;
 mod perceptual_color;
 mod retouch;
+mod rgb_tone_curves;
+pub use rgb_tone_curves::RgbToneCurves;
 mod selective_tone;
 
 pub use detail_effects::{
@@ -111,6 +113,9 @@ pub enum AdjustmentRenderOperation {
     Contrast {
         factor: f64,
         pivot: f64,
+    },
+    RgbToneCurves {
+        curves: Box<RgbToneCurves>,
     },
     OklabLightnessToneCurve {
         curve: Box<OklabLightnessToneCurve>,
@@ -306,6 +311,12 @@ pub(super) fn validate_render_operation(
                     "contrast factor and pivot must be non-negative",
                 ))
             }
+        }
+        AdjustmentRenderOperation::RgbToneCurves { curves } => {
+            for channel in &curves.channels {
+                validate_tone_curve_points(channel)?;
+            }
+            Ok(())
         }
         AdjustmentRenderOperation::OklabLightnessToneCurve { curve } => {
             validate_tone_curve_points(&curve.lightness)

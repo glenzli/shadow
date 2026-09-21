@@ -335,6 +335,9 @@ fn changed_fine_parameters(before: &FineEditParameters, after: &FineEditParamete
     {
         changed.push("selective_color".to_owned());
     }
+    if before.rgb_tone_curves != after.rgb_tone_curves {
+        changed.push("rgb_tone_curves".to_owned());
+    }
     if before.oklab_lightness_curve != after.oklab_lightness_curve {
         changed.push("oklab_lightness_curve".to_owned());
     }
@@ -396,6 +399,7 @@ pub(super) fn changed_grade_parameters_recipe_v1(
         "saturation_factor",
         "grade_node_enabled",
         "oklab_lightness_curve",
+        "rgb_tone_curves",
         "color_warper",
         "highlights",
         "shadows",
@@ -514,6 +518,10 @@ fn canonical_grade_stack_recipe_v1_identity_is_preserved(
                 && before_nodes.color_grading.id() == after_nodes.color_grading.id()
                 && before_nodes.lut.id() == after_nodes.lut.id()
                 && before_nodes.finishing_effects.id() == after_nodes.finishing_effects.id()
+                && match (before_nodes.rgb_tone_curves, after_nodes.rgb_tone_curves) {
+                    (Some(before), Some(after)) => before.id() == after.id(),
+                    _ => true,
+                }
                 && match (
                     before_nodes.oklab_lightness_curve,
                     after_nodes.oklab_lightness_curve,

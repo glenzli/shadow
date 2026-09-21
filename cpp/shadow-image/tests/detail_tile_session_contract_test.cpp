@@ -99,9 +99,33 @@ void adjustments_apply_only_to_the_requested_crop() {
     );
 }
 
+void rgb_curves_match_full_detail_and_preserve_source() {
+    constexpr image::Dimensions dimensions{4, 3};
+    SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
+    const auto session = image::prepare_full_edit_detail(decoder);
+    image::RgbToneCurves curves;
+    curves.channels[0].points = {{0, 0.01}, {0.5, 0.55}, {1, 1}};
+    curves.channels[1].points = {{0, 0.05}, {0.5, 0.6}, {1, 1}};
+    curves.channels[3].points = {{0, 0}, {0.5, 0.45}, {1, 1}};
+    const std::array plan{image::AdjustmentNode{.node_id = "rgb-curves", .parameters = curves}};
+    const auto full = session.render_rgb8(plan, {0, 0, 4, 3});
+    const auto tile = session.render_rgb8(plan, {0, 0, 1, 1});
+    expect(
+        tile.bytes == std::vector<std::uint8_t>(full.bytes.begin(), full.bytes.begin() + 3),
+        "RGB curves match full-detail and cropped detail pixels"
+    );
+    expect(tile.bytes[0] > tile.bytes[1], "red channel curve reaches the detail renderer");
+    expect(
+        session.render_rgb8(neutral_plan(), {0, 0, 1, 1}).bytes
+            == std::vector<std::uint8_t>{0, 0, 0},
+        "RGB curve detail leaves retained source immutable"
+    );
+}
+
 } // namespace
 
 int main() {
+    rgb_curves_match_full_detail_and_preserve_source();
     preparation_retains_one_immutable_source_and_tiles_exactly();
     adjustments_apply_only_to_the_requested_crop();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

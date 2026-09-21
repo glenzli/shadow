@@ -534,6 +534,7 @@ mod ffi {
         SpotHeal,
         ImageCompletion,
         PaintLayer,
+        RgbToneCurves,
     }
 
     #[derive(Debug, Clone, Copy)]

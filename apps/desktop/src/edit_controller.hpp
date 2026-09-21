@@ -490,6 +490,13 @@ class EditController final : public QObject {
         bool rawWhiteBalancePickerActive READ rawWhiteBalancePickerActive NOTIFY
             rawWhiteBalancePickerActiveChanged
     )
+    Q_PROPERTY(
+        int toneCurveChannel READ toneCurveChannel WRITE setToneCurveChannel NOTIFY toneCurveChanged
+    )
+    Q_PROPERTY(
+        QVariantList toneCurveModifiedChannels READ toneCurveModifiedChannels NOTIFY
+            toneCurveChanged
+    )
     Q_PROPERTY(bool hasToneCurve READ hasToneCurve NOTIFY toneCurveChanged)
     Q_PROPERTY(bool toneCurveEditable READ toneCurveEditable NOTIFY toneCurveChanged)
     Q_PROPERTY(QString lutResourceId READ lutResourceId NOTIFY parametersChanged)
@@ -703,6 +710,11 @@ class EditController final : public QObject {
     [[nodiscard]] QVariantMap retouchSampledSource() const;
     [[nodiscard]] bool whiteBalancePickerActive() const noexcept;
     [[nodiscard]] bool rawWhiteBalancePickerActive() const noexcept;
+    [[nodiscard]] int toneCurveChannel() const noexcept {
+        return tone_curve_channel_;
+    }
+    void setToneCurveChannel(int channel);
+    [[nodiscard]] QVariantList toneCurveModifiedChannels() const;
     [[nodiscard]] bool hasToneCurve() const noexcept;
     [[nodiscard]] bool toneCurveEditable() const noexcept;
     [[nodiscard]] QString lutResourceId() const;
@@ -950,6 +962,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void addToneCurvePoint(double x, double y);
     Q_INVOKABLE void removeToneCurvePoint(int index);
     Q_INVOKABLE void resetToneCurve();
+    Q_INVOKABLE void resetAllToneCurves();
     Q_INVOKABLE void resetFoundationWhiteBalance();
     Q_INVOKABLE void addRawDenoiseNode();
     Q_INVOKABLE void removeRawDenoiseNode();
@@ -1200,6 +1213,8 @@ class EditController final : public QObject {
     std::unique_ptr<EditRawFoundationController> raw_foundation_controller_;
     EditVersionModel versions_;
     ToneCurvePointModel tone_curve_points_;
+    int tone_curve_channel_ = 0;
+    [[nodiscard]] QVector<ToneCurvePoint> toneCurveModelPoints(const BackendGradeNode* node) const;
     QFutureWatcher<EditPreviewTaskResult> preview_watcher_;
     QFutureWatcher<EditDetailTaskResult> detail_watcher_;
     QFutureWatcher<EditDetailWarmupTaskResult> detail_warmup_watcher_;

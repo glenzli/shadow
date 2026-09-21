@@ -303,6 +303,11 @@ pub(crate) fn validate_fine_parameters(parameters: &FineEditParameters) -> AnyRe
     if let Some(curve) = &parameters.oklab_lightness_curve {
         validate_tone_curve(&curve.lightness).context("validate Oklab lightness curve")?;
     }
+    if let Some(curves) = &parameters.rgb_tone_curves {
+        for points in &curves.channels {
+            validate_tone_curve(points)?;
+        }
+    }
     validate_lut_parameters(&parameters.lut)?;
     validate_detail_and_finishing_parameters(parameters)
 }

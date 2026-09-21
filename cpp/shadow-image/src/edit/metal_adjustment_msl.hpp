@@ -19,6 +19,7 @@ constant uint opcode_exposure = 2u;
 constant uint opcode_contrast = 3u;
 constant uint opcode_saturation = 4u;
 constant uint opcode_oklab_lightness_curve = 5u;
+constant uint opcode_rgb_tone_curve = 14u;
 constant uint opcode_color_grading = 6u;
 constant uint opcode_lut_3d = 7u;
 constant uint opcode_perceptual_mapping = 8u;
@@ -185,6 +186,17 @@ inline void report_adjustment_failure(
 
 inline bool resource_range_is_valid(uint offset, uint count, uint available) {
     return count > 0u && offset <= available && count <= available - offset;
+}
+
+inline float rgb_curve_encode(float value) {
+    const float magnitude = abs(value);
+    return copysign(magnitude <= 0.0031308f ? 12.92f * magnitude
+        : 1.055f * pow(magnitude, 1.0f / 2.4f) - 0.055f, value);
+}
+inline float rgb_curve_decode(float value) {
+    const float magnitude = abs(value);
+    return copysign(magnitude <= 0.04045f ? magnitude / 12.92f
+        : pow((magnitude + 0.055f) / 1.055f, 2.4f), value);
 }
 
 inline float evaluate_curve_segment(
@@ -812,6 +824,21 @@ inline bool execute_adjustment_program(
                 rgb = oklab_to_working_rgb(lab, invocation);
             }
             break;
+        case opcode_rgb_tone_curve: {
+            if (!resource_range_is_valid(operation.resource_offset,
+                    operation.resource_count, invocation.curve_segment_count)
+                || operation.parameter_2.x < 0.0f || operation.parameter_2.x > 3.0f) {
+                report_adjustment_failure(status, status_bad_resource, step);
+                return false;
+            }
+            const uint channel = uint(operation.parameter_2.x);
+            for (uint c = 0; c < 3u; ++c) {
+                if (channel == 0u || channel == c + 1u)
+                    rgb[c] = rgb_curve_decode(evaluate_oklab_lightness_curve(
+                        curve_segments, operation, rgb_curve_encode(rgb[c])));
+            }
+            break;
+        }
         case opcode_oklab_lightness_curve:
             if (!resource_range_is_valid(
                     operation.resource_offset,

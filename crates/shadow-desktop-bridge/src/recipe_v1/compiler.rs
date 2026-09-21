@@ -594,6 +594,12 @@ pub(crate) fn compile_recipe_node(
     let is_base_contract = descriptor.parameter_schema_version()
         == CPU_REFERENCE_PARAMETER_SCHEMA_VERSION
         && descriptor.implementation_version() == CPU_REFERENCE_IMPLEMENTATION_VERSION;
+    let is_current_rgb_tone_curves = descriptor.operation_id().as_str()
+        == shadow_domain::operation::RGB_TONE_CURVES_OPERATION_ID
+        && descriptor.parameter_schema_version()
+            == shadow_domain::operation::RGB_TONE_CURVES_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version()
+            == shadow_domain::operation::RGB_TONE_CURVES_IMPLEMENTATION_VERSION;
     let is_current_oklab_lightness_tone_curve = descriptor.operation_id().as_str()
         == OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID
         && descriptor.parameter_schema_version()
@@ -623,6 +629,7 @@ pub(crate) fn compile_recipe_node(
         && descriptor.parameter_schema_version() == FINISHING_EFFECTS_PARAMETER_SCHEMA_VERSION
         && descriptor.implementation_version() == FINISHING_EFFECTS_IMPLEMENTATION_VERSION;
     if (!is_base_contract
+        && !is_current_rgb_tone_curves
         && !is_current_oklab_lightness_tone_curve
         && !is_current_selective_tone
         && !is_current_perceptual_color
@@ -653,6 +660,15 @@ pub(crate) fn compile_recipe_node(
             AdjustmentRenderOperation::Contrast {
                 factor: required_float(node.parameters(), CONTRAST_FACTOR_PARAMETER_KEY, 2)?,
                 pivot: required_float(node.parameters(), CONTRAST_PIVOT_PARAMETER_KEY, 2)?,
+            }
+        }
+        shadow_domain::operation::RGB_TONE_CURVES_OPERATION_ID => {
+            require_stage(node, ProcessingStage::ToneAndLocalContrast)?;
+            if !is_current_rgb_tone_curves {
+                bail!("Recipe RGB curves use an unsupported contract");
+            }
+            AdjustmentRenderOperation::RgbToneCurves {
+                curves: Box::new(super::rgb_tone_curves::decode_rgb_tone_curves(node)?),
             }
         }
         OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID => {

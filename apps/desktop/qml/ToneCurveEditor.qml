@@ -21,7 +21,16 @@ Item {
     readonly property bool hasCurve: Boolean(controller && controller.hasToneCurve)
     readonly property bool curveEditable: Boolean(controller && controller.toneCurveEditable)
     readonly property var curveModel: controller ? controller.toneCurvePoints : null
-    readonly property color currentCurveColor: accentColor
+    readonly property int channel: controller && controller.toneCurveChannel !== undefined
+        ? controller.toneCurveChannel : 0
+    readonly property var modifiedChannels: controller && controller.toneCurveModifiedChannels !== undefined
+        ? controller.toneCurveModifiedChannels : [false, false, false, false, false]
+    readonly property var channelLabels: [qsTr("Lightness"), "RGB", "R", "G", "B"]
+    readonly property var channelTips: [qsTr("Perceptual lightness"), qsTr("RGB master curve"),
+        qsTr("Red channel"), qsTr("Green channel"), qsTr("Blue channel")]
+    readonly property color currentCurveColor: channel === 2 ? Theme.curveRed
+        : channel === 3 ? Theme.curveGreen : channel === 4 ? Theme.curveBlue
+        : channel === 1 ? textColor : accentColor
 
     property int selectedPoint: -1
     property bool selectedPointDeletable: false
@@ -34,7 +43,7 @@ Item {
     readonly property real authoredPointGap: 1.0 / 4096.0
 
     implicitWidth: 320
-    implicitHeight: 296
+    implicitHeight: curveContents.implicitHeight
     activeFocusOnTab: true
 
     function clamp(value, lower, upper) {
@@ -213,8 +222,46 @@ Item {
     }
 
     ColumnLayout {
+        id: curveContents
         anchors.fill: parent
         spacing: 7
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 2
+            Repeater {
+                model: 5
+                delegate: ShadowTabButton {
+                    required property int index
+                    objectName: "toneCurveChannel" + index
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    minimumTabWidth: 0
+                    compact: true
+                    underlineMaximumWidth: 24
+                    text: root.channelLabels[index]
+                    toolTipText: root.channelTips[index]
+                    active: root.channel === index
+                    activeColor: index === 2 ? Theme.curveRed : index === 3 ? Theme.curveGreen
+                        : index === 4 ? Theme.curveBlue : root.accentColor
+                    onClicked: {
+                        root.finishPointGesture()
+                        root.clearSelection()
+                        root.controller.toneCurveChannel = index
+                    }
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 5
+                        width: 3
+                        height: 3
+                        radius: 1.5
+                        color: parent.activeColor
+                        visible: root.modifiedChannels[parent.index] && !parent.active
+                    }
+                }
+            }
+        }
 
         Item {
             Layout.fillWidth: true
@@ -222,6 +269,7 @@ Item {
 
             Rectangle {
                 id: curveFrame
+                objectName: "toneCurveFrame"
 
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: Math.min(parent.width, parent.height)
@@ -454,7 +502,7 @@ Item {
                 iconSize: 16
                 source: "qrc:/icons/redo.svg"
                 variant: ShadowIconButton.Ghost
-                toolTipText: qsTr("Reset curve")
+                toolTipText: qsTr("Reset current channel")
                 accessibleName: toolTipText
                 enabled: root.hasCurve
                 onClicked: root.resetCurve()

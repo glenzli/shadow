@@ -105,6 +105,8 @@ Application startup is split from environment-driven automation:
   owns the independent window; [`qml/PipelineExportDialog.qml`](qml/PipelineExportDialog.qml)
   owns interactive output choices. [`src/pipeline_smoke_harness.*`](src/pipeline_smoke_harness.hpp)
   drives opt-in packaged session acceptance, registered in `ShadowDesktopPipelineTests.cmake`.
+  [`src/rgb_curve_smoke_harness.*`](src/rgb_curve_smoke_harness.hpp) owns five-channel curve
+  history, photo isolation, persisted checkout and export acceptance.
   [`src/paint_smoke_harness.*`](src/paint_smoke_harness.hpp) owns the paint-specific
   undo, cancellation, photo isolation, persistence and export acceptance sequence.
 - [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,

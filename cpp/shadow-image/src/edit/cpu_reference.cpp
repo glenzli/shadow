@@ -55,6 +55,7 @@ using detail::apply_prepared_guided_selective_tone_cpu;
 using detail::apply_prepared_oklab_lightness_tone_curve;
 using detail::apply_prepared_oklab_opponent_tone_curves;
 using detail::apply_prepared_perceptual_contrast_cpu;
+using detail::apply_prepared_rgb_tone_curves;
 using detail::apply_technical_detail_cpu;
 using detail::classify_perceptual_color;
 using detail::creative_detail_footprint;
@@ -67,10 +68,12 @@ using detail::prepare_guided_selective_tone;
 using detail::prepare_oklab_lightness_tone_curve_node;
 using detail::prepare_oklab_opponent_tone_curves_node;
 using detail::prepare_perceptual_contrast;
+using detail::prepare_rgb_tone_curves_node;
 using detail::prepare_rgb_white_balance_matrix;
 using detail::prepare_working_space_transform;
 using detail::PreparedOklabOpponentToneCurves;
 using detail::PreparedPerceptualContrast;
+using detail::PreparedRgbToneCurves;
 using detail::PreparedSmoothToneCurve;
 using detail::PreparedToneCurveAdjustment;
 using detail::technical_detail_footprint;
@@ -168,6 +171,8 @@ validate_node(const AdjustmentNode& node, const std::size_t index) {
                 }
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
                 prepared.perceptual_contrast = prepare_perceptual_contrast(parameters, node, index);
+            } else if constexpr (std::is_same_v<Parameters, RgbToneCurves>) {
+                prepared.tone_curve = prepare_rgb_tone_curves_node(parameters, node, index);
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 prepared.tone_curve =
                     prepare_oklab_lightness_tone_curve_node(parameters, node, index);
@@ -334,6 +339,8 @@ prepare_adjustment_nodes(const std::span<const AdjustmentNode> nodes) {
                 return value.stops == 0.0;
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
                 return prepared.perceptual_contrast->neutral();
+            } else if constexpr (std::is_same_v<Parameters, RgbToneCurves>) {
+                return std::get<PreparedRgbToneCurves>(prepared.tone_curve).is_identity();
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 return std::get<PreparedSmoothToneCurve>(prepared.tone_curve).is_identity();
             } else if constexpr (std::is_same_v<Parameters, OklabOpponentToneCurves>) {
@@ -419,6 +426,13 @@ void apply_node(
                     node,
                     index,
                     *prepared.perceptual_contrast
+                );
+            } else if constexpr (std::is_same_v<Parameters, RgbToneCurves>) {
+                apply_prepared_rgb_tone_curves(
+                    image,
+                    std::get<PreparedRgbToneCurves>(prepared.tone_curve),
+                    node,
+                    index
                 );
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 const WorkingSpaceTransform color_transform =
@@ -563,6 +577,7 @@ AdjustmentLocality locality(const AdjustmentOperation operation) noexcept {
     switch (operation) {
     case AdjustmentOperation::exposure:
     case AdjustmentOperation::contrast:
+    case AdjustmentOperation::rgb_tone_curves:
     case AdjustmentOperation::oklab_lightness_tone_curve:
     case AdjustmentOperation::oklab_opponent_tone_curves:
     case AdjustmentOperation::rgb_white_balance:

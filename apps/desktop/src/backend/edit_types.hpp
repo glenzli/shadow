@@ -81,6 +81,8 @@ struct BackendFineEditParameters final {
     std::array<double, BACKEND_SELECTIVE_COLOR_VALUE_COUNT> selective_color_cmyk{};
     /// Flattened authored Oklab-L x/y pairs. Empty means no perceptual curve.
     QVector<double> oklab_lightness_curve_points;
+    /// Master, R, G, B flattened point pairs; empty channels are identity.
+    std::array<QVector<double>, 4U> rgb_curve_points;
     /// A fixed 5×5 Oklab a/b displacement lattice. It remains distinct from
     /// hue-keyed Color Mixer and Point Color values, so one Grade Node can
     /// carry the complete connected chroma field (and its local mask).

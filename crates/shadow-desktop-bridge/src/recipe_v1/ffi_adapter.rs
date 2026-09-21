@@ -1047,6 +1047,9 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
                 "contrast",
                 &grade_node.contrast_render_op_id,
             )?,
+            rgb_tone_curves_render_op_id: super::recipe_v1_rgb_tone_curves_render_op_id(
+                grade_node_id,
+            ),
             oklab_lightness_curve_render_op_id: recipe_v1_oklab_lightness_tone_curve_render_op_id(
                 grade_node_id,
             ),
@@ -1178,6 +1181,21 @@ pub(crate) fn fine_parameters(
             &parameters.oklab_color_warper_control_points,
             parameters.oklab_color_warper_strength,
         )?,
+        rgb_tone_curves: {
+            let values = [
+                &parameters.rgb_curve_master_points,
+                &parameters.rgb_curve_red_points,
+                &parameters.rgb_curve_green_points,
+                &parameters.rgb_curve_blue_points,
+            ];
+            let mut curves = shadow_bridge::RgbToneCurves::default();
+            for (channel, values) in curves.channels.iter_mut().zip(values) {
+                if !values.is_empty() {
+                    *channel = tone_curve_points_from_vector(values)?;
+                }
+            }
+            (curves != shadow_bridge::RgbToneCurves::default()).then_some(curves)
+        },
         oklab_lightness_curve: if parameters.oklab_lightness_curve_points.is_empty() {
             None
         } else {
@@ -1316,6 +1334,26 @@ pub(crate) fn ffi_fine_parameters(parameters: &FineEditParameters) -> ffi::FfiFi
         selective_color_relative: color.selective_color_relative,
         selective_color_lightness_protection: color.selective_color_lightness_protection,
         selective_color_cmyk: color.selective_color_cmyk.to_vec(),
+        rgb_curve_master_points: parameters
+            .rgb_tone_curves
+            .as_ref()
+            .map(|curves| curves.channels[0].iter().flat_map(|p| [p.x, p.y]).collect())
+            .unwrap_or_default(),
+        rgb_curve_red_points: parameters
+            .rgb_tone_curves
+            .as_ref()
+            .map(|curves| curves.channels[1].iter().flat_map(|p| [p.x, p.y]).collect())
+            .unwrap_or_default(),
+        rgb_curve_green_points: parameters
+            .rgb_tone_curves
+            .as_ref()
+            .map(|curves| curves.channels[2].iter().flat_map(|p| [p.x, p.y]).collect())
+            .unwrap_or_default(),
+        rgb_curve_blue_points: parameters
+            .rgb_tone_curves
+            .as_ref()
+            .map(|curves| curves.channels[3].iter().flat_map(|p| [p.x, p.y]).collect())
+            .unwrap_or_default(),
         oklab_lightness_curve_points: parameters
             .oklab_lightness_curve
             .as_ref()

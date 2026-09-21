@@ -114,6 +114,23 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         .program = std::nullopt,
                         .diagnostic = "Metal paint resource budget exceeded"
                     };
+            } else if (step.operation == AdjustmentOperation::rgb_tone_curves) {
+                const auto curves = prepare_rgb_tone_curves_node(
+                    std::get<RgbToneCurves>(node.parameters),
+                    node,
+                    step.node_index
+                );
+                emitted_operation_count = 0U;
+                for (const auto& curve : curves.channels) {
+                    if (curve.is_identity())
+                        continue;
+                    ++emitted_operation_count;
+                    if (!checked_resource_add(curve_segment_count, curve.segment_count()))
+                        return {
+                            .program = std::nullopt,
+                            .diagnostic = "Metal RGB curve segment budget exceeded"
+                        };
+                }
             } else if (step.operation == AdjustmentOperation::oklab_lightness_tone_curve) {
                 const auto& parameters = std::get<OklabLightnessToneCurve>(node.parameters);
                 if (parameters.lightness.points.size() < 2U
@@ -457,6 +474,90 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         prepare_working_space_transform(input.working_space, node, step.node_index);
                 }
                 break;
+            }
+            case AdjustmentOperation::rgb_tone_curves: {
+                const auto curves = prepare_rgb_tone_curves_node(
+                    std::get<RgbToneCurves>(node.parameters),
+                    node,
+                    step.node_index
+                );
+                for (std::size_t channel = 0; channel < curves.channels.size(); ++channel) {
+                    const auto& curve = curves.channels[channel];
+                    if (curve.is_identity())
+                        continue;
+                    operation_record.opcode =
+                        static_cast<std::uint32_t>(MetalAdjustmentOpcode::rgb_tone_curve);
+                    operation_record.parameter_2[0] = static_cast<float>(channel);
+                    const ToneCurveSet& source = curve.source();
+                    const std::span<const double> knot_derivatives = curve.knot_derivatives();
+                    const std::size_t segment_count = curve.segment_count();
+                    if (curve.is_identity() || segment_count == 0U
+                        || prepared.curve_segments.size()
+                               > std::numeric_limits<std::uint32_t>::max()
+                        || segment_count > std::numeric_limits<std::uint32_t>::max()
+                        || prepared.curve_segments.size()
+                               > std::numeric_limits<std::uint32_t>::max() - segment_count) {
+                        return MetalAdjustmentPreparation{
+                            .program = std::nullopt,
+                            .diagnostic =
+                                "Metal curve resource range is inconsistent with its active plan",
+                        };
+                    }
+                    operation_record.resource_offset =
+                        static_cast<std::uint32_t>(prepared.curve_segments.size());
+                    operation_record.resource_count = static_cast<std::uint32_t>(segment_count);
+                    for (std::size_t index = 0U; index < segment_count; ++index) {
+                        const ToneCurvePoint left = source.points[index];
+                        const ToneCurvePoint right = source.points[index + 1U];
+                        const auto metal_interval = checked_normalized_interval(
+                            left.x,
+                            right.x,
+                            128.0 * static_cast<double>(std::numeric_limits<float>::epsilon())
+                        );
+                        if (!metal_interval.has_value()) {
+                            return MetalAdjustmentPreparation{
+                                .program = std::nullopt,
+                                .diagnostic =
+                                    "Metal curve knots cannot preserve their interval in fp32",
+                            };
+                        }
+                        MetalCurveSegment segment_record;
+                        if (!fill_vector(
+                                {
+                                    static_cast<double>((*metal_interval)[0]),
+                                    left.y,
+                                    knot_derivatives[index],
+                                    0.0,
+                                },
+                                segment_record.left
+                            )
+                            || !fill_vector(
+                                {
+                                    static_cast<double>((*metal_interval)[1]),
+                                    right.y,
+                                    knot_derivatives[index + 1U],
+                                    0.0,
+                                },
+                                segment_record.right
+                            )) {
+                            return MetalAdjustmentPreparation{
+                                .program = std::nullopt,
+                                .diagnostic = "Metal curve segment exceeds finite fp32 range",
+                            };
+                        }
+                        prepared.curve_segments.push_back(segment_record);
+                    }
+                    operation_record.parameter_0 =
+                        prepared.curve_segments[operation_record.resource_offset].left;
+                    operation_record.parameter_1 =
+                        prepared
+                            .curve_segments
+                                [static_cast<std::size_t>(operation_record.resource_offset)
+                                 + segment_count - 1U]
+                            .right;
+                    prepared.operations.push_back(operation_record);
+                }
+                continue;
             }
             case AdjustmentOperation::oklab_lightness_tone_curve: {
                 operation_record.opcode =

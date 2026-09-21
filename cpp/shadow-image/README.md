@@ -30,6 +30,16 @@ by CMake and direct Cargo builds. Portable, Metal, and non-Metal fallback
 translation units are selected there; adding Windows acceleration must add a distinct manifest
 and backend owner rather than duplicate the portable kernel or fork this library.
 
+## Tone curves
+
+[`src/edit/tone_curve.cpp`](src/edit/tone_curve.cpp) owns PCHIP preparation and CPU evaluation;
+[`src/edit/metal_adjustment_program.cpp`](src/edit/metal_adjustment_program.cpp) lowers the same
+knots into bounded resident Metal segments. Oklab L remains separate from RGB master/R/G/B.
+RGB curves use the signed sRGB transfer function on the declared working primaries, master first
+then individual channels, with tangent extrapolation and no intermediate clipping. Identity
+channels bypass exactly. This is a versioned Shadow creative operation, not Photoshop profile
+compatibility. The recipe adapter places it after perceptual L and before technical detail.
+
 ## Photographic paint
 
 [`paint.hpp`](include/shadow/image/paint.hpp) and [`src/edit/paint.cpp`](src/edit/paint.cpp)

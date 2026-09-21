@@ -38,6 +38,7 @@ metal_ineligibility(const EditExecutionPlan& plan, const std::span<const Adjustm
             case AdjustmentOperation::exposure:
             case AdjustmentOperation::contrast:
             case AdjustmentOperation::saturation:
+            case AdjustmentOperation::rgb_tone_curves:
             case AdjustmentOperation::oklab_lightness_tone_curve:
             case AdjustmentOperation::oklab_opponent_tone_curves:
             case AdjustmentOperation::oklab_color_warper:

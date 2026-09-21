@@ -16,6 +16,16 @@
 namespace desktop_backend_projection {
 namespace {
 
+QVector<double> edit_curve_values(const rust::Vec<double>& source) {
+    if (source.size() % 2U != 0U || source.size() > 512U)
+        throw std::length_error("RGB curve point vector has invalid size");
+    QVector<double> result;
+    result.reserve(static_cast<qsizetype>(source.size()));
+    for (const double value : source)
+        result.push_back(value);
+    return result;
+}
+
 void validate_mask_components(const BackendGradeNode& source) {
     if (source.local_mask_components.size() > BACKEND_MAX_MASK_COMPONENTS) {
         throw std::length_error("local_mask_components exceeds the bounded component count");
@@ -147,6 +157,14 @@ ffi_fine_parameters(const BackendFineEditParameters& source) {
     result.selective_color_relative = source.selective_color_relative;
     result.selective_color_lightness_protection = source.selective_color_lightness_protection;
     result.selective_color_cmyk = ffi_values(source.selective_color_cmyk);
+    for (const double value : source.rgb_curve_points[0])
+        result.rgb_curve_master_points.push_back(value);
+    for (const double value : source.rgb_curve_points[1])
+        result.rgb_curve_red_points.push_back(value);
+    for (const double value : source.rgb_curve_points[2])
+        result.rgb_curve_green_points.push_back(value);
+    for (const double value : source.rgb_curve_points[3])
+        result.rgb_curve_blue_points.push_back(value);
     result.oklab_lightness_curve_points.reserve(
         static_cast<std::size_t>(source.oklab_lightness_curve_points.size())
     );
@@ -281,6 +299,11 @@ edit_fine_parameters(const shadow::desktop::FfiFineEditParameters& source) {
             "selective_color_cmyk"
         ),
         .oklab_lightness_curve_points = std::move(oklab_lightness_curve_points),
+        .rgb_curve_points =
+            {edit_curve_values(source.rgb_curve_master_points),
+             edit_curve_values(source.rgb_curve_red_points),
+             edit_curve_values(source.rgb_curve_green_points),
+             edit_curve_values(source.rgb_curve_blue_points)},
         .oklab_color_warper_control_points = oklab_color_warper_control_points,
         .oklab_color_warper_strength = source.oklab_color_warper_strength,
         .lut_resource_id = qstring(source.lut_resource_id),

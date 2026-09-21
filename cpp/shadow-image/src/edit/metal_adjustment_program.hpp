@@ -30,6 +30,7 @@ enum class MetalAdjustmentOpcode : std::uint32_t {
     oklab_opponent_tone_curves = 11U,
     oklab_color_warper = 12U,
     paint_layer = 13U,
+    rgb_tone_curve = 14U,
 };
 
 // Fixed-width transient ABI shared with the runtime-compiled Metal kernel. This is deliberately

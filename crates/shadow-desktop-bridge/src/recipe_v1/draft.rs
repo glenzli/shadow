@@ -77,6 +77,7 @@ pub(crate) struct FineEditParameters {
     pub(crate) selective_tone: SelectiveToneParameters,
     pub(crate) perceptual_color: PerceptualColorParameters,
     pub(crate) oklab_color_warper: OklabColorWarperParameters,
+    pub(crate) rgb_tone_curves: Option<shadow_bridge::RgbToneCurves>,
     pub(crate) oklab_lightness_curve: Option<OklabLightnessToneCurve>,
     pub(crate) lut: LutEditParameters,
     pub(crate) sharpen: SharpenParameters,

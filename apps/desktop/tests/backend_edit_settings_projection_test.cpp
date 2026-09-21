@@ -63,6 +63,12 @@ void require(const bool condition, const std::string& message) {
         .saturation_factor = 1.5,
     };
     auto& fine = node.fine;
+    fine.rgb_curve_points = {
+        QVector<double>{0, 0, 0.4, 0.5, 1, 1},
+        QVector<double>{0, 0, 0.5, 0.6, 1, 1},
+        QVector<double>{0, 0, 1, 0.9},
+        QVector<double>{0, 0.1, 1, 1}
+    };
     fine.highlights = 2.01;
     fine.shadows = 2.02;
     fine.whites = 2.03;

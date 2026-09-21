@@ -247,7 +247,7 @@ inline constexpr std::uint32_t oklab_lightness_tone_curve_parameter_schema_versi
 inline constexpr std::uint32_t oklab_lightness_tone_curve_implementation_version = 1;
 inline constexpr std::uint32_t oklab_opponent_tone_curve_parameter_schema_version = 1;
 inline constexpr std::uint32_t oklab_opponent_tone_curve_implementation_version = 1;
-// The perceptual L curve has at most this many authored knots.
+// Each scalar curve has at most this many authored knots.
 inline constexpr std::size_t maximum_tone_curve_points = 256U;
 inline constexpr std::size_t maximum_tone_curve_preview_samples = 4'097U;
 
@@ -258,17 +258,26 @@ struct ToneCurvePoint final {
     auto operator<=>(const ToneCurvePoint&) const = default;
 };
 
-// One set of Oklab-L interpolation knots. The implementation fits a local,
+// One set of scalar interpolation knots. The implementation fits a local,
 // shape-preserving Fritsch-Butland PCHIP through these points. Strictly increasing
 // x coordinates span [0, 1]; y remains unbounded.
 struct ToneCurveSet final {
     std::vector<ToneCurvePoint> points{{0.0, 0.0}, {1.0, 1.0}};
 };
 
-// The sole user-authored tone curve is evaluated only on Oklab L. It deliberately
+// The perceptual tone curve is evaluated only on Oklab L. It deliberately
 // keeps the opponent a/b axes unchanged, so tonal shaping preserves hue and chroma
 // much more faithfully than an RGB curve. The normalized control domain and linear
 // endpoint extrapolation retain scene-linear HDR headroom.
+// RGB curves operate on the declared working primaries with the signed sRGB transfer
+// function, independent of output encoding. Master is applied before R/G/B, in
+// that encoded domain. PCHIP tangent extrapolation preserves extended range;
+// there is no intermediate clipping. These are creative curves, not RAW WB.
+struct RgbToneCurves final {
+    // Master, red, green, blue. Identity channels are exact bypasses.
+    std::array<ToneCurveSet, 4U> channels;
+};
+
 struct OklabLightnessToneCurve final {
     std::uint32_t parameter_schema_version = oklab_lightness_tone_curve_parameter_schema_version;
     std::uint32_t implementation_version = oklab_lightness_tone_curve_implementation_version;
@@ -379,6 +388,7 @@ using AdjustmentParameters = std::variant<
     ExposureAdjustment,
     ContrastAdjustment,
     OklabLightnessToneCurve,
+    RgbToneCurves,
     OklabOpponentToneCurves,
     RgbWhiteBalanceAdjustment,
     SaturationAdjustment,

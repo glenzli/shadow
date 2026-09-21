@@ -90,6 +90,7 @@ pub(crate) struct GradeNodeRecipeV1RenderOps<'a> {
     pub(crate) exposure: &'a AdjustmentNode,
     pub(crate) contrast: &'a AdjustmentNode,
     pub(crate) selective_tone: &'a AdjustmentNode,
+    pub(crate) rgb_tone_curves: Option<&'a AdjustmentNode>,
     pub(crate) oklab_lightness_curve: Option<&'a AdjustmentNode>,
     pub(crate) white_balance: &'a AdjustmentNode,
     pub(crate) saturation: &'a AdjustmentNode,
@@ -117,6 +118,9 @@ impl GradeNodeRecipeV1RenderOps<'_> {
         if let Some(oklab_lightness_curve) = self.oklab_lightness_curve {
             nodes.push(oklab_lightness_curve);
         }
+        if let Some(curves) = self.rgb_tone_curves {
+            nodes.push(curves);
+        }
         nodes.extend([
             self.technical_detail,
             self.color_grading,
@@ -142,7 +146,7 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
     layer: &LayerInstance,
 ) -> AnyResult<GradeNodeRecipeV1RenderOps<'_>> {
     let ordered = ordered_layer_nodes(layer)?;
-    if !(10..=12).contains(&ordered.len()) {
+    if !(10..=13).contains(&ordered.len()) {
         bail!("working Recipe is not the current complete Grade Node shape");
     }
     let white_balance = ordered[0];
@@ -164,6 +168,14 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
         node.operation().operation_id().as_str() == OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID
     }) {
         oklab_lightness_curve = Some(ordered[cursor]);
+        cursor += 1;
+    }
+    let mut rgb_tone_curves = None;
+    if ordered.get(cursor).is_some_and(|node| {
+        node.operation().operation_id().as_str()
+            == shadow_domain::operation::RGB_TONE_CURVES_OPERATION_ID
+    }) {
+        rgb_tone_curves = Some(ordered[cursor]);
         cursor += 1;
     }
     if ordered.len() != cursor + 4 {
@@ -234,6 +246,15 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
         )?;
         technical_input = oklab_lightness_curve.id();
     }
+    if let Some(curves) = rgb_tone_curves {
+        super::rgb_tone_curves::validate_rgb_tone_curves_render_op(
+            curves,
+            NodeInput::Node {
+                node_id: technical_input,
+            },
+        )?;
+        technical_input = curves.id();
+    }
     validate_recipe_detail_effects_render_op(
         technical_detail,
         TECHNICAL_DETAIL_OPERATION_ID,
@@ -273,6 +294,7 @@ pub(crate) fn grade_node_recipe_v1_render_ops(
         exposure,
         contrast,
         selective_tone,
+        rgb_tone_curves,
         oklab_lightness_curve,
         white_balance,
         saturation,

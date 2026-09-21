@@ -103,6 +103,33 @@ void require_parameter_count(
             source.parameters[1],
         };
         break;
+    case FfiAdjustmentOperation::RgbToneCurves: {
+        image::RgbToneCurves curves;
+        std::size_t cursor = 0U;
+        for (auto& channel : curves.channels) {
+            if (cursor >= source.parameters.size())
+                throw_invalid_adjustment_plan("RGB curve is missing its point count");
+            const double count = source.parameters[cursor++];
+            if (!std::isfinite(count) || count < 2.0 || count > image::maximum_tone_curve_points
+                || count != std::floor(count))
+                throw_invalid_adjustment_plan("RGB curve point count is invalid");
+            const auto size = static_cast<std::size_t>(count);
+            if (source.parameters.size() - cursor < size * 2U)
+                throw_invalid_adjustment_plan("RGB curve point payload is truncated");
+            channel.points.clear();
+            channel.points.reserve(size);
+            for (std::size_t i = 0; i < size; ++i) {
+                channel.points.push_back(
+                    {source.parameters[cursor], source.parameters[cursor + 1U]}
+                );
+                cursor += 2U;
+            }
+        }
+        if (cursor != source.parameters.size())
+            throw_invalid_adjustment_plan("RGB curve has trailing parameters");
+        result.parameters = std::move(curves);
+        break;
+    }
     case FfiAdjustmentOperation::OklabLightnessToneCurve: {
         if (source.parameters.size() % 2U != 0U) {
             throw_invalid_adjustment_plan(
