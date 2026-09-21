@@ -2,7 +2,7 @@ use shadow_ai::{
     AnonymousPeopleGroupingPlan, AnonymousPersonGroup, AnonymousPersonGroupingPolicy,
     FaceBoundingBox, FaceOccurrenceId, FaceOccurrenceReference,
 };
-use shadow_core::{PeopleAnalysisReport, PeopleAnalysisSkipped, PeopleGroupPreview};
+use shadow_core::{PeopleAnalysisReport, PeopleAnalysisSkipped, PeopleFacePreview};
 use shadow_domain::{EntityId, PhotoId, RepresentationId};
 
 use super::PeopleLibraryStore;
@@ -22,11 +22,14 @@ fn occurrence(id: &str, photo_id: PhotoId) -> FaceOccurrenceReference {
 }
 
 fn report(groups: Vec<(&str, Vec<FaceOccurrenceReference>)>) -> PeopleAnalysisReport {
-    let group_previews = groups
+    let face_previews = groups
         .iter()
-        .map(|(id, _)| PeopleGroupPreview {
-            group_id: (*id).into(),
-            thumbnail_jpeg: format!("jpeg-{id}").into_bytes(),
+        .flat_map(|(id, members)| {
+            members.iter().map(move |face| PeopleFacePreview {
+                occurrence_id: face.occurrence_id.to_string(),
+                thumbnail_jpeg: format!("jpeg-{id}-{}", face.occurrence_id).into_bytes(),
+                quality: 0.5,
+            })
         })
         .collect();
     let embedded_faces = groups.iter().map(|(_, members)| members.len()).sum();
@@ -51,7 +54,8 @@ fn report(groups: Vec<(&str, Vec<FaceOccurrenceReference>)>) -> PeopleAnalysisRe
                 .collect(),
             ungrouped: Vec::new(),
         },
-        group_previews,
+        face_previews,
+        rejected_faces: Vec::new(),
     }
 }
 
@@ -237,7 +241,7 @@ fn opens_and_transactionally_migrates_the_previous_people_store_schema() {
             Ok((row.get(0)?, row.get(1)?))
         })
         .expect("read migrated identity");
-    assert_eq!(schema, (3, "shadow-people-store-20260922.3".into()));
+    assert_eq!(schema, (4, "shadow-people-store-20260922.4".into()));
     let display_name: String = connection
         .query_row(
             "SELECT dflt_value FROM pragma_table_info('people_groups') WHERE name = 'display_name'",
@@ -432,4 +436,173 @@ fn current_library_projection_hides_removed_sources_without_erasing_names() {
     assert_eq!(visible.groups[0].display_name, "Alice");
     assert_eq!(visible.groups[0].member_count, 1);
     assert_eq!(store.snapshot().unwrap().groups.len(), 1);
+}
+
+fn reject(faces: &[FaceOccurrenceReference]) -> PeopleAnalysisReport {
+    let mut report = report(vec![]);
+    for face in faces {
+        report
+            .completed_inputs
+            .push(shadow_core::PeopleAnalysisInput {
+                photo_id: face.photo_id.to_string(),
+                representation_id: face.representation_id.to_string(),
+                source_revision: "quality-v1".into(),
+            });
+        let b = face.bounding_box;
+        report.rejected_faces.push(shadow_core::PeopleRejectedFace {
+            photo_id: face.photo_id.to_string(),
+            representation_id: face.representation_id.to_string(),
+            bounds: [b.x, b.y, b.width, b.height],
+        });
+    }
+    report.skipped.low_face_quality = faces.len();
+    report
+}
+
+#[test]
+fn remaining_source_and_each_split_keep_their_own_best_portrait_after_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let a = occurrence("a", PhotoId::new_v7());
+    let b = occurrence("b", PhotoId::new_v7());
+    let mut input = report(vec![("one", vec![a.clone(), b.clone()])]);
+    input.face_previews[0].quality = 0.2;
+    input.face_previews[1].quality = 0.8;
+    let first = store.replace_analysis(input).unwrap();
+    assert_eq!(first.groups[0].thumbnail_jpeg, b"jpeg-one-b");
+    let restricted = store
+        .snapshot_for_library(&[a.photo_id.to_string()].into())
+        .unwrap();
+    assert_eq!(restricted.groups[0].thumbnail_jpeg, b"jpeg-one-a");
+    let split = store
+        .split_person(&first.groups[0].person_id, &[b.photo_id.to_string()])
+        .unwrap();
+    assert_eq!(split.groups[0].thumbnail_jpeg, b"jpeg-one-a");
+    assert_eq!(split.groups[1].thumbnail_jpeg, b"jpeg-one-b");
+    drop(store);
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    assert_eq!(store.snapshot().unwrap().groups, split.groups);
+    assert_eq!(
+        store.undo_merge().unwrap().groups[0].thumbnail_jpeg,
+        b"jpeg-one-b"
+    );
+}
+
+#[test]
+fn quality_refresh_hides_automatic_junk_preserves_names_and_restores_improved_faces() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let a = occurrence("a", PhotoId::new_v7());
+    let b = occurrence("b", PhotoId::new_v7());
+    let first = store
+        .replace_analysis(report(vec![("a", vec![a.clone()]), ("b", vec![b.clone()])]))
+        .unwrap();
+    store
+        .rename_person(&first.groups[0].person_id, "Alice")
+        .unwrap();
+    let next = store
+        .replace_analysis(reject(&[a.clone(), b.clone()]))
+        .unwrap();
+    assert_eq!(next.groups.len(), 1);
+    assert_eq!(next.groups[0].display_name, "Alice");
+    assert!(!next.groups[0].thumbnail_jpeg.is_empty());
+    // The hidden automatic face stays in storage, preserving its identity.
+    let connection = rusqlite::Connection::open(root.path().join("people.sqlite")).unwrap();
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM people_occurrences", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 2);
+    drop(store);
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    assert_eq!(store.snapshot().unwrap().groups.len(), 1);
+    let refreshed = store
+        .replace_analysis(report(vec![("clearer-b", vec![b])]))
+        .unwrap();
+    assert_eq!(refreshed.groups.len(), 2);
+    assert_eq!(refreshed.groups[1].person_id, first.groups[1].person_id);
+    // History was rebased too: undo does not resurrect the rejected anonymous A.
+    let undone = store.undo_merge().unwrap();
+    assert_eq!(undone.groups.len(), 1);
+    assert_eq!(undone.groups[0].person_id, first.groups[1].person_id);
+}
+
+#[test]
+fn unverified_or_ambiguous_quality_rejections_do_not_hide_existing_people() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let a = occurrence("a", PhotoId::new_v7());
+    let mut b = a.clone();
+    b.occurrence_id = FaceOccurrenceId::parse("b").unwrap();
+    store
+        .replace_analysis(report(vec![("a", vec![a.clone()]), ("b", vec![b])]))
+        .unwrap();
+    let mut stale = reject(&[a.clone()]);
+    stale.completed_inputs.clear();
+    assert_eq!(store.replace_analysis(stale).unwrap().groups.len(), 2);
+    assert_eq!(
+        store.replace_analysis(reject(&[a])).unwrap().groups.len(),
+        2
+    );
+}
+
+#[test]
+fn previous_schema_and_correction_json_preserve_authored_splits_when_quality_changes() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let a = occurrence("a", PhotoId::new_v7());
+    let b = occurrence("b", PhotoId::new_v7());
+    let first = store
+        .replace_analysis(report(vec![("one", vec![a.clone(), b.clone()])]))
+        .unwrap();
+    store
+        .split_person(&first.groups[0].person_id, &[b.photo_id.to_string()])
+        .unwrap();
+    drop(store);
+    let connection = rusqlite::Connection::open(root.path().join("people.sqlite")).unwrap();
+    let mut history: serde_json::Value = serde_json::from_str(
+        &connection
+            .query_row("SELECT snapshot FROM people_corrections", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    for group in history["groups"].as_array_mut().unwrap() {
+        group.as_object_mut().unwrap().remove("manually_curated");
+        for face in group["occurrences"].as_array_mut().unwrap() {
+            for field in ["thumbnail_jpeg", "portrait_quality", "quality_rejected"] {
+                face.as_object_mut().unwrap().remove(field);
+            }
+        }
+    }
+    connection
+        .execute(
+            "UPDATE people_corrections SET snapshot = ?1",
+            [serde_json::to_string(&history).unwrap()],
+        )
+        .unwrap();
+    connection
+        .execute_batch(
+            "ALTER TABLE people_groups DROP COLUMN manually_curated;
+        ALTER TABLE people_occurrences DROP COLUMN thumbnail_jpeg;
+        ALTER TABLE people_occurrences DROP COLUMN portrait_quality;
+        ALTER TABLE people_occurrences DROP COLUMN quality_rejected;
+        UPDATE people_schema SET version = 3, identity = 'shadow-people-store-20260922.3';",
+        )
+        .unwrap();
+    drop(connection);
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let next = store.replace_analysis(reject(&[a, b])).unwrap();
+    assert_eq!(
+        next.groups.len(),
+        2,
+        "legacy manual split must stay visible"
+    );
+    let undone = store.undo_merge().unwrap();
+    assert!(
+        undone.groups.is_empty(),
+        "undo restores automatic group with rejected evidence"
+    );
 }

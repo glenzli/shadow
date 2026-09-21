@@ -82,9 +82,9 @@ pub use native_path::{NativePathError, native_location, native_path_from_locatio
 pub use people_analysis::{
     DEFAULT_PEOPLE_MAXIMUM_COSINE_DISTANCE, PeopleAnalysisControl, PeopleAnalysisError,
     PeopleAnalysisInput, PeopleAnalysisPhase, PeopleAnalysisPolicy, PeopleAnalysisProgress,
-    PeopleAnalysisReport, PeopleAnalysisSelection, PeopleAnalysisSkipped, PeopleGroupPreview,
-    analyze_review_people, analyze_review_people_incremental, analyze_review_people_with_control,
-    people_analysis_library_membership,
+    PeopleAnalysisReport, PeopleAnalysisSelection, PeopleAnalysisSkipped, PeopleFacePreview,
+    PeopleRejectedFace, analyze_review_people, analyze_review_people_incremental,
+    analyze_review_people_with_control, people_analysis_library_membership,
 };
 pub use performance::{
     DecodePerformance, DurationStats, IMPORT_ENGINE_PERFORMANCE_SCHEMA_VERSION,

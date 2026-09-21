@@ -14,7 +14,8 @@ fn report() -> PeopleAnalysisReport {
             groups: Vec::new(),
             ungrouped: Vec::new(),
         },
-        group_previews: Vec::new(),
+        face_previews: Vec::new(),
+        rejected_faces: Vec::new(),
     }
 }
 

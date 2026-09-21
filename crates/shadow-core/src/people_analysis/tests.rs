@@ -31,17 +31,20 @@ impl FaceAnalysisProvider for FakeFaceProvider {
         _media_type: &str,
         source_revision: &str,
     ) -> Result<DetectedFaceBatch, InferRuntimeClientError> {
+        let (width, height) = image::load_from_memory(_image)
+            .map(|image| (image.width(), image.height()))
+            .unwrap();
         Ok(DetectedFaceBatch {
             source_revision: source_revision.into(),
-            width: 2,
-            height: 2,
+            width,
+            height,
             orientation: "input_pixels_no_exif_transform".into(),
             detections: vec![DetectedFace {
                 bounding_box: FaceBoundingBox {
                     x: 0.0,
                     y: 0.0,
-                    width: 2.0,
-                    height: 2.0,
+                    width: width as f32,
+                    height: height as f32,
                 },
                 landmarks: FaceLandmarks {
                     right_eye: FacePoint { x: 0.4, y: 0.5 },
@@ -133,8 +136,8 @@ fn cached_visuals_reach_transient_anonymous_grouping_without_persisting_vectors(
     assert_eq!(report.embedded_faces, 2);
     assert_eq!(report.grouping.groups.len(), 1);
     assert_eq!(report.grouping.groups[0].members.len(), 2);
-    assert_eq!(report.group_previews.len(), 1);
-    let thumbnail = image::load_from_memory(&report.group_previews[0].thumbnail_jpeg)
+    assert_eq!(report.face_previews.len(), 2);
+    let thumbnail = image::load_from_memory(&report.face_previews[0].thumbnail_jpeg)
         .expect("decode representative face thumbnail");
     assert_eq!(thumbnail.width(), 88);
     assert_eq!(thumbnail.height(), 88);
@@ -206,6 +209,13 @@ fn real_yunet_sface_http_path_forms_one_anonymous_group() {
     assert_eq!(report.analyzed_photos, 2);
     assert!(report.detected_faces >= 2);
     assert!(report.embedded_faces >= 2);
+    eprintln!(
+        "Local face evidence: detected={}, embedded={}, quality_rejected={}, previews={}",
+        report.detected_faces,
+        report.embedded_faces,
+        report.skipped.low_face_quality,
+        report.face_previews.len()
+    );
     assert!(!report.grouping.groups.is_empty());
     assert!(report.grouping.groups.iter().all(|g| g.members.len() == 2));
     fixture.finish();
@@ -238,7 +248,15 @@ impl PeopleFixture {
     }
 
     fn add_photo(&self, ordinal: u8, path: &str) {
-        self.add_photo_with_visual(ordinal, path, DISPLAY_JPEG_BYTES, 2, 2);
+        let image = image::RgbImage::from_fn(96, 96, |x, y| {
+            let value = if (x / 6 + y / 9) % 2 == 0 { 50 } else { 180 };
+            image::Rgb([value, value, value])
+        });
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90)
+            .encode_image(&image)
+            .unwrap();
+        self.add_photo_with_visual(ordinal, path, &jpeg, 96, 96);
     }
 
     fn add_photo_with_visual(
@@ -405,5 +423,70 @@ fn people_analysis_obeys_current_library_source_membership() {
     .unwrap();
     assert_eq!(report.analyzed_photos, 0);
     assert_eq!(report.detected_faces, 0);
+    fixture.finish();
+}
+
+#[test]
+fn unusably_small_faces_are_checkpointed_without_embedding_or_person_creation() {
+    let fixture = PeopleFixture::new();
+    fixture.add_photo_with_visual(1, "/photos/tiny.dng", DISPLAY_JPEG_BYTES, 2, 2);
+    let report = analyze_review_people(
+        &fixture.catalog,
+        &fixture.cache_root,
+        &FakeFaceProvider,
+        PeopleAnalysisPolicy::default(),
+    )
+    .unwrap();
+    assert_eq!(report.detected_faces, 1);
+    assert_eq!(report.embedded_faces, 0);
+    assert_eq!(report.skipped.low_face_quality, 1);
+    assert_eq!(report.rejected_faces.len(), 1);
+    assert_eq!(report.completed_inputs.len(), 1);
+    assert!(report.face_previews.is_empty());
+    assert!(report.grouping.groups.is_empty() && report.grouping.ungrouped.is_empty());
+    fixture.finish();
+}
+
+#[test]
+fn pre_quality_checkpoints_are_revisited_once_and_new_policy_is_cached() {
+    let fixture = PeopleFixture::new();
+    fixture.add_photo(1, "/photos/one.dng");
+    let current = analyze_review_people(
+        &fixture.catalog,
+        &fixture.cache_root,
+        &FakeFaceProvider,
+        PeopleAnalysisPolicy::default(),
+    )
+    .unwrap();
+    let input = &current.completed_inputs[0];
+    let old_revision = input.source_revision.replace("/people-quality-v1", "");
+    let mut selection = PeopleAnalysisSelection {
+        known_inputs: [(input.representation_id.clone(), old_revision)].into(),
+        ..Default::default()
+    };
+    let refresh = analyze_review_people_incremental(
+        &fixture.catalog,
+        &fixture.cache_root,
+        &FakeFaceProvider,
+        PeopleAnalysisPolicy::default(),
+        &UnobservedPeopleAnalysis,
+        Some(&selection),
+    )
+    .unwrap();
+    assert_eq!(refresh.analyzed_photos, 1);
+    selection.known_inputs.insert(
+        input.representation_id.clone(),
+        input.source_revision.clone(),
+    );
+    let unchanged = analyze_review_people_incremental(
+        &fixture.catalog,
+        &fixture.cache_root,
+        &FakeFaceProvider,
+        PeopleAnalysisPolicy::default(),
+        &UnobservedPeopleAnalysis,
+        Some(&selection),
+    )
+    .unwrap();
+    assert_eq!(unchanged.analyzed_photos, 0);
     fixture.finish();
 }

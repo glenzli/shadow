@@ -1,7 +1,7 @@
 //! Additive reconciliation: model refresh never deletes authored organization.
 use super::{
     StoredGroup, StoredOccurrence, StoredSnapshot, bounded_u32, normalize_group_order,
-    person_id_for_occurrences, stored_occurrence,
+    person_id_for_occurrences, portraits, stored_occurrence,
 };
 use anyhow::Result as AnyResult;
 use shadow_core::PeopleAnalysisReport;
@@ -20,16 +20,17 @@ pub(super) fn reconcile_analysis(
             + skipped.unsupported_visual
             + skipped.stale_input
             + skipped.low_detection_confidence
-            + skipped.ineligible_embedding,
+            + skipped.ineligible_embedding
+            + skipped.low_face_quality,
         "skipped items",
     )?;
     existing.ungrouped_faces = bounded_u32(report.grouping.ungrouped.len(), "ungrouped faces")?;
     existing.truncated = report.truncated;
     existing.grouping_revision = report.grouping.grouping_revision;
     let mut previews = report
-        .group_previews
+        .face_previews
         .into_iter()
-        .map(|p| (p.group_id, p.thumbnail_jpeg))
+        .map(|p| (p.occurrence_id.clone(), p))
         .collect::<HashMap<_, _>>();
     let candidates = report
         .grouping
@@ -45,34 +46,33 @@ pub(super) fn reconcile_analysis(
         );
     let index = OccurrenceIndex::new(&existing.groups);
     let mut matched = HashSet::new();
-    for (id, members) in candidates {
+    for (_, members) in candidates {
         let incoming = members
             .into_iter()
-            .map(stored_occurrence)
+            .map(|reference| {
+                let mut face = stored_occurrence(reference);
+                if let Some(preview) = previews.remove(&face.occurrence_id) {
+                    portraits::attach(&mut face, &preview);
+                }
+                face
+            })
             .collect::<Vec<_>>();
         let mut owners = BTreeSet::new();
         let mut new_faces = Vec::new();
-        for face in incoming {
+        for mut face in incoming {
             if let Some((group, member)) = index.unique_owner(&face, &matched) {
                 owners.insert(group);
                 matched.insert((group, member));
                 // Preserve the correction identity across changes to evidence ids.
                 let old = &mut existing.groups[group].occurrences[member];
+                if face.thumbnail_jpeg.is_empty() {
+                    face.thumbnail_jpeg = old.thumbnail_jpeg.clone();
+                    face.portrait_quality = old.portrait_quality;
+                }
                 *old = face;
             } else {
                 new_faces.push(face);
             }
-        }
-        let preview = previews.remove(&id).unwrap_or_default();
-        // A preview is safe for an existing person only when every candidate
-        // occurrence belongs to that person. Split groups must not inherit the
-        // other person's representative face.
-        if owners.len() == 1 && new_faces.is_empty() {
-            let group = &mut existing.groups[*owners.first().expect("one owner")];
-            if group.thumbnail_jpeg.is_empty() {
-                group.thumbnail_jpeg = preview;
-            }
-            continue;
         }
         if new_faces.is_empty() {
             continue;
@@ -98,10 +98,39 @@ pub(super) fn reconcile_analysis(
                 person_id: person_id_for_occurrences(&new_faces),
                 sort_index: u32::MAX,
                 display_name: String::new(),
-                thumbnail_jpeg: preview,
+                thumbnail_jpeg: Vec::new(),
                 manually_merged: false,
+                manually_curated: false,
                 occurrences: new_faces,
             });
+        }
+    }
+    // Quality rejections never create a person or erase an occurrence. Match
+    // only unambiguous prior geometry from a completed photo, exactly once.
+    let completed: HashSet<_> = report
+        .completed_inputs
+        .iter()
+        .map(|i| (i.photo_id.as_str(), i.representation_id.as_str()))
+        .collect();
+    for rejected in report.rejected_faces {
+        if !completed.contains(&(
+            rejected.photo_id.as_str(),
+            rejected.representation_id.as_str(),
+        )) {
+            continue;
+        }
+        let face = StoredOccurrence {
+            occurrence_id: String::new(),
+            photo_id: rejected.photo_id,
+            representation_id: rejected.representation_id,
+            bounds: rejected.bounds,
+            thumbnail_jpeg: Vec::new(),
+            portrait_quality: 0.0,
+            quality_rejected: true,
+        };
+        if let Some((g, m)) = index.unique_owner(&face, &matched) {
+            matched.insert((g, m));
+            existing.groups[g].occurrences[m].quality_rejected = true;
         }
     }
     normalize_group_order(&mut existing.groups);

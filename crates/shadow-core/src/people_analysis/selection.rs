@@ -47,8 +47,9 @@ pub(super) fn select_inputs(
                 continue;
             }
             let revision = format!(
-                "{}/input:jpeg4096q90v1",
-                source_revision(item.photo_id, &record)
+                "{}/input:{}",
+                source_revision(item.photo_id, &record),
+                super::quality::ANALYSIS_REVISION
             );
             if state.known_inputs.get(&item.representation_id.to_string()) == Some(&revision) {
                 if anchors.len() < anchor_budget

@@ -4,13 +4,14 @@
 //! infer-runtime supplies typed YuNet/SFace evidence, and this owner rejects
 //! stale results before producing an in-memory grouping proposal.
 
+mod quality;
 mod selection;
 mod thumbnail;
 pub use selection::{
     PeopleAnalysisInput, PeopleAnalysisSelection, people_analysis_library_membership,
 };
 
-use std::{collections::BTreeMap, fmt::Write as _};
+use std::fmt::Write as _;
 
 use serde::Serialize;
 use shadow_ai::{
@@ -75,6 +76,7 @@ pub struct PeopleAnalysisSkipped {
     pub stale_input: usize,
     pub low_detection_confidence: usize,
     pub ineligible_embedding: usize,
+    pub low_face_quality: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -86,17 +88,27 @@ pub struct PeopleAnalysisReport {
     pub truncated: bool,
     pub skipped: PeopleAnalysisSkipped,
     pub grouping: AnonymousPeopleGroupingPlan,
-    /// Bounded, request-local face crops for the representative member of
-    /// each visible group. They are presentation payloads and never serialize
-    /// into CLI output, Catalog state, or the rebuildable grouping plan.
+    /// Per-occurrence crops let the store choose a current, clear representative
+    /// after a source change, merge or split. Image payloads never serialize.
     #[serde(skip_serializing)]
-    pub group_previews: Vec<PeopleGroupPreview>,
+    pub face_previews: Vec<PeopleFacePreview>,
+    /// Only quality rejections from completed, source-verified photos. These
+    /// suppress old automatic discoveries without erasing authored organization.
+    pub rejected_faces: Vec<PeopleRejectedFace>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PeopleGroupPreview {
-    pub group_id: String,
+pub struct PeopleFacePreview {
+    pub occurrence_id: String,
     pub thumbnail_jpeg: Vec<u8>,
+    pub quality: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PeopleRejectedFace {
+    pub photo_id: String,
+    pub representation_id: String,
+    pub bounds: [f32; 4],
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -196,7 +208,8 @@ pub fn analyze_review_people_incremental(
     let mut skipped = PeopleAnalysisSkipped::default();
     let mut truncated = selected.as_ref().is_some_and(|(_, remaining)| *remaining);
     let mut completed_inputs = Vec::new();
-    let mut occurrence_thumbnails = BTreeMap::new();
+    let mut face_previews = Vec::new();
+    let mut rejected_faces = Vec::new();
     let mut resident_thumbnail_bytes = 0_usize;
 
     publish_progress(
@@ -248,8 +261,9 @@ pub fn analyze_review_people_incremental(
             }
             let image = read_verified_visual(&cache, &record)?;
             let source_revision = format!(
-                "{}/input:jpeg4096q90v1",
-                source_revision(item.photo_id, &record)
+                "{}/input:{}",
+                source_revision(item.photo_id, &record),
+                quality::ANALYSIS_REVISION
             );
             let prepared =
                 crate::vision_input::bounded_jpeg(&image, record.artifact.dimensions, 4096)
@@ -277,6 +291,8 @@ pub fn analyze_review_people_incremental(
                 compared_faces,
             )?;
             let mut current_occurrences = Vec::new();
+            let mut current_previews = Vec::new();
+            let mut current_rejections = Vec::new();
             let mut thumbnail_source = None;
             let mut thumbnail_decode_attempted = false;
             for (ordinal, face) in detection.detections.into_iter().enumerate() {
@@ -288,6 +304,30 @@ pub fn analyze_review_people_incremental(
                     truncated = true;
                     break 'pages;
                 }
+                if !thumbnail_decode_attempted {
+                    thumbnail_decode_attempted = true;
+                    if thumbnail::source_dimensions_admitted(
+                        prepared.dimensions.width,
+                        prepared.dimensions.height,
+                    ) {
+                        thumbnail_source = image::load_from_memory(&image).ok();
+                    }
+                }
+                let Some(source) = thumbnail_source.as_ref() else {
+                    return Err(PeopleAnalysisError::InputPreparation(
+                        "could not decode people visual".into(),
+                    ));
+                };
+                let Some(quality) = quality::portrait_quality(source, face.bounding_box) else {
+                    skipped.low_face_quality += 1;
+                    let b = face.bounding_box;
+                    current_rejections.push(PeopleRejectedFace {
+                        photo_id: item.photo_id.to_string(),
+                        representation_id: item.representation_id.to_string(),
+                        bounds: [b.x, b.y, b.width, b.height],
+                    });
+                    continue;
+                };
                 ensure_active(control)?;
                 let embedded = match provider.embed_face_cancellable(
                     &image,
@@ -321,24 +361,26 @@ pub fn analyze_review_people_incremental(
                     &detection.provenance,
                     &embedded.provenance,
                 )?;
-                if !thumbnail_decode_attempted {
-                    thumbnail_decode_attempted = true;
-                    if thumbnail::source_dimensions_admitted(
-                        prepared.dimensions.width,
-                        prepared.dimensions.height,
-                    ) {
-                        thumbnail_source = image::load_from_memory(&image).ok();
-                    }
-                }
-                if let Some(source) = thumbnail_source.as_ref()
-                    && let Some(thumbnail) =
-                        thumbnail::face_thumbnail_jpeg(source, face.bounding_box)
-                    && resident_thumbnail_bytes.saturating_add(thumbnail.len())
-                        <= thumbnail::MAX_RESIDENT_PEOPLE_THUMBNAIL_BYTES
+                let thumbnail_jpeg = thumbnail::face_thumbnail_jpeg(source, face.bounding_box)
+                    .ok_or_else(|| {
+                        PeopleAnalysisError::InputPreparation(
+                            "could not prepare people portrait".into(),
+                        )
+                    })?;
+                if resident_thumbnail_bytes.saturating_add(thumbnail_jpeg.len())
+                    > thumbnail::MAX_RESIDENT_PEOPLE_THUMBNAIL_BYTES
                 {
-                    resident_thumbnail_bytes += thumbnail.len();
-                    occurrence_thumbnails.insert(occurrence_id.clone(), thumbnail);
+                    // Do not publish a face without its representative crop. The
+                    // incomplete photo receives no checkpoint and is retried.
+                    truncated = true;
+                    break 'pages;
                 }
+                resident_thumbnail_bytes += thumbnail_jpeg.len();
+                current_previews.push(PeopleFacePreview {
+                    occurrence_id: occurrence_id.to_string(),
+                    thumbnail_jpeg,
+                    quality,
+                });
                 current_occurrences.push(FaceOccurrenceEvidence {
                     occurrence_id,
                     photo_id: item.photo_id,
@@ -358,6 +400,8 @@ pub fn analyze_review_people_incremental(
                 source_revision,
             });
             occurrences.extend(current_occurrences);
+            face_previews.extend(current_previews);
+            rejected_faces.extend(current_rejections);
         }
         cursor = page.next_cursor;
         if cursor.is_none() {
@@ -375,26 +419,6 @@ pub fn analyze_review_people_incremental(
     )?;
     let grouping = propose_anonymous_people(&occurrences, policy.grouping)?;
     ensure_active(control)?;
-    let mut group_previews: Vec<_> = grouping
-        .groups
-        .iter()
-        .filter_map(|group| {
-            occurrence_thumbnails
-                .remove(&group.review_start)
-                .map(|thumbnail_jpeg| PeopleGroupPreview {
-                    group_id: group.group_id.clone(),
-                    thumbnail_jpeg,
-                })
-        })
-        .collect();
-    group_previews.extend(grouping.ungrouped.iter().filter_map(|face| {
-        occurrence_thumbnails
-            .remove(&face.occurrence_id)
-            .map(|thumbnail_jpeg| PeopleGroupPreview {
-                group_id: face.occurrence_id.to_string(),
-                thumbnail_jpeg,
-            })
-    }));
     Ok(PeopleAnalysisReport {
         completed_inputs,
         analyzed_photos,
@@ -403,7 +427,8 @@ pub fn analyze_review_people_incremental(
         truncated,
         skipped,
         grouping,
-        group_previews,
+        face_previews,
+        rejected_faces,
     })
 }
 

@@ -18,13 +18,14 @@ use serde::{Deserialize, Serialize};
 use shadow_ai::FaceOccurrenceReference;
 
 mod history;
+mod portraits;
 mod reconciliation;
 mod scan;
 use reconciliation::reconcile_analysis;
 use shadow_core::PeopleAnalysisReport;
 
-const SCHEMA_VERSION: i64 = 3;
-const SCHEMA_IDENTITY: &str = "shadow-people-store-20260922.3";
+const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_IDENTITY: &str = "shadow-people-store-20260922.4";
 const LEGACY_SCHEMA_VERSION: i64 = 1;
 const LEGACY_SCHEMA_IDENTITY: &str = "shadow-people-store-20260830.1";
 const MAX_DISPLAY_NAME_BYTES: usize = 256;
@@ -99,6 +100,8 @@ struct StoredGroup {
     display_name: String,
     thumbnail_jpeg: Vec<u8>,
     manually_merged: bool,
+    #[serde(default)]
+    manually_curated: bool,
     occurrences: Vec<StoredOccurrence>,
 }
 
@@ -108,6 +111,12 @@ struct StoredOccurrence {
     photo_id: String,
     representation_id: String,
     bounds: [f32; 4],
+    #[serde(default)]
+    thumbnail_jpeg: Vec<u8>,
+    #[serde(default)]
+    portrait_quality: f32,
+    #[serde(default)]
+    quality_rejected: bool,
 }
 
 impl PeopleLibraryStore {
@@ -277,6 +286,7 @@ impl PeopleLibraryStore {
             display_name: target_display_name,
             thumbnail_jpeg: target_thumbnail,
             manually_merged: true,
+            manually_curated: true,
             occurrences: merged_occurrences,
         });
         normalize_group_order(&mut snapshot.groups);
@@ -315,12 +325,14 @@ impl PeopleLibraryStore {
             .occurrences
             .retain(|f| !selected.contains(&f.photo_id));
         group.thumbnail_jpeg.clear();
+        group.manually_curated = true;
         snapshot.groups.push(StoredGroup {
             person_id: person_id_for_occurrences(&moved),
             sort_index: u32::MAX,
             display_name: String::new(),
             thumbnail_jpeg: Vec::new(),
             manually_merged: false,
+            manually_curated: true,
             occurrences: moved,
         });
         normalize_group_order(&mut snapshot.groups);
@@ -452,44 +464,38 @@ fn initialize(connection: &mut Connection) -> AnyResult<()> {
         )
         .optional()
         .context("read local people store schema identity")?;
+    history::initialize(connection)?;
     match stored {
-        None => {
-            connection
-                .execute(
-                    "INSERT INTO people_schema (version, identity) VALUES (?1, ?2)",
-                    params![SCHEMA_VERSION, SCHEMA_IDENTITY],
-                )
-                .context("record local people store schema identity")?;
-        }
         Some((SCHEMA_VERSION, identity)) if identity == SCHEMA_IDENTITY => {}
-        Some((2, identity)) if identity == "shadow-people-store-20260831.2" => {
-            connection.execute(
-                "UPDATE people_schema SET version = ?1, identity = ?2",
-                params![SCHEMA_VERSION, SCHEMA_IDENTITY],
-            )?;
-        }
-        Some((LEGACY_SCHEMA_VERSION, identity)) if identity == LEGACY_SCHEMA_IDENTITY => {
+        previous => {
+            let legacy = match &previous {
+                None => false,
+                Some((LEGACY_SCHEMA_VERSION, identity)) if identity == LEGACY_SCHEMA_IDENTITY => {
+                    true
+                }
+                Some((2, identity)) if identity == "shadow-people-store-20260831.2" => false,
+                Some((3, identity)) if identity == "shadow-people-store-20260922.3" => false,
+                Some((version, identity)) => {
+                    bail!("unsupported local people store schema {version} ({identity})")
+                }
+            };
             let transaction = connection
                 .transaction()
-                .context("begin local people-store schema migration")?;
-            transaction
-                .execute_batch(
-                    "ALTER TABLE people_groups
-                         ADD COLUMN display_name TEXT NOT NULL DEFAULT ''
-                         CHECK (length(CAST(display_name AS BLOB)) <= 256);
-                     UPDATE people_schema
-                         SET version = 3, identity = 'shadow-people-store-20260922.3';",
-                )
-                .context("migrate local people store to named people")?;
+                .context("begin people portrait migration")?;
+            if legacy {
+                transaction.execute_batch("ALTER TABLE people_groups ADD COLUMN display_name TEXT NOT NULL DEFAULT '' CHECK (length(CAST(display_name AS BLOB)) <= 256);")?;
+            }
+            portraits::migrate(&transaction)?;
+            transaction.execute("DELETE FROM people_schema", [])?;
+            transaction.execute(
+                "INSERT INTO people_schema(version, identity) VALUES (?1, ?2)",
+                params![SCHEMA_VERSION, SCHEMA_IDENTITY],
+            )?;
             transaction
                 .commit()
-                .context("commit local people-store schema migration")?;
+                .context("commit people portrait migration")?;
         }
-        Some((version, identity)) => bail!(
-            "unsupported local people store schema {version} ({identity}); clear people data before continuing"
-        ),
     }
-    history::initialize(connection)?;
     scan::initialize(connection)?;
     Ok(())
 }
@@ -499,6 +505,9 @@ fn stored_occurrence(reference: FaceOccurrenceReference) -> StoredOccurrence {
         occurrence_id: reference.occurrence_id.to_string(),
         photo_id: reference.photo_id.to_string(),
         representation_id: reference.representation_id.to_string(),
+        thumbnail_jpeg: Vec::new(),
+        portrait_quality: 0.0,
+        quality_rejected: false,
         bounds: [
             reference.bounding_box.x,
             reference.bounding_box.y,
@@ -570,7 +579,7 @@ fn read_snapshot(connection: &Connection) -> AnyResult<Option<StoredSnapshot>> {
 
     let mut groups_statement = connection
         .prepare(
-            "SELECT person_id, sort_index, display_name, thumbnail_jpeg, manually_merged
+            "SELECT person_id, sort_index, display_name, thumbnail_jpeg, manually_merged, manually_curated
              FROM people_groups ORDER BY sort_index, person_id",
         )
         .context("prepare local people group read")?;
@@ -582,6 +591,7 @@ fn read_snapshot(connection: &Connection) -> AnyResult<Option<StoredSnapshot>> {
                 display_name: row.get(2)?,
                 thumbnail_jpeg: row.get(3)?,
                 manually_merged: row.get(4)?,
+                manually_curated: row.get(5)?,
                 occurrences: Vec::new(),
             })
         })
@@ -596,7 +606,7 @@ fn read_snapshot(connection: &Connection) -> AnyResult<Option<StoredSnapshot>> {
     let mut occurrences_statement = connection
         .prepare(
             "SELECT occurrence_id, person_id, photo_id, representation_id,
-                    bounds_x, bounds_y, bounds_width, bounds_height
+                    bounds_x, bounds_y, bounds_width, bounds_height, thumbnail_jpeg, portrait_quality, quality_rejected
              FROM people_occurrences ORDER BY person_id, occurrence_id",
         )
         .context("prepare local people occurrence read")?;
@@ -609,6 +619,9 @@ fn read_snapshot(connection: &Connection) -> AnyResult<Option<StoredSnapshot>> {
                     photo_id: row.get(2)?,
                     representation_id: row.get(3)?,
                     bounds: [row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?],
+                    thumbnail_jpeg: row.get(8)?,
+                    portrait_quality: row.get(9)?,
+                    quality_rejected: row.get(10)?,
                 },
             ))
         })
@@ -668,14 +681,15 @@ fn write_snapshot_in(transaction: &Transaction<'_>, snapshot: &StoredSnapshot) -
         transaction
             .execute(
                 "INSERT INTO people_groups (
-                     person_id, sort_index, display_name, thumbnail_jpeg, manually_merged
-                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                     person_id, sort_index, display_name, thumbnail_jpeg, manually_merged, manually_curated
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     group.person_id,
                     group.sort_index,
                     group.display_name,
                     group.thumbnail_jpeg,
                     group.manually_merged,
+                    group.manually_curated,
                 ],
             )
             .context("write local people group")?;
@@ -684,8 +698,8 @@ fn write_snapshot_in(transaction: &Transaction<'_>, snapshot: &StoredSnapshot) -
                 .execute(
                     "INSERT INTO people_occurrences (
                          occurrence_id, person_id, photo_id, representation_id,
-                         bounds_x, bounds_y, bounds_width, bounds_height
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                         bounds_x, bounds_y, bounds_width, bounds_height, thumbnail_jpeg, portrait_quality, quality_rejected
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                     params![
                         occurrence.occurrence_id,
                         group.person_id,
@@ -695,6 +709,9 @@ fn write_snapshot_in(transaction: &Transaction<'_>, snapshot: &StoredSnapshot) -
                         occurrence.bounds[1],
                         occurrence.bounds[2],
                         occurrence.bounds[3],
+                        occurrence.thumbnail_jpeg,
+                        occurrence.portrait_quality,
+                        occurrence.quality_rejected,
                     ],
                 )
                 .context("write local people occurrence")?;
@@ -723,6 +740,7 @@ fn project_snapshot(
     let groups = snapshot
         .groups
         .into_iter()
+        .filter_map(portraits::project)
         .map(|group| {
             let photo_ids = group
                 .occurrences

@@ -29,7 +29,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Exact pipeline source inspection and metadata admission into a caller-isolated temporary Catalog | [`src/session_pipeline.rs`](src/session_pipeline.rs) |
 | Desktop-session Review and cache-maintenance CXX delegation | [`src/session_review.rs`](src/session_review.rs), [`src/session_cache_maintenance.rs`](src/session_cache_maintenance.rs) |
 | Authorized anonymous-person analysis, durable local-summary projection, merge/undo/clear delegation, and embedding/coordinate-free CXX projection; empty endpoint input delegates to the shared Infer Runtime Consumer resolver | [`src/session_people_analysis.rs`](src/session_people_analysis.rs) |
-| Independently clearable local People Store keyed to Catalog photo identities, with additive occurrence reconciliation, representative thumbnails, and durable corrections; face embeddings are never persisted | [`src/people_library_store.rs`](src/people_library_store.rs) |
+| Independently clearable local People Store keyed to Catalog photo identities, with additive occurrence reconciliation, per-occurrence portraits, and durable corrections; face embeddings are never persisted | [`src/people_library_store.rs`](src/people_library_store.rs) |
 | Additive model refresh and bounded durable correction history | [`src/people_library_store/reconciliation.rs`](src/people_library_store/reconciliation.rs), [`src/people_library_store/history.rs`](src/people_library_store/history.rs) |
 | Session-local people-analysis job identity, cooperative cancellation between provider calls, monotonic progress, terminal state, and bounded retirement | [`src/people_analysis_service.rs`](src/people_analysis_service.rs) |
 | Desktop-session bounded SigLIP text-to-image ranking, smart-category batching, and vector-free CXX projection; explicit endpoint input remains the diagnostic override | [`src/session_semantic_search.rs`](src/session_semantic_search.rs), [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
@@ -177,3 +177,10 @@ Hidden source memberships and authored names remain stored for a later relink.
 Face-mask cancellation reuses the existing node-bound input and parsed-person cache. It only
 changes request lifetime: no image render, extra host/device transfer, mask identity or
 preview/detail/export semantics change. Late results remain rejected by the mask session.
+
+[`people_library_store/portraits.rs`](src/people_library_store/portraits.rs) selects the clearest
+remaining face after source filtering or corrections. Quality-rejected automatic discoveries remain
+recoverable in storage; named and manually organized people remain visible. The core
+[`people_analysis/quality.rs`](../shadow-core/src/people_analysis/quality.rs) screens tiny or
+clearly detail-poor faces before identity inference. Its revision participates in incremental scan
+identity so older results are reevaluated without clearing user organization.
