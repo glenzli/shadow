@@ -92,13 +92,35 @@ ApplicationWindow {
                     font.pixelSize: Theme.fontSubheading
                     font.weight: Font.DemiBold
                     color: Theme.textPrimary
+                    ToolTip.visible: sessionTitleHover.hovered
+                    ToolTip.delay: 450
+                    ToolTip.text: qsTr("This session is separate from your Library.")
+                    HoverHandler { id: sessionTitleHover }
                 }
-                Label {
+                Item {
                     Layout.fillWidth: true
-                    elide: Text.ElideRight
-                    text: qsTr("This session is separate from your Library.")
-                    font.pixelSize: Theme.fontMeta
-                    color: Theme.textMuted
+                }
+                Row {
+                    visible: pipeline.photoCount > 0 && !pipeline.finished
+                    spacing: 8
+                    ShadowIconButton {
+                        objectName: "pipelineUndoButton"
+                        source: "qrc:/icons/undo.svg"
+                        toolTipText: qsTranslate("Main", "Undo")
+                        enabled: pipeline.currentPhotoEditable && !pipeline.busy
+                            && window.editor.active && window.editor.canUndo
+                            && !window.editor.stateBusy
+                        onClicked: window.editor.undo()
+                    }
+                    ShadowIconButton {
+                        objectName: "pipelineRedoButton"
+                        source: "qrc:/icons/redo.svg"
+                        toolTipText: qsTranslate("Main", "Redo")
+                        enabled: pipeline.currentPhotoEditable && !pipeline.busy
+                            && window.editor.active && window.editor.canRedo
+                            && !window.editor.stateBusy
+                        onClicked: window.editor.redo()
+                    }
                 }
                 ShadowButton {
                     compact: true
@@ -109,6 +131,7 @@ ApplicationWindow {
                 }
                 ShadowButton {
                     compact: true
+                    variant: ShadowButton.Ghost
                     text: pipeline.finished ? qsTr("Close") : qsTr("Cancel session")
                     onClicked: window.requestClose()
                 }
