@@ -37,6 +37,7 @@ Rectangle {
     signal openLutLibraryRequested
     signal openOpticsProfileLibraryRequested
     signal toolModeRequested(int mode)
+    signal toolFinishRequested()
     signal cropAspectRatioRequested(real ratio)
     signal maskOverlayVisibilityRequested(bool visible)
     signal retouchRegionSelectionRequested(bool continuous, int index)
@@ -236,7 +237,7 @@ Rectangle {
                     foregroundColor: inspector.accent
                     toolTipText: qsTr("Exit this tool and keep its adjustments")
                     accessibleName: toolTipText
-                    onClicked: inspector.toolModeRequested(inspector.activeToolMode)
+                    onClicked: inspector.toolFinishRequested()
                 }
 
                 ShadowIconButton {
@@ -259,6 +260,7 @@ Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? 38 : 0
             visible: inspector.activeToolMode === inspector.toolNone
+                && inspector.editor.selectedRecipeNodeKind !== "completion"
             color: inspector.panel
 
             property int currentIndex: 0
@@ -336,6 +338,7 @@ Rectangle {
                         PrecisionSubjectEmphasis {
                             editor: inspector.editor
                             visible: inspectorTabStrip.currentIndex === 0
+                                && inspector.editor.selectedRecipeNodeKind !== "completion"
                             Layout.topMargin: 10
                         }
 
@@ -368,14 +371,13 @@ Rectangle {
                                 accent: inspector.accent
                             }
 
-                        PrecisionAiCompletionTools {
+                            PrecisionAiCompletionTools {
                                 Layout.fillWidth: true
                                 Layout.leftMargin: 12
                                 Layout.rightMargin: 12
                                 Layout.topMargin: 12
                                 visible:
                                     inspector.editor.selectedRecipeNodeKind === "completion"
-                                    && inspectorTabStrip.currentIndex === 0
                                 editor: inspector.editor
                                 authoring: false
                                 onStartRequested:
@@ -688,7 +690,7 @@ Rectangle {
                             editor: inspector.editor
                             authoring: true
                             onExitRequested:
-                                inspector.toolModeRequested(inspector.toolCompletion)
+                                inspector.toolFinishRequested()
                         }
 
                         Item {

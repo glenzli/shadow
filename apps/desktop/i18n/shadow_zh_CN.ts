@@ -7332,6 +7332,10 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PrecisionWorkspace</name>
     <message>
+        <source>Finish painting to adjust the accepted regions.</source>
+        <translation>结束绘制后，即可调整已接受的区域。</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionInspector.qml" line="482"/>
         <source>Expand color map</source>
         <translation>展开颜色映射</translation>
@@ -7485,8 +7489,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="66"/>
-        <source>Accepted regions belong to this photo&apos;s fixed AI Completion node and are used by preview, detail, and export.</source>
-        <translation>已接受区域属于此照片的固定 AI 补全节点，并统一用于预览、细节和导出。</translation>
+        <source>Adjust or remove accepted regions, or paint a new region to repair another area.</source>
+        <translation>调整或移除已接受的区域，也可以绘制新区域，继续修复其他位置。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="35"/>

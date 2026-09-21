@@ -63,7 +63,7 @@ ColumnLayout {
         Layout.minimumWidth: 0
         text: tools.authoring
             ? qsTr("Paint the area to replace. Generation creates a preview candidate; the photo Recipe changes only after Apply.")
-            : qsTr("Accepted regions belong to this photo's fixed AI Completion node and are used by preview, detail, and export.")
+            : qsTr("Adjust or remove accepted regions, or paint a new region to repair another area.")
         color: Theme.textMuted
         font.pixelSize: Theme.fontMeta
         wrapMode: Text.Wrap
@@ -281,12 +281,14 @@ ColumnLayout {
     }
 
     Repeater {
-        model: tools.editor.imageCompletionRegions
+        // Keep delegates stable when a strength edit republishes the region
+        // list. Replacing the model by value would destroy an active slider.
+        model: tools.authoring ? 0 : tools.editor.imageCompletionRegions.length
 
         delegate: Rectangle {
             id: regionCard
             required property int index
-            required property var modelData
+            readonly property var region: tools.editor.imageCompletionRegions[index] || ({})
 
             Layout.fillWidth: true
             implicitHeight: regionContent.implicitHeight + 20
@@ -305,15 +307,17 @@ ColumnLayout {
                     Layout.fillWidth: true
 
                     ShadowSwitch {
+                        objectName: "imageCompletionRegionEnabled_" + regionCard.index
                         Layout.fillWidth: true
                         text: qsTr("Region %L1").arg(regionCard.index + 1)
-                        checked: Boolean(regionCard.modelData.enabled)
+                        checked: Boolean(regionCard.region.enabled)
                         enabled: !tools.authoring && !tools.editor.stateBusy
                         onToggled: tools.editor.setImageCompletionRegionEnabled(
                             regionCard.index, checked)
                     }
 
                     ShadowIconButton {
+                        objectName: "imageCompletionRegionRemove_" + regionCard.index
                         source: "qrc:/icons/clear.svg"
                         toolTipText: qsTr("Remove this accepted region")
                         accessibleName: toolTipText
@@ -324,6 +328,9 @@ ColumnLayout {
                 }
 
                 ShadowSlider {
+                    objectName: "imageCompletionRegionStrength_" + regionCard.index
+                    readonly property string parameterKey:
+                        "image_completion/region/" + regionCard.index + "/strength"
                     Layout.fillWidth: true
                     label: qsTr("Strength")
                     from: 0
@@ -333,24 +340,36 @@ ColumnLayout {
                     decimals: 0
                     displayMultiplier: 100
                     suffix: "%"
-                    value: Number(regionCard.modelData.strength)
+                    value: Number(regionCard.region.strength)
                     enabled: !tools.authoring && !tools.editor.stateBusy
+                    onGestureStarted: tools.editor.beginParameterEdit(parameterKey)
                     onEdited: value =>
                         tools.editor.setImageCompletionRegionStrength(
                             regionCard.index, value)
+                    onGestureFinished: tools.editor.endParameterEdit(parameterKey)
                 }
 
                 Label {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     text: qsTr("%1 · %2")
-                        .arg(String(regionCard.modelData.provider))
-                        .arg(String(regionCard.modelData.modelBuild))
+                        .arg(String(regionCard.region.provider))
+                        .arg(String(regionCard.region.modelBuild))
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontMeta
                     elide: Text.ElideMiddle
                 }
             }
         }
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        visible: tools.authoring && tools.editor.imageCompletionRegions.length > 0
+        text: qsTr("Finish painting to adjust the accepted regions.")
+        color: Theme.textMuted
+        font.pixelSize: Theme.fontMeta
+        wrapMode: Text.Wrap
     }
 }

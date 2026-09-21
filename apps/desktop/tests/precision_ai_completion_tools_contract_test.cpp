@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QPointer>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -17,8 +18,24 @@ void require(bool ok, const char* message) {
         std::exit(1);
     }
 }
+QQuickItem* visualItem(QQuickItem* root, const QString& name) {
+    if (root->objectName() == name)
+        return root;
+    for (auto* child : root->childItems()) {
+        if (auto* result = visualItem(child, name))
+            return result;
+    }
+    return nullptr;
+}
 QQuickItem* item(QObject* root, const char* name) {
     auto* result = root->findChild<QQuickItem*>(QString::fromLatin1(name));
+    if (!result) {
+        auto* visualRoot = qobject_cast<QQuickItem*>(root);
+        if (auto* window = qobject_cast<QQuickWindow*>(root))
+            visualRoot = window->contentItem();
+        if (visualRoot)
+            result = visualItem(visualRoot, QString::fromLatin1(name));
+    }
     require(result != nullptr, name);
     return result;
 }
@@ -79,6 +96,24 @@ QtObject {
     property int cancelCount: 0
     property int applyCount: 0
     property int retryCount: 0
+    property int strengthEditCount: 0
+    property int beginCount: 0
+    property int endCount: 0
+    property string beginKey: ""
+    property string endKey: ""
+    function beginParameterEdit(key) { ++beginCount; beginKey = key }
+    function endParameterEdit(key) { ++endCount; endKey = key }
+    function setImageCompletionRegionStrength(index, value) {
+        const next = imageCompletionRegions.map(region => Object.assign({}, region))
+        next[index].strength = value
+        imageCompletionRegions = next
+        ++strengthEditCount
+    }
+    function setImageCompletionRegionEnabled(index, enabled) {
+        const next = imageCompletionRegions.map(region => Object.assign({}, region))
+        next[index].enabled = enabled
+        imageCompletionRegions = next
+    }
     function undoImageCompletionStroke() { ++undoCount }
     function clearImageCompletionSelection() { ++clearCount }
     function generateImageCompletion() { ++generateCount }
@@ -208,6 +243,43 @@ ApplicationWindow {
         QTest::qWait(25);
         click(window, object.get(), "beginImageCompletionButton");
         require(start.count() == 1, "accepted-region panel can start another selection");
+
+        editor->setProperty("imageCompletionRegions", regions);
+        QTest::qWait(25);
+        QPointer<QQuickItem> strength(item(object.get(), "imageCompletionRegionStrength_0"));
+        auto* input = item(strength, "shadowSliderAccessibleInput");
+        const auto point = [&](double fraction) {
+            return input->mapToScene({input->width() * fraction, input->height() / 2}).toPoint();
+        };
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, point(0.95));
+        for (double fraction : {0.8, 0.65, 0.5, 0.35}) {
+            QTest::mouseMove(window, point(fraction), 20);
+            QTest::qWait(10);
+            require(!strength.isNull(), "model feedback must not destroy a dragged region slider");
+        }
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, point(0.35));
+        QTest::qWait(25);
+        require(
+            editor->property("strengthEditCount").toInt() >= 3,
+            "continuous drag publishes successive values despite model feedback"
+        );
+        require(
+            editor->property("beginCount").toInt() == 1 && editor->property("endCount").toInt() == 1
+                && editor->property("beginKey").toString() == "image_completion/region/0/strength"
+                && editor->property("beginKey") == editor->property("endKey"),
+            "one region drag uses one photo-local undo gesture"
+        );
+        click(window, object.get(), "imageCompletionRegionEnabled_0");
+        require(
+            !editor->property("imageCompletionRegions").toList()[0].toMap()["enabled"].toBool(),
+            "accepted region can be bypassed"
+        );
+        editor->setProperty("stateBusy", true);
+        require(!strength->isEnabled(), "busy editor still protects accepted regions");
+        editor->setProperty("stateBusy", false);
+        panel->setProperty("authoring", true);
+        QTest::qWait(25);
+        require(strength.isNull(), "authoring shows a summary instead of disabled region controls");
     }
     std::cout << "AI completion panel: 56 localized width/state cases and pointer actions passed\n";
     return 0;

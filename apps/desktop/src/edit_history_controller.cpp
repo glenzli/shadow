@@ -33,10 +33,12 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
         parameter_key.startsWith(QStringLiteral("raw_ai_denoise/"));
     const bool photo_local_paint = parameter_key.startsWith(QStringLiteral("paint/"));
     const bool photo_local_liquify = parameter_key.startsWith(QStringLiteral("liquify/"));
+    const bool photo_local_completion =
+        parameter_key.startsWith(QStringLiteral("image_completion/"));
     if (!active_ || interactionLocked()
         || (!photo_local_retouch && !photo_local_geometry && !photo_local_foundation
             && !photo_local_raw_denoise && !photo_local_liquify && !photo_local_paint
-            && (grade_node == nullptr || !grade_node->enabled))
+            && !photo_local_completion && (grade_node == nullptr || !grade_node->enabled))
         || parameter_key.isEmpty()) {
         return;
     }
@@ -356,6 +358,7 @@ QString EditController::gradeNodeHistoryKey(const QString& key) const {
     if (key.startsWith(QStringLiteral("retouch/")) || key.startsWith(QStringLiteral("geometry/"))
         || key.startsWith(QStringLiteral("foundation/"))
         || key.startsWith(QStringLiteral("raw_ai_denoise/"))
+        || key.startsWith(QStringLiteral("image_completion/"))
         || key.startsWith(QStringLiteral("liquify/")) || key.startsWith(QStringLiteral("paint/"))) {
         return QStringLiteral("photo/%1").arg(key);
     }

@@ -26,7 +26,6 @@ Rectangle {
     signal repairToolRequested
     signal liquifyToolRequested
     signal paintToolRequested
-    signal completionToolRequested
 
     color: pane.panel
     PrecisionGradeNodeMenus {
@@ -258,10 +257,7 @@ Rectangle {
             nodeEnabled: pane.editor.imageCompletionNodeEnabled
             onEnabledToggled: enabled =>
                 pane.editor.imageCompletionNodeEnabled = enabled
-            onActivated: {
-                pane.editor.selectImageCompletionNode()
-                pane.completionToolRequested()
-            }
+            onActivated: pane.editor.selectImageCompletionNode()
         }
 
         StructuralNodeRow {

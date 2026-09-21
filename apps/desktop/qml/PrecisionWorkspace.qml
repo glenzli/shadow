@@ -111,8 +111,7 @@ Item {
             ? toolNone : requestedTool
 
         if (nextTool === toolNone) {
-            leaveSpecialTool()
-            restoreAdjustmentSelection()
+            finishSpecialTool()
             return
         }
 
@@ -164,6 +163,16 @@ Item {
             editor.cancelImageCompletion()
     }
 
+    function finishSpecialTool() {
+        // The completion node owns accepted regions as well as new selections.
+        // Finishing a selection must return to those editable results.
+        const keepCompletion = activeSpecialTool === toolCompletion
+            || editor.selectedRecipeNodeKind === "completion"
+        leaveSpecialTool()
+        if (!keepCompletion)
+            restoreAdjustmentSelection()
+    }
+
     function reconcileRecipeNodeSelection() {
         const nextKind = String(editor.selectedRecipeNodeKind || "")
         const nextId = String(editor.selectedGradeNodeId || "")
@@ -210,8 +219,7 @@ Item {
             editor.setRetouchPickerActive(false)
             return
         }
-        leaveSpecialTool()
-        restoreAdjustmentSelection()
+        finishSpecialTool()
     }
 
     function selectRetouchRegion(continuous, index) {
@@ -355,10 +363,6 @@ Item {
                 if (precision.activeSpecialTool !== precision.toolPaint)
                     precision.setActiveSpecialTool(precision.toolPaint)
             }
-            onCompletionToolRequested: {
-                if (precision.activeSpecialTool !== precision.toolCompletion)
-                    precision.setActiveSpecialTool(precision.toolCompletion)
-            }
         }
 
         PrecisionCanvas {
@@ -415,6 +419,7 @@ Item {
             onOpenOpticsProfileLibraryRequested:
                 precision.openOpticsProfileLibraryRequested()
             onToolModeRequested: mode => precision.setActiveSpecialTool(mode)
+            onToolFinishRequested: precision.finishSpecialTool()
             onCropAspectRatioRequested: ratio =>
                 precision.cropAspectRatioLock = ratio
             onMaskOverlayVisibilityRequested: visible =>
