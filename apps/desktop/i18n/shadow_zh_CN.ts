@@ -12209,6 +12209,18 @@ Details: %3</source>
 <context>
     <name>ReviewWorkspace</name>
     <message>
+        <source>Auto advance is on · click to turn off</source>
+        <translation>已开启自动下一张 · 点击关闭</translation>
+    </message>
+    <message>
+        <source>Auto advance after rating or flagging</source>
+        <translation>评分或标记后自动下一张</translation>
+    </message>
+    <message>
+        <source>Undo last rating or flag (⌘Z / Ctrl+Z)</source>
+        <translation>撤销上一次评分或标记（⌘Z / Ctrl+Z）</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewGallerySurface.qml" line="266"/>
         <source>No photos match the current filters.</source>
         <translation>没有符合当前筛选条件的照片。</translation>

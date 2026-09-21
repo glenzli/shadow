@@ -691,6 +691,7 @@ class ReviewController final : public QObject {
     void comparisonForgotten();
     void decisionStateChanged();
     void decisionStatusTextChanged();
+    void decisionCommitted(const QString& photoId);
     void decisionChanged(
         const QString& photoId,
         qulonglong headSequence,

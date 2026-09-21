@@ -255,11 +255,30 @@ void ReviewGalleryGroupingController::setSourceModel(QAbstractItemModel* const s
             this,
             [rebuild](const QModelIndex&, int, int) { rebuild(); }
         ));
+        source_connections_.append(
+            connect(source_model_, &QAbstractItemModel::rowsMoved, this, rebuild)
+        );
         source_connections_.append(connect(
             source_model_,
             &QAbstractItemModel::dataChanged,
             this,
-            [rebuild](const QModelIndex&, const QModelIndex&, const QList<int>&) { rebuild(); }
+            [this](const QModelIndex&, const QModelIndex&, const QList<int>& changed_roles) {
+                if (selected_dimensions_.isEmpty()) {
+                    return;
+                }
+                const auto names = source_model_->roleNames();
+                const bool affects_grouping =
+                    changed_roles.isEmpty()
+                    || std::any_of(changed_roles.cbegin(), changed_roles.cend(), [&](int role) {
+                           const auto name = names.value(role);
+                           return name.isEmpty() || name == "photoId" || name == "representationId"
+                                  || name == "captureDay" || name == "capturedAtUnixSeconds"
+                                  || name == "placeName";
+                       });
+                if (affects_grouping) {
+                    this->rebuild();
+                }
+            }
         ));
         source_connections_.append(connect(source_model_, &QObject::destroyed, this, [this]() {
             source_model_ = nullptr;

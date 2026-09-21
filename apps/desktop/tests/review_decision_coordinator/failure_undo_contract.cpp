@@ -29,6 +29,7 @@ void verified_inverse_preserves_append_only_history() {
     BackendReviewDecisionState visible = initial;
     std::atomic<int> calls = 0;
     int undone = 0;
+    int committed = 0;
 
     ReviewDecisionCoordinator coordinator(
         operations(
@@ -72,6 +73,8 @@ void verified_inverse_preserves_append_only_history() {
             visible = accepted;
         }
     );
+    QObject::connect(&coordinator, &ReviewDecisionCoordinator::decisionCommitted,
+                     [&]() { ++committed; });
     QObject::connect(
         &coordinator,
         &ReviewDecisionCoordinator::undone,
@@ -96,7 +99,7 @@ void verified_inverse_preserves_append_only_history() {
         "inverse decision did not settle"
     );
     require(
-        visible == restored && calls.load() == 2 && undone == 1
+        visible == restored && calls.load() == 2 && undone == 1 && committed == 1
             && !coordinator.canUndo(),
         "verified inverse projects the new authoritative head"
     );
@@ -141,6 +144,9 @@ void failure_refreshes_authoritative_state_and_invalid_receipts_fail_closed() {
             projected.push_back(accepted);
         }
     );
+    int completions = 0;
+    QObject::connect(&failing, &ReviewDecisionCoordinator::decisionCommitted,
+                     [&]() { ++completions; });
     require(
         failing.setRating(QStringLiteral("photo-failure"), 4),
         "failing decision starts"
@@ -150,7 +156,7 @@ void failure_refreshes_authoritative_state_and_invalid_receipts_fail_closed() {
         "failing decision did not settle"
     );
     require(
-        projected.size() == 1 && projected.front() == refreshed,
+        projected.size() == 1 && projected.front() == refreshed && completions == 0,
         "write failure projects refreshed authoritative state"
     );
     require(
@@ -190,6 +196,8 @@ void failure_refreshes_authoritative_state_and_invalid_receipts_fail_closed() {
             ++invalid_projection_count;
         }
     );
+    QObject::connect(&invalid, &ReviewDecisionCoordinator::decisionCommitted,
+                     [&]() { ++completions; });
     require(
         invalid.setFlag(
             QStringLiteral("photo-failure"),
@@ -202,7 +210,7 @@ void failure_refreshes_authoritative_state_and_invalid_receipts_fail_closed() {
         "invalid-receipt mutation did not settle"
     );
     require(
-        invalid_projection_count == 0 && !invalid.canUndo()
+        invalid_projection_count == 0 && !invalid.canUndo() && completions == 0
             && invalid.statusText()
                 == QStringLiteral(
                     "Decision receipt was invalid; local state retained"

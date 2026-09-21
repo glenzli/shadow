@@ -44,6 +44,25 @@ Item {
         selection: selectionState
     }
 
+    ReviewDecisionFlow {
+        id: decisionFlow
+        controller: review.controller
+        selection: selectionState
+        navigationModel: review.justifiedReviewLayout
+        onAdvanceRequested: target => review.selectPhoto(target, Qt.NoModifier)
+    }
+    property alias autoAdvanceDecisions: decisionFlow.autoAdvance
+    onVisibleChanged: decisionFlow.cancel()
+
+    readonly property bool textInputActive: {
+        const item = review.Window.window ? review.Window.window.activeFocusItem : null
+        return item !== null && typeof item.cursorPosition === "number"
+    }
+    readonly property bool canUndoDecision: controller.canUndoDecision
+        && !locationCompletionActive && !comparison.compareMode && !culling.arenaActive
+        && !controller.scanning && !controller.refreshing && !controller.busy
+        && !controller.loadingMore && !controller.comparisonBusy && !controller.decisionBusy
+
     readonly property alias comparison: comparisonState
     readonly property alias culling: cullingState
     readonly property bool locationBatchDialogVisible:
@@ -725,12 +744,18 @@ Item {
 
     function setSelectedFlag(flag) {
         if (canMutateDecision)
-            controller.setPhotoFlag(selectedPhotoId, flag)
+            decisionFlow.setFlag(flag)
     }
 
     function setSelectedRating(rating) {
         if (canMutateDecision)
-            controller.setPhotoRating(selectedPhotoId, rating)
+            decisionFlow.setRating(rating)
+    }
+
+    function undoDecision() {
+        decisionFlow.cancel()
+        if (canUndoDecision)
+            controller.undoLastDecision()
     }
 
     Connections {
@@ -790,6 +815,12 @@ Item {
     }
 
     Shortcut {
+        sequences: [StandardKey.Undo]
+        enabled: review.visible && review.canUndoDecision && !review.textInputActive
+        onActivated: review.undoDecision()
+    }
+
+    Shortcut {
         sequence: "Escape"
         enabled: review.visible && review.comparison.compareMode
             && !review.controller.comparisonBusy
@@ -798,62 +829,62 @@ Item {
 
     Shortcut {
         sequence: "C"
-        enabled: review.visible && review.selectedPhotoCount === 1
+        enabled: review.visible && !review.textInputActive && review.selectedPhotoCount === 1
             && !review.comparison.compareMode && !review.culling.arenaActive
         onActivated: review.toggleSelectedCandidate()
     }
 
     Shortcut {
         sequence: "P"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedFlag("picked")
     }
 
     Shortcut {
         sequence: "U"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedFlag("unflagged")
     }
 
     Shortcut {
         sequence: "X"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedFlag("rejected")
     }
 
     Shortcut {
         sequence: "0"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(0)
     }
 
     Shortcut {
         sequence: "1"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(1)
     }
 
     Shortcut {
         sequence: "2"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(2)
     }
 
     Shortcut {
         sequence: "3"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(3)
     }
 
     Shortcut {
         sequence: "4"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(4)
     }
 
     Shortcut {
         sequence: "5"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(5)
     }
 

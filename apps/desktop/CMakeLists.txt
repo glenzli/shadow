@@ -970,6 +970,7 @@ qt_add_qml_module(
         qml/ReviewWorkspace.qml
         qml/ReviewPersonBar.qml
         qml/ReviewSelectionState.qml
+        qml/ReviewDecisionFlow.qml
         qml/ReviewComparisonState.qml
         qml/ReviewComparisonView.qml
         qml/ReviewCullingState.qml

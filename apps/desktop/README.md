@@ -966,6 +966,10 @@ Review presentation keeps the workspace as the composition and compatibility sur
   and the primary presentation snapshot. Detailed EXIF and
   technical facts come from an independent exact `{photo, representation}` request, so delegate
   recycling and Library pagination cannot replace the selected representation.
+- [`qml/ReviewDecisionFlow.qml`](qml/ReviewDecisionFlow.qml) owns optional next-photo navigation
+  after a confirmed rating or flag. It freezes an adjacent target before the write and cancels
+  on selection, scope, ordering, or workspace changes. Failure refreshes and undo never advance.
+  Review exposes causal decision undo independently of whether a photo remains selected.
 - [`qml/ReviewComparisonState.qml`](qml/ReviewComparisonState.qml) and
   [`qml/ReviewComparisonView.qml`](qml/ReviewComparisonView.qml) own ordinary non-mutating 1:1
   comparison. Entry either freezes the selected photo and one adjacent visible result, or starts

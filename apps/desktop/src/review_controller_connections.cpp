@@ -120,6 +120,12 @@ void ReviewController::initializeCoordinatorWiring() {
         &ReviewController::decisionUndone
     );
     connect(
+        &decision_coordinator_,
+        &ReviewDecisionCoordinator::decisionCommitted,
+        this,
+        &ReviewController::decisionCommitted
+    );
+    connect(
         &facet_coordinator_,
         &ReviewLibraryFacetCoordinator::facetsChanged,
         this,

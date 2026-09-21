@@ -1411,6 +1411,19 @@
     )
 
 # Filmstrip preview interaction uses the same packaged view/gesture owners as Precision.
+add_executable(shadow-review-decision-flow-contract-test
+    tests/review_decision_flow_contract_test.cpp)
+target_compile_features(shadow-review-decision-flow-contract-test PRIVATE cxx_std_20)
+target_link_libraries(shadow-review-decision-flow-contract-test
+    PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
+qt_add_qml_module(shadow-review-decision-flow-contract-test
+    URI Shadow.ReviewDecisionContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+    QML_FILES qml/ReviewDecisionFlow.qml)
+add_test(NAME shadow-desktop-review-decision-flow-contract
+    COMMAND shadow-review-decision-flow-contract-test)
+set_tests_properties(shadow-desktop-review-decision-flow-contract
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+
 add_executable(shadow-review-preview-viewport-contract-test
     tests/review_preview_viewport_contract_test.cpp)
 target_compile_features(shadow-review-preview-viewport-contract-test PRIVATE cxx_std_20)

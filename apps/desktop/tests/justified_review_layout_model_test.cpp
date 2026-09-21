@@ -2,6 +2,7 @@
 #include "review_model.hpp"
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QSortFilterProxyModel>
 
 #include <cmath>
@@ -296,6 +297,88 @@ void section_anchors_follow_visible_header_rows() {
     );
 }
 
+class CountedProjection final : public QSortFilterProxyModel {
+  public:
+    mutable int reads = 0;
+    QVariant data(const QModelIndex& index, int role) const override {
+        ++reads;
+        return QSortFilterProxyModel::data(index, role);
+    }
+    void notify(const QList<int>& roles) {
+        emit dataChanged(index(0, 0), index(0, 0), roles);
+    }
+};
+
+void decisions_update_one_row_without_relayout_or_catalog_scan() {
+    ReviewModel photos;
+    QVector<ReviewItem> items;
+    for (int i = 0; i < 10'000; ++i) {
+        auto item = photo("fixture", 1200, 800);
+        item.photo_id = QString::number(i);
+        item.representation_id = QStringLiteral("representation-") + item.photo_id;
+        items.append(item);
+    }
+    photos.replace(items, 1);
+    CountedProjection source;
+    source.setSourceModel(&photos);
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&source);
+    layout.setAvailableWidth(900);
+    const auto before = layout.navigationTarget("9876", "representation-9876", 0, 0);
+    int resets = 0;
+    int changed = 0;
+    QObject::connect(&layout, &QAbstractItemModel::modelReset, [&]() { ++resets; });
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::dataChanged,
+        [&](const QModelIndex& first, const QModelIndex& last, const QList<int>& roles) {
+            require(
+                first == last && roles == QList<int>{JustifiedReviewLayoutModel::ItemsRole},
+                "badge mutation publishes only its containing row's items"
+            );
+            ++changed;
+        }
+    );
+    source.reads = 0;
+    QElapsedTimer timer;
+    timer.start();
+    require(photos.updateDecision("9876", 1, "picked", 4), "fixture decision updated");
+    QCoreApplication::processEvents();
+    const auto elapsed = timer.nsecsElapsed();
+    const auto after = layout.navigationTarget("9876", "representation-9876", 0, 0);
+    require(resets == 0 && changed == 1, "one rating must never reset the full gallery");
+    require(source.reads < 20, "one decision must not scan unrelated photos or copy all roles");
+    require(
+        after.value("decisionRating").toInt() == 4 && after.value("decisionFlag") == "picked",
+        "updated rating and flag reach the gallery and keyboard snapshot"
+    );
+    require(
+        before.value("layoutRow") == after.value("layoutRow")
+            && before.value("layoutWidth") == after.value("layoutWidth")
+            && before.value("layoutX") == after.value("layoutX"),
+        "decision changes preserve placement and scroll geometry"
+    );
+    std::cout << "10000-photo decision: " << source.reads << " source reads, " << changed
+              << " row update, " << resets << " resets, " << elapsed / 1000 << " us\n";
+    source.notify({ReviewModel::VisualWidthRole});
+    QCoreApplication::processEvents();
+    require(resets == 1, "dimensions still rebuild geometry");
+    source.notify({});
+    QCoreApplication::processEvents();
+    require(resets == 2, "unspecified source roles rebuild safely");
+
+    // A filter removes the rated item before the deferred layout publication.
+    source.setFilterRole(ReviewModel::DecisionRatingRole);
+    source.setFilterFixedString("0");
+    require(photos.updateDecision("12", 2, "picked", 5), "filtered decision updated");
+    QCoreApplication::processEvents();
+    const auto next = layout.navigationTarget("11", "representation-11", 1, 0);
+    require(
+        next.value("photoId") == "13",
+        "filtered-out decisions leave no stale navigation entry"
+    );
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -307,5 +390,6 @@ int main(int argc, char* argv[]) {
     coalesces_source_notifications_into_one_layout_reset();
     ordered_sections_split_rows_without_hiding_unassigned_photos();
     section_anchors_follow_visible_header_rows();
+    decisions_update_one_row_without_relayout_or_catalog_scan();
     return EXIT_SUCCESS;
 }

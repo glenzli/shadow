@@ -99,6 +99,7 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
     disconnectSourceModel();
     source_model_ = source_model;
     rows_.clear();
+    item_positions_.clear();
     endResetModel();
 
     if (source_model_ != nullptr) {
@@ -121,13 +122,14 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
             this,
             [request_rebuild](const QModelIndex&, const int, const int) { request_rebuild(); }
         ));
+        source_connections_.append(
+            connect(source_model_, &QAbstractItemModel::rowsMoved, this, request_rebuild)
+        );
         source_connections_.append(connect(
             source_model_,
             &QAbstractItemModel::dataChanged,
             this,
-            [request_rebuild](const QModelIndex&, const QModelIndex&, const QList<int>&) {
-                request_rebuild();
-            }
+            &JustifiedReviewLayoutModel::updateSourceItems
         ));
         source_connections_.append(connect(source_model_, &QObject::destroyed, this, [this]() {
             rebuild_timer_.stop();
@@ -135,6 +137,7 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
             source_model_ = nullptr;
             source_connections_.clear();
             rows_.clear();
+            item_positions_.clear();
             endResetModel();
             emit sourceModelChanged();
         }));
@@ -281,20 +284,10 @@ QVariantMap JustifiedReviewLayoutModel::navigationTarget(
         return {};
     }
 
-    int current_row = -1;
-    int current_column = -1;
-    for (int row = 0; row < rows_.size() && current_row < 0; ++row) {
-        const QVariantList& items = rows_.at(row).items;
-        for (int column = 0; column < items.size(); ++column) {
-            const QVariantMap item = items.at(column).toMap();
-            if (item.value(QStringLiteral("photoId")).toString() == photo_id
-                && item.value(QStringLiteral("representationId")).toString() == representation_id) {
-                current_row = row;
-                current_column = column;
-                break;
-            }
-        }
-    }
+    const auto position =
+        item_positions_.value(photo_id + QChar{0x001f} + representation_id, {-1, -1});
+    const int current_row = position.first;
+    const int current_column = position.second;
     if (current_row < 0) {
         for (int row = 0; row < rows_.size(); ++row) {
             if (!rows_.at(row).items.isEmpty()) {
@@ -405,6 +398,63 @@ void JustifiedReviewLayoutModel::requestRebuild() {
     }
 }
 
+void JustifiedReviewLayoutModel::updateSourceItems(
+    const QModelIndex& first,
+    const QModelIndex& last,
+    const QList<int>& roles
+) {
+    // Structural notifications already scheduled a new snapshot. Unknown roles
+    // or changed dimensions/identities may affect placement and must rebuild.
+    if (source_model_ == nullptr || rebuild_timer_.isActive()) {
+        return;
+    }
+    const auto names = source_model_->roleNames();
+    const int photo_role = names.key("photoId", -1);
+    const int representation_role = names.key("representationId", -1);
+    if (roles.isEmpty() || !first.isValid() || !last.isValid() || first.parent().isValid()
+        || last.parent().isValid() || photo_role < 0 || representation_role < 0) {
+        requestRebuild();
+        return;
+    }
+    for (const int role : roles) {
+        const auto name = names.value(role);
+        if (name.isEmpty() || name == "photoId" || name == "representationId"
+            || name == "visualWidth" || name == "visualHeight") {
+            requestRebuild();
+            return;
+        }
+    }
+    QSet<int> changed_rows;
+    for (int row = first.row(); row <= last.row(); ++row) {
+        const auto source_index = source_model_->index(row, 0);
+        const QString key = source_model_->data(source_index, photo_role).toString() + QChar{0x001f}
+                            + source_model_->data(source_index, representation_role).toString();
+        const auto position = item_positions_.constFind(key);
+        if (position == item_positions_.cend()) {
+            requestRebuild();
+            return;
+        }
+        QVariant& value = rows_[position->first].items[position->second];
+        QVariantMap item = value.toMap();
+        bool changed = false;
+        for (const int role : roles) {
+            const QString name = QString::fromLatin1(names.value(role));
+            const QVariant next = source_model_->data(source_index, role);
+            if (item.value(name) != next) {
+                item.insert(name, next);
+                changed = true;
+            }
+        }
+        if (changed) {
+            value = std::move(item);
+            changed_rows.insert(position->first);
+        }
+    }
+    for (const int row : changed_rows) {
+        emit dataChanged(index(row, 0), index(row, 0), {ItemsRole});
+    }
+}
+
 void JustifiedReviewLayoutModel::rebuild() {
     rebuild_timer_.stop();
     QVector<Row> next_rows;
@@ -470,6 +520,13 @@ void JustifiedReviewLayoutModel::rebuild() {
 
     beginResetModel();
     rows_ = std::move(next_rows);
+    item_positions_.clear();
+    for (int row = 0; row < rows_.size(); ++row) {
+        const auto& items = rows_.at(row).items;
+        for (int column = 0; column < items.size(); ++column) {
+            item_positions_.insert(representationKey(items.at(column).toMap()), {row, column});
+        }
+    }
     endResetModel();
     emit sectionAnchorsChanged();
 }

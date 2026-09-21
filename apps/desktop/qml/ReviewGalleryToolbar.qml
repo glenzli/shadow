@@ -38,6 +38,8 @@ Rectangle {
         id: actionsMenu
         workspace: toolbar.workspace
         thumbnailScaleVisible: toolbar.showThumbnailScale
+        thumbnailScaleAvailable: toolbar.workspace.galleryPresentation
+            === ReviewWorkspace.JustifiedGrid
         onOpenLibraryManagementRequested: toolbar.openLibraryManagementRequested()
         onOpenMetadataRequested: toolbar.openMetadataRequested()
         onSharedGradeRequested: toolbar.sharedGradeRequested(moreButton)
@@ -264,6 +266,25 @@ Rectangle {
                 else
                     toolbar.workspace.comparison.startQuickComparison()
             }
+        }
+
+        ShadowIconButton {
+            objectName: "reviewUndoDecisionButton"
+            source: "qrc:/icons/undo.svg"
+            toolTipText: qsTr("Undo last rating or flag (⌘Z / Ctrl+Z)")
+            accessibleName: toolTipText
+            enabled: toolbar.workspace.canUndoDecision
+            onClicked: toolbar.workspace.undoDecision()
+        }
+
+        ShadowIconButton {
+            objectName: "reviewAutoAdvanceIndicator"
+            visible: toolbar.workspace.autoAdvanceDecisions
+            source: "qrc:/icons/skip.svg"
+            selected: true
+            toolTipText: qsTr("Auto advance is on · click to turn off")
+            accessibleName: toolTipText
+            onClicked: toolbar.workspace.autoAdvanceDecisions = false
         }
 
         ShadowButton {

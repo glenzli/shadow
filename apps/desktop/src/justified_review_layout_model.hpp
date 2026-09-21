@@ -123,6 +123,8 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
     [[nodiscard]] static qreal aspectRatio(const QVariantMap& item);
     void disconnectSourceModel();
     void requestRebuild();
+    void
+    updateSourceItems(const QModelIndex& first, const QModelIndex& last, const QList<int>& roles);
     void rebuild();
     void appendPhotoRows(QVector<Row>& rows, QVariantList items) const;
 
@@ -130,6 +132,7 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
     QVector<QMetaObject::Connection> source_connections_;
     QTimer rebuild_timer_;
     QVector<Row> rows_;
+    QHash<QString, QPair<int, int>> item_positions_;
     QVariantList section_variants_;
     QVector<Section> sections_;
     int available_width_ = 0;

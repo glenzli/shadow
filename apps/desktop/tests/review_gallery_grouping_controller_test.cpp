@@ -33,13 +33,20 @@ class PhotoModel final : public QAbstractListModel {
         CaptureDayRole,
         CapturedAtRole,
         PlaceNameRole,
+        RatingRole,
     };
 
     [[nodiscard]] int rowCount(const QModelIndex& parent = {}) const override {
         return parent.isValid() ? 0 : static_cast<int>(photos_.size());
     }
 
+    mutable int reads = 0;
+    void notify(int role) {
+        emit dataChanged(index(0, 0), index(0, 0), {role});
+    }
+
     [[nodiscard]] QVariant data(const QModelIndex& index, const int role) const override {
+        ++reads;
         if (!index.isValid() || index.row() < 0 || index.row() >= photos_.size()) {
             return {};
         }
@@ -67,6 +74,7 @@ class PhotoModel final : public QAbstractListModel {
             {CaptureDayRole, "captureDay"},
             {CapturedAtRole, "capturedAtUnixSeconds"},
             {PlaceNameRole, "placeName"},
+            {RatingRole, "decisionRating"},
         };
     }
 
@@ -226,6 +234,11 @@ void date_granularities_are_mutually_exclusive_and_source_resets_rebuild() {
          QStringLiteral("Beijing")},
     });
     require(grouping.sections().size() == 2, "a source reset recompiles the selected grouping");
+    photos.reads = 0;
+    photos.notify(PhotoModel::RatingRole);
+    require(photos.reads == 0, "rating does not scan the catalog to regroup unchanged dates");
+    photos.notify(PhotoModel::CaptureDayRole);
+    require(photos.reads > 0, "capture metadata still invalidates date grouping");
 }
 
 } // namespace
