@@ -24,6 +24,18 @@ Item {
     onVisibleChanged: Qt.callLater(restoreSelection)
     onModelChanged: Qt.callLater(restoreSelection)
 
+    // Unhandled arrows bubble here from the filmstrip, preview and zoom/HUD
+    // controls, so inspecting a photo never disables continued culling.
+    Keys.onPressed: event => {
+        if (event.key === Qt.Key_Left)
+            root.navigate(-1)
+        else if (event.key === Qt.Key_Right)
+            root.navigate(1)
+        else
+            return
+        event.accepted = true
+    }
+
     function selectFilmstripPhoto(photo, modifiers) {
         // Keep the pointer target stationary through successive clicks and the
         // second click of a double-click, including partially visible cards.
@@ -160,6 +172,7 @@ Item {
             cacheBuffer: 560
             model: root.model
             focus: root.visible
+            keyNavigationEnabled: false
             highlightRangeMode: ListView.NoHighlightRange
 
             function syncCurrentSelection() {
@@ -175,16 +188,6 @@ Item {
 
             Component.onCompleted: Qt.callLater(root.restoreSelection)
             onCountChanged: Qt.callLater(root.restoreSelection)
-            Keys.onPressed: event => {
-                if (event.key === Qt.Key_Left)
-                    root.navigate(-1)
-                else if (event.key === Qt.Key_Right)
-                    root.navigate(1)
-                else
-                    return
-                event.accepted = true
-            }
-
             delegate: Rectangle {
                 id: filmCard
                 required property string photoId

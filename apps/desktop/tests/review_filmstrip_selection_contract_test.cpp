@@ -3,9 +3,11 @@
 #include "review_model.hpp"
 
 #include <QGuiApplication>
+#include <QImage>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQuickImageProvider>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -14,6 +16,17 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+
+class FilmstripPreviewProvider final : public QQuickImageProvider {
+  public:
+    FilmstripPreviewProvider() : QQuickImageProvider(Image) {}
+    QImage requestImage(const QString&, QSize* size, const QSize&) override {
+        QImage image(800, 600, QImage::Format_RGB32);
+        image.fill(Qt::darkBlue);
+        *size = image.size();
+        return image;
+    }
+};
 
 int main(int argc, char** argv) {
     QGuiApplication app(argc, argv);
@@ -35,6 +48,7 @@ int main(int argc, char** argv) {
     navigation.setSourceModel(&filtered);
     navigation.setAvailableWidth(600);
     QQmlEngine engine;
+    engine.addImageProvider(QStringLiteral("filmstrip-selection"), new FilmstripPreviewProvider);
     engine.rootContext()->setContextProperty(QStringLiteral("photoModel"), &filtered);
     engine.rootContext()->setContextProperty(QStringLiteral("navigationModel"), &navigation);
     bool warnings = false;
@@ -55,7 +69,7 @@ ReviewSinglePreview {
     review: QtObject {
         property string selectedPhotoId: "photo-1500"
         property string selectedRepresentationId: "raw"
-        property string selectedVisualSource: ""
+        property string selectedVisualSource: "image://filmstrip-selection/preview"
         property bool selectedVisualAutoTransform: false
         property bool selectedSourceAvailable: true
         property bool canMutateDecision: false
@@ -149,6 +163,47 @@ ReviewSinglePreview {
         "keyboard navigation failed to select the adjacent photo"
     );
     check(selection_visible(), "keyboard navigation did not reveal the selected photo");
+    auto next_photo = [&] {
+        return navigation
+            .navigationTarget(
+                review->property("selectedPhotoId").toString(),
+                QStringLiteral("raw"),
+                1,
+                0
+            )
+            .value(QStringLiteral("photoId"));
+    };
+    auto* viewport = root->findChild<QQuickItem*>(QStringLiteral("reviewPreviewViewport"));
+    check(
+        QTest::qWaitFor([&] { return viewport->property("imageReady").toBool(); }),
+        "main preview did not load"
+    );
+    const auto after_preview = next_photo();
+    QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, QPoint(250, 120));
+    QTest::keyClick(&window, Qt::Key_Right);
+    check(
+        review->property("selectedPhotoId") == after_preview,
+        "clicking the main preview disabled arrow-key culling"
+    );
+    check(selection_visible(), "main preview navigation lost the filmstrip selection");
+    auto* zoom = root->findChild<QQuickItem*>(QStringLiteral("reviewPreviewActualSize"));
+    const auto after_zoom = next_photo();
+    QTest::mouseClick(
+        &window,
+        Qt::LeftButton,
+        Qt::NoModifier,
+        zoom->mapToScene(QPointF(zoom->width() / 2, zoom->height() / 2)).toPoint()
+    );
+    check(!viewport->property("fitView").toBool(), "100% zoom did not activate");
+    QTest::keyClick(&window, Qt::Key_Right);
+    check(
+        review->property("selectedPhotoId") == after_zoom,
+        "using a zoom button disabled arrow-key culling"
+    );
+    check(
+        selection_visible() && viewport->property("fitView").toBool(),
+        "next photo must reveal its thumbnail and reset the previous zoom"
+    );
     auto* card = strip->property("currentItem").value<QQuickItem*>();
     if (card) {
         const auto point =
