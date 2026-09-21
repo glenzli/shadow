@@ -118,9 +118,9 @@ Application startup is split from environment-driven automation:
 - [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,
   authorization-gated anonymous-people analysis lifecycle: persisted local-summary loading, worker
   admission, safe failure presentation, conflict-safe group selection, durable merge delegation,
-  stable local naming, one-step merge undo, rerun, localization, and explicit clear. It delegates model execution and
+  stable local naming, durable correction undo, incremental scan continuation, localization, and explicit clear. It delegates model execution and
   the independently clearable People Store through `DesktopBackend`; only logical photo ids needed
-  to reject co-occurring-face merges enter Qt, while embeddings and face geometry remain in Rust.
+  to browse and split a person or reject co-occurring-face merges enter Qt, while embeddings and face geometry remain in Rust.
 - [`src/semantic_search_controller.*`](src/semantic_search_controller.hpp) owns manual,
   session-only natural-language search admission, safe failure presentation, and the bounded
   high/possible relevance projection; weak relative matches stay hidden.
@@ -1741,3 +1741,7 @@ on manual edits or photo switches without exporting.
 range projection. `qml/PrecisionConditionMaskTools.qml` edits grouped ranges using stable slider
 instances; changes reuse mask gesture history, paired-coverage invalidation and preview scheduling.
 The Recipe condition owner remains authoritative for persistent expression validation.
+
+People photo browsing uses the catalog membership filter and the existing Review workspace.
+[`qml/ReviewPersonBar.qml`](qml/ReviewPersonBar.qml) owns the return and reversible split controls;
+`Main.qml` composes their navigation with the independent people controller.

@@ -228,6 +228,21 @@ ApplicationWindow {
         workspaceIndex = workspace
     }
 
+    Connections {
+        target: window.peopleAnalysisController
+        function onGroupOpened(groupId, name, photoIds) {
+            window.controller.clearFilters()
+            window.controller.setPersonFilter(groupId, name, photoIds)
+            window.showReview()
+        }
+        function onResultsChanged() {
+            const id = window.controller.personFilterId
+            if (id.length > 0)
+                window.controller.setPersonFilter(id, window.peopleAnalysisController.groupName(id),
+                    window.peopleAnalysisController.groupPhotoIds(id))
+        }
+    }
+
     function showReview() {
         leavePrecision(reviewWorkspacePage)
     }
@@ -341,6 +356,11 @@ ApplicationWindow {
 
         ReviewWorkspace {
             id: reviewWorkspace
+            peopleController: window.peopleAnalysisController
+            onReturnToPeopleRequested: {
+                window.controller.clearPersonFilter()
+                window.leavePrecision(window.peopleWorkspacePage)
+            }
             Layout.fillWidth: true
             Layout.fillHeight: true
             controller: window.controller

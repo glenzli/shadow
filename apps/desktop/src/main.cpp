@@ -1,9 +1,9 @@
-#include "composition_controller.hpp"
 #include "ai_preferences.hpp"
 #include "amap_place_search_service.hpp"
 #include "cache_maintenance_controller.hpp"
 #include "cache_preferences.hpp"
 #include "catalog_startup_recovery.hpp"
+#include "composition_controller.hpp"
 #include "desktop_backend.hpp"
 #include "desktop_smoke_harness.hpp"
 #include "edit_controller.hpp"
@@ -17,8 +17,8 @@
 #include "history_coordinator.hpp"
 #include "image_understanding_controller.hpp"
 #include "justified_review_layout_model.hpp"
-#include "lut_library.hpp"
 #include "lut_export_controller.hpp"
+#include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
 #include "map/library_web_map_controller.hpp"
 #include "map_provider_preferences.hpp"
@@ -218,7 +218,12 @@ int main(int argc, char* argv[]) {
     );
     ExportController export_controller(backend, isolated_settings_file);
     CompositionController composition_controller;
-    QObject::connect(&composition_controller, &CompositionController::saved, &controller, &ReviewController::scanFolder);
+    QObject::connect(
+        &composition_controller,
+        &CompositionController::saved,
+        &controller,
+        &ReviewController::scanFolder
+    );
     CacheMaintenanceController cache_maintenance_controller(backend, &cache_preferences);
     QString infer_base_url = qEnvironmentVariable("SHADOW_INFER_BASE_URL");
     QString infer_credential_file = qEnvironmentVariable("SHADOW_INFER_CREDENTIAL_FILE");
@@ -266,6 +271,11 @@ int main(int argc, char* argv[]) {
                 },
             .undo_merge = [backend]() { return backend->undoPeopleMerge(); },
             .clear = [backend]() { backend->clearPeopleData(); },
+            .split =
+                [backend](const QString& id, const QStringList& photos) {
+                    return backend->splitPerson(id, photos);
+                },
+            .reset_scan = [backend]() { backend->resetPeopleAnalysisProgress(); },
         },
         &ai_preferences
     );
@@ -489,8 +499,10 @@ int main(int argc, char* argv[]) {
             || (selected_only && editor.selectedRecipeNodeKind() != QStringLiteral("grade"))) {
             return BackendLutExportSnapshot{};
         }
-        auto snapshot = backend->prepareLutExport(editor.gradeStackForInterchange(),
-            selected_only ? editor.selectedGradeNodeId() : QString{});
+        auto snapshot = backend->prepareLutExport(
+            editor.gradeStackForInterchange(),
+            selected_only ? editor.selectedGradeNodeId() : QString{}
+        );
         const auto display_nodes = editor.gradeNodes();
         const auto display_label = [&display_nodes](const QString& raw_label) {
             for (const auto& value : display_nodes) {
@@ -501,7 +513,9 @@ int main(int argc, char* argv[]) {
             }
             return raw_label;
         };
-        for (auto& label : snapshot.included_nodes) { label = display_label(label); }
+        for (auto& label : snapshot.included_nodes) {
+            label = display_label(label);
+        }
         for (auto& omission : snapshot.omissions) {
             omission.node_label = display_label(omission.node_label);
         }

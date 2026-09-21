@@ -151,3 +151,21 @@ double autoStartDisplayClippedFraction(const QImage& input) {
         }
     return double(clipped) / double(image.width() * image.height());
 }
+
+QVector<std::uint32_t>
+autoStartSkinPeople(const QVector<BackendSubjectMaskPerson>& people, int limit) {
+    QVector<const BackendSubjectMaskPerson*> reliable;
+    for (const auto& person : people)
+        if (std::isfinite(person.confidence) && person.confidence >= .65 && person.confidence <= 1.)
+            reliable.push_back(&person);
+    std::stable_sort(reliable.begin(), reliable.end(), [](const auto* left, const auto* right) {
+        return left->confidence > right->confidence;
+    });
+    QVector<std::uint32_t> indices;
+    for (const auto* person : reliable) {
+        if (indices.size() >= std::max(0, limit))
+            break;
+        indices.push_back(person->index);
+    }
+    return indices;
+}

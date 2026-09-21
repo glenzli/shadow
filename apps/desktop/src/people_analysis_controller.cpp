@@ -71,7 +71,7 @@ PeopleAnalysisController::~PeopleAnalysisController() {
 }
 
 bool PeopleAnalysisController::busy() const noexcept {
-    return watcher_.isRunning();
+    return active_job_token_.has_value() || continuation_queued_;
 }
 
 bool PeopleAnalysisController::cancelRequested() const noexcept {
@@ -177,7 +177,7 @@ int PeopleAnalysisController::selectedGroupCount() const noexcept {
 }
 
 bool PeopleAnalysisController::canMergeSelectedGroups() const noexcept {
-    return selected_group_ids_.size() >= 2 && !selectedGroupsConflict();
+    return !busy() && selected_group_ids_.size() >= 2 && !selectedGroupsConflict();
 }
 
 bool PeopleAnalysisController::canUndoMerge() const noexcept {
@@ -201,8 +201,22 @@ QString PeopleAnalysisController::mergeSelectionText() const {
     );
 }
 
+void PeopleAnalysisController::reanalyzeAll() {
+    if (busy() || !preferences_->peopleAnalysisExecutionAllowed() || !operations_.reset_scan)
+        return;
+    try {
+        operations_.reset_scan();
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "People analysis reset failed:" << error.what();
+        state_ = State::Failed;
+        emit stateChanged();
+        return;
+    }
+    startAnalysis();
+}
+
 void PeopleAnalysisController::startAnalysis() {
-    if (watcher_.isRunning()) {
+    if (busy()) {
         return;
     }
     if (!preferences_->peopleAnalysisExecutionAllowed()) {
@@ -229,6 +243,7 @@ void PeopleAnalysisController::startAnalysis() {
         try {
             const BackendPeopleAnalysisExecution execution = execute(job_token, true);
             result.job_token = execution.job_token;
+            result.made_progress = execution.made_progress;
             result.report = execution.report;
             result.cancelled = execution.cancelled;
             result.diagnostic = execution.diagnostic;
@@ -242,7 +257,12 @@ void PeopleAnalysisController::startAnalysis() {
 }
 
 void PeopleAnalysisController::cancelAnalysis() {
-    if (!watcher_.isRunning() || !active_job_token_.has_value() || cancelRequested()) {
+    if (continuation_queued_) {
+        continuation_queued_ = false;
+        state_ = State::Cancelled;
+        emit stateChanged();
+    }
+    if (!active_job_token_.has_value() || cancelRequested()) {
         return;
     }
     try {
@@ -257,7 +277,7 @@ void PeopleAnalysisController::cancelAnalysis() {
 }
 
 void PeopleAnalysisController::clearPeopleData() {
-    if (watcher_.isRunning()) {
+    if (busy()) {
         return;
     }
     try {
@@ -277,7 +297,7 @@ void PeopleAnalysisController::clearPeopleData() {
 }
 
 void PeopleAnalysisController::toggleGroupSelection(const QString& group_id) {
-    if (watcher_.isRunning() || !has_results_) {
+    if (busy() || !has_results_) {
         return;
     }
     const bool exists = std::any_of(
@@ -313,7 +333,7 @@ void PeopleAnalysisController::mergeSelectedGroups() {
 }
 
 void PeopleAnalysisController::renameGroup(const QString& group_id, const QString& display_name) {
-    if (watcher_.isRunning() || !has_results_) {
+    if (busy() || !has_results_) {
         return;
     }
     const bool exists = std::any_of(
@@ -337,7 +357,7 @@ void PeopleAnalysisController::renameGroup(const QString& group_id, const QStrin
 }
 
 void PeopleAnalysisController::undoLastMerge() {
-    if (watcher_.isRunning() || !report_.can_undo_merge) {
+    if (busy() || !report_.can_undo_merge) {
         return;
     }
     try {
@@ -350,6 +370,40 @@ void PeopleAnalysisController::undoLastMerge() {
     }
     resetSelection();
     emit resultsChanged();
+}
+
+QStringList PeopleAnalysisController::groupPhotoIds(const QString& id) const {
+    for (const auto& group : report_.groups)
+        if (group.group_id == id)
+            return group.photo_ids;
+    return {};
+}
+QString PeopleAnalysisController::groupName(const QString& id) const {
+    for (qsizetype i = 0; i < report_.groups.size(); ++i) {
+        const auto& group = report_.groups.at(i);
+        if (group.group_id == id)
+            return group.display_name.isEmpty() ? tr("Person %1").arg(i + 1) : group.display_name;
+    }
+    return {};
+}
+void PeopleAnalysisController::openGroup(const QString& id) {
+    if (!groupPhotoIds(id).isEmpty())
+        emit groupOpened(id, groupName(id), groupPhotoIds(id));
+}
+void PeopleAnalysisController::splitGroupPhotos(const QString& id, const QStringList& photo_ids) {
+    if (busy() || !operations_.split)
+        return;
+    try {
+        report_ = operations_.split(id, photo_ids);
+        resetSelection();
+        state_ = State::Ready;
+        emit resultsChanged();
+        emit stateChanged();
+    } catch (const std::exception& error) {
+        qWarning().noquote() << "People correction could not be saved:" << error.what();
+        state_ = State::Failed;
+        emit stateChanged();
+    }
 }
 
 void PeopleAnalysisController::retranslateUi() {
@@ -415,6 +469,12 @@ void PeopleAnalysisController::finishAnalysis() {
     active_job_token_.reset();
     retireJob(job_token);
     if (result.cancelled || state_ == State::Cancelling) {
+        try {
+            report_ = operations_.load();
+            has_results_ = report_.has_data;
+        } catch (const std::exception&) { /* Keep the last complete projection. */
+        }
+        emit resultsChanged();
         state_ = State::Cancelled;
         emit stateChanged();
         return;
@@ -426,9 +486,19 @@ void PeopleAnalysisController::finishAnalysis() {
         return;
     }
     resetSelection();
+    const bool advanced = result.made_progress;
     report_ = result.report;
     has_results_ = report_.has_data;
     state_ = State::Ready;
+    if (report_.truncated && advanced && preferences_->peopleAnalysisExecutionAllowed()) {
+        continuation_queued_ = true;
+        QTimer::singleShot(0, this, [this] {
+            if (!continuation_queued_)
+                return;
+            continuation_queued_ = false;
+            startAnalysis();
+        });
+    }
     emit resultsChanged();
     emit stateChanged();
 }

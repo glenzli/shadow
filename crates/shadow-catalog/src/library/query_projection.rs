@@ -222,6 +222,24 @@ pub(super) fn library_photo_query_parts(
             format!("NOT {exists_working_recipe}")
         });
     }
+    if let Some(ids) = &filter.photo_ids {
+        // One parameter avoids SQLite's variable limit for a large person album.
+        // Decode the JSON UUID hex values on the small membership side, keeping
+        // the indexed photo id expression untouched.
+        clauses.push("p.id IN (SELECT unhex(value) FROM json_each(?))".to_owned());
+        let hex = ids
+            .iter()
+            .map(|id| {
+                id.as_bytes()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        values.push(Value::Text(
+            serde_json::to_string(&hex).expect("hex strings serialize"),
+        ));
+    }
     if let Some(album_id) = filter.album_id {
         clauses.push(
             "EXISTS (

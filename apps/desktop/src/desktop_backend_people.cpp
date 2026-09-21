@@ -96,6 +96,7 @@ BackendPeopleAnalysisExecution DesktopBackend::executePeopleAnalysisJob(
         authorized
     );
     return {
+        .made_progress = source.made_progress,
         .job_token = source.job_token,
         .cancelled = source.cancelled,
         .diagnostic = desktop_backend_projection::qstring(source.diagnostic),
@@ -118,8 +119,19 @@ DesktopBackend::renamePerson(const QString& person_id, const QString& display_na
     );
 }
 
+BackendPeopleAnalysisReport
+DesktopBackend::splitPerson(const QString& person_id, const QStringList& photo_ids) const {
+    return project_report(
+        impl_->session->split_person(person_id.toStdString(), rust_strings(photo_ids))
+    );
+}
+
 BackendPeopleAnalysisReport DesktopBackend::undoPeopleMerge() const {
     return project_report(impl_->session->undo_people_merge());
+}
+
+void DesktopBackend::resetPeopleAnalysisProgress() const {
+    impl_->session->reset_people_analysis_progress();
 }
 
 void DesktopBackend::clearPeopleData() const {

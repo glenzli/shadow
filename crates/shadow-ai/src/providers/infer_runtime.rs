@@ -224,6 +224,23 @@ pub trait FaceAnalysisProvider {
         source_revision: &str,
         face_box: FaceBoundingBox,
     ) -> Result<ParsedFace, InferRuntimeClientError>;
+
+    /// Cancels face parsing cooperatively; Runtime overrides this to drop
+    /// the in-flight SDK future rather than wait for the HTTP deadline.
+    fn parse_face_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        face_box: FaceBoundingBox,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<ParsedFace>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        let parsed = self.parse_face(image, media_type, source_revision, face_box)?;
+        Ok((!cancelled()).then_some(parsed))
+    }
 }
 
 /// Synchronous product adapter over the official asynchronous SDK.
@@ -406,7 +423,9 @@ impl InferRuntimeClient {
             }
         })
     }
+}
 
+impl InferRuntimeClient {
     fn block_on<T>(
         &self,
         future: impl std::future::Future<Output = Result<T, InferRuntimeClientError>>,
@@ -414,7 +433,6 @@ impl InferRuntimeClient {
         self.runtime.block_on(future)
     }
 }
-
 impl FaceAnalysisProvider for InferRuntimeClient {
     fn detect_faces(
         &self,
@@ -494,24 +512,44 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         source_revision: &str,
         face_box: FaceBoundingBox,
     ) -> Result<ParsedFace, InferRuntimeClientError> {
+        self.parse_face_cancellable(image, media_type, source_revision, face_box, &|| false)?
+            .ok_or_else(|| InferRuntimeClientError::Input("face parsing cancelled".into()))
+    }
+
+    fn parse_face_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        face_box: FaceBoundingBox,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<ParsedFace>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
         if !valid_face_box(face_box) {
             return malformed("face parsing requires a finite positive face box");
         }
         let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
         let metadata = local_metadata("interactive", None);
-        let response = self.block_on(self.sdk.parse_face(
-            staged.path(),
-            media_type,
-            source_revision,
-            BoundingBox {
-                x: face_box.x,
-                y: face_box.y,
-                width: face_box.width,
-                height: face_box.height,
-            },
-            &metadata,
-        ))?;
-        admit_face_parsing(response, source_revision, face_box)
+        let response = self.block_on_cancellable(
+            self.sdk.parse_face(
+                staged.path(),
+                media_type,
+                source_revision,
+                BoundingBox {
+                    x: face_box.x,
+                    y: face_box.y,
+                    width: face_box.width,
+                    height: face_box.height,
+                },
+                &metadata,
+            ),
+            cancelled,
+        )?;
+        response
+            .map(|response| admit_face_parsing(response, source_revision, face_box))
+            .transpose()
     }
 }
 

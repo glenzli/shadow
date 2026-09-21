@@ -214,6 +214,7 @@
         QML_FILES
             qml/ShadowTextField.qml
             qml/PeopleWorkspace.qml
+            qml/ShadowIconButton.qml
             qml/ShadowButton.qml
             qml/ShadowIcon.qml
             qml/Theme.qml
@@ -224,6 +225,8 @@
         BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
         FILES
             icons/people.svg
+            icons/refresh.svg
+            icons/trash.svg
             icons/storage.svg
     )
     if(MSVC)

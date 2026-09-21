@@ -317,6 +317,29 @@ int main(int argc, char* argv[]) {
         },
         &preferences
     );
+    auto batches = std::make_shared<std::atomic_int>(0);
+    auto incremental_operations = operationsForReport({});
+    incremental_operations.execute = [batches](std::uint64_t token, bool) {
+        const int batch = ++*batches;
+        BackendPeopleAnalysisReport report;
+        report.has_data = true;
+        report.analyzed_photos = std::uint32_t(batch * 512);
+        report.truncated = batch == 1;
+        return BackendPeopleAnalysisExecution{
+            .made_progress = true,
+            .job_token = token,
+            .report = report
+        };
+    };
+    PeopleAnalysisController incremental(std::move(incremental_operations), &preferences);
+    incremental.startAnalysis();
+    waitForCompletion(incremental);
+    if (!require(
+            *batches == 2 && !incremental.busy(),
+            "saved incremental batches automatically continue"
+        ))
+        return EXIT_FAILURE;
+
     cancellable.startAnalysis();
     cancellable.cancelAnalysis();
     waitForCompletion(cancellable);

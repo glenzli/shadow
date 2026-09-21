@@ -16,3 +16,8 @@ bool autoStartPreservesIlluminant(const QString& scene);
 
 // Display endpoint evidence only; this is not a RAW sensor clipping estimate.
 double autoStartDisplayClippedFraction(const QImage& image);
+
+// Automatic work admits reliable detections before applying its bounded budget;
+// returned indices retain the manual selector's spatial person identities.
+QVector<std::uint32_t>
+autoStartSkinPeople(const QVector<BackendSubjectMaskPerson>& people, int limit);

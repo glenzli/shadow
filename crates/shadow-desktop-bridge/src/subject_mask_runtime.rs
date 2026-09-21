@@ -201,11 +201,15 @@ impl SubjectMaskRuntime {
         if cancellation.is_cancelled() {
             return Ok(None);
         }
-        let detections = self.client()?.detect_faces(
+        let Some(detections) = self.client()?.detect_faces_cancellable(
             input_jpeg,
             "image/jpeg",
             &input_source_revision(input_content_hash),
-        )?;
+            &|| cancellation.is_cancelled(),
+        )?
+        else {
+            return Ok(None);
+        };
         if detections.width != coordinate_extent.width
             || detections.height != coordinate_extent.height
         {
@@ -230,12 +234,16 @@ impl SubjectMaskRuntime {
         if cancellation.is_cancelled() {
             return Ok(None);
         }
-        let parsed = self.client()?.parse_face(
+        let Some(parsed) = self.client()?.parse_face_cancellable(
             input_jpeg,
             "image/jpeg",
             &input_source_revision(input_content_hash),
             person.bounding_box,
-        )?;
+            &|| cancellation.is_cancelled(),
+        )?
+        else {
+            return Ok(None);
+        };
         if parsed.width != coordinate_extent.width || parsed.height != coordinate_extent.height {
             return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
         }

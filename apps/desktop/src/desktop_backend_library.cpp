@@ -104,6 +104,8 @@ ffi_library_filter(const BackendLibraryPhotoFilter& source) {
     filter.has_development_edits = source.has_development_edits;
     filter.development_edits = source.development_edits;
     filter.album_id = source.album_id.toStdString();
+    filter.has_photo_ids = source.has_photo_ids;
+    filter.photo_ids = ffi_strings(source.photo_ids);
     filter.keyword_ids_all = ffi_strings(source.keyword_ids_all);
     filter.excluded_keyword_ids_any = ffi_strings(source.excluded_keyword_ids_any);
     return filter;
@@ -127,6 +129,8 @@ library_flag_filter(const shadow::desktop::FfiLibraryFlagFilter source) {
 [[nodiscard]] BackendLibraryPhotoFilter
 library_filter(const shadow::desktop::FfiLibraryPhotoFilter& source) {
     return {
+        .has_photo_ids = source.has_photo_ids,
+        .photo_ids = string_list(source.photo_ids),
         .has_capture_start = source.has_capture_start,
         .capture_start_unix_seconds = source.capture_start_unix_seconds,
         .has_capture_end = source.has_capture_end,
@@ -508,7 +512,8 @@ QVector<BackendLocationReferenceAnchor> DesktopBackend::locationReferenceAnchors
     const std::int64_t capture_end_unix_seconds
 ) const {
     const auto source = impl_->session->location_reference_anchors(
-        capture_start_unix_seconds, capture_end_unix_seconds
+        capture_start_unix_seconds,
+        capture_end_unix_seconds
     );
     QVector<BackendLocationReferenceAnchor> anchors;
     anchors.reserve(checked_qt_vector_size(source.size(), "location_reference_anchors"));
@@ -544,7 +549,8 @@ BackendLocationReferenceLibrary DesktopBackend::addLocationReferenceLibrary(
     const std::int64_t clock_offset_seconds
 ) const {
     const auto source = impl_->session->add_location_reference_library(
-        native_path_input::path(root_path), clock_offset_seconds
+        native_path_input::path(root_path),
+        clock_offset_seconds
     );
     return {
         .id = qstring(source.id),
@@ -978,8 +984,7 @@ BackendCoordinateBatchPreview DesktopBackend::previewLibraryCoordinateBatch(
 
 BackendLibraryMetadataBatchReceipt
 DesktopBackend::applyLibraryCoordinateBatch(const QString& preview_id) const {
-    const auto receipt =
-        impl_->session->apply_library_coordinate_batch(preview_id.toStdString());
+    const auto receipt = impl_->session->apply_library_coordinate_batch(preview_id.toStdString());
     return {
         .requested_photo_count = receipt.requested_photo_count,
         .applied_photo_count = receipt.applied_photo_count,

@@ -1,5 +1,6 @@
 #include "guided_selective_tone.hpp"
 
+#include "../concurrency/row_scheduler.hpp"
 #include "adjustment_node_diagnostics.hpp"
 #include "rgb_pixel_traversal.hpp"
 #include "scalar_neighborhood_filters.hpp"
@@ -340,25 +341,19 @@ smootherstep_window(const double value, const double start, const double span) n
         return input_to_adjust;
     }
 
-    const double source_luminance =
-        source_for_gate[0] * luminance_weights[0]
-        + source_for_gate[1] * luminance_weights[1]
-        + source_for_gate[2] * luminance_weights[2];
+    const double source_luminance = source_for_gate[0] * luminance_weights[0]
+                                    + source_for_gate[1] * luminance_weights[1]
+                                    + source_for_gate[2] * luminance_weights[2];
     double luminance_support = 0.0;
     if (source_luminance > 0.0 && std::isfinite(source_luminance)) {
         const double source_ev = std::log2(source_luminance / 0.18);
         constexpr double broad_highlight_start_ev = 1.25;
         constexpr double broad_highlight_span_ev = 1.75;
-        luminance_support = smootherstep_window(
-            source_ev,
-            broad_highlight_start_ev,
-            broad_highlight_span_ev
-        );
+        luminance_support =
+            smootherstep_window(source_ev, broad_highlight_start_ev, broad_highlight_span_ev);
     }
-    const double support = std::max(
-        std::sqrt(std::clamp(highlight_chroma_risk, 0.0, 1.0)),
-        luminance_support
-    );
+    const double support =
+        std::max(std::sqrt(std::clamp(highlight_chroma_risk, 0.0, 1.0)), luminance_support);
     if (!(support > 0.0)) {
         return input_to_adjust;
     }
@@ -381,8 +376,8 @@ smootherstep_window(const double value, const double start, const double span) n
     Vector3 candidate = input_to_adjust;
     bool changed = false;
     for (std::size_t channel = 0U; channel < relative.size(); ++channel) {
-        const double opposed = opposed_roots[channel] * opposed_roots[channel]
-                               * opposed_roots[channel];
+        const double opposed =
+            opposed_roots[channel] * opposed_roots[channel] * opposed_roots[channel];
         const double excess = std::max(0.0, input_to_adjust[channel] - opposed);
         const double reduction = excess * relative[channel] * support;
         candidate[channel] -= reduction;
@@ -760,8 +755,8 @@ void apply_prepared_guided_selective_tone_cpu(
     const std::size_t width = image.dimensions.width;
     const std::size_t height = image.dimensions.height;
     const std::size_t stride = image.row_stride_bytes / sizeof(float);
-    const bool highlight_evidence_available = context.highlight_chroma_risk_map != nullptr
-                                              || context.sensor_clipping_mask != nullptr;
+    const bool highlight_evidence_available =
+        context.highlight_chroma_risk_map != nullptr || context.sensor_clipping_mask != nullptr;
     const auto highlight_risk_at = [&context](const std::uint32_t x, const std::uint32_t y) {
         const std::uint64_t full_x = static_cast<std::uint64_t>(context.origin_x) + x;
         const std::uint64_t full_y = static_cast<std::uint64_t>(context.origin_y) + y;
@@ -827,132 +822,147 @@ void apply_prepared_guided_selective_tone_cpu(
             "selective tone guided-filter row workspace exceeds the address space"
         );
     }
-    std::vector<double> row_mean_a;
-    std::vector<double> row_mean_b;
-    std::vector<double> vertical_sum_a;
-    std::vector<double> vertical_sum_b;
-    try {
-        row_mean_a.resize(width);
-        row_mean_b.resize(width);
-        vertical_sum_a.assign(width, 0.0);
-        vertical_sum_b.assign(width, 0.0);
-    } catch (const std::bad_alloc&) {
-        throw_node_error(
-            EditErrorCode::numeric_overflow,
-            node_index,
-            node,
-            "selective tone guided-filter row workspace could not be allocated"
-        );
-    }
-
-    const auto make_horizontal_row = [&](const std::int64_t unbounded_y) {
-        const std::size_t source_y = reflect101_index(unbounded_y, height);
-        double sum_a = 0.0;
-        double sum_b = 0.0;
-        for (std::int64_t offset = -static_cast<std::int64_t>(radius_x);
-             offset <= static_cast<std::int64_t>(radius_x);
-             ++offset) {
-            const std::size_t source = source_y * width + reflect101_index(offset, width);
-            sum_a += coefficients.a[source];
-            sum_b += coefficients.b[source];
-        }
-        for (std::size_t x = 0U; x < width; ++x) {
-            row_mean_a[x] = sum_a / static_cast<double>(window_width);
-            row_mean_b[x] = sum_b / static_cast<double>(window_width);
-            if (x + 1U == width) {
-                continue;
-            }
-            const std::size_t removed_x = reflect101_index(
-                static_cast<std::int64_t>(x) - static_cast<std::int64_t>(radius_x),
-                width
-            );
-            const std::size_t added_x = reflect101_index(
-                static_cast<std::int64_t>(x) + static_cast<std::int64_t>(radius_x) + 1,
-                width
-            );
-            const std::size_t removed = source_y * width + removed_x;
-            const std::size_t added = source_y * width + added_x;
-            sum_a += static_cast<double>(coefficients.a[added])
-                     - static_cast<double>(coefficients.a[removed]);
-            sum_b += static_cast<double>(coefficients.b[added])
-                     - static_cast<double>(coefficients.b[removed]);
-        }
-    };
-    const auto accumulate_row =
-        [&make_horizontal_row, &row_mean_a, &row_mean_b, &vertical_sum_a, &vertical_sum_b](
-            const std::int64_t source_y,
-            const double factor
-        ) {
-            make_horizontal_row(source_y);
-            for (std::size_t x = 0U; x < row_mean_a.size(); ++x) {
-                vertical_sum_a[x] += factor * row_mean_a[x];
-                vertical_sum_b[x] += factor * row_mean_b[x];
-            }
-        };
-    for (std::int64_t offset = -static_cast<std::int64_t>(radius_y);
-         offset <= static_cast<std::int64_t>(radius_y);
-         ++offset) {
-        accumulate_row(offset, 1.0);
-    }
-
-    constexpr double minimum_positive_luminance = 5.9604644775390625e-8; // 2^-24
-    for (std::uint32_t y = 0U; y < image.dimensions.height; ++y) {
-        const std::size_t row = static_cast<std::size_t>(y) * stride;
-        for (std::uint32_t x = 0U; x < image.dimensions.width; ++x) {
-            const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
-            const Vector3 input{
-                image.samples[sample],
-                image.samples[sample + 1U],
-                image.samples[sample + 2U],
-            };
-            const double source_luminance = input[0] * luminance_weights[0]
-                                            + input[1] * luminance_weights[1]
-                                            + input[2] * luminance_weights[2];
-            const double source_ev =
-                std::log2(std::max(source_luminance, minimum_positive_luminance) / 0.18);
-            const double mean_a = vertical_sum_a[x] / static_cast<double>(window_height);
-            const double mean_b = vertical_sum_b[x] / static_cast<double>(window_height);
-            const double mask_ev = mean_a * source_ev + mean_b;
-            if (!std::isfinite(mask_ev)) {
+    // The immutable coefficient planes are shared. Each worker owns four
+    // O(width) rolling rows, so parallelism adds no full-size mask raster.
+    // Use at most one substantial band per participant to bound halo setup.
+    const auto participants = static_cast<std::uint32_t>(image_worker_count() + 1U);
+    const auto rows_per_band =
+        std::max(256U, (image.dimensions.height + participants - 1U) / participants);
+    parallel_for_rows(
+        image.dimensions.height,
+        rows_per_band,
+        [&](const std::uint32_t first_row, const std::uint32_t last_row) {
+            std::vector<double> row_mean_a;
+            std::vector<double> row_mean_b;
+            std::vector<double> vertical_sum_a;
+            std::vector<double> vertical_sum_b;
+            try {
+                row_mean_a.resize(width);
+                row_mean_b.resize(width);
+                vertical_sum_a.assign(width, 0.0);
+                vertical_sum_b.assign(width, 0.0);
+            } catch (const std::bad_alloc&) {
                 throw_node_error(
                     EditErrorCode::numeric_overflow,
                     node_index,
                     node,
-                    "selective tone guided-filter output is non-finite"
+                    "selective tone guided-filter row workspace could not be allocated"
                 );
             }
-            const double highlight_risk = highlight_risk_at(x, y);
-            const Vector3 tone_output = apply_selective_tone_at_mask(
-                input,
-                color_transform,
-                prepared,
-                mask_ev,
-                highlight_risk
-            );
-            const Vector3 output = apply_highlight_channel_suppression(
-                tone_output,
-                input,
-                luminance_weights,
-                color_transform,
-                prepared,
-                highlight_risk,
-                highlight_evidence_available
-            );
-            image.samples[sample] = checked_edit_pixel_float(output[0], node_index, node);
-            image.samples[sample + 1U] = checked_edit_pixel_float(output[1], node_index, node);
-            image.samples[sample + 2U] = checked_edit_pixel_float(output[2], node_index, node);
+
+            const auto make_horizontal_row = [&](const std::int64_t unbounded_y) {
+                const std::size_t source_y = reflect101_index(unbounded_y, height);
+                double sum_a = 0.0;
+                double sum_b = 0.0;
+                for (std::int64_t offset = -static_cast<std::int64_t>(radius_x);
+                     offset <= static_cast<std::int64_t>(radius_x);
+                     ++offset) {
+                    const std::size_t source = source_y * width + reflect101_index(offset, width);
+                    sum_a += coefficients.a[source];
+                    sum_b += coefficients.b[source];
+                }
+                for (std::size_t x = 0U; x < width; ++x) {
+                    row_mean_a[x] = sum_a / static_cast<double>(window_width);
+                    row_mean_b[x] = sum_b / static_cast<double>(window_width);
+                    if (x + 1U == width) {
+                        continue;
+                    }
+                    const std::size_t removed_x = reflect101_index(
+                        static_cast<std::int64_t>(x) - static_cast<std::int64_t>(radius_x),
+                        width
+                    );
+                    const std::size_t added_x = reflect101_index(
+                        static_cast<std::int64_t>(x) + static_cast<std::int64_t>(radius_x) + 1,
+                        width
+                    );
+                    const std::size_t removed = source_y * width + removed_x;
+                    const std::size_t added = source_y * width + added_x;
+                    sum_a += static_cast<double>(coefficients.a[added])
+                             - static_cast<double>(coefficients.a[removed]);
+                    sum_b += static_cast<double>(coefficients.b[added])
+                             - static_cast<double>(coefficients.b[removed]);
+                }
+            };
+            const auto accumulate_row =
+                [&make_horizontal_row, &row_mean_a, &row_mean_b, &vertical_sum_a, &vertical_sum_b](
+                    const std::int64_t source_y,
+                    const double factor
+                ) {
+                    make_horizontal_row(source_y);
+                    for (std::size_t x = 0U; x < row_mean_a.size(); ++x) {
+                        vertical_sum_a[x] += factor * row_mean_a[x];
+                        vertical_sum_b[x] += factor * row_mean_b[x];
+                    }
+                };
+            for (std::int64_t offset = -static_cast<std::int64_t>(radius_y);
+                 offset <= static_cast<std::int64_t>(radius_y);
+                 ++offset) {
+                accumulate_row(static_cast<std::int64_t>(first_row) + offset, 1.0);
+            }
+
+            constexpr double minimum_positive_luminance = 5.9604644775390625e-8; // 2^-24
+            for (std::uint32_t y = first_row; y < last_row; ++y) {
+                throw_if_row_cancelled();
+                const std::size_t row = static_cast<std::size_t>(y) * stride;
+                for (std::uint32_t x = 0U; x < image.dimensions.width; ++x) {
+                    const std::size_t sample = row + static_cast<std::size_t>(x) * rgb_channels;
+                    const Vector3 input{
+                        image.samples[sample],
+                        image.samples[sample + 1U],
+                        image.samples[sample + 2U],
+                    };
+                    const double source_luminance = input[0] * luminance_weights[0]
+                                                    + input[1] * luminance_weights[1]
+                                                    + input[2] * luminance_weights[2];
+                    const double source_ev =
+                        std::log2(std::max(source_luminance, minimum_positive_luminance) / 0.18);
+                    const double mean_a = vertical_sum_a[x] / static_cast<double>(window_height);
+                    const double mean_b = vertical_sum_b[x] / static_cast<double>(window_height);
+                    const double mask_ev = mean_a * source_ev + mean_b;
+                    if (!std::isfinite(mask_ev)) {
+                        throw_node_error(
+                            EditErrorCode::numeric_overflow,
+                            node_index,
+                            node,
+                            "selective tone guided-filter output is non-finite"
+                        );
+                    }
+                    const double highlight_risk = highlight_risk_at(x, y);
+                    const Vector3 tone_output = apply_selective_tone_at_mask(
+                        input,
+                        color_transform,
+                        prepared,
+                        mask_ev,
+                        highlight_risk
+                    );
+                    const Vector3 output = apply_highlight_channel_suppression(
+                        tone_output,
+                        input,
+                        luminance_weights,
+                        color_transform,
+                        prepared,
+                        highlight_risk,
+                        highlight_evidence_available
+                    );
+                    image.samples[sample] = checked_edit_pixel_float(output[0], node_index, node);
+                    image.samples[sample + 1U] =
+                        checked_edit_pixel_float(output[1], node_index, node);
+                    image.samples[sample + 2U] =
+                        checked_edit_pixel_float(output[2], node_index, node);
+                }
+                if (y + 1U < last_row) {
+                    accumulate_row(
+                        static_cast<std::int64_t>(y) - static_cast<std::int64_t>(radius_y),
+                        -1.0
+                    );
+                    accumulate_row(
+                        static_cast<std::int64_t>(y) + static_cast<std::int64_t>(radius_y) + 1,
+                        1.0
+                    );
+                }
+            }
         }
-        if (y + 1U < image.dimensions.height) {
-            accumulate_row(
-                static_cast<std::int64_t>(y) - static_cast<std::int64_t>(radius_y),
-                -1.0
-            );
-            accumulate_row(
-                static_cast<std::int64_t>(y) + static_cast<std::int64_t>(radius_y) + 1,
-                1.0
-            );
-        }
-    }
+    );
 }
 
 } // namespace shadow::image::detail

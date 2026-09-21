@@ -107,8 +107,8 @@ void ReviewController::refreshRemoteLibraryPresentation() {
 }
 
 bool ReviewController::remoteLibraryPresentationEligible() const {
-    return album_coordinator_.albumId().isEmpty() && filtered_model_.chineseLunarMonth() == 0
-           && filtered_model_.chineseLunarDay() == 0
+    return person_filter_id_.isEmpty() && album_coordinator_.albumId().isEmpty()
+           && filtered_model_.chineseLunarMonth() == 0 && filtered_model_.chineseLunarDay() == 0
            && filtered_model_.chineseLunarMonthType() == QStringLiteral("all")
            && filtered_model_.countryKey().isEmpty() && filtered_model_.localityKey().isEmpty()
            && !filtered_model_.travelFilterEnabled() && !filtered_model_.dailyFilterEnabled()

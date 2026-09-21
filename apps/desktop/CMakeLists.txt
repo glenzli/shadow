@@ -968,6 +968,7 @@ qt_add_qml_module(
         qml/RecipeRecoveryPopup.qml
         qml/PrecisionWorkspace.qml
         qml/ReviewWorkspace.qml
+        qml/ReviewPersonBar.qml
         qml/ReviewSelectionState.qml
         qml/ReviewComparisonState.qml
         qml/ReviewComparisonView.qml

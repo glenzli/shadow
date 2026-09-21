@@ -181,14 +181,10 @@ AutoStartProposal analyzeAutoStart(
                 if (people.terminal == BackendSubjectMaskTerminal::PeopleReady) {
                     result.skinChecked = true;
                     const int limit = std::min(4, 15 - int(input.before.grade_nodes.size()));
-                    int inspected = 0;
-                    for (const auto& person : people.people) {
-                        if (cancelled() || inspected >= limit)
+                    for (const auto personIndex : autoStartSkinPeople(people.people, limit)) {
+                        if (cancelled())
                             break;
-                        ++inspected;
-                        if (person.confidence < .65)
-                            continue;
-                        auto mask = run(BackendSubjectMaskKind::PeopleRegions, person.index);
+                        auto mask = run(BackendSubjectMaskKind::PeopleRegions, personIndex);
                         if (!mask.proposal_token)
                             continue;
                         const auto correction = measureAutoStartSkin(
@@ -209,7 +205,7 @@ AutoStartProposal analyzeAutoStart(
                                     "EditAutoStartController",
                                     "Auto · skin %1"
                                 )
-                                    .arg(person.index + 1)
+                                    .arg(personIndex + 1)
                             );
                         } catch (...) {
                             backend->discardSubjectMaskProposal(mask.proposal_token);

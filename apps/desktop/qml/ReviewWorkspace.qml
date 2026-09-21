@@ -8,6 +8,8 @@ Item {
     id: review
     objectName: "reviewWorkspace"
 
+    property var peopleController: null
+    signal returnToPeopleRequested()
     required property var controller
     required property var justifiedReviewLayout
     required property var reviewGalleryGrouping
@@ -214,6 +216,7 @@ Item {
         controller.filterKeywordIdsAll.length > 0
         || controller.filterExcludedKeywordIdsAny.length > 0
     readonly property bool hasActiveLibraryFilter:
+        String(controller.personFilterId || "").length > 0 ||
         controller.filterHideOfflineUncached === true
         || controller.filterOnlyEditable === true
         || controller.filterFlag !== "all"
@@ -228,6 +231,8 @@ Item {
         || semanticSearchController.hasResults
         || smartCategoryController.selectedCategoryId.length > 0
     readonly property string currentLibraryScopeName: {
+        if (String(controller.personFilterId || "").length > 0)
+            return String(controller.personFilterName || "")
         if (currentLibraryAlbumName.length > 0)
             return currentLibraryAlbumName
         if (isDailyCollectionActive())
@@ -852,8 +857,22 @@ Item {
         onActivated: review.setSelectedRating(5)
     }
 
+    ReviewPersonBar {
+        id: personBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        visible: String(review.controller.personFilterId || "").length > 0
+        height: visible ? implicitHeight : 0
+        workspace: review
+        onBackRequested: review.returnToPeopleRequested()
+    }
+
     RowLayout {
-        anchors.fill: parent
+        anchors.top: personBar.bottom
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
         spacing: 0
 
         ReviewLibrarySidebar {

@@ -40,6 +40,9 @@ class MapProviderPreferences;
 
 class ReviewController final : public QObject {
     Q_OBJECT
+    Q_PROPERTY(QString personFilterId READ personFilterId NOTIFY filtersChanged)
+    Q_PROPERTY(QString personFilterName READ personFilterName NOTIFY filtersChanged)
+    Q_PROPERTY(int personPhotoCount READ personPhotoCount NOTIFY filtersChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
     Q_PROPERTY(bool refreshing READ refreshing NOTIFY refreshingChanged)
@@ -555,6 +558,18 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void materializeRemotePhoto(const QString& photo_id);
     Q_INVOKABLE bool prepareRemoteExport(const QVariantList& targets);
     Q_INVOKABLE void clearFilters();
+    QString personFilterId() const {
+        return person_filter_id_;
+    }
+    QString personFilterName() const {
+        return person_filter_name_;
+    }
+    int personPhotoCount() const {
+        return int(person_photo_ids_.size());
+    }
+    Q_INVOKABLE void
+    setPersonFilter(const QString& id, const QString& name, const QStringList& photos);
+    Q_INVOKABLE void clearPersonFilter();
     Q_INVOKABLE void refreshVisibleLibrary();
     Q_INVOKABLE void refreshLibraryFacets();
     Q_INVOKABLE void refreshTravelCollections();
@@ -763,6 +778,9 @@ class ReviewController final : public QObject {
     QString library_sort_key_ = QStringLiteral("capture_time");
     bool library_sort_descending_ = true;
     ReviewLibraryQueryCoordinator query_coordinator_;
+    QString person_filter_id_;
+    QString person_filter_name_;
+    QStringList person_photo_ids_;
     ReviewLibraryOrganizationCoordinator organization_coordinator_;
     ReviewSharedGradeCoordinator shared_grade_coordinator_;
     ReviewComparisonCoordinator comparison_coordinator_;

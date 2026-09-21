@@ -151,6 +151,15 @@ pub(crate) fn prepare_person_candidates(
     }
 
     let mut ordered = detections.to_vec();
+    // Bound work by reliable, sufficiently visible faces before assigning the
+    // stable left-to-right labels used by the manual person selector.
+    ordered.sort_by(|left, right| {
+        let priority = |face: &DetectedFace| {
+            face.bounding_box.width * face.bounding_box.height * face.confidence
+        };
+        priority(right).total_cmp(&priority(left))
+    });
+    ordered.truncate(MAX_SUBJECT_MASK_PEOPLE);
     ordered.sort_by(|left, right| {
         face_center(left.bounding_box)
             .0
@@ -162,7 +171,6 @@ pub(crate) fn prepare_person_candidates(
             })
             .then_with(|| right.confidence.total_cmp(&left.confidence))
     });
-    ordered.truncate(MAX_SUBJECT_MASK_PEOPLE);
 
     let mut total_thumbnail_bytes = 0_usize;
     ordered

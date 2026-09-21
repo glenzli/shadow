@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result as AnyResult, bail};
 use shadow_ai::InferRuntimeClient;
-use shadow_core::{PeopleAnalysisPolicy, analyze_review_people_with_control};
+use shadow_core::{PeopleAnalysisPolicy, analyze_review_people_incremental};
 
 use super::{
     DesktopSession, ffi,
@@ -14,7 +14,11 @@ use super::{
 
 impl DesktopSession {
     pub(crate) fn people_library_snapshot(&self) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
-        ffi_people_analysis_report(self.people_library.snapshot()?)
+        let members = shadow_core::people_analysis_library_membership(&self.catalog)?;
+        ffi_people_analysis_report(
+            self.people_library
+                .snapshot_for_library(&members.into_keys().collect())?,
+        )
     }
 
     pub(crate) fn begin_people_analysis_job(&self, authorized: bool) -> AnyResult<u64> {
@@ -48,41 +52,53 @@ impl DesktopSession {
             let _ = self.people_analyses.cancel_job(job_token)?;
         }
         let policy = PeopleAnalysisPolicy::default();
+        let selection = self.people_library.analysis_selection()?;
         let outcome = self.people_analyses.execute_job(job_token, |control| {
             let provider = InferRuntimeClient::from_credential_file_with_discovery(
                 (!infer_base_url.is_empty()).then_some(infer_base_url),
                 Path::new(credential_file),
             )
             .context("configure local people-analysis provider")?;
-            analyze_review_people_with_control(
+            analyze_review_people_incremental(
                 &self.catalog,
                 &self.cache_root,
                 &provider,
                 policy,
                 control,
+                Some(&selection),
             )
             .context("analyze current Library visuals for anonymous people")
         })?;
         match outcome {
             PeopleAnalysisJobOutcome::Ready(report) => {
+                let made_progress = report.completed_inputs.iter().any(|input| {
+                    selection.known_inputs.get(&input.representation_id)
+                        != Some(&input.source_revision)
+                });
                 let snapshot = self
                     .people_library
                     .replace_analysis(report)
                     .context("publish local people organization")?;
                 Ok(ffi::FfiPeopleAnalysisExecution {
+                    made_progress,
                     job_token,
                     cancelled: false,
                     diagnostic: String::new(),
-                    report: ffi_people_analysis_report(snapshot)?,
+                    report: {
+                        let _ = snapshot;
+                        self.people_library_snapshot()?
+                    },
                 })
             }
             PeopleAnalysisJobOutcome::Cancelled => Ok(ffi::FfiPeopleAnalysisExecution {
+                made_progress: false,
                 job_token,
                 cancelled: true,
                 diagnostic: String::new(),
                 report: empty_people_analysis_report(),
             }),
             PeopleAnalysisJobOutcome::Failed(diagnostic) => Ok(ffi::FfiPeopleAnalysisExecution {
+                made_progress: false,
                 job_token,
                 cancelled: false,
                 diagnostic,
@@ -99,11 +115,22 @@ impl DesktopSession {
         &self,
         person_ids: Vec<String>,
     ) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
-        ffi_people_analysis_report(self.people_library.merge_people(&person_ids)?)
+        self.people_library.merge_people(&person_ids)?;
+        self.people_library_snapshot()
+    }
+
+    pub(crate) fn split_person(
+        &self,
+        person_id: &str,
+        photo_ids: Vec<String>,
+    ) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
+        self.people_library.split_person(person_id, &photo_ids)?;
+        self.people_library_snapshot()
     }
 
     pub(crate) fn undo_people_merge(&self) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
-        ffi_people_analysis_report(self.people_library.undo_merge()?)
+        self.people_library.undo_merge()?;
+        self.people_library_snapshot()
     }
 
     pub(crate) fn rename_person(
@@ -111,7 +138,12 @@ impl DesktopSession {
         person_id: &str,
         display_name: &str,
     ) -> AnyResult<ffi::FfiPeopleAnalysisReport> {
-        ffi_people_analysis_report(self.people_library.rename_person(person_id, display_name)?)
+        self.people_library.rename_person(person_id, display_name)?;
+        self.people_library_snapshot()
+    }
+
+    pub(crate) fn reset_people_analysis_progress(&self) -> AnyResult<()> {
+        self.people_library.reset_analysis_progress()
     }
 
     pub(crate) fn clear_people_data(&self) -> AnyResult<()> {

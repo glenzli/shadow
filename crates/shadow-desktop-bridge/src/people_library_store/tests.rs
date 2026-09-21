@@ -31,6 +31,7 @@ fn report(groups: Vec<(&str, Vec<FaceOccurrenceReference>)>) -> PeopleAnalysisRe
         .collect();
     let embedded_faces = groups.iter().map(|(_, members)| members.len()).sum();
     PeopleAnalysisReport {
+        completed_inputs: Vec::new(),
         analyzed_photos: 9,
         detected_faces: embedded_faces,
         embedded_faces,
@@ -236,7 +237,7 @@ fn opens_and_transactionally_migrates_the_previous_people_store_schema() {
             Ok((row.get(0)?, row.get(1)?))
         })
         .expect("read migrated identity");
-    assert_eq!(schema, (2, "shadow-people-store-20260831.2".into()));
+    assert_eq!(schema, (3, "shadow-people-store-20260922.3".into()));
     let display_name: String = connection
         .query_row(
             "SELECT dflt_value FROM pragma_table_info('people_groups') WHERE name = 'display_name'",
@@ -245,4 +246,190 @@ fn opens_and_transactionally_migrates_the_previous_people_store_schema() {
         )
         .expect("read migrated display-name column");
     assert_eq!(display_name, "''");
+}
+
+#[test]
+fn refresh_preserves_named_people_when_faces_disappear_or_become_singletons() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let a = occurrence("a", PhotoId::new_v7());
+    let b = occurrence("b", PhotoId::new_v7());
+    let first = store
+        .replace_analysis(report(vec![("a", vec![a.clone(), b])]))
+        .unwrap();
+    let id = first.groups[0].person_id.clone();
+    store.rename_person(&id, "Alice").unwrap();
+    let mut partial = report(vec![]);
+    partial.grouping.ungrouped.push(a);
+    partial.truncated = true;
+    let refreshed = store.replace_analysis(partial).unwrap();
+    assert_eq!(refreshed.groups.len(), 1);
+    assert_eq!(refreshed.groups[0].display_name, "Alice");
+    assert_eq!(refreshed.groups[0].member_count, 2);
+    assert_eq!(
+        store.replace_analysis(report(vec![])).unwrap().groups[0].person_id,
+        id
+    );
+}
+
+#[test]
+fn changed_evidence_retains_unique_geometry_owner_without_duplicating_face() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let face = occurrence("old-model", PhotoId::new_v7());
+    let first = store
+        .replace_analysis(report(vec![("a", vec![face.clone()])]))
+        .unwrap();
+    let id = first.groups[0].person_id.clone();
+    store.rename_person(&id, "Alice").unwrap();
+    let mut next = face;
+    next.occurrence_id = FaceOccurrenceId::parse("new-model").unwrap();
+    next.bounding_box.x += 0.25;
+    let refreshed = store
+        .replace_analysis(report(vec![("b", vec![next])]))
+        .unwrap();
+    assert_eq!(refreshed.groups.len(), 1);
+    assert_eq!(refreshed.groups[0].display_name, "Alice");
+    assert_eq!(refreshed.groups[0].member_count, 1);
+}
+
+#[test]
+fn correction_history_survives_restart_and_refresh_without_losing_new_photos() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let face = occurrence("a", PhotoId::new_v7());
+    let first = store
+        .replace_analysis(report(vec![("a", vec![face.clone()])]))
+        .unwrap();
+    store
+        .rename_person(&first.groups[0].person_id, "Alice")
+        .unwrap();
+    store
+        .rename_person(&first.groups[0].person_id, "Alicia")
+        .unwrap();
+    store
+        .replace_analysis(report(vec![(
+            "a",
+            vec![face, occurrence("b", PhotoId::new_v7())],
+        )]))
+        .unwrap();
+    drop(store);
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let undone = store.undo_merge().unwrap();
+    assert_eq!(undone.groups[0].display_name, "Alice");
+    assert_eq!(undone.groups[0].member_count, 2);
+    assert!(undone.can_undo_merge);
+    let undone = store.undo_merge().unwrap();
+    assert_eq!(undone.groups[0].display_name, "");
+    assert_eq!(undone.groups[0].member_count, 2);
+    assert!(!undone.can_undo_merge);
+    store.clear().unwrap();
+    assert!(!store.snapshot().unwrap().can_undo_merge);
+}
+
+#[test]
+fn split_is_durable_resists_model_remerge_and_can_be_undone() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let a = occurrence("a", PhotoId::new_v7());
+    let b = occurrence("b", PhotoId::new_v7());
+    let input = report(vec![("one", vec![a.clone(), b.clone()])]);
+    let first = store.replace_analysis(input.clone()).unwrap();
+    let id = first.groups[0].person_id.clone();
+    store.rename_person(&id, "Alice").unwrap();
+    let split = store.split_person(&id, &[b.photo_id.to_string()]).unwrap();
+    assert_eq!(split.groups.len(), 2);
+    let refreshed = store.replace_analysis(input).unwrap();
+    assert_eq!(refreshed.groups.len(), 2);
+    assert_eq!(
+        refreshed
+            .groups
+            .iter()
+            .find(|g| g.person_id == id)
+            .unwrap()
+            .photo_ids,
+        vec![a.photo_id.to_string()]
+    );
+    drop(store);
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let undone = store.undo_merge().unwrap();
+    assert_eq!(undone.groups.len(), 1);
+    assert_eq!(undone.groups[0].display_name, "Alice");
+    assert_eq!(undone.groups[0].member_count, 2);
+}
+
+#[test]
+fn refresh_matches_each_previous_face_once_and_restores_safe_split_previews() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let a = occurrence("a", PhotoId::new_v7());
+    let b = occurrence("b", PhotoId::new_v7());
+    let first = store
+        .replace_analysis(report(vec![("one", vec![a.clone(), b.clone()])]))
+        .unwrap();
+    let id = first.groups[0].person_id.clone();
+    store.split_person(&id, &[b.photo_id.to_string()]).unwrap();
+    let refreshed = store
+        .replace_analysis(report(vec![("a", vec![a.clone()]), ("b", vec![b])]))
+        .unwrap();
+    assert!(
+        refreshed
+            .groups
+            .iter()
+            .all(|group| !group.thumbnail_jpeg.is_empty())
+    );
+    let mut first_detection = a.clone();
+    first_detection.occurrence_id = FaceOccurrenceId::parse("a-new").unwrap();
+    let mut second_detection = a;
+    second_detection.occurrence_id = FaceOccurrenceId::parse("a-overlap").unwrap();
+    second_detection.bounding_box.x += 0.5;
+    let refreshed = store
+        .replace_analysis(report(vec![(
+            "overlap",
+            vec![first_detection, second_detection],
+        )]))
+        .unwrap();
+    assert_eq!(
+        refreshed
+            .groups
+            .iter()
+            .map(|group| group.member_count)
+            .sum::<u32>(),
+        3
+    );
+    assert_eq!(
+        refreshed
+            .groups
+            .iter()
+            .find(|group| group.person_id == id)
+            .unwrap()
+            .member_count,
+        1
+    );
+}
+
+#[test]
+fn current_library_projection_hides_removed_sources_without_erasing_names() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PeopleLibraryStore::open(root.path()).unwrap();
+    let face = occurrence("a", PhotoId::new_v7());
+    let first = store
+        .replace_analysis(report(vec![("a", vec![face.clone()])]))
+        .unwrap();
+    store
+        .rename_person(&first.groups[0].person_id, "Alice")
+        .unwrap();
+    assert!(
+        store
+            .snapshot_for_library(&Default::default())
+            .unwrap()
+            .groups
+            .is_empty()
+    );
+    let visible = store
+        .snapshot_for_library(&[face.photo_id.to_string()].into())
+        .unwrap();
+    assert_eq!(visible.groups[0].display_name, "Alice");
+    assert_eq!(visible.groups[0].member_count, 1);
+    assert_eq!(store.snapshot().unwrap().groups.len(), 1);
 }

@@ -166,6 +166,9 @@ class FakePeopleAnalysisController final : public QObject {
         first_name_ = display_name.trimmed();
         emit changed();
     }
+    Q_INVOKABLE void openGroup(const QString&) {
+        ++open_count;
+    }
     Q_INVOKABLE void undoLastMerge() {
         if (!can_undo_merge_) {
             return;
@@ -176,6 +179,7 @@ class FakePeopleAnalysisController final : public QObject {
         emit changed();
     }
 
+    int open_count = 0;
     int start_count = 0;
     int clear_count = 0;
     int merge_count = 0;
@@ -252,6 +256,15 @@ void drainBindings() {
     QCoreApplication::processEvents();
     QCoreApplication::sendPostedEvents();
     QCoreApplication::processEvents();
+}
+
+QQuickItem* visualItem(QQuickItem* root, const QString& name) {
+    if (root->objectName() == name)
+        return root;
+    for (auto* child : root->childItems())
+        if (auto* found = visualItem(child, name))
+            return found;
+    return nullptr;
 }
 
 void click(QQuickWindow& window, QQuickItem& item) {
@@ -388,6 +401,29 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    auto* const name_search = workspace->findChild<QObject*>(QStringLiteral("peopleNameSearch"));
+    if (!require(name_search != nullptr, "name search is packaged"))
+        return EXIT_FAILURE;
+    name_search->setProperty("text", QStringLiteral("ali"));
+    drainBindings();
+    if (!require(
+            workspace->property("renderedGroupCount").toInt() == 1,
+            "name search filters case-insensitively"
+        ))
+        return EXIT_FAILURE;
+    name_search->setProperty("text", QString{});
+    drainBindings();
+    auto* const card = visualItem(workspace, QStringLiteral("peopleGroupCard"));
+    if (!require(card != nullptr, "visible person card exists"))
+        return EXIT_FAILURE;
+    click(window, *card);
+    if (!require(
+            controller.open_count == 1 && controller.selectedGroupCount() == 0,
+            "ordinary card click opens photos without selecting a merge"
+        ))
+        return EXIT_FAILURE;
+    workspace->setProperty("mergeMode", true);
+    drainBindings();
     if (!require(
             QMetaObject::invokeMethod(
                 workspace,

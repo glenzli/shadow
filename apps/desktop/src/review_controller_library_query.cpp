@@ -175,7 +175,26 @@ QVariantList ReviewController::selectionRangeTargets(
     return targets;
 }
 
+void ReviewController::setPersonFilter(
+    const QString& id,
+    const QString& name,
+    const QStringList& photos
+) {
+    if (id == person_filter_id_ && name == person_filter_name_ && photos == person_photo_ids_)
+        return;
+    person_filter_id_ = id;
+    person_filter_name_ = name;
+    person_photo_ids_ = photos;
+    emit filtersChanged();
+    refreshRemoteLibraryPresentation();
+    scheduleFilterQuery();
+}
+void ReviewController::clearPersonFilter() {
+    setPersonFilter({}, {}, {});
+}
+
 void ReviewController::clearFilters() {
+    clearPersonFilter();
     availability_filter_settings_->setValue(QStringLiteral("library/hide_offline_uncached"), false);
     availability_filter_settings_->setValue(QStringLiteral("library/only_editable"), false);
     filtered_model_.clearFilters();
@@ -379,6 +398,8 @@ BackendLibraryPhotoOrder ReviewController::currentLibraryOrder() const noexcept 
 
 BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
     BackendLibraryPhotoFilter filter;
+    filter.has_photo_ids = !person_filter_id_.isEmpty();
+    filter.photo_ids = person_photo_ids_;
     const QString flag = filtered_model_.flagFilter();
     if (flag == QStringLiteral("unflagged")) {
         filter.flag = BackendLibraryFlagFilter::Unflagged;

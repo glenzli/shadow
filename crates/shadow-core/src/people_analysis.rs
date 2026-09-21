@@ -4,7 +4,11 @@
 //! infer-runtime supplies typed YuNet/SFace evidence, and this owner rejects
 //! stale results before producing an in-memory grouping proposal.
 
+mod selection;
 mod thumbnail;
+pub use selection::{
+    PeopleAnalysisInput, PeopleAnalysisSelection, people_analysis_library_membership,
+};
 
 use std::{collections::BTreeMap, fmt::Write as _};
 
@@ -75,6 +79,7 @@ pub struct PeopleAnalysisSkipped {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PeopleAnalysisReport {
+    pub completed_inputs: Vec<PeopleAnalysisInput>,
     pub analyzed_photos: usize,
     pub detected_faces: usize,
     pub embedded_faces: usize,
@@ -162,7 +167,26 @@ pub fn analyze_review_people_with_control(
     policy: PeopleAnalysisPolicy,
     control: &(impl PeopleAnalysisControl + ?Sized),
 ) -> Result<PeopleAnalysisReport, PeopleAnalysisError> {
+    analyze_review_people_incremental(catalog, cache_root, provider, policy, control, None)
+}
+
+/// Analyzes only new/changed inputs plus bounded reference photos. The caller
+/// persists completed identities, never the transient biometric embeddings.
+pub fn analyze_review_people_incremental(
+    catalog: &CatalogHandle,
+    cache_root: impl Into<std::path::PathBuf>,
+    provider: &impl FaceAnalysisProvider,
+    policy: PeopleAnalysisPolicy,
+    control: &(impl PeopleAnalysisControl + ?Sized),
+    selection: Option<&PeopleAnalysisSelection>,
+) -> Result<PeopleAnalysisReport, PeopleAnalysisError> {
     let policy = policy.validate()?;
+    let library = selection::library_membership(catalog, control)?;
+    let selected = selection
+        .map(|state| {
+            selection::select_inputs(catalog, state, policy.maximum_photos, &library, control)
+        })
+        .transpose()?;
     let cache = ContentAddressedStore::open(cache_root.into())?;
     let mut occurrences = Vec::new();
     let mut cursor: Option<ReviewCursor> = None;
@@ -170,7 +194,8 @@ pub fn analyze_review_people_with_control(
     let mut detected_faces = 0;
     let mut compared_faces = 0;
     let mut skipped = PeopleAnalysisSkipped::default();
-    let mut truncated = false;
+    let mut truncated = selected.as_ref().is_some_and(|(_, remaining)| *remaining);
+    let mut completed_inputs = Vec::new();
     let mut occurrence_thumbnails = BTreeMap::new();
     let mut resident_thumbnail_bytes = 0_usize;
 
@@ -191,6 +216,15 @@ pub fn analyze_review_people_with_control(
         }
         for item in page.items {
             ensure_active(control)?;
+            if library.get(&item.photo_id.to_string()) != Some(&item.representation_id) {
+                continue;
+            }
+            if selected
+                .as_ref()
+                .is_some_and(|(ids, _)| !ids.contains(&item.representation_id))
+            {
+                continue;
+            }
             if analyzed_photos == policy.maximum_photos {
                 truncated = true;
                 break 'pages;
@@ -318,6 +352,11 @@ pub fn analyze_review_people_with_control(
                 skipped.stale_input += 1;
                 continue;
             }
+            completed_inputs.push(PeopleAnalysisInput {
+                photo_id: item.photo_id.to_string(),
+                representation_id: item.representation_id.to_string(),
+                source_revision,
+            });
             occurrences.extend(current_occurrences);
         }
         cursor = page.next_cursor;
@@ -336,7 +375,7 @@ pub fn analyze_review_people_with_control(
     )?;
     let grouping = propose_anonymous_people(&occurrences, policy.grouping)?;
     ensure_active(control)?;
-    let group_previews = grouping
+    let mut group_previews: Vec<_> = grouping
         .groups
         .iter()
         .filter_map(|group| {
@@ -348,7 +387,16 @@ pub fn analyze_review_people_with_control(
                 })
         })
         .collect();
+    group_previews.extend(grouping.ungrouped.iter().filter_map(|face| {
+        occurrence_thumbnails
+            .remove(&face.occurrence_id)
+            .map(|thumbnail_jpeg| PeopleGroupPreview {
+                group_id: face.occurrence_id.to_string(),
+                thumbnail_jpeg,
+            })
+    }));
     Ok(PeopleAnalysisReport {
+        completed_inputs,
         analyzed_photos,
         detected_faces,
         embedded_faces: occurrences.len(),

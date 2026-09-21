@@ -748,9 +748,55 @@ void selective_tone_channel_repair_is_source_gated_and_lightness_preserving() {
     );
 }
 
+void parallel_tone_bands_match_independent_halo_tiles() {
+    constexpr std::uint32_t width = 32, height = 769;
+    std::vector<float> values;
+    for (std::uint32_t y = 0; y < height; ++y)
+        for (std::uint32_t x = 0; x < width; ++x) {
+            const float v = .04F + .5F * float((x * 13U + y * 7U) % 211U) / 211.F;
+            values.insert(values.end(), {v, v * .8F, v * .65F});
+        }
+    const auto input = rgb_raster(width, height, values);
+    const std::array nodes{image::AdjustmentNode{
+        .node_id = "band-seams",
+        .parameter_schema_version = image::selective_tone_parameter_schema_version,
+        .implementation_version = image::selective_tone_implementation_version,
+        .parameters = image::SelectiveToneAdjustment{.highlights = -.45, .shadows = .35},
+    }};
+    const auto output = image::execute_adjustment_nodes(input, nodes);
+    for (const std::uint32_t row : {255U, 256U, 257U, 511U, 512U, 513U}) {
+        constexpr std::uint32_t halo = 96;
+        const std::uint32_t first = row - halo;
+        auto tile = rgb_raster(
+            width,
+            halo * 2U + 1U,
+            std::vector<float>(
+                values.begin() + first * width * 3U,
+                values.begin() + (row + halo + 1U) * width * 3U
+            )
+        );
+        const auto expected = image::execute_adjustment_nodes(
+            tile,
+            nodes,
+            image::AdjustmentExecutionContext{
+                .origin_y = first,
+                .full_dimensions = input.dimensions
+            }
+        );
+        for (std::uint32_t sample = 0; sample < width * 3U; ++sample)
+            expect_close_double(
+                output.samples[row * width * 3U + sample],
+                expected.samples[halo * width * 3U + sample],
+                2.e-5F,
+                "parallel band boundaries preserve complete guided-filter support"
+            );
+    }
+}
+
 } // namespace
 
 int main() {
+    parallel_tone_bands_match_independent_halo_tiles();
     prepared_plan_binds_anisotropic_radii_and_complete_support();
     selective_tone_is_exactly_neutral_and_preserves_scene_range();
     selective_tone_uses_fixed_photographer_facing_zones();

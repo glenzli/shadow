@@ -590,6 +590,8 @@ mod ffi {
 
     #[derive(Debug, Clone)]
     struct FfiLibraryPhotoFilter {
+        has_photo_ids: bool,
+        photo_ids: Vec<String>,
         has_capture_start: bool,
         capture_start_unix_seconds: i64,
         has_capture_end: bool,
@@ -1149,6 +1151,7 @@ mod ffi {
     /// consumed by the controller's safe recovery presentation.
     #[derive(Debug)]
     struct FfiPeopleAnalysisExecution {
+        made_progress: bool,
         job_token: u64,
         cancelled: bool,
         diagnostic: String,
@@ -2828,7 +2831,13 @@ mod ffi {
             person_id: &str,
             display_name: &str,
         ) -> Result<FfiPeopleAnalysisReport>;
+        fn split_person(
+            self: &DesktopSession,
+            person_id: &str,
+            photo_ids: Vec<String>,
+        ) -> Result<FfiPeopleAnalysisReport>;
         fn undo_people_merge(self: &DesktopSession) -> Result<FfiPeopleAnalysisReport>;
+        fn reset_people_analysis_progress(self: &DesktopSession) -> Result<()>;
         fn clear_people_data(self: &DesktopSession) -> Result<()>;
         fn begin_semantic_search(self: &DesktopSession) -> Result<u64>;
         fn cancel_semantic_search(self: &DesktopSession, token: u64);

@@ -2,6 +2,7 @@ use super::*;
 
 fn report() -> PeopleAnalysisReport {
     PeopleAnalysisReport {
+        completed_inputs: Vec::new(),
         analyzed_photos: 0,
         detected_faces: 0,
         embedded_faces: 0,

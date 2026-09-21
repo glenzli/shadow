@@ -15,6 +15,7 @@
 class AiPreferences;
 
 struct PeopleAnalysisTaskResult final {
+    bool made_progress = false;
     std::uint64_t job_token = 0;
     BackendPeopleAnalysisReport report;
     bool cancelled = false;
@@ -57,6 +58,8 @@ class PeopleAnalysisController final : public QObject {
         std::function<BackendPeopleAnalysisReport(const QString&, const QString&)> rename;
         std::function<BackendPeopleAnalysisReport()> undo_merge;
         std::function<void()> clear;
+        std::function<BackendPeopleAnalysisReport(const QString&, const QStringList&)> split;
+        std::function<void()> reset_scan;
     };
 
     explicit PeopleAnalysisController(
@@ -84,6 +87,7 @@ class PeopleAnalysisController final : public QObject {
     [[nodiscard]] QString mergeSelectionText() const;
 
     Q_INVOKABLE void startAnalysis();
+    Q_INVOKABLE void reanalyzeAll();
     Q_INVOKABLE void cancelAnalysis();
     Q_INVOKABLE void clearPeopleData();
     Q_INVOKABLE void toggleGroupSelection(const QString& group_id);
@@ -91,11 +95,16 @@ class PeopleAnalysisController final : public QObject {
     Q_INVOKABLE void renameGroup(const QString& group_id, const QString& display_name);
     Q_INVOKABLE void undoLastMerge();
     Q_INVOKABLE void retranslateUi();
+    Q_INVOKABLE void openGroup(const QString& group_id);
+    Q_INVOKABLE QStringList groupPhotoIds(const QString& group_id) const;
+    Q_INVOKABLE QString groupName(const QString& group_id) const;
+    Q_INVOKABLE void splitGroupPhotos(const QString& group_id, const QStringList& photo_ids);
 
   signals:
     void stateChanged();
     void resultsChanged();
     void authorizationRequired();
+    void groupOpened(const QString& group_id, const QString& name, const QStringList& photo_ids);
 
   private:
     enum class State {
@@ -123,5 +132,6 @@ class PeopleAnalysisController final : public QObject {
     QStringList selected_group_ids_;
     State state_ = State::Idle;
     bool has_results_ = false;
+    bool continuation_queued_ = false;
     std::optional<std::uint64_t> active_job_token_;
 };

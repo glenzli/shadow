@@ -44,6 +44,7 @@ struct BackendPeopleAnalysisProgress final {
 };
 
 struct BackendPeopleAnalysisExecution final {
+    bool made_progress = false;
     std::uint64_t job_token = 0;
     bool cancelled = false;
     QString diagnostic;

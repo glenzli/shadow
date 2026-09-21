@@ -324,8 +324,11 @@ class DesktopBackend final {
     [[nodiscard]] BackendPeopleAnalysisReport mergePeople(const QStringList& person_ids) const;
     [[nodiscard]] BackendPeopleAnalysisReport
     renamePerson(const QString& person_id, const QString& display_name) const;
+    [[nodiscard]] BackendPeopleAnalysisReport
+    splitPerson(const QString& person_id, const QStringList& photo_ids) const;
     [[nodiscard]] BackendPeopleAnalysisReport undoPeopleMerge() const;
     void clearPeopleData() const;
+    void resetPeopleAnalysisProgress() const;
     /// Executes bounded SigLIP text-to-image ranking over the current Review
     /// prefix. Results and exact visual tickets are session-only.
     [[nodiscard]] std::uint64_t beginSemanticSearch() const;

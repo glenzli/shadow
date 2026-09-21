@@ -6,7 +6,7 @@
 //! Catalog lets the user clear or rebuild people data independently.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap},
     fs,
     path::PathBuf,
     sync::Mutex,
@@ -14,11 +14,17 @@ use std::{
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use serde::{Deserialize, Serialize};
 use shadow_ai::FaceOccurrenceReference;
+
+mod history;
+mod reconciliation;
+mod scan;
+use reconciliation::reconcile_analysis;
 use shadow_core::PeopleAnalysisReport;
 
-const SCHEMA_VERSION: i64 = 2;
-const SCHEMA_IDENTITY: &str = "shadow-people-store-20260831.2";
+const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_IDENTITY: &str = "shadow-people-store-20260922.3";
 const LEGACY_SCHEMA_VERSION: i64 = 1;
 const LEGACY_SCHEMA_IDENTITY: &str = "shadow-people-store-20260830.1";
 const MAX_DISPLAY_NAME_BYTES: usize = 256;
@@ -72,10 +78,9 @@ pub(crate) struct PeopleLibraryStore {
 #[derive(Debug)]
 struct PeopleLibraryState {
     connection: Connection,
-    undo: Option<StoredSnapshot>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredSnapshot {
     analyzed_photos: u32,
     detected_faces: u32,
@@ -87,7 +92,7 @@ struct StoredSnapshot {
     groups: Vec<StoredGroup>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredGroup {
     person_id: String,
     sort_index: u32,
@@ -97,7 +102,7 @@ struct StoredGroup {
     occurrences: Vec<StoredOccurrence>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredOccurrence {
     occurrence_id: String,
     photo_id: String,
@@ -118,19 +123,58 @@ impl PeopleLibraryStore {
             .context("configure local people store busy timeout")?;
         initialize(&mut connection)?;
         Ok(Self {
-            state: Mutex::new(PeopleLibraryState {
-                connection,
-                undo: None,
-            }),
+            state: Mutex::new(PeopleLibraryState { connection }),
         })
     }
 
     pub(crate) fn snapshot(&self) -> AnyResult<PeopleLibrarySnapshot> {
         let state = self.lock()?;
         match read_snapshot(&state.connection)? {
-            Some(stored) => project_snapshot(stored, state.undo.is_some()),
+            Some(stored) => project_snapshot(stored, history::available(&state.connection)?),
             None => Ok(PeopleLibrarySnapshot::empty()),
         }
+    }
+
+    pub(crate) fn snapshot_for_library(
+        &self,
+        photo_ids: &BTreeSet<String>,
+    ) -> AnyResult<PeopleLibrarySnapshot> {
+        let state = self.lock()?;
+        let Some(mut snapshot) = read_snapshot(&state.connection)? else {
+            return Ok(PeopleLibrarySnapshot::empty());
+        };
+        for group in &mut snapshot.groups {
+            let before = group.occurrences.len();
+            group
+                .occurrences
+                .retain(|face| photo_ids.contains(&face.photo_id));
+            if before != group.occurrences.len() {
+                group.thumbnail_jpeg.clear();
+            }
+        }
+        snapshot
+            .groups
+            .retain(|group| !group.occurrences.is_empty());
+        snapshot.analyzed_photos = bounded_u32(
+            scan::checked_photos(&state.connection)?
+                .intersection(photo_ids)
+                .count(),
+            "checked library photos",
+        )?;
+        project_snapshot(snapshot, history::available(&state.connection)?)
+    }
+
+    pub(crate) fn reset_analysis_progress(&self) -> AnyResult<()> {
+        let mut state = self.lock()?;
+        let transaction = state.connection.transaction()?;
+        scan::clear(&transaction)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn analysis_selection(&self) -> AnyResult<shadow_core::PeopleAnalysisSelection> {
+        let state = self.lock()?;
+        scan::selection(&state.connection)
     }
 
     pub(crate) fn replace_analysis(
@@ -138,11 +182,37 @@ impl PeopleLibraryStore {
         report: PeopleAnalysisReport,
     ) -> AnyResult<PeopleLibrarySnapshot> {
         let mut state = self.lock()?;
-        let existing = read_snapshot(&state.connection)?.unwrap_or_else(StoredSnapshot::empty);
-        let next = reconcile_analysis(existing, report)?;
-        write_snapshot(&mut state.connection, &next)?;
-        state.undo = None;
-        project_snapshot(next, false)
+        let stored = read_snapshot(&state.connection)?;
+        if stored.is_none() && report.analyzed_photos == 0 {
+            return Ok(PeopleLibrarySnapshot::empty());
+        }
+        let mut existing = stored.unwrap_or_else(StoredSnapshot::empty);
+        if report.completed_inputs.is_empty() && report.analyzed_photos == 0 {
+            existing.truncated = report.truncated;
+            state.connection.execute(
+                "UPDATE people_snapshot SET truncated = ?1 WHERE singleton = 1",
+                [existing.truncated],
+            )?;
+            return project_snapshot(existing, history::available(&state.connection)?);
+        }
+        let mut next = reconcile_analysis(existing, report.clone())?;
+        // Rebase correction history as well: undoing a rename/merge must not
+        // erase photographs discovered by a subsequent analysis.
+        let history = history::read_all(&state.connection)?;
+        let rebased = history
+            .into_iter()
+            .map(|(id, snapshot)| Ok((id, reconcile_analysis(snapshot, report.clone())?)))
+            .collect::<AnyResult<Vec<_>>>()?;
+        let transaction = state.connection.transaction()?;
+        scan::record(&transaction, &report.completed_inputs)?;
+        let count = scan::count(&transaction)?;
+        if count > 0 {
+            next.analyzed_photos = count;
+        }
+        write_snapshot_in(&transaction, &next)?;
+        history::replace(&transaction, &rebased)?;
+        transaction.commit()?;
+        project_snapshot(next, history::available(&state.connection)?)
     }
 
     pub(crate) fn merge_people(&self, person_ids: &[String]) -> AnyResult<PeopleLibrarySnapshot> {
@@ -213,8 +283,48 @@ impl PeopleLibraryStore {
 
         let previous =
             read_snapshot(&state.connection)?.expect("the people snapshot was read before merging");
-        write_snapshot(&mut state.connection, &snapshot)?;
-        state.undo = Some(previous);
+        publish_correction(&mut state.connection, &previous, &snapshot)?;
+        project_snapshot(snapshot, true)
+    }
+
+    pub(crate) fn split_person(
+        &self,
+        person_id: &str,
+        photo_ids: &[String],
+    ) -> AnyResult<PeopleLibrarySnapshot> {
+        let mut state = self.lock()?;
+        let mut snapshot =
+            read_snapshot(&state.connection)?.ok_or_else(|| anyhow!("no people data"))?;
+        let before = snapshot.clone();
+        let group = snapshot
+            .groups
+            .iter_mut()
+            .find(|g| g.person_id == person_id)
+            .ok_or_else(|| anyhow!("person no longer exists"))?;
+        let selected = photo_ids.iter().collect::<BTreeSet<_>>();
+        let moved = group
+            .occurrences
+            .iter()
+            .filter(|f| selected.contains(&f.photo_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if moved.is_empty() || moved.len() == group.occurrences.len() {
+            bail!("select some, but not all, of this person's photos");
+        }
+        group
+            .occurrences
+            .retain(|f| !selected.contains(&f.photo_id));
+        group.thumbnail_jpeg.clear();
+        snapshot.groups.push(StoredGroup {
+            person_id: person_id_for_occurrences(&moved),
+            sort_index: u32::MAX,
+            display_name: String::new(),
+            thumbnail_jpeg: Vec::new(),
+            manually_merged: false,
+            occurrences: moved,
+        });
+        normalize_group_order(&mut snapshot.groups);
+        publish_correction(&mut state.connection, &before, &snapshot)?;
         project_snapshot(snapshot, true)
     }
 
@@ -233,27 +343,23 @@ impl PeopleLibraryStore {
             .find(|group| group.person_id == person_id)
             .ok_or_else(|| anyhow!("the selected person is no longer available"))?;
         if group.display_name == display_name {
-            return project_snapshot(snapshot, state.undo.is_some());
+            return project_snapshot(snapshot, history::available(&state.connection)?);
         }
+        let previous = read_snapshot(&state.connection)?.expect("snapshot exists");
         group.display_name = display_name;
-        write_snapshot(&mut state.connection, &snapshot)?;
-        // Rename follows the merge in the same linear correction history. A
-        // stale merge undo would otherwise silently discard the new name.
-        state.undo = None;
-        project_snapshot(snapshot, false)
+        publish_correction(&mut state.connection, &previous, &snapshot)?;
+        project_snapshot(snapshot, true)
     }
 
     pub(crate) fn undo_merge(&self) -> AnyResult<PeopleLibrarySnapshot> {
         let mut state = self.lock()?;
-        let previous = state
-            .undo
-            .take()
-            .ok_or_else(|| anyhow!("there is no people merge to undo"))?;
-        if let Err(error) = write_snapshot(&mut state.connection, &previous) {
-            state.undo = Some(previous);
-            return Err(error);
-        }
-        project_snapshot(previous, false)
+        let (id, previous) = history::latest(&state.connection)?
+            .ok_or_else(|| anyhow!("there is no people correction to undo"))?;
+        let transaction = state.connection.transaction()?;
+        write_snapshot_in(&transaction, &previous)?;
+        history::remove(&transaction, id)?;
+        transaction.commit()?;
+        project_snapshot(previous, history::available(&state.connection)?)
     }
 
     pub(crate) fn clear(&self) -> AnyResult<()> {
@@ -263,10 +369,11 @@ impl PeopleLibraryStore {
             .transaction()
             .context("begin local people-data clear")?;
         clear_snapshot_tables(&transaction)?;
+        history::clear(&transaction)?;
+        scan::clear(&transaction)?;
         transaction
             .commit()
             .context("commit local people-data clear")?;
-        state.undo = None;
         Ok(())
     }
 
@@ -355,6 +462,12 @@ fn initialize(connection: &mut Connection) -> AnyResult<()> {
                 .context("record local people store schema identity")?;
         }
         Some((SCHEMA_VERSION, identity)) if identity == SCHEMA_IDENTITY => {}
+        Some((2, identity)) if identity == "shadow-people-store-20260831.2" => {
+            connection.execute(
+                "UPDATE people_schema SET version = ?1, identity = ?2",
+                params![SCHEMA_VERSION, SCHEMA_IDENTITY],
+            )?;
+        }
         Some((LEGACY_SCHEMA_VERSION, identity)) if identity == LEGACY_SCHEMA_IDENTITY => {
             let transaction = connection
                 .transaction()
@@ -365,7 +478,7 @@ fn initialize(connection: &mut Connection) -> AnyResult<()> {
                          ADD COLUMN display_name TEXT NOT NULL DEFAULT ''
                          CHECK (length(CAST(display_name AS BLOB)) <= 256);
                      UPDATE people_schema
-                         SET version = 2, identity = 'shadow-people-store-20260831.2';",
+                         SET version = 3, identity = 'shadow-people-store-20260922.3';",
                 )
                 .context("migrate local people store to named people")?;
             transaction
@@ -376,157 +489,9 @@ fn initialize(connection: &mut Connection) -> AnyResult<()> {
             "unsupported local people store schema {version} ({identity}); clear people data before continuing"
         ),
     }
+    history::initialize(connection)?;
+    scan::initialize(connection)?;
     Ok(())
-}
-
-fn reconcile_analysis(
-    existing: StoredSnapshot,
-    report: PeopleAnalysisReport,
-) -> AnyResult<StoredSnapshot> {
-    let skipped_items = report
-        .skipped
-        .no_current_visual
-        .saturating_add(report.skipped.unsupported_visual)
-        .saturating_add(report.skipped.stale_input)
-        .saturating_add(report.skipped.low_detection_confidence)
-        .saturating_add(report.skipped.ineligible_embedding);
-    let mut previews = report
-        .group_previews
-        .into_iter()
-        .map(|preview| (preview.group_id, preview.thumbnail_jpeg))
-        .collect::<HashMap<_, _>>();
-    let existing_by_person = existing
-        .groups
-        .iter()
-        .map(|group| (group.person_id.clone(), group))
-        .collect::<HashMap<_, _>>();
-    let occurrence_owner = existing
-        .groups
-        .iter()
-        .flat_map(|group| {
-            group
-                .occurrences
-                .iter()
-                .map(move |occurrence| (occurrence.occurrence_id.clone(), group.person_id.clone()))
-        })
-        .collect::<HashMap<_, _>>();
-
-    let mut drafts = BTreeMap::<String, StoredGroup>::new();
-    for candidate in report.grouping.groups {
-        let incoming = candidate
-            .members
-            .into_iter()
-            .map(stored_occurrence)
-            .collect::<Vec<_>>();
-        let owners = incoming
-            .iter()
-            .filter_map(|occurrence| occurrence_owner.get(&occurrence.occurrence_id).cloned())
-            .collect::<BTreeSet<_>>();
-        let preview = previews.remove(&candidate.group_id).unwrap_or_default();
-        if owners.len() <= 1 {
-            let person_id = owners
-                .iter()
-                .next()
-                .cloned()
-                .unwrap_or_else(|| person_id_for_occurrences(&incoming));
-            let prior = existing_by_person.get(&person_id).copied();
-            append_draft(
-                &mut drafts,
-                person_id,
-                incoming,
-                preview,
-                prior.map_or_else(String::new, |group| group.display_name.clone()),
-                prior.is_some_and(|group| group.manually_merged),
-                prior.map_or(u32::MAX, |group| group.sort_index),
-            );
-            continue;
-        }
-
-        // A model candidate that bridges people kept separate by prior user
-        // organization is not allowed to silently merge them. Preserve every
-        // established owner and leave only genuinely new occurrences together.
-        let mut unmatched = Vec::new();
-        for occurrence in incoming {
-            if let Some(person_id) = occurrence_owner.get(&occurrence.occurrence_id) {
-                let prior = existing_by_person
-                    .get(person_id)
-                    .copied()
-                    .expect("occurrence owner must name an existing person");
-                append_draft(
-                    &mut drafts,
-                    person_id.clone(),
-                    vec![occurrence],
-                    prior.thumbnail_jpeg.clone(),
-                    prior.display_name.clone(),
-                    prior.manually_merged,
-                    prior.sort_index,
-                );
-            } else {
-                unmatched.push(occurrence);
-            }
-        }
-        if !unmatched.is_empty() {
-            let person_id = person_id_for_occurrences(&unmatched);
-            append_draft(
-                &mut drafts,
-                person_id,
-                unmatched,
-                preview,
-                String::new(),
-                false,
-                u32::MAX,
-            );
-        }
-    }
-
-    let mut groups = drafts.into_values().collect::<Vec<_>>();
-    normalize_group_order(&mut groups);
-    Ok(StoredSnapshot {
-        analyzed_photos: bounded_u32(report.analyzed_photos, "analyzed photo count")?,
-        detected_faces: bounded_u32(report.detected_faces, "detected face count")?,
-        embedded_faces: bounded_u32(report.embedded_faces, "embedded face count")?,
-        skipped_items: bounded_u32(skipped_items, "skipped item count")?,
-        ungrouped_faces: bounded_u32(report.grouping.ungrouped.len(), "ungrouped face count")?,
-        truncated: report.truncated,
-        grouping_revision: report.grouping.grouping_revision,
-        groups,
-    })
-}
-
-fn append_draft(
-    drafts: &mut BTreeMap<String, StoredGroup>,
-    person_id: String,
-    occurrences: Vec<StoredOccurrence>,
-    thumbnail_jpeg: Vec<u8>,
-    display_name: String,
-    manually_merged: bool,
-    sort_index: u32,
-) {
-    let draft = drafts
-        .entry(person_id.clone())
-        .or_insert_with(|| StoredGroup {
-            person_id,
-            sort_index,
-            display_name: display_name.clone(),
-            thumbnail_jpeg: thumbnail_jpeg.clone(),
-            manually_merged,
-            occurrences: Vec::new(),
-        });
-    draft.sort_index = draft.sort_index.min(sort_index);
-    draft.manually_merged |= manually_merged;
-    if draft.display_name.is_empty() && !display_name.is_empty() {
-        draft.display_name = display_name;
-    }
-    if draft.thumbnail_jpeg.is_empty() && !thumbnail_jpeg.is_empty() {
-        draft.thumbnail_jpeg = thumbnail_jpeg;
-    }
-    draft.occurrences.extend(occurrences);
-    draft
-        .occurrences
-        .sort_by(|left, right| left.occurrence_id.cmp(&right.occurrence_id));
-    draft
-        .occurrences
-        .dedup_by(|left, right| left.occurrence_id == right.occurrence_id);
 }
 
 fn stored_occurrence(reference: FaceOccurrenceReference) -> StoredOccurrence {
@@ -668,10 +633,19 @@ fn read_snapshot(connection: &Connection) -> AnyResult<Option<StoredSnapshot>> {
     }))
 }
 
-fn write_snapshot(connection: &mut Connection, snapshot: &StoredSnapshot) -> AnyResult<()> {
-    let transaction = connection
-        .transaction()
-        .context("begin local people snapshot publication")?;
+fn publish_correction(
+    connection: &mut Connection,
+    before: &StoredSnapshot,
+    after: &StoredSnapshot,
+) -> AnyResult<()> {
+    let transaction = connection.transaction()?;
+    history::push(&transaction, before)?;
+    write_snapshot_in(&transaction, after)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn write_snapshot_in(transaction: &Transaction<'_>, snapshot: &StoredSnapshot) -> AnyResult<()> {
     clear_snapshot_tables(&transaction)?;
     transaction
         .execute(
@@ -726,9 +700,7 @@ fn write_snapshot(connection: &mut Connection, snapshot: &StoredSnapshot) -> Any
                 .context("write local people occurrence")?;
         }
     }
-    transaction
-        .commit()
-        .context("commit local people snapshot publication")
+    Ok(())
 }
 
 fn clear_snapshot_tables(transaction: &Transaction<'_>) -> AnyResult<()> {

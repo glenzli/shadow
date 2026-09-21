@@ -398,6 +398,10 @@ pub struct LibraryLivingPlaceRule {
 #[derive(Debug, Clone, Eq, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LibraryPhotoFilter {
+    /// Explicit local membership (for example a person). Some(empty) matches
+    /// nothing; None leaves the library unrestricted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo_ids: Option<Vec<PhotoId>>,
     pub capture_time: Option<LibraryDateRange>,
     /// A canonical UTC month (`YYYY-MM`) selected from the Library timeline.
     /// It intentionally composes with an optional raw capture-time range so a
@@ -906,6 +910,10 @@ fn validate_chinese_lunar_filter(filter: &LibraryPhotoFilter) -> Result<(), Cata
 }
 
 fn normalize_keyword_filter_ids(filter: &mut LibraryPhotoFilter) {
+    if let Some(ids) = &mut filter.photo_ids {
+        ids.sort_unstable();
+        ids.dedup();
+    }
     filter.keyword_ids_all.sort_unstable();
     filter.keyword_ids_all.dedup();
     filter.excluded_keyword_ids_any.sort_unstable();

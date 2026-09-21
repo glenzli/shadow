@@ -27,6 +27,17 @@ int main(int argc, char** argv) {
         autoStartDisplayClippedFraction(ramp(0, 255)) > 0,
         "clipped endpoint measurement sees the bright tail"
     );
+    const QVector<BackendSubjectMaskPerson> people{
+        {.index = 0, .confidence = .4},
+        {.index = 1, .confidence = .7},
+        {.index = 2, .confidence = .95},
+        {.index = 3, .confidence = .95}
+    };
+    check(
+        autoStartSkinPeople(people, 2) == QVector<std::uint32_t>{2, 3},
+        "uncertain early faces do not consume the automatic skin budget"
+    );
+    check(autoStartSkinPeople(people, 0).isEmpty(), "a full grade stack admits no skin nodes");
     const auto dim = measureAutoStartTone(ramp(25, 130));
     check(
         dim.useful && dim.basic.exposure_stops > 0 && dim.basic.exposure_stops <= .65,

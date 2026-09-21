@@ -106,3 +106,25 @@ fn detected_face(x: f32, y: f32, width: f32, height: f32, confidence: f32) -> De
         confidence,
     }
 }
+
+#[test]
+fn person_budget_preserves_prominent_faces_before_spatial_numbering() {
+    let mut jpeg = Vec::new();
+    DynamicImage::ImageRgb8(RgbImage::new(200, 100))
+        .write_to(&mut Cursor::new(&mut jpeg), ImageFormat::Jpeg)
+        .unwrap();
+    let mut detections = (0..16)
+        .map(|x| detected_face(x as f32 * 3., 0., 2., 2., 0.8))
+        .collect::<Vec<_>>();
+    detections.push(detected_face(120., 20., 50., 60., 0.98));
+    let people =
+        prepare_person_candidates(&jpeg, RasterExtent::new(200, 100).unwrap(), &detections)
+            .unwrap();
+    assert_eq!(people.len(), MAX_SUBJECT_MASK_PEOPLE);
+    assert_eq!(people.last().unwrap().bounding_box.x, 120.);
+    assert!(
+        people
+            .windows(2)
+            .all(|pair| pair[0].bounding_box.x <= pair[1].bounding_box.x)
+    );
+}

@@ -290,3 +290,27 @@ fn cancellation_drops_an_in_flight_request_without_waiting_for_its_deadline() {
     assert!(result.is_none());
     assert!(started.elapsed() < std::time::Duration::from_secs(1));
 }
+
+#[test]
+fn cancelled_face_parsing_never_stages_or_admits_an_image() {
+    let credential = tempfile::NamedTempFile::new().unwrap();
+    let client =
+        InferRuntimeClient::from_credential_file("http://127.0.0.1:9876", credential.path())
+            .unwrap();
+    // Invalid bytes/geometry would fail if cancellation did not precede staging.
+    let result = client
+        .parse_face_cancellable(
+            &[],
+            "image/jpeg",
+            "cancelled",
+            FaceBoundingBox {
+                x: 0.,
+                y: 0.,
+                width: 0.,
+                height: 0.,
+            },
+            &|| true,
+        )
+        .unwrap();
+    assert!(result.is_none());
+}
