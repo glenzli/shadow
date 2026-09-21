@@ -12,12 +12,20 @@ ColumnLayout {
     spacing: 10
     Label {
         Layout.fillWidth: true
-        text: qsTr("PAINT")
+        text: tools.paint.dodgeBurn ? qsTr("DODGE & BURN") : qsTr("PAINT")
         font.pixelSize: Theme.fontBody; font.weight: Font.DemiBold; color: Theme.textPrimary
     }
     RowLayout {
         Layout.fillWidth: true
         spacing: 8
+        enabled: !tools.paint.strokeActive
+        ShadowTabButton { Layout.fillWidth: true; text: qsTr("Paint"); active: !tools.paint.dodgeBurn; onClicked: tools.paint.dodgeBurn = false }
+        ShadowTabButton { Layout.fillWidth: true; text: qsTr("Dodge & Burn"); active: tools.paint.dodgeBurn; onClicked: tools.paint.dodgeBurn = true }
+    }
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 8
+        visible: !tools.paint.dodgeBurn
         enabled: !tools.paint.strokeActive
         ShadowComboBox {
             id: presets
@@ -80,11 +88,24 @@ ColumnLayout {
         spacing: 8
         enabled: !tools.paint.strokeActive
         ShadowIconButton {
+            visible: !tools.paint.dodgeBurn
             objectName: "paintBrushMode"
             buttonSize: 32; source: "qrc:/icons/brush.svg"
             accessibleName: qsTr("Brush"); toolTipText: accessibleName
             selected: !tools.paint.erase && !tools.paint.picking
             onClicked: tools.paint.erase = false
+        }
+        ShadowButton {
+            objectName: "dodgeMode"
+            visible: tools.paint.dodgeBurn
+            compact: true; text: qsTr("Dodge"); selected: !tools.paint.burn && !tools.paint.erase
+            onClicked: { tools.paint.erase = false; tools.paint.burn = false }
+        }
+        ShadowButton {
+            objectName: "burnMode"
+            visible: tools.paint.dodgeBurn
+            compact: true; text: qsTr("Burn"); selected: tools.paint.burn && !tools.paint.erase
+            onClicked: { tools.paint.erase = false; tools.paint.burn = true }
         }
         ShadowIconButton {
             objectName: "paintEraseMode"
@@ -94,6 +115,7 @@ ColumnLayout {
             onClicked: tools.paint.erase = true
         }
         ShadowIconButton {
+            visible: !tools.paint.dodgeBurn
             objectName: "paintEyedropper"
             buttonSize: 32
             source: "qrc:/icons/eyedropper.svg"; selected: tools.paint.picking
@@ -105,6 +127,7 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         spacing: 8
+        visible: !tools.paint.dodgeBurn
         enabled: !tools.paint.erase && !tools.paint.strokeActive
         ShadowButton {
             objectName: "paintColorButton"
@@ -173,11 +196,12 @@ ColumnLayout {
             Layout.fillWidth: true; Layout.topMargin: 8
             enabled: !tools.paint.strokeActive
             spacing: 8
-            ShadowButton { compact: true; text: qsTr("Save brush…"); onClicked: { savedPresetName.text=""; saveDialog.open() } }
+            ShadowButton { visible: !tools.paint.dodgeBurn; compact: true; text: qsTr("Save brush…"); onClicked: { savedPresetName.text=""; saveDialog.open() } }
             Item { Layout.fillWidth: true }
             ShadowIconButton {
                 source: "qrc:/icons/trash.svg"
                 accessibleName: qsTr("Remove preset"); toolTipText: accessibleName
+                visible: !tools.paint.dodgeBurn
                 enabled: presets.currentIndex >= 0 && presets.model[presets.currentIndex].custom
                 onClicked: tools.paint.removePreset(tools.paint.presetId)
             }
@@ -206,7 +230,7 @@ ColumnLayout {
     }
     ShadowSlider {
         Layout.fillWidth: true; enabled: tools.paint.selectedIndex >= 0 && !tools.paint.strokeActive
-        label: qsTr("Layer opacity")
+        label: tools.paint.dodgeBurn ? qsTr("Strength") : qsTr("Layer opacity")
         from: 0; to: 1; neutralValue: 1; decimals: 0; displayMultiplier: 100; suffix: "%"; value: tools.paint.layerOpacity
         onGestureStarted: tools.editor.beginParameterEdit("paint/layer/opacity")
         onEdited: value => tools.paint.layerOpacity = value
@@ -226,6 +250,7 @@ ColumnLayout {
             ShadowIconButton { source: "qrc:/icons/move-up.svg"; accessibleName: qsTr("Move paint layer up"); toolTipText: accessibleName; enabled: tools.paint.selectedIndex < tools.paint.layers.length - 1; onClicked: tools.paint.moveLayer(1) }
         }
         ShadowComboBox {
+            visible: !tools.paint.dodgeBurn
             objectName: "paintBlendSelector"; Layout.fillWidth: true
             Layout.topMargin: 8
             enabled: !tools.paint.strokeActive
@@ -241,7 +266,7 @@ ColumnLayout {
     }
     Label {
         Layout.fillWidth: true
-        text: qsTr("A preset with a different blend starts a new layer on the next stroke. Existing strokes keep their settings.")
+        text: tools.paint.dodgeBurn ? qsTr("Shape perceptual lightness with a soft, low-flow brush. Hold Alt to reverse; X switches Dodge/Burn. Color axes stay unchanged.") : qsTr("A preset with a different blend starts a new layer on the next stroke. Existing strokes keep their settings.")
         color: Theme.textMuted; font.pixelSize: Theme.fontMeta; wrapMode: Text.WordWrap
     }
 }

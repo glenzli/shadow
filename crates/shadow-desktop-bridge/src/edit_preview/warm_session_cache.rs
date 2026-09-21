@@ -132,6 +132,22 @@ pub(crate) struct WarmEditPreviewSourceRequest<'request> {
 }
 
 impl WarmEditPreviewSessionCache {
+    /// Exact-source lookup for transient tools; never prepares or rebinds a source.
+    pub(crate) fn get_existing(
+        &self,
+        request: &WarmEditPreviewSourceRequest<'_>,
+    ) -> AnyResult<Option<Arc<PhotoEditPreviewSession>>> {
+        let key = warm_preview_session_key(request)?;
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
+        Ok(entries
+            .iter()
+            .find(|entry| entry.key.matches(&key))
+            .map(|entry| Arc::clone(&entry.session)))
+    }
+
     pub(crate) fn get_or_prepare(
         &self,
         request: &WarmEditPreviewSourceRequest<'_>,

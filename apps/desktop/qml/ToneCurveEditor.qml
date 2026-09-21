@@ -18,6 +18,7 @@ Item {
     property color accentColor: Theme.accent
     property color identityColor: Theme.curveIdentity
 
+    readonly property var targeted: controller && controller.targetedCurve !== undefined ? controller.targetedCurve : null
     readonly property bool hasCurve: Boolean(controller && controller.hasToneCurve)
     readonly property bool curveEditable: Boolean(controller && controller.toneCurveEditable)
     readonly property var curveModel: controller ? controller.toneCurvePoints : null
@@ -365,6 +366,17 @@ Item {
                     }
                 }
 
+                Rectangle {
+                    objectName: "targetedCurveMarker"
+                    visible: Boolean(root.targeted && root.targeted.active && root.targeted.inputValue >= 0 && root.targeted.inputValue <= 1)
+                    x: root.plotX(root.targeted ? root.targeted.inputValue : 0) - width / 2
+                    y: root.plotY(root.targeted ? root.targeted.outputValue : 0) - height / 2
+                    width: 12; height: 12; radius: 6
+                    color: root.plotColor
+                    border.width: 2; border.color: root.currentCurveColor
+                    z: 3
+                }
+
                 Repeater {
                     id: pointRepeater
 
@@ -468,6 +480,19 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: 5
+
+            ShadowIconButton {
+                objectName: "targetedCurveButton"
+                buttonSize: 28
+                iconSize: 17
+                source: "qrc:/icons/eyedropper.svg"
+                variant: ShadowIconButton.Ghost
+                toolTipText: qsTr("Adjust curve on photo")
+                accessibleName: toolTipText
+                selected: Boolean(root.targeted && root.targeted.active)
+                enabled: root.curveEditable && root.targeted !== null
+                onClicked: root.targeted.active = !root.targeted.active
+            }
 
             Label {
                 Layout.fillWidth: true

@@ -610,6 +610,13 @@ Rectangle {
                     onRegionSelected: (continuous, index) => canvas.retouchRegionSelectionRequested(continuous, index)
                 }
 
+                PrecisionTargetedCurveOverlay {
+                    anchors.fill: parent
+                    z: 106
+                    editor: canvas.editor
+                    interactionEnabled: !canvas.comparisonActive
+                }
+
                 PrecisionPaintOverlay {
                     anchors.fill: parent
                     z: 105

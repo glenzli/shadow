@@ -1807,6 +1807,13 @@ mod ffi {
         tint: i16,
     }
 
+    #[derive(Debug)]
+    struct FfiCurveInputMap {
+        width: u32,
+        height: u32,
+        values: Vec<f32>,
+    }
+
     /// One include/exclude click in the currently displayed final-canvas
     /// coordinate space.
     #[derive(Debug, Clone, Copy)]
@@ -3048,6 +3055,14 @@ mod ffi {
             normalized_x: f64,
             normalized_y: f64,
         ) -> Result<FfiRawWhiteBalancePickerResult>;
+        fn curve_input_map(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditPreviewRequest,
+            grade_node_index: u32,
+            channel: u8,
+        ) -> Result<FfiCurveInputMap>;
         fn auto_raw_white_balance(
             self: &DesktopSession,
             photo_id: &str,

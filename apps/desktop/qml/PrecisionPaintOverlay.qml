@@ -19,7 +19,7 @@ Item {
     Keys.onPressed: event => {
         if (event.key === Qt.Key_BracketLeft) { paint.radius = Math.max(0.0001, paint.radius / 1.2); event.accepted = true }
         else if (event.key === Qt.Key_BracketRight) { paint.radius = Math.min(0.1, paint.radius * 1.2); event.accepted = true }
-        else if (event.key === Qt.Key_X && !paint.strokeActive) { paint.brushSlot = 1 - paint.brushSlot; event.accepted = true }
+        else if (event.key === Qt.Key_X && !paint.strokeActive) { if (paint.dodgeBurn) { paint.erase = false; paint.burn = !paint.burn } else paint.brushSlot = 1 - paint.brushSlot; event.accepted = true }
         else if (event.key === Qt.Key_Escape && paint.strokeActive) { input.cancel(); event.accepted = true }
     }
     function restoreTabletMode() {
@@ -33,7 +33,7 @@ Item {
         pointerCursor: overlay.paint.picking ? Qt.CrossCursor : Qt.BlankCursor
         onStrokePressed: (x, y, pressure, modifiers, eraser) => {
             overlay.forceActiveFocus()
-            if (overlay.paint.picking || (modifiers & Qt.AltModifier)) {
+            if (overlay.paint.picking || (!overlay.paint.dodgeBurn && (modifiers & Qt.AltModifier))) {
                 overlay.paint.sampleColor(x / width, y / height, overlay.previewGeneration)
                 return
             }
@@ -42,7 +42,7 @@ Item {
                 overlay.tabletErase = true
                 overlay.paint.erase = true
             }
-            overlay.paint.beginStroke(x / width, y / height, overlay.outputAspectRatio, pressure)
+            overlay.paint.beginStroke(x / width, y / height, overlay.outputAspectRatio, pressure, Boolean(overlay.paint.dodgeBurn && (modifiers & Qt.AltModifier)))
         }
         onStrokeMoved: (x, y, pressure) => {
             if (overlay.paint.strokeActive) overlay.paint.appendPoint(x / width, y / height, pressure)

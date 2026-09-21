@@ -35,6 +35,7 @@ class EditAiCompletionController;
 class EditAiMaskController;
 class EditSubjectEmphasisController;
 class EditPaintController;
+class EditTargetedCurveController;
 class EditRetouchSources;
 class EditAutoGeometryController;
 class EditPersistenceTaskCoordinator;
@@ -252,6 +253,7 @@ class EditController final : public QObject {
             setMaskCoverageShowsSelectedComponent NOTIFY maskCoverageModeChanged
     )
     Q_PROPERTY(QObject* paint READ paint CONSTANT)
+    Q_PROPERTY(QObject* targetedCurve READ targetedCurve CONSTANT)
     Q_PROPERTY(QObject* subjectEmphasis READ subjectEmphasis CONSTANT)
     Q_PROPERTY(bool aiMaskPromptActive READ aiMaskPromptActive NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskBusy READ aiMaskBusy NOTIFY aiMaskPromptChanged)
@@ -615,6 +617,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool maskCoverageShowsSelectedComponent() const noexcept;
     [[nodiscard]] QObject* subjectEmphasis() const noexcept;
     QObject* paint() const noexcept;
+    QObject* targetedCurve() const noexcept;
     Q_PROPERTY(QObject* retouchSources READ retouchSources CONSTANT)
     QObject* retouchSources() const noexcept;
     [[nodiscard]] bool aiMaskPromptActive() const noexcept;
@@ -1194,6 +1197,7 @@ class EditController final : public QObject {
     friend class EditAiMaskController;
     friend class EditSubjectEmphasisController;
     friend class EditPaintController;
+    friend class EditTargetedCurveController;
     friend class EditRetouchSources;
     friend class EditAutoGeometryController;
     friend class EditRawFoundationController;
@@ -1207,6 +1211,7 @@ class EditController final : public QObject {
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
     std::unique_ptr<EditSubjectEmphasisController> subject_emphasis_controller_;
     std::unique_ptr<EditPaintController> paint_controller_;
+    std::unique_ptr<EditTargetedCurveController> targeted_curve_controller_;
     std::unique_ptr<EditRetouchSources> retouch_sources_;
     std::unique_ptr<EditAutoGeometryController> auto_geometry_controller_;
     std::unique_ptr<EditPersistenceTaskCoordinator> persistence_task_coordinator_;

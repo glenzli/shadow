@@ -107,6 +107,8 @@ Application startup is split from environment-driven automation:
   drives opt-in packaged session acceptance, registered in `ShadowDesktopPipelineTests.cmake`.
   [`src/rgb_curve_smoke_harness.*`](src/rgb_curve_smoke_harness.hpp) owns five-channel curve
   history, photo isolation, persisted checkout and export acceptance.
+  [`src/direct_edit_smoke_harness.*`](src/direct_edit_smoke_harness.hpp) owns sampled curve gestures
+  and dedicated Dodge/Burn history, cancellation, photo isolation and export acceptance.
   [`src/paint_smoke_harness.*`](src/paint_smoke_harness.hpp) owns the paint-specific
   undo, cancellation, photo isolation, persistence and export acceptance sequence.
 - [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,
@@ -547,6 +549,15 @@ Its implementation follows the same navigation:
   semantics.
 - [`src/edit_tone_curve_controller.cpp`](src/edit_tone_curve_controller.cpp) owns Tone Curve
   presentation, point normalization and editing, gesture integration, history, and preview timing.
+- [`src/edit_targeted_curve_controller.*`](src/edit_targeted_curve_controller.hpp) owns asynchronous,
+  cancellable pre-curve input sampling and one photo-space vertical drag per history gesture.
+  [`qml/PrecisionTargetedCurveOverlay.qml`](qml/PrecisionTargetedCurveOverlay.qml) owns the pointer
+  surface; the curve editor displays its cached sample marker. Master RGB samples the mean of
+  encoded channels; individual channels sample after the master curve.
+- [`src/edit_dodge_burn_controller.cpp`](src/edit_dodge_burn_controller.cpp) owns the dedicated
+  low-flow light-sculpting brush state over the existing Oklab-lightness soft-light paint recipe.
+  It preserves ordinary brush preferences and reuses stroke pressure, cancellation and persistence;
+  Alt reverses one stroke and X switches direction.
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
   open/close, autosave, version operations, and durable state transitions. A named Version
   requested during a non-blocking autosave is queued behind that exact snapshot and keeps explicit

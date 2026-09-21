@@ -1708,8 +1708,23 @@ if(BUILD_TESTING)
         qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/Theme.qml)
     qt_add_resources(shadow-tone-curve-editor-contract-test curve-test-icons
         PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
-        FILES icons/trash.svg icons/redo.svg)
+        FILES icons/eyedropper.svg icons/trash.svg icons/redo.svg)
     add_test(NAME shadow-desktop-tone-curve-editor-contract COMMAND shadow-tone-curve-editor-contract-test)
     set_tests_properties(shadow-desktop-tone-curve-editor-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+endif()
+
+if(BUILD_TESTING)
+    qt_add_executable(shadow-targeted-curve-contract-test tests/targeted_curve_contract_test.cpp)
+    target_compile_features(shadow-targeted-curve-contract-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-targeted-curve-contract-test PRIVATE Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    qt_add_qml_module(shadow-targeted-curve-contract-test
+        URI Shadow.TargetedCurveContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/PrecisionTargetedCurveOverlay.qml qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/Theme.qml)
+    qt_add_resources(shadow-targeted-curve-contract-test targeted-curve-test-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/close.svg icons/redo.svg)
+    add_test(NAME shadow-desktop-targeted-curve-contract COMMAND shadow-targeted-curve-contract-test)
+    set_tests_properties(shadow-desktop-targeted-curve-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic" TIMEOUT 30 LABELS "desktop;grading")
 endif()

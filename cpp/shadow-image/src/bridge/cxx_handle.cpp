@@ -11,8 +11,8 @@
 #include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
-#include <cstdint>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -66,10 +66,10 @@ mask_coverage_target(const FfiAdjustmentRenderRequest& request) {
     }
     return MaskCoverageTarget{
         .layer_index = request.mask_coverage_target_layer_index,
-        .component_index = request.mask_coverage_component_requested
-                               ? std::optional<std::uint32_t>{
-                                     request.mask_coverage_target_component_index}
-                               : std::nullopt,
+        .component_index =
+            request.mask_coverage_component_requested
+                ? std::optional<std::uint32_t>{request.mask_coverage_target_component_index}
+                : std::nullopt,
     };
 }
 
@@ -532,8 +532,7 @@ bool EditPreviewHandle::supports_raw_white_balance_picker() const noexcept {
     return session_.supports_raw_white_balance_picker();
 }
 
-FfiRawWhiteBalancePresentation
-EditPreviewHandle::pick_raw_white_balance(
+FfiRawWhiteBalancePresentation EditPreviewHandle::pick_raw_white_balance(
     const double normalized_x,
     const double normalized_y
 ) const noexcept {
@@ -548,13 +547,48 @@ EditPreviewHandle::pick_raw_white_balance(
     }
     const auto temperature = std::llround(presentation->temperature_kelvin);
     const auto tint = std::llround(presentation->tint);
-    if (temperature < 2'000LL || temperature > 25'000LL
-        || tint < -150LL || tint > 150LL) {
+    if (temperature < 2'000LL || temperature > 25'000LL || tint < -150LL || tint > 150LL) {
         return result;
     }
     result.available = true;
     result.temperature_kelvin = static_cast<std::uint32_t>(temperature);
     result.tint = static_cast<std::int16_t>(tint);
+    return result;
+}
+
+FfiCurveInputMap EditPreviewHandle::curve_input_map(
+    const FfiAdjustmentRenderRequest& request,
+    const std::uint8_t channel,
+    const EditPreviewCancellationHandle& cancellation
+) const {
+    reject_mask_coverage_target(request);
+    if (request.max_edge != session_.max_edge())
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "curve input source edge mismatch"
+        );
+    auto layers = adjustment_render_wire::adjustment_layers(request.nodes);
+    if (!layers) {
+        image::AdjustmentLayer layer;
+        layer.layer_id = "curve-input-flat";
+        layer.nodes = adjustment_render_wire::adjustment_nodes(request.nodes);
+        layers = std::vector<image::AdjustmentLayer>{std::move(layer)};
+    }
+    const auto liquify = adjustment_render_wire::photo_liquify(request.liquify);
+    const auto map = session_.curve_input_map(
+        *layers,
+        channel,
+        photo_geometry(request.geometry),
+        liquify ? &*liquify : nullptr,
+        cancellation.token()
+    );
+    FfiCurveInputMap result;
+    result.width = map.dimensions.width;
+    result.height = map.dimensions.height;
+    result.values.reserve(map.values.size());
+    for (const auto value : map.values)
+        result.values.push_back(value);
     return result;
 }
 
@@ -570,8 +604,7 @@ FfiRawWhiteBalancePresentation EditPreviewHandle::auto_raw_white_balance() const
     }
     const auto temperature = std::llround(presentation->temperature_kelvin);
     const auto tint = std::llround(presentation->tint);
-    if (temperature < 2'000LL || temperature > 25'000LL
-        || tint < -150LL || tint > 150LL) {
+    if (temperature < 2'000LL || temperature > 25'000LL || tint < -150LL || tint > 150LL) {
         return result;
     }
     result.available = true;

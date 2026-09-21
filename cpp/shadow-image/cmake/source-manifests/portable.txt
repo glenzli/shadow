@@ -104,3 +104,4 @@ src/proxy/warm_edit_gpu_neighbourhood_plan.cpp
 src/proxy/warm_edit_gpu_retouch_plan.cpp
 src/proxy/warm_edit_gpu_render_plan.cpp
 src/proxy/warm_edit_preview.cpp
+src/proxy/curve_input_map.cpp

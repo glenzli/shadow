@@ -8,6 +8,7 @@
 #include "edit_raw_foundation_controller.hpp"
 #include "edit_retouch_sources.hpp"
 #include "edit_subject_emphasis_controller.hpp"
+#include "edit_targeted_curve_controller.hpp"
 
 #include <QCoreApplication>
 #include <QEvent>
@@ -54,6 +55,7 @@ EditController::EditController(
     ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
     subject_emphasis_controller_ = std::make_unique<EditSubjectEmphasisController>(*this, backend_);
     paint_controller_ = std::make_unique<EditPaintController>(*this);
+    targeted_curve_controller_ = std::make_unique<EditTargetedCurveController>(*this);
     retouch_sources_ = std::make_unique<EditRetouchSources>(*this);
     auto_geometry_controller_ = std::make_unique<EditAutoGeometryController>(*this);
     persistence_task_coordinator_ =
@@ -165,6 +167,7 @@ EditController::EditController(
 
 EditController::~EditController() {
     retouch_sources_.reset();
+    targeted_curve_controller_.reset();
     paint_controller_.reset();
     auto_geometry_controller_.reset();
     raw_foundation_controller_.reset();
@@ -181,6 +184,10 @@ EditController::~EditController() {
     preview_watcher_.waitForFinished();
     detail_watcher_.waitForFinished();
     detail_warmup_watcher_.waitForFinished();
+}
+
+QObject* EditController::targetedCurve() const noexcept {
+    return targeted_curve_controller_.get();
 }
 
 QObject* EditController::paint() const noexcept {

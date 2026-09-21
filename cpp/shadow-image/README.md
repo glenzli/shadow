@@ -946,3 +946,10 @@ cargo xtask native-check
 ```
 
 This configures CMake, builds the library and probe, and runs CTest contract tests. Real RAW samples stay in the ignored local reference area; public deterministic fixtures will be added separately.
+
+`src/proxy/curve_input_map.cpp` owns the bounded, read-only scalar map for photo-space curve
+authoring. It evaluates the supplied prefix against the retained warm source, applies current
+Liquify/Canvas geometry, and performs one explicit host readback on tool preparation. The map
+has at most a 512-pixel edge; pointer updates read it without decode, GPU dispatch or readback.
+The L channel uses working-space Oklab L; RGB channels use the curve's signed sRGB encoding
+in the declared working primaries. It does not clamp HDR samples into the editable SDR range.

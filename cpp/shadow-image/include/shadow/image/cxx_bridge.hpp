@@ -140,6 +140,11 @@ class EditPreviewHandle final {
     [[nodiscard]] FfiRawWhiteBalancePresentation
     pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
     [[nodiscard]] FfiRawWhiteBalancePresentation auto_raw_white_balance() const noexcept;
+    [[nodiscard]] FfiCurveInputMap curve_input_map(
+        const FfiAdjustmentRenderRequest& request,
+        std::uint8_t channel,
+        const EditPreviewCancellationHandle& cancellation
+    ) const;
     [[nodiscard]] std::unique_ptr<EditPreviewHandle>
     rebind_raw_development_plan(const FfiRawDevelopmentPlan& plan) const;
     [[nodiscard]] bool supports_raw_foundation_amount_rebinding() const noexcept;

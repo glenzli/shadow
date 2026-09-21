@@ -67,6 +67,13 @@ mod ffi {
     }
 
     #[derive(Debug)]
+    struct FfiCurveInputMap {
+        width: u32,
+        height: u32,
+        values: Vec<f32>,
+    }
+
+    #[derive(Debug)]
     struct FfiDimensions {
         width: u32,
         height: u32,
@@ -831,6 +838,12 @@ mod ffi {
             normalized_y: f64,
         ) -> FfiRawWhiteBalancePresentation;
         fn auto_raw_white_balance(self: &EditPreviewHandle) -> FfiRawWhiteBalancePresentation;
+        fn curve_input_map(
+            self: &EditPreviewHandle,
+            request: &FfiAdjustmentRenderRequest,
+            channel: u8,
+            cancellation: &EditPreviewCancellationHandle,
+        ) -> Result<FfiCurveInputMap>;
         fn rebind_raw_development_plan(
             self: &EditPreviewHandle,
             plan: &FfiRawDevelopmentPlan,

@@ -840,6 +840,11 @@ struct BackendEditedPreview final {
 // Result of a source-domain RAW neutral picker lookup. Availability is a
 // capability result: a display-RGB compatibility preview is not allowed to
 // invent photographic temperature/tint controls from its rendered pixels.
+struct BackendCurveInputMap final {
+    std::uint32_t width = 0, height = 0;
+    QVector<float> values;
+};
+
 struct BackendRawWhiteBalancePickerResult final {
     bool available = false;
     std::uint32_t temperature_kelvin = 5'500U;

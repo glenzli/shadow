@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_targeted_curve_controller.hpp"
 
 #include <initializer_list>
 
@@ -57,6 +58,7 @@ QVector<ToneCurvePoint> EditController::toneCurveModelPoints(const BackendGradeN
 void EditController::setToneCurveChannel(const int channel) {
     if (channel < 0 || channel > 4 || channel == tone_curve_channel_)
         return;
+    targeted_curve_controller_->finish(false);
     const int point = tone_curve_points_.selectedIndex();
     const auto gesture = tone_curve_gesture_key(tone_curve_channel_, point);
     if (active_parameter_gestures_.contains(gesture))

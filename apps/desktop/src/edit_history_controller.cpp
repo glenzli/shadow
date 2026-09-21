@@ -1,5 +1,6 @@
 #include "edit_controller.hpp"
 #include "edit_paint_controller.hpp"
+#include "edit_targeted_curve_controller.hpp"
 
 #include "edit_history_restore_projection.hpp"
 #include "edit_point_color_model.hpp"
@@ -81,6 +82,8 @@ void EditController::undo() {
     if (!active_ || interactionLocked()) {
         return;
     }
+    if (targeted_curve_controller_)
+        targeted_curve_controller_->finish(true);
     if (paint_controller_)
         paint_controller_->cancelStroke();
     std::string history_key;
@@ -109,6 +112,8 @@ void EditController::redo() {
     if (!active_ || interactionLocked()) {
         return;
     }
+    if (targeted_curve_controller_)
+        targeted_curve_controller_->finish(true);
     if (paint_controller_)
         paint_controller_->cancelStroke();
     std::string history_key;
@@ -359,6 +364,8 @@ QString EditController::gradeNodeHistoryKey(const QString& key) const {
 }
 
 void EditController::finishActiveGesture() {
+    if (targeted_curve_controller_)
+        targeted_curve_controller_->finish(false);
     if (paint_controller_)
         paint_controller_->cancelStroke();
     if (liquify_live_before_.has_value()) {

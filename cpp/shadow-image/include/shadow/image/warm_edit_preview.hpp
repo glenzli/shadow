@@ -183,7 +183,13 @@ class WarmEditGpuSession;
 namespace raw_pipeline_detail {
 class RawPreviewRebindingSource;
 struct RawPreviewRebindingTelemetry;
-}
+} // namespace raw_pipeline_detail
+
+// Transient scalar samples in final-canvas coordinates, before a selected curve.
+struct CurveInputMap final {
+    Dimensions dimensions{};
+    std::vector<float> values;
+};
 
 class WarmEditPreviewSession final {
   public:
@@ -193,6 +199,13 @@ class WarmEditPreviewSession final {
     WarmEditPreviewSession& operator=(WarmEditPreviewSession&&) noexcept = default;
     ~WarmEditPreviewSession() = default;
 
+    [[nodiscard]] CurveInputMap curve_input_map(
+        std::span<const AdjustmentLayer> prefix,
+        std::uint8_t channel,
+        const PhotoGeometry& geometry,
+        const PhotoLiquify* liquify,
+        std::stop_token cancellation = {}
+    ) const;
     [[nodiscard]] Dimensions dimensions() const noexcept;
     // Authoring geometry begins in oriented level-zero source pixels even though the retained
     // working raster is bounded. Callers apply the current crop/rotation geometry to this source
@@ -207,8 +220,8 @@ class WarmEditPreviewSession final {
     // Optional source-domain clip classification retained from the same RawFrame development.
     // It never asks a provider to decode the source again merely to drive an optional zebra.
     [[nodiscard]] const std::optional<SensorClippingMask>& sensor_clipping_mask() const noexcept;
-    [[nodiscard]] const std::optional<HighlightChromaRiskMap>& highlight_chroma_risk_map()
-        const noexcept;
+    [[nodiscard]] const std::optional<HighlightChromaRiskMap>&
+    highlight_chroma_risk_map() const noexcept;
     // Runtime-only observability for tests and future diagnostics. These counters never enter
     // Recipe, catalog, or cache identities.
     [[nodiscard]] WarmEditPreviewGpuStats gpu_stats() const noexcept;

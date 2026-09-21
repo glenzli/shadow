@@ -85,6 +85,7 @@ Item {
     readonly property color accent: Theme.accent
 
     function setActiveSpecialTool(requestedTool) {
+        if (editor.targetedCurve) editor.targetedCurve.active = false
         const nextTool = activeSpecialTool === requestedTool
             ? toolNone : requestedTool
 
@@ -163,6 +164,11 @@ Item {
     }
 
     function cancelTransientInteractionOrLeaveTool() {
+        if (editor.targetedCurve && editor.targetedCurve.active) {
+            if (editor.targetedCurve.dragging) editor.targetedCurve.finish(true)
+            else editor.targetedCurve.active = false
+            return
+        }
         if (editor.pointColorPickerActive) {
             editor.setPointColorPickerActive(false)
             return

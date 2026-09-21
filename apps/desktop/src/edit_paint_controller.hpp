@@ -14,6 +14,8 @@ class EditController;
 // one completed stroke is one history entry and one autosave checkpoint.
 class EditPaintController final : public QObject {
     Q_OBJECT
+    Q_PROPERTY(bool dodgeBurn READ dodgeBurn WRITE setDodgeBurn NOTIFY brushChanged)
+    Q_PROPERTY(bool burn READ burn WRITE setBurn NOTIFY brushChanged)
     Q_PROPERTY(QVariantList layers READ layers NOTIFY changed)
     Q_PROPERTY(int selectedIndex READ selectedIndex NOTIFY changed)
     Q_PROPERTY(bool canPaint READ canPaint NOTIFY changed)
@@ -45,6 +47,14 @@ class EditPaintController final : public QObject {
     Q_PROPERTY(QString presetId READ presetId NOTIFY brushChanged)
   public:
     explicit EditPaintController(EditController& owner);
+    bool dodgeBurn() const {
+        return dodge_burn_;
+    }
+    bool burn() const {
+        return burn_;
+    }
+    void setDodgeBurn(bool value);
+    void setBurn(bool value);
     QVariantList layers() const;
     int selectedIndex() const;
     bool canPaint() const;
@@ -142,7 +152,8 @@ class EditPaintController final : public QObject {
     Q_INVOKABLE void addLayer();
     Q_INVOKABLE void removeLayer();
     Q_INVOKABLE void moveLayer(int offset);
-    Q_INVOKABLE bool beginStroke(double x, double y, double aspect, double pressure = 1.0);
+    Q_INVOKABLE bool
+    beginStroke(double x, double y, double aspect, double pressure = 1.0, bool reverse = false);
     Q_INVOKABLE void appendPoint(double x, double y, double pressure = 1.0);
     Q_INVOKABLE void finishStroke();
     Q_INVOKABLE void cancelStroke();
@@ -177,4 +188,7 @@ class EditPaintController final : public QObject {
     double aspect_ = 1, stroke_distance_ = 0, dab_budget_ = 32760;
     int stroke_index_ = -1;
     bool picking_ = false;
+    bool dodge_burn_ = false, burn_ = false;
+    std::optional<PaintBrushProfile> dodge_burn_brush_;
+    static bool isDodgeBurnLayer(const BackendPaintLayer& layer);
 };

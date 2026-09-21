@@ -588,6 +588,7 @@ if(BUILD_TESTING)
         PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/src/edit"
     )
+    shadow_image_add_contract(shadow-image-curve-input-map-tests shadow-image-curve-input-map-contract tests/curve_input_map_contract_test.cpp)
     shadow_image_add_contract(
         shadow-image-tone-curve-tests
         shadow-image-tone-curve-contract

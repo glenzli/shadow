@@ -10,6 +10,7 @@ presentation, SQLite schema details, or native image algorithms.
 | --- | --- |
 | Desktop CXX structs, methods, and session composition | [`src/lib.rs`](src/lib.rs) |
 | Versioned Recipe document projection and verified bundled LUT storage | [`src/recipe_interchange.rs`](src/recipe_interchange.rs), [`src/recipe_lut_resources.rs`](src/recipe_lut_resources.rs) |
+| Exact pre-curve recipe prefix, existing warm-source lookup and cancellable scalar input map | [`src/edit_preview/curve_input.rs`](src/edit_preview/curve_input.rs) |
 | Frozen color-only Grade Stack projection, explicit omissions, and cancellable LUT export | [`src/lut_export.rs`](src/lut_export.rs) |
 | Checkpointed smart-category classification projection | [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
 | Library service composition | [`src/library_service.rs`](src/library_service.rs) |

@@ -33,9 +33,8 @@ class DesktopBackend final {
         QString title;
     };
 
-    [[nodiscard]] BackendLutExportSnapshot prepareLutExport(
-        const BackendGradeStack& grade_stack, const QString& selected_node_id
-    ) const;
+    [[nodiscard]] BackendLutExportSnapshot
+    prepareLutExport(const BackendGradeStack& grade_stack, const QString& selected_node_id) const;
 
     DesktopBackend(const QString& catalog_path, const QString& cache_root);
     ~DesktopBackend();
@@ -412,6 +411,15 @@ class DesktopBackend final {
         std::uint8_t jpeg_quality,
         EditPreviewPolicy policy,
         std::optional<EditMaskCoverageRequest> mask_coverage_request
+    ) const;
+    [[nodiscard]] BackendCurveInputMap curveInputMap(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const BackendGradeStack& stack,
+        std::uint64_t token,
+        int node_index,
+        int channel
     ) const;
     [[nodiscard]] BackendRawWhiteBalancePickerResult pickRawWhiteBalance(
         const QString& photo_id,

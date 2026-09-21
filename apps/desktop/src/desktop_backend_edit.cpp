@@ -553,6 +553,43 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
     return result;
 }
 
+BackendCurveInputMap DesktopBackend::curveInputMap(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const BackendGradeStack& stack,
+    std::uint64_t token,
+    int node_index,
+    int channel
+) const {
+    shadow::desktop::FfiEditPreviewRequest request;
+    request.base_commit_id = base_commit_id.toStdString();
+    request.settings = ffi_grade_stack(stack);
+    // A separate cancellable token owns this read-only cached-source request.
+    request.render_token = token;
+    request.max_edge = 1536U;
+    request.jpeg_quality = 90U;
+    request.policy = shadow::desktop::FfiEditPreviewPolicy::Interactive;
+    request.use_working_recipe = true;
+    request.mask_coverage_requested = false;
+    request.mask_coverage_target_layer_index = 0U;
+    request.mask_coverage_component_requested = false;
+    request.mask_coverage_target_component_index = 0U;
+    request.mask_selection_revision = 0U;
+    const auto map = impl_->session->curve_input_map(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        request,
+        static_cast<std::uint32_t>(node_index),
+        static_cast<std::uint8_t>(channel)
+    );
+    BackendCurveInputMap result{.width = map.width, .height = map.height};
+    result.values.reserve(static_cast<qsizetype>(map.values.size()));
+    for (auto value : map.values)
+        result.values.push_back(value);
+    return result;
+}
+
 BackendRawWhiteBalancePickerResult DesktopBackend::pickRawWhiteBalance(
     const QString& photo_id,
     const QString& source_path,

@@ -29,8 +29,14 @@ EditPaintController::EditPaintController(EditController& owner) :
 int EditPaintController::selectedIndex() const {
     const auto& layers = owner_.grade_stack_.paint_layers;
     for (qsizetype i = 0; i < layers.size(); ++i)
-        if (layers[i].id == selected_id_)
+        if (layers[i].id == selected_id_ && (!dodge_burn_ || isDodgeBurnLayer(layers[i])))
             return int(i);
+    if (dodge_burn_) {
+        for (qsizetype i = layers.size(); i > 0; --i)
+            if (isDodgeBurnLayer(layers[i - 1]))
+                return int(i - 1);
+        return -1;
+    }
     return layers.isEmpty() ? -1 : int(layers.size() - 1);
 }
 const BackendPaintLayer* EditPaintController::layer() const {
@@ -46,7 +52,8 @@ QVariantList EditPaintController::layers() const {
                 {QStringLiteral("label"),
                  (layer.label.isEmpty() || layer.label == QStringLiteral("Paint layer"))
                      ? tr("Paint layer")
-                     : layer.label},
+                 : layer.label == QStringLiteral("Dodge & Burn") ? tr("Dodge & Burn")
+                                                                 : layer.label},
                 {QStringLiteral("enabled"), layer.enabled},
                 {QStringLiteral("strokes"), layer.strokes.size()}
             }
@@ -75,7 +82,7 @@ int EditPaintController::blend() const {
 }
 BackendPaintLayer EditPaintController::freshLayer() const {
     BackendPaintLayer result;
-    result.label = QStringLiteral("Paint layer");
+    result.label = dodge_burn_ ? QStringLiteral("Dodge & Burn") : QStringLiteral("Paint layer");
     result.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     result.blend = static_cast<std::uint8_t>(default_blend_);
     result.coordinate_width = owner_.level_zero_width_;
@@ -97,6 +104,8 @@ void EditPaintController::activate() {
 void EditPaintController::selectLayer(int index) {
     if (!editable() || index < 0 || index >= owner_.grade_stack_.paint_layers.size())
         return;
+    if (dodge_burn_ && !isDodgeBurnLayer(owner_.grade_stack_.paint_layers[index]))
+        setDodgeBurn(false);
     owner_.finishActiveGesture();
     selected_id_ = owner_.grade_stack_.paint_layers[index].id;
     default_blend_ = layer()->blend;
@@ -153,7 +162,7 @@ void EditPaintController::setLayerOpacity(double value) {
         editLayer(QStringLiteral("paint/layer/opacity"), [value](auto& l) { l.opacity = value; });
 }
 void EditPaintController::setBlend(int value) {
-    if (value < 0 || value > 2 || strokeActive())
+    if (value < 0 || value > 2 || strokeActive() || dodge_burn_)
         return;
     default_blend_ = value;
     saveBrush();
@@ -187,7 +196,7 @@ void EditPaintController::setFlow(double v) {
     }
 }
 void EditPaintController::setColor(QColor v) {
-    if (v.isValid() && !strokeActive()) {
+    if (v.isValid() && !strokeActive() && !dodge_burn_) {
         brush_.red = v.redF();
         brush_.green = v.greenF();
         brush_.blue = v.blueF();
@@ -202,7 +211,7 @@ void EditPaintController::setErase(bool v) {
     }
 }
 void EditPaintController::setPicking(bool v) {
-    if (!strokeActive()) {
+    if (!strokeActive() && (!v || !dodge_burn_)) {
         picking_ = v;
         emit brushChanged();
     }
@@ -272,7 +281,13 @@ bool EditPaintController::preparePointMapping() const {
     mapping_ready_ = true;
     return true;
 }
-bool EditPaintController::beginStroke(double x, double y, double aspect, double pressure) {
+bool EditPaintController::beginStroke(
+    double x,
+    double y,
+    double aspect,
+    double pressure,
+    bool reverse
+) {
     if (!canPaint() || strokeActive() || !std::isfinite(aspect) || aspect <= 0 || !std::isfinite(x)
         || !std::isfinite(y) || !std::isfinite(pressure))
         return false;
@@ -340,7 +355,10 @@ bool EditPaintController::beginStroke(double x, double y, double aspect, double 
     if (target.strokes.isEmpty() && !brush_.erase)
         target.blend = static_cast<std::uint8_t>(default_blend_);
     stroke_index_ = int(target.strokes.size());
-    target.strokes.push_back(brush_);
+    auto stroke = brush_;
+    if (dodge_burn_ && reverse && !stroke.erase)
+        stroke.red = stroke.green = stroke.blue = burn_ ? 1.0 : 0.0;
+    target.strokes.push_back(std::move(stroke));
     status_.clear();
     appendPoint(x, y, pressure);
     emit changed();
@@ -516,21 +534,28 @@ bool EditPaintController::sampleColor(double x, double y, const QString& generat
 
 void EditPaintController::saveBrush() {
     PaintBrushProfile p{brush_, smoothing_, default_blend_, {}};
-    presets_.setCurrent(std::move(p));
+    if (dodge_burn_)
+        dodge_burn_brush_ = p;
+    else
+        presets_.setCurrent(std::move(p));
     emit brushChanged();
 }
 void EditPaintController::loadBrush() {
     const auto& p = presets_.current();
     brush_ = p.stroke;
     smoothing_ = p.smoothing;
-    default_blend_ = p.blend;
+    default_blend_ = dodge_burn_ ? 2 : p.blend;
+    if (dodge_burn_) {
+        brush_.red = brush_.green = brush_.blue = burn_ ? 0.0 : 1.0;
+        brush_.erase = false;
+    }
     picking_ = false;
     status_.clear();
     emit brushChanged();
     emit changed();
 }
 void EditPaintController::setBrushSlot(int value) {
-    if (strokeActive() || value < 0 || value > 1)
+    if (strokeActive() || dodge_burn_ || value < 0 || value > 1)
         return;
     presets_.selectSlot(value);
     loadBrush();

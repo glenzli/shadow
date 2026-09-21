@@ -54,6 +54,13 @@ pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
 /// float32. The intended UI values are 1600 and 2048.
 pub const MAX_WARM_EDIT_PREVIEW_EDGE: u32 = 4_096;
 
+#[derive(Debug, Clone)]
+pub struct CurveInputMap {
+    pub width: u32,
+    pub height: u32,
+    pub values: Vec<f32>,
+}
+
 /// A reusable, bounded processed linear-light RGB working proxy for interactive edits.
 ///
 /// [`Self::open`] asks Shadow's source router for processed linear-light sRGB-primary RGB once.
@@ -436,6 +443,31 @@ impl LibRawEditPreviewSession {
             raw_development_receipt,
             raw_pipeline_receipt,
             optics_receipt,
+        })
+    }
+
+    /// Reads a bounded, transient map from an already compiled curve-input prefix.
+    pub fn curve_input_map(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        channel: u8,
+        cancellation: &EditPreviewCancellation,
+    ) -> Result<CurveInputMap, BridgeError> {
+        plan.validate()?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let cancel = cancellation
+            .handle
+            .as_ref()
+            .ok_or(BridgeError::NullHandle)?;
+        let map = handle.curve_input_map(
+            &ffi_render_request(plan, self.max_edge, 90),
+            channel,
+            cancel,
+        )?;
+        Ok(CurveInputMap {
+            width: map.width,
+            height: map.height,
+            values: map.values,
         })
     }
 

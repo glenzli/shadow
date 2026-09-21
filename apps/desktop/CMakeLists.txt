@@ -359,6 +359,7 @@ qt_add_executable(
     src/edit_adjustment_reset_controller.cpp
     src/subject_emphasis_smoke_harness.cpp
     src/subject_emphasis_smoke_harness.hpp
+    src/edit_dodge_burn_controller.cpp
     src/edit_paint_controller.cpp
     src/edit_paint_controller.hpp
     src/paint_brush_presets.cpp
@@ -424,6 +425,8 @@ qt_add_executable(
     src/edit_stroke_input.hpp
     src/edit_task_runner.cpp
     src/edit_task_runner.hpp
+    src/edit_targeted_curve_controller.cpp
+    src/edit_targeted_curve_controller.hpp
     src/edit_tone_curve_controller.cpp
     src/edit_history.hpp
     src/edit_preview_contract.hpp
@@ -494,6 +497,8 @@ qt_add_executable(
     src/paint_smoke_harness.hpp
     src/precision_editing_smoke_harness.cpp
     src/precision_editing_smoke_harness.hpp
+    src/direct_edit_smoke_harness.cpp
+    src/direct_edit_smoke_harness.hpp
     src/rgb_curve_smoke_harness.cpp
     src/rgb_curve_smoke_harness.hpp
     src/pipeline_smoke_harness.cpp
@@ -891,6 +896,7 @@ qt_add_qml_module(
         qml/PrecisionDetailLoupeState.qml
         qml/PrecisionActiveStrokeCoverage.qml
         qml/PrecisionAiMaskPromptOverlay.qml
+        qml/PrecisionTargetedCurveOverlay.qml
         qml/PrecisionPaintOverlay.qml
         qml/PrecisionPaintTools.qml
         qml/PrecisionPaintBrushSettings.qml
