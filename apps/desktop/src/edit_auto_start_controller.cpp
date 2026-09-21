@@ -187,13 +187,13 @@ void EditAutoStartController::analyze() {
     if (active_ || busy() || !owner_.active_ || owner_.interactionLocked())
         return;
     if (!owner_.canAddGradeNode()) {
-        status_ = tr("Auto start needs room for an adjustment node.");
+        status_ = tr("Automatic adjustment needs room for an adjustment node.");
         emit changed();
         return;
     }
     owner_.finishActiveGesture();
     try {
-        tone_node_ = backend_->newBasicGradeNode(tr("Auto start · tone"));
+        tone_node_ = backend_->newBasicGradeNode(tr("Auto · tone"));
     } catch (const std::exception& e) {
         status_ = tr("Could not prepare suggestions · %1").arg(QString::fromUtf8(e.what()));
         emit changed();
@@ -212,7 +212,7 @@ void EditAutoStartController::analyze() {
     original_source_.clear();
     preview_source_.clear();
     presented_revision_ = 0;
-    status_ = tr("Preparing a starting point from the current photo…");
+    status_ = tr("Preparing automatic adjustments…");
     notify();
     startPending();
 }
@@ -376,7 +376,7 @@ void EditAutoStartController::apply() {
     ++generation_;
     applying_ = true;
     const auto masks = skin_ && strength_ > 0 ? proposal_.masks : QVector<BackendAutoStartMask>{};
-    status_ = tr("Applying the starting point…");
+    status_ = tr("Applying automatic adjustments…");
     apply_.setFuture(
         QtConcurrent::run([backend = backend_,
                            photo = photo_,
@@ -424,7 +424,8 @@ void EditAutoStartController::finishApply() {
             QStringLiteral("auto_start")
         );
         status_ =
-            tr("Starting point applied. Every adjustment remains editable; undo once to restore.");
+            tr("Automatic adjustments applied. Every adjustment remains editable; undo once to "
+               "restore.");
         emit applied();
     }
     notify();

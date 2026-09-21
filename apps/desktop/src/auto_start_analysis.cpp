@@ -207,7 +207,7 @@ AutoStartProposal analyzeAutoStart(
                             node = backend->newBasicGradeNode(
                                 QCoreApplication::translate(
                                     "EditAutoStartController",
-                                    "Auto start · skin %1"
+                                    "Auto · skin %1"
                                 )
                                     .arg(person.index + 1)
                             );

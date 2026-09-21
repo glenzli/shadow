@@ -1682,13 +1682,14 @@ runs the request's normal export. The fixture must admit a restrained adjustment
 policy cases live in the bridge owner's unit tests. This opt-in check requires installed local
 providers and a valid Shadow credential; it never substitutes an external or cloud provider.
 
-### Automatic starting point
+### Automatic adjustments
 
 `src/edit_auto_start_controller.*` owns the cancellable, disposable suggestion and one-undo apply.
 `src/auto_start_analysis.*` runs bounded measurements, local Qwen scene checks and per-person skin
 selection off the GUI thread. `src/auto_start_policy.*` owns conservative display-tone and skin-hue
-limits. `qml/PrecisionAutoStart.qml` shares the Assisted editing entry with Subject emphasis and
+limits. `qml/PrecisionAutoStart.qml` presents Auto beside Subject emphasis under Assisted editing and
 provides exact candidate preview, hold-to-compare, overall strength and three independent switches.
+Its dialog uses the shared Shadow controls, theme typography and separated header/footer.
 Suggestions never change edits until applied; manual edits or changing photos invalidate them.
 Applying the ready measured preview cancels unfinished AI analysis instead of requiring a model wait.
 The optional `AiPreferences::autoStartEnabled` prepares suggestions only for unedited photos.

@@ -385,8 +385,8 @@
     <name>EditAutoStartController</name>
     <message>
         <location filename="../src/auto_start_analysis.cpp" line="208"/>
-        <source>Auto start · skin %1</source>
-        <translation>自动起点 · 肤色 %1</translation>
+        <source>Auto · skin %1</source>
+        <translation>自动 · 肤色 %1</translation>
     </message>
     <message>
         <location filename="../src/edit_auto_start_controller.cpp" line="122"/>
@@ -432,13 +432,13 @@
     </message>
     <message>
         <location filename="../src/edit_auto_start_controller.cpp" line="190"/>
-        <source>Auto start needs room for an adjustment node.</source>
-        <translation>自动起点需要至少一个可用的调整节点位置。</translation>
+        <source>Automatic adjustment needs room for an adjustment node.</source>
+        <translation>自动调整需要至少一个可用的调整节点位置。</translation>
     </message>
     <message>
         <location filename="../src/edit_auto_start_controller.cpp" line="196"/>
-        <source>Auto start · tone</source>
-        <translation>自动起点 · 明暗</translation>
+        <source>Auto · tone</source>
+        <translation>自动 · 明暗</translation>
     </message>
     <message>
         <location filename="../src/edit_auto_start_controller.cpp" line="198"/>
@@ -448,8 +448,8 @@
     </message>
     <message>
         <location filename="../src/edit_auto_start_controller.cpp" line="215"/>
-        <source>Preparing a starting point from the current photo…</source>
-        <translation>正在为当前照片准备自动起点…</translation>
+        <source>Preparing automatic adjustments…</source>
+        <translation>正在为当前照片准备自动调整…</translation>
     </message>
     <message>
         <location filename="../src/edit_auto_start_controller.cpp" line="228"/>
@@ -483,8 +483,8 @@
     </message>
     <message>
         <location filename="../src/edit_auto_start_controller.cpp" line="379"/>
-        <source>Applying the starting point…</source>
-        <translation>正在应用自动起点…</translation>
+        <source>Applying automatic adjustments…</source>
+        <translation>正在应用自动调整…</translation>
     </message>
     <message>
         <location filename="../src/edit_auto_start_controller.cpp" line="408"/>
@@ -493,8 +493,8 @@
     </message>
     <message>
         <location filename="../src/edit_auto_start_controller.cpp" line="427"/>
-        <source>Starting point applied. Every adjustment remains editable; undo once to restore.</source>
-        <translation>已应用自动起点。每项调整均可继续编辑，一次撤销即可恢复。</translation>
+        <source>Automatic adjustments applied. Every adjustment remains editable; undo once to restore.</source>
+        <translation>已应用自动调整。每项调整均可继续编辑，一次撤销即可恢复。</translation>
     </message>
     <message>
         <location filename="../src/edit_auto_start_controller.cpp" line="459"/>
@@ -7067,10 +7067,14 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PrecisionAutoStart</name>
     <message>
+        <source>Local processing</source>
+        <translation>本地处理</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionAutoStart.qml" line="19"/>
         <location filename="../qml/PrecisionAutoStart.qml" line="66"/>
-        <source>Auto start</source>
-        <translation>自动起点</translation>
+        <source>Auto</source>
+        <translation>自动</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAutoStart.qml" line="22"/>
@@ -7079,8 +7083,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAutoStart.qml" line="23"/>
-        <source>A gentle starting point for white balance, tone and skin. Processed locally.</source>
-        <translation>为白平衡、明暗与肤色提供温和的调色起点，全程本地处理。</translation>
+        <source>Automatically adjust white balance, tone and skin. Processed locally.</source>
+        <translation>自动调整白平衡、明暗与肤色，全程本地处理。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAutoStart.qml" line="79"/>
@@ -7139,8 +7143,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAutoStart.qml" line="215"/>
-        <source>Apply starting point</source>
-        <translation>应用起点</translation>
+        <source>Apply</source>
+        <translation>应用</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAutoStart.qml" line="216"/>

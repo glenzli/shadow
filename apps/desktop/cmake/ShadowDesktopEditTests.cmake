@@ -1784,9 +1784,10 @@ endif()
     qt_add_qml_module(shadow-auto-start-panel-contract-test
         URI Shadow.AutoStartContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
         QML_FILES qml/PrecisionAutoStart.qml qml/ShadowButton.qml qml/ShadowIconButton.qml
-            qml/ShadowIcon.qml qml/ShadowSlider.qml qml/ShadowInlineSlider.qml qml/Theme.qml)
+            qml/ShadowIcon.qml qml/ShadowSlider.qml qml/ShadowInlineSlider.qml
+            qml/ShadowCheckBox.qml qml/ShadowSwitch.qml qml/Theme.qml)
     qt_add_resources(shadow-auto-start-panel-contract-test auto-start-icons PREFIX "/icons"
-        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons" FILES icons/close.svg icons/reset-all.svg)
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons" FILES icons/close.svg icons/reset-all.svg icons/check.svg)
     add_test(NAME shadow-desktop-auto-start-panel COMMAND shadow-auto-start-panel-contract-test)
     set_tests_properties(shadow-desktop-auto-start-panel PROPERTIES TIMEOUT 30 LABELS "desktop;grading"
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic")
