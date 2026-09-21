@@ -454,6 +454,23 @@ class DesktopBackend final {
         const BackendSubjectMaskApplyRequest& request
     ) const;
     void discardSubjectMaskProposal(std::uint64_t proposal_token) const;
+    [[nodiscard]] BackendEditedPreview renderAutoStartPreview(
+        const QString& photo,
+        const QString& source,
+        const QString& base,
+        const BackendGradeStack& stack,
+        std::uint64_t token,
+        const QVector<BackendAutoStartMask>& masks
+    ) const;
+    [[nodiscard]] BackendPhotoEditState applyAutoStart(
+        const QString& photo,
+        const QString& source,
+        const QString& base,
+        const QString& expected,
+        const BackendGradeStack& stack,
+        const QVector<BackendAutoStartMask>& masks
+    ) const;
+
     [[nodiscard]] std::uint64_t beginImageCompletionJob() const;
     void cancelImageCompletionJob(std::uint64_t image_completion_job_token) const;
     [[nodiscard]] BackendImageCompletionResult executeImageCompletionJob(

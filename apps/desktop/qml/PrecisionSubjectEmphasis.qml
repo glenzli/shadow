@@ -21,16 +21,17 @@ ColumnLayout {
         spacing: 8
         Label {
             Layout.fillWidth: true
-            text: qsTr("Subject emphasis")
+            text: qsTr("Assisted editing")
             color: Theme.textPrimary
             font.pixelSize: Theme.fontSection
             font.weight: Font.DemiBold
         }
+        PrecisionAutoStart { editor: root.editor }
         ShadowIconButton {
             objectName: "analyzeSubjectEmphasis"
             source: "qrc:/icons/scopes.svg"
             visible: !root.controller.active
-            accessibleName: qsTr("Analyze locally")
+            accessibleName: qsTr("Subject emphasis")
             toolTipText: accessibleName + "\n" + qsTr("Local AI · Preview") + "\n"
                 + qsTr("Use local QwenVL to describe this photo, then choose the subject. No cloud upload.")
             enabled: root.editor.active && !root.editor.stateBusy && !root.controller.busy

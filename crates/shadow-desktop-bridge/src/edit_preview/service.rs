@@ -310,7 +310,13 @@ impl DesktopSession {
         request: &ffi::FfiEditPreviewRequest,
     ) -> AnyResult<Box<OwnedEditedPreview>> {
         let policy = EditPreviewPolicy::from_ffi(request.policy)?;
-        self.render_basic_edit_preview_owned_with_policy(photo_id, source_path, request, policy)
+        self.render_basic_edit_preview_owned_with_policy(
+            photo_id,
+            source_path,
+            request,
+            policy,
+            &[],
+        )
     }
 
     /// Produces the exact identity-geometry JPEG consumed by the local
@@ -327,16 +333,18 @@ impl DesktopSession {
             source_path,
             request,
             EditPreviewPolicy::SubjectMaskInput,
+            &[],
         )
         .and_then(OwnedEditedPreview::into_materialized_projection)
     }
 
-    fn render_basic_edit_preview_owned_with_policy(
+    pub(crate) fn render_basic_edit_preview_owned_with_policy(
         &self,
         photo_id: &str,
         source_path: &str,
         request: &ffi::FfiEditPreviewRequest,
         policy: EditPreviewPolicy,
+        candidate_masks: &[ffi::FfiAutoStartMask],
     ) -> AnyResult<Box<OwnedEditedPreview>> {
         let render = (|| -> AnyResult<Box<OwnedEditedPreview>> {
             match self
@@ -385,7 +393,12 @@ impl DesktopSession {
             )?;
             let source_environment_cache_identity =
                 current_source_environment_cache_identity(&photo_provider_version());
-            let recipe = if matches!(policy, EditPreviewPolicy::NeutralBefore) {
+            let recipe = if !candidate_masks.is_empty() {
+                if policy != EditPreviewPolicy::SubjectMaskInput {
+                    bail!("candidate masks require a transient preview");
+                }
+                self.resolve_auto_start_render(photo_id, request, candidate_masks)?
+            } else if matches!(policy, EditPreviewPolicy::NeutralBefore) {
                 resolve_composition_before_render(
                     &self.catalog,
                     &self.cache_root,

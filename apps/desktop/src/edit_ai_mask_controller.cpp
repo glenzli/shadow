@@ -336,7 +336,8 @@ void EditController::cancelAiMaskPrompt() {
 void EditController::applySubjectMaskState(
     BackendPhotoEditState state,
     const BackendGradeStack& before,
-    const QString& target_grade_node_id
+    const QString& target_grade_node_id,
+    const QString& transaction_key
 ) {
     if (state.photo_id != photo_id_ || state.source_path != source_path_) {
         return;
@@ -355,7 +356,8 @@ void EditController::applySubjectMaskState(
     committed_grade_stack_ = state.grade_stack;
     setGradeStack(std::move(state.grade_stack), target_grade_node_id);
     const auto* const applied_target = selectedGradeNode();
-    if (applied_target != nullptr && applied_target->grade_node_id == target_grade_node_id
+    if (transaction_key.isEmpty() && applied_target != nullptr
+        && applied_target->grade_node_id == target_grade_node_id
         && !applied_target->local_mask_components.isEmpty()) {
         selectLocalMaskComponent(
             static_cast<int>(applied_target->local_mask_components.size() - 1)
@@ -363,7 +365,10 @@ void EditController::applySubjectMaskState(
         setMaskCoverageShowsSelectedComponent(true);
     }
     history_.record(
-        QStringLiteral("grade_node/%1/local_mask/ai").arg(target_grade_node_id).toStdString(),
+        (transaction_key.isEmpty()
+             ? QStringLiteral("grade_node/%1/local_mask/ai").arg(target_grade_node_id)
+             : transaction_key)
+            .toStdString(),
         {before, before_base_commit_id},
         {grade_stack_, base_commit_id_}
     );

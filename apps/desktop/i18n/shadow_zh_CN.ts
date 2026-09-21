@@ -382,6 +382,127 @@
     </message>
 </context>
 <context>
+    <name>EditAutoStartController</name>
+    <message>
+        <location filename="../src/auto_start_analysis.cpp" line="208"/>
+        <source>Auto start · skin %1</source>
+        <translation>自动起点 · 肤色 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="122"/>
+        <source>Preserving the scene lighting; no global correction suggested.</source>
+        <translation>保留现场光线氛围，暂不建议全局校正。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="125"/>
+        <source>White balance: a small correction around the current white point.</source>
+        <translation>白平衡：在当前白点附近做轻微校正。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="127"/>
+        <source>White balance: no reliable RAW neutral estimate; kept unchanged.</source>
+        <translation>白平衡：未找到可靠的 RAW 中性参考，保持原值。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="129"/>
+        <source>Tone: %1 EV, gentle highlight and shadow balance.</source>
+        <translation>明暗：%1 EV，轻微平衡高光与阴影。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="132"/>
+        <source>Tone: already balanced, or insufficient evidence to change it.</source>
+        <translation>明暗：已较均衡，或暂不足以判断需要调整。</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../src/edit_auto_start_controller.cpp" line="135"/>
+        <source>Skin: subtle hue uniformity for %n person(s), preserving each person&apos;s colour.</source>
+        <translation>
+            <numerusform>肤色：轻微均匀 %n 人的色相，保留各自原有肤色。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="142"/>
+        <source>Skin: no confident correction suggested.</source>
+        <translation>肤色：暂无有把握的校正建议。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="143"/>
+        <source>Skin: local selection was unavailable or skipped.</source>
+        <translation>肤色：本地选区不可用，或已跳过。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="190"/>
+        <source>Auto start needs room for an adjustment node.</source>
+        <translation>自动起点需要至少一个可用的调整节点位置。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="196"/>
+        <source>Auto start · tone</source>
+        <translation>自动起点 · 明暗</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="198"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="296"/>
+        <source>Could not prepare suggestions · %1</source>
+        <translation>无法准备建议 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="215"/>
+        <source>Preparing a starting point from the current photo…</source>
+        <translation>正在为当前照片准备自动起点…</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="228"/>
+        <source>Save the current adjustments before analyzing.</source>
+        <translation>请先保存当前调整，再开始分析。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="253"/>
+        <source>Measuring tone and white balance; local AI will refine the suggestion…</source>
+        <translation>正在测量明暗与白平衡，随后由本地 AI 完善建议…</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="272"/>
+        <source>Basic preview ready. Local AI is checking scene lighting and skin…</source>
+        <translation>基础预览已就绪，本地 AI 正在检查场景光线与肤色…</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="302"/>
+        <source>Local AI suggestion ready · %1. Review before applying.</source>
+        <translation>本地 AI 建议已就绪 · %1。请预览后应用。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="303"/>
+        <source>Measured suggestion ready. Scene AI is unavailable or disabled; review the lighting.</source>
+        <translation>测量建议已就绪。场景 AI 不可用或已关闭，请检查光线氛围。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="362"/>
+        <source>Could not preview suggestions · %1</source>
+        <translation>无法预览建议 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="379"/>
+        <source>Applying the starting point…</source>
+        <translation>正在应用自动起点…</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="408"/>
+        <source>Could not apply suggestions · %1. Analyze again to retry.</source>
+        <translation>无法应用建议 · %1。请重新分析后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="427"/>
+        <source>Starting point applied. Every adjustment remains editable; undo once to restore.</source>
+        <translation>已应用自动起点。每项调整均可继续编辑，一次撤销即可恢复。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_auto_start_controller.cpp" line="459"/>
+        <source>Cancelled. The photo and edit history are unchanged.</source>
+        <translation>已取消，照片与编辑历史未改变。</translation>
+    </message>
+</context>
+<context>
     <name>EditController</name>
     <message>
         <location filename="../src/edit_ai_completion_controller.cpp" line="560"/>
@@ -467,48 +588,48 @@
         <translation>无法启动 AI 补全 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="511"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="516"/>
         <source>Enter a semantic subject of at most 256 bytes</source>
         <translation>请输入不超过 256 字节的语义主体</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1153"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1158"/>
         <source>Semantic Mask for %1 applied · copying reruns it on the target photo</source>
         <translation>已应用“%1”的语义蒙版 · 复制时将在目标照片上重新计算</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="892"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="897"/>
         <source>Semantic Mask is locating %1…</source>
         <translation>语义蒙版正在定位“%1”…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1018"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1023"/>
         <source>Semantic Mask is unavailable or found no match · check Infer Runtime · %1</source>
         <translation>语义蒙版不可用或未找到匹配项 · 请检查 Infer Runtime · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="618"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="623"/>
         <source>Semantic Mask · locating %1…</source>
         <translation>语义蒙版 · 正在定位“%1”…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1098"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1103"/>
         <source>Semantic candidate ready · confirm or cancel</source>
         <translation>语义候选已就绪 · 请确认或取消</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="726"/>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="743"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="731"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="748"/>
         <source>AI Mask · click the subject to select it</source>
         <translation>AI 蒙版 · 点击要选择的主体</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="739"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="744"/>
         <source>People details · choose a person and details</source>
         <translation>人物细节 · 选择人物与细节</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="793"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="798"/>
         <source>AI Mask cannot continue until the current adjustments are saved</source>
         <translation>当前调整保存完成前无法继续生成 AI 蒙版</translation>
     </message>
@@ -1533,12 +1654,12 @@
         <translation>图库目录返回了其他照片的自动保存状态</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.cpp" line="460"/>
+        <location filename="../src/edit_controller.cpp" line="467"/>
         <source>Select a Grade Node before editing</source>
         <translation>请先选择一个调色节点再进行编辑</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.cpp" line="465"/>
+        <location filename="../src/edit_controller.cpp" line="472"/>
         <source>Enable the selected Grade Node before editing its controls</source>
         <translation>请先启用选中的调色节点，再编辑其控件</translation>
     </message>
@@ -1574,12 +1695,12 @@
         <translation>图库版本已创建 · 之前的状态仍然保留</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.cpp" line="473"/>
+        <location filename="../src/edit_controller.cpp" line="480"/>
         <source>%1 is outside the supported preview range</source>
         <translation>%1 超出支持的预览范围</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.hpp" line="1259"/>
+        <location filename="../src/edit_controller.hpp" line="1265"/>
         <source>Open a photo from Review to begin editing</source>
         <translation>请从选片中打开一张照片开始编辑</translation>
     </message>
@@ -1619,121 +1740,121 @@
         <translation>明度下限不能高于上限</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="704"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="709"/>
         <source>AI Mask accepts at most 16 prompt points</source>
         <translation>AI 蒙版最多接受 16 个提示点</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1157"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1162"/>
         <source>AI Mask applied · Undo is available</source>
         <translation>AI 蒙版已应用 · 可以撤销</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="952"/>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1011"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="957"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1016"/>
         <source>AI Mask cancelled</source>
         <translation>AI 蒙版已取消</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="994"/>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1037"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="999"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1042"/>
         <source>AI Mask failed · %1</source>
         <translation>AI 蒙版失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="897"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="902"/>
         <source>AI Mask is identifying the subject…</source>
         <translation>AI 蒙版正在识别主体…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="896"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="901"/>
         <source>AI Mask is identifying facial details…</source>
         <translation>AI 蒙版正在识别人脸细节…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="805"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="810"/>
         <source>AI Mask is waiting for the current adjustments to finish saving</source>
         <translation>AI 蒙版正在等待当前调整保存完成</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="555"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="560"/>
         <source>AI selection needs room for a new Grade Node</source>
         <translation>AI 选择需要有空间新建调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1074"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1079"/>
         <source>AI Mask returned no applicable proposal</source>
         <translation>AI 蒙版没有返回可应用的结果</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="619"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="624"/>
         <source>AI Mask · click the subject to add an include point</source>
         <translation>AI 蒙版 · 点击主体添加包含点</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="539"/>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="784"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="544"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="789"/>
         <source>AI subject selection is disabled in Settings</source>
         <translation>设置中已禁止执行 AI 主体选择</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="938"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="943"/>
         <source>Applying AI Mask…</source>
         <translation>正在应用 AI 蒙版…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1084"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1089"/>
         <source>AI Mask returned an invalid candidate preview</source>
         <translation>AI 蒙版返回了无效的候选预览</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1103"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1108"/>
         <source>AI Mask candidate ready · add points to refine or apply</source>
         <translation>AI 蒙版候选已就绪 · 可继续添加提示点细化或应用</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1099"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1104"/>
         <source>Facial detail candidate ready · choose another region or apply</source>
         <translation>人脸细节候选已就绪 · 可选择其他区域或应用</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1118"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1123"/>
         <source>Could not apply AI Mask · %1</source>
         <translation>无法应用 AI 蒙版 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="565"/>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="828"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="570"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="833"/>
         <source>Could not start AI Mask · %1</source>
         <translation>无法启动 AI 蒙版 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1026"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1031"/>
         <source>Local SAM 2.1 is unavailable · check the model directory · %1</source>
         <translation>本地 SAM 2.1 不可用 · 请检查模型目录 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1022"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1027"/>
         <source>Local face parsing is unavailable · check Infer Runtime · %1</source>
         <translation>本地人脸解析不可用 · 请检查 Infer Runtime · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="616"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="621"/>
         <source>People details · detecting people…</source>
         <translation>人物细节 · 正在检测人物…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="895"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="900"/>
         <source>AI Mask is detecting people…</source>
         <translation>AI 蒙版正在检测人物…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1049"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1054"/>
         <source>People details · no people detected</source>
         <translation>人物细节 · 未检测到人物</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1059"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1064"/>
         <source>Selected details are not visible · choose another region</source>
         <translation>所选细节不可见 · 请选择其他区域</translation>
     </message>
@@ -6944,6 +7065,90 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
+    <name>PrecisionAutoStart</name>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="19"/>
+        <location filename="../qml/PrecisionAutoStart.qml" line="66"/>
+        <source>Auto start</source>
+        <translation>自动起点</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="22"/>
+        <source>Review the prepared suggestion</source>
+        <translation>查看已准备的建议</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="23"/>
+        <source>A gentle starting point for white balance, tone and skin. Processed locally.</source>
+        <translation>为白平衡、明暗与肤色提供温和的调色起点，全程本地处理。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="79"/>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="80"/>
+        <source>Hide suggestions and continue editing</source>
+        <translation>收起建议，继续编辑</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="106"/>
+        <source>Before</source>
+        <translation>调整前</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="106"/>
+        <source>Hold to compare</source>
+        <translation>按住对比</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="133"/>
+        <source>White balance</source>
+        <translation>白平衡</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="140"/>
+        <source>Tone</source>
+        <translation>明暗</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="147"/>
+        <source>Skin</source>
+        <translation>肤色</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="156"/>
+        <source>Strength</source>
+        <translation>力度</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="179"/>
+        <source>Prepare suggestions for unedited photos</source>
+        <translation>为未编辑照片自动准备建议</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="198"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="206"/>
+        <source>Analyze again</source>
+        <translation>重新分析</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="215"/>
+        <source>Apply starting point</source>
+        <translation>应用起点</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAutoStart.qml" line="216"/>
+        <source>Apply the current preview; unfinished analysis stops.</source>
+        <translation>应用当前预览，并停止尚未完成的分析。</translation>
+    </message>
+</context>
+<context>
     <name>PrecisionCanvasPickerInput</name>
     <message>
         <location filename="../qml/PrecisionCanvasPickerInput.qml" line="386"/>
@@ -7942,7 +8147,7 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="88"/>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="158"/>
         <location filename="../qml/PrecisionResetAllDialog.qml" line="60"/>
-        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="151"/>
+        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="152"/>
         <location filename="../qml/PrecisionVariantSelector.qml" line="260"/>
         <source>Cancel</source>
         <translation>取消</translation>
@@ -10259,7 +10464,7 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="39"/>
         <location filename="../qml/PrecisionRetouchRegionInspector.qml" line="214"/>
         <location filename="../qml/PrecisionRetouchTools.qml" line="196"/>
-        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="131"/>
+        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="132"/>
         <source>Strength</source>
         <translation>强度</translation>
     </message>
@@ -10351,37 +10556,37 @@ R %2 · G %3 · B %4</translation>
         <translation>导入 Shadow Recipe…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="24"/>
+        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="34"/>
         <source>Subject emphasis</source>
         <translation>主体增强</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="34"/>
+        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="35"/>
         <source>Local AI · Preview</source>
         <translation>本地 AI · 预览版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="33"/>
-        <source>Analyze locally</source>
-        <translation>本地分析</translation>
+        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="24"/>
+        <source>Assisted editing</source>
+        <translation>辅助调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="35"/>
+        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="36"/>
         <source>Use local QwenVL to describe this photo, then choose the subject. No cloud upload.</source>
         <translation>使用本地 QwenVL 理解照片，再由你选择主体，不上传云端。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="114"/>
+        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="115"/>
         <source>Subject, e.g. bird</source>
         <translation>主体，例如 bird（鸟）</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="121"/>
+        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="122"/>
         <source>Select</source>
         <translation>选择</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="159"/>
+        <location filename="../qml/PrecisionSubjectEmphasis.qml" line="160"/>
         <source>Apply emphasis</source>
         <translation>应用增强</translation>
     </message>

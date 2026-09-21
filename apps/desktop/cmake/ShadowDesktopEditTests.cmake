@@ -1767,3 +1767,26 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
         TIMEOUT 30 LABELS "desktop;completion")
 endif()
+
+    add_executable(shadow-auto-start-policy-test tests/auto_start_policy_test.cpp src/auto_start_policy.cpp)
+    target_compile_features(shadow-auto-start-policy-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-auto-start-policy-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-auto-start-policy-test PRIVATE Qt6::Gui)
+    add_test(NAME shadow-desktop-auto-start-policy COMMAND shadow-auto-start-policy-test)
+    set_tests_properties(shadow-desktop-auto-start-policy PROPERTIES TIMEOUT 30 LABELS "desktop;grading")
+
+    qt_add_executable(shadow-auto-start-panel-contract-test tests/auto_start_panel_contract_test.cpp)
+    target_compile_features(shadow-auto-start-panel-contract-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-auto-start-panel-contract-test PRIVATE Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    target_compile_definitions(shadow-auto-start-panel-contract-test PRIVATE
+        SHADOW_AUTO_START_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+    add_dependencies(shadow-auto-start-panel-contract-test shadow-desktop-release-translations)
+    qt_add_qml_module(shadow-auto-start-panel-contract-test
+        URI Shadow.AutoStartContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/PrecisionAutoStart.qml qml/ShadowButton.qml qml/ShadowIconButton.qml
+            qml/ShadowIcon.qml qml/ShadowSlider.qml qml/ShadowInlineSlider.qml qml/Theme.qml)
+    qt_add_resources(shadow-auto-start-panel-contract-test auto-start-icons PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons" FILES icons/close.svg icons/reset-all.svg)
+    add_test(NAME shadow-desktop-auto-start-panel COMMAND shadow-auto-start-panel-contract-test)
+    set_tests_properties(shadow-desktop-auto-start-panel PROPERTIES TIMEOUT 30 LABELS "desktop;grading"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic")

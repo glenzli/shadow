@@ -366,6 +366,15 @@ qt_add_executable(
     src/paint_brush_presets.hpp
     src/paint_stroke_input.cpp
     src/paint_stroke_input.hpp
+    src/auto_start_policy.cpp
+    src/auto_start_policy.hpp
+    src/auto_start_analysis.cpp
+    src/auto_start_analysis.hpp
+    src/desktop_backend_auto_start.cpp
+    src/edit_auto_start_controller.cpp
+    src/edit_auto_start_controller.hpp
+    src/auto_start_smoke_harness.cpp
+    src/auto_start_smoke_harness.hpp
     src/edit_subject_emphasis_controller.cpp
     src/edit_subject_emphasis_controller.hpp
     src/edit_ai_mask_controller.cpp
@@ -939,6 +948,7 @@ qt_add_qml_module(
         qml/PrecisionRetouchSpotHandle.qml
         qml/PrecisionRetouchStrokeCoverage.qml
         qml/PrecisionRetouchStrokeHandle.qml
+        qml/PrecisionAutoStart.qml
         qml/PrecisionSubjectEmphasis.qml
         qml/PrecisionLocalMaskTools.qml
         qml/PrecisionConditionMaskTools.qml

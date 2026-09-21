@@ -598,6 +598,11 @@ struct BackendSubjectMaskResult final {
     std::uint8_t emphasis_reason = 0;
 };
 
+struct BackendAutoStartMask final {
+    std::uint64_t proposal_token = 0, generation = 0;
+    QString node_id;
+};
+
 struct BackendSubjectMaskApplyRequest final {
     std::uint64_t proposal_token = 0;
     std::uint64_t generation = 0;

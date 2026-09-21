@@ -62,6 +62,7 @@ mod recipe_import_service;
 mod recipe_interchange;
 mod recipe_lut_resources;
 mod recipe_v1;
+mod session_auto_start;
 mod session_edit_history;
 mod session_image_completion;
 mod session_raw_foundation;
@@ -1814,8 +1815,14 @@ mod ffi {
         values: Vec<f32>,
     }
 
-    /// One include/exclude click in the currently displayed final-canvas
-    /// coordinate space.
+    #[derive(Debug, Clone)]
+    struct FfiAutoStartMask {
+        proposal_token: u64,
+        generation: u64,
+        node_id: String,
+    }
+
+    /// One include/exclude click in final-canvas coordinates.
     #[derive(Debug, Clone, Copy)]
     struct FfiSubjectMaskPoint {
         x: f64,
@@ -3095,6 +3102,22 @@ mod ffi {
         /// Renders an identity-geometry JPEG, projects final-canvas prompts
         /// back to original space, runs the admitted local provider, and
         /// returns one opaque staged proposal.
+        fn render_auto_start_preview(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditPreviewRequest,
+            masks: &[FfiAutoStartMask],
+        ) -> Result<FfiEditedPreview>;
+        fn apply_auto_start(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            settings: &FfiEditSettings,
+            masks: &[FfiAutoStartMask],
+        ) -> Result<FfiPhotoEditState>;
         fn execute_subject_mask_job(
             self: &DesktopSession,
             photo_id: &str,

@@ -657,7 +657,7 @@ fn subject_mask_operation(value: u8) -> AnyResult<MaskComponentOperation> {
     }
 }
 
-fn append_subject_mask_component(
+pub(crate) fn append_subject_mask_component(
     target: &mut super::recipe_v1::GradeNodeDraft,
     mask: shadow_domain::MaskDefinition,
     operation: MaskComponentOperation,

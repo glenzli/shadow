@@ -34,6 +34,7 @@ class EditPreviewPresentationContext;
 class EditAiCompletionController;
 class EditAiMaskController;
 class EditSubjectEmphasisController;
+class EditAutoStartController;
 class EditPaintController;
 class EditTargetedCurveController;
 class EditRetouchSources;
@@ -254,6 +255,7 @@ class EditController final : public QObject {
     )
     Q_PROPERTY(QObject* paint READ paint CONSTANT)
     Q_PROPERTY(QObject* targetedCurve READ targetedCurve CONSTANT)
+    Q_PROPERTY(QObject* autoStart READ autoStart CONSTANT)
     Q_PROPERTY(QObject* subjectEmphasis READ subjectEmphasis CONSTANT)
     Q_PROPERTY(bool aiMaskPromptActive READ aiMaskPromptActive NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskBusy READ aiMaskBusy NOTIFY aiMaskPromptChanged)
@@ -615,6 +617,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool maskToolActive() const noexcept;
     [[nodiscard]] QString maskCoverageSource() const;
     [[nodiscard]] bool maskCoverageShowsSelectedComponent() const noexcept;
+    [[nodiscard]] QObject* autoStart() const noexcept;
     [[nodiscard]] QObject* subjectEmphasis() const noexcept;
     QObject* paint() const noexcept;
     QObject* targetedCurve() const noexcept;
@@ -1098,7 +1101,8 @@ class EditController final : public QObject {
     void applySubjectMaskState(
         BackendPhotoEditState state,
         const BackendGradeStack& before,
-        const QString& target_grade_node_id
+        const QString& target_grade_node_id,
+        const QString& transaction_key = {}
     );
     void applyImageCompletionState(BackendPhotoEditState state, const BackendGradeStack& before);
     void setGradeStack(BackendGradeStack grade_stack, const QString& preferred_grade_node_id = {});
@@ -1196,6 +1200,7 @@ class EditController final : public QObject {
     friend class EditAiCompletionController;
     friend class EditAiMaskController;
     friend class EditSubjectEmphasisController;
+    friend class EditAutoStartController;
     friend class EditPaintController;
     friend class EditTargetedCurveController;
     friend class EditRetouchSources;
@@ -1209,6 +1214,7 @@ class EditController final : public QObject {
     EditPersistenceState persistence_state_;
     std::unique_ptr<EditAiCompletionController> image_completion_controller_;
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
+    std::unique_ptr<EditAutoStartController> auto_start_controller_;
     std::unique_ptr<EditSubjectEmphasisController> subject_emphasis_controller_;
     std::unique_ptr<EditPaintController> paint_controller_;
     std::unique_ptr<EditTargetedCurveController> targeted_curve_controller_;

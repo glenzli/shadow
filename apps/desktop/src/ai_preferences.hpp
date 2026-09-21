@@ -64,6 +64,10 @@ class AiPreferences final : public QObject {
         int rawDenoiseDefaultAmount READ rawDenoiseDefaultAmount WRITE setRawDenoiseDefaultAmount
             NOTIFY rawDenoiseDefaultAmountChanged
     )
+    Q_PROPERTY(
+        bool autoStartEnabled READ autoStartEnabled WRITE setAutoStartEnabled NOTIFY
+            autoStartEnabledChanged
+    )
     Q_PROPERTY(QString modelStoragePath READ modelStoragePath CONSTANT)
     Q_PROPERTY(QUrl modelStorageUrl READ modelStorageUrl CONSTANT)
 
@@ -90,6 +94,10 @@ class AiPreferences final : public QObject {
     [[nodiscard]] int imageUnderstandingMinimumRating() const noexcept;
     [[nodiscard]] bool imageUnderstandingAutoApplyKeywords() const noexcept;
     [[nodiscard]] int rawDenoiseDefaultAmount() const noexcept;
+    bool autoStartEnabled() const noexcept {
+        return auto_start_enabled_;
+    }
+    void setAutoStartEnabled(bool enabled);
     [[nodiscard]] QString modelStoragePath() const;
     [[nodiscard]] QUrl modelStorageUrl() const;
 
@@ -107,6 +115,7 @@ class AiPreferences final : public QObject {
     void setRawDenoiseDefaultAmount(int amount_percent);
 
   signals:
+    void autoStartEnabledChanged();
     void rawDenoiseExecutionAllowedChanged();
     void subjectMaskExecutionAllowedChanged();
     void imageCompletionExecutionAllowedChanged();
@@ -123,6 +132,7 @@ class AiPreferences final : public QObject {
 
     std::unique_ptr<QSettings> settings_;
     QString model_storage_path_;
+    bool auto_start_enabled_ = false;
     bool raw_denoise_execution_allowed_ = true;
     bool subject_mask_execution_allowed_ = true;
     bool image_completion_execution_allowed_ = false;

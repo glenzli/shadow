@@ -1682,6 +1682,40 @@ runs the request's normal export. The fixture must admit a restrained adjustment
 policy cases live in the bridge owner's unit tests. This opt-in check requires installed local
 providers and a valid Shadow credential; it never substitutes an external or cloud provider.
 
+### Automatic starting point
+
+`src/edit_auto_start_controller.*` owns the cancellable, disposable suggestion and one-undo apply.
+`src/auto_start_analysis.*` runs bounded measurements, local Qwen scene checks and per-person skin
+selection off the GUI thread. `src/auto_start_policy.*` owns conservative display-tone and skin-hue
+limits. `qml/PrecisionAutoStart.qml` shares the Assisted editing entry with Subject emphasis and
+provides exact candidate preview, hold-to-compare, overall strength and three independent switches.
+Suggestions never change edits until applied; manual edits or changing photos invalidate them.
+Applying the ready measured preview cancels unfinished AI analysis instead of requiring a model wait.
+The optional `AiPreferences::autoStartEnabled` prepares suggestions only for unedited photos.
+
+RAW white balance reuses the retained CFA estimator and interpolates at most 20 mired and six tint
+units around the current white point. Tone adjustments are normal Grade Nodes. A bounded candidate
+render checks for newly clipped display endpoints; this is not a RAW sensor headroom claim. Skin
+uses exact local AI skin masks and restrained Point Color hue shifts around each person's measured
+median, without whitening, smoothing or changing geometry. Existing Liquify edits skip automatic
+skin selection because this first version does not invert that deformation. Intentional lighting and unreliable
+selections remain unchanged. Missing models leave an explicitly labelled measured-only suggestion.
+
+Analysis reads one bounded baseline and up to two trial JPEGs (1024-edge) through the existing warm
+source. Strength/switch changes rerender captured nodes, never inference; WB changes rebind the
+existing RAW foundation, downstream changes reuse the grade frontier. Candidate masks affect only
+the transient render identity. Apply promotes them into the normal Recipe under strict working-head
+CAS; preview, detail and export then use the same mask bytes and native operations. No new durable
+preview entry, edit history or working head is published by analysis or cancellation.
+
+`SHADOW_PIPELINE_SMOKE_ACTION=auto-start` enables the inert-by-default independent-editor acceptance
+harness. `SHADOW_PIPELINE_SMOKE_OUTPUT` selects its output directory; `SHADOW_AUTO_START_REQUIRE_AI=1`
+requires actual local scene inference. It checks cancellation, temporary preview, strength, atomic
+apply, exact undo/redo and normal export, using installed local providers only.
+`SHADOW_AUTO_START_SMOKE_EARLY_APPLY=1` exercises applying before AI completes;
+`SHADOW_AUTO_START_SMOKE_LIFECYCLE=1` uses two inputs to check automatic preparation and cancellation
+on manual edits or photo switches without exporting.
+
 ### Condition mask editing
 
 `src/edit_condition_mask_controller.*` owns the bounded condition editor transaction and legacy

@@ -3,6 +3,7 @@
 #include "edit_ai_completion_controller.hpp"
 #include "edit_ai_mask_controller.hpp"
 #include "edit_auto_geometry_controller.hpp"
+#include "edit_auto_start_controller.hpp"
 #include "edit_paint_controller.hpp"
 #include "edit_persistence_task_coordinator.hpp"
 #include "edit_raw_foundation_controller.hpp"
@@ -53,6 +54,7 @@ EditController::EditController(
     versions_(this), tone_curve_points_(this) {
     image_completion_controller_ = std::make_unique<EditAiCompletionController>(*this, backend_);
     ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
+    auto_start_controller_ = std::make_unique<EditAutoStartController>(*this, backend_);
     subject_emphasis_controller_ = std::make_unique<EditSubjectEmphasisController>(*this, backend_);
     paint_controller_ = std::make_unique<EditPaintController>(*this);
     targeted_curve_controller_ = std::make_unique<EditTargetedCurveController>(*this);
@@ -171,6 +173,7 @@ EditController::~EditController() {
     paint_controller_.reset();
     auto_geometry_controller_.reset();
     raw_foundation_controller_.reset();
+    auto_start_controller_.reset();
     subject_emphasis_controller_.reset();
     ai_mask_controller_.reset();
     image_completion_controller_.reset();
@@ -198,6 +201,8 @@ QObject* EditController::retouchSources() const noexcept {
     return retouch_sources_.get();
 }
 
+QObject* EditController::autoStart() const noexcept { return auto_start_controller_.get(); }
+
 QObject* EditController::subjectEmphasis() const noexcept {
     return subject_emphasis_controller_.get();
 }
@@ -208,6 +213,7 @@ bool EditController::active() const noexcept {
 
 bool EditController::busy() const noexcept {
     return stateTaskRunning() || current_rendering_ || before_rendering_ || detail_rendering_
+           || (auto_start_controller_ && auto_start_controller_->busy())
            || (subject_emphasis_controller_ && subject_emphasis_controller_->busy())
            || (ai_mask_controller_ && ai_mask_controller_->busy())
            || (image_completion_controller_ && image_completion_controller_->busy())
@@ -226,6 +232,7 @@ bool EditController::interactionLocked() const noexcept {
     // remain interaction-locking operations.
     return persistence_state_.hasPendingVersionSave() || persistence_state_.hasPendingVersionLoad()
            || (stateTaskRunning() && stateTaskKind() != EditStateTaskKind::Autosave)
+           || (auto_start_controller_ && auto_start_controller_->applying())
            || (subject_emphasis_controller_ && subject_emphasis_controller_->active())
            || (ai_mask_controller_ && ai_mask_controller_->locksInteraction())
            || (image_completion_controller_ && image_completion_controller_->locksInteraction());

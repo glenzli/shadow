@@ -47,6 +47,7 @@ AiPreferences::AiPreferences(
     model_storage_path_(
         QDir::cleanPath(QDir(application_data_root).filePath(QStringLiteral("models")))
     ) {
+    auto_start_enabled_ = settings_->value(QStringLiteral("ai/auto_start_enabled"), false).toBool();
     raw_denoise_execution_allowed_ =
         settings_
             ->value(QString::fromLatin1(raw_denoise_allowed_key), raw_denoise_execution_allowed_)
@@ -295,4 +296,12 @@ void AiPreferences::setRawDenoiseDefaultAmount(const int amount_percent) {
 void AiPreferences::persist(const char* const key, const QVariant& value) {
     settings_->setValue(QString::fromLatin1(key), value);
     settings_->sync();
+}
+
+void AiPreferences::setAutoStartEnabled(bool enabled) {
+    if (auto_start_enabled_ == enabled)
+        return;
+    auto_start_enabled_ = enabled;
+    persist("ai/auto_start_enabled", enabled);
+    emit autoStartEnabledChanged();
 }

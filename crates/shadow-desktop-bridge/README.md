@@ -161,3 +161,9 @@ input smoothing are desktop preferences rather than recipe-wide mutable settings
 `src/recipe_v1/rgb_tone_curves.rs` owns the optional four-channel RGB curve contract shared by
 snapshot decoding and render compilation. Absent curves preserve the legacy graph; populated
 curves retain one deterministic Grade-local slot and independent point sets.
+
+`session_auto_start` owns exact transient candidate-mask rendering and strict-CAS starting-point
+publication. Temporary render plans resolve staged raster bytes without promoting them or writing
+Recipe/cache state; apply promotes every selected mask and publishes all nodes in one working-head
+transaction. Stale proposals fail instead of using autosave rebasing. Its adjacent tests compare
+transient and durable native plans at different strengths and verify atomic/stale-head behavior.
