@@ -765,17 +765,17 @@
         <translation>绿边去除量</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="77"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="78"/>
         <source>Finish the current version operation first</source>
         <translation>请先完成当前版本操作</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="84"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="85"/>
         <source>This photo is already open in Precision</source>
         <translation>此照片已在精修中打开</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="192"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="193"/>
         <source>Loading non-destructive edit history…</source>
         <translation>正在加载无损编辑历史…</translation>
     </message>
@@ -1150,32 +1150,32 @@
         <translation>已移除修复点</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="37"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="38"/>
         <source>The selected Review item has no editable original source</source>
         <translation>所选照片没有可编辑的原始文件</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="44"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="45"/>
         <source>The original file is missing · return to Library to relink its folder</source>
         <translation>原片已丢失 · 请返回图库重新定位其文件夹</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="72"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="73"/>
         <source>Preparing the selected photo…</source>
         <translation>正在准备所选照片…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="106"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="107"/>
         <source>Autosave failed · resolve it before replacing this photo&apos;s working changes</source>
         <translation>自动保存失败 · 请先解决此问题，再切换此照片的工作调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="119"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="120"/>
         <source>Saving current adjustments before opening the selected photo…</source>
         <translation>正在保存当前调整，然后打开所选照片…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="343"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="344"/>
         <source>Resetting this photo’s development edits…</source>
         <translation>正在重置此照片的开发调整…</translation>
     </message>
@@ -1356,12 +1356,12 @@
         <translation>无法在曲线的这个位置添加控制点</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="107"/>
+        <location filename="../src/edit_history_controller.cpp" line="109"/>
         <source>Undid the last session adjustment</source>
         <translation>已撤销本次会话中的上一项调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="139"/>
+        <location filename="../src/edit_history_controller.cpp" line="141"/>
         <source>Redid the last session adjustment</source>
         <translation>已重做本次会话中的上一项调整</translation>
     </message>
@@ -1381,84 +1381,84 @@
         <translation>已清空全部调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="154"/>
+        <location filename="../src/edit_history_controller.cpp" line="156"/>
         <source>Could not reset adjustments · %1</source>
         <translation>无法重置调整 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="167"/>
+        <location filename="../src/edit_history_controller.cpp" line="169"/>
         <source>Reset all adjustments</source>
         <translation>已重置全部调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="181"/>
+        <location filename="../src/edit_history_controller.cpp" line="183"/>
         <source>Discarded working changes and restored the Library version</source>
         <translation>已放弃工作区修改并恢复图库版本</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="199"/>
+        <location filename="../src/edit_history_controller.cpp" line="201"/>
         <source>Restored the current saved version</source>
         <translation>已恢复当前保存的版本</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="364"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="365"/>
         <source>Enter a name for this version</source>
         <translation>请为此版本输入名称</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="422"/>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="434"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="423"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="435"/>
         <source>Saving current adjustments before loading another version</source>
         <translation>正在保存当前调整，然后加载另一版本</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="564"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="565"/>
         <source>Autosave failed · %1</source>
         <translation>自动保存失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="572"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="573"/>
         <source>This photo uses an earlier development edit recipe that this build cannot read. Resetting removes only this photo’s edit history; the original file, Library metadata, ratings, flags, and albums are unchanged.</source>
         <translation>此照片使用了当前版本无法读取的早期开发调整配方。重置只会删除此照片的调整历史；原始文件、图库元数据、评分、旗标和相册不会受影响。</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="582"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="583"/>
         <source>Could not reset this photo’s old development edits · %1</source>
         <translation>无法重置此照片的旧开发调整 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="592"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="593"/>
         <source>Could not open this photo · %1</source>
         <translation>无法打开此照片 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="597"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="598"/>
         <source>Version operation failed · %1</source>
         <translation>版本操作失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="550"/>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="632"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="551"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="633"/>
         <source>Saving newer adjustments locally…</source>
         <translation>正在自动保存更新后的调整…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="672"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="673"/>
         <source>Edit history ready · rendering preview</source>
         <translation>编辑历史已就绪 · 正在渲染预览</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="679"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="680"/>
         <source>Old development edits reset · rendering the current recipe</source>
         <translation>旧开发调整已重置 · 正在渲染当前配方</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="695"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="696"/>
         <source>Current adjustments saved locally</source>
         <translation>当前调整已自动保存</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="699"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="700"/>
         <source>Named version loaded as a draft · adjust it to create a new working state</source>
         <translation>命名版本已作为草稿载入；继续调整会创建新的当前工作状态</translation>
     </message>
@@ -1513,22 +1513,22 @@
         <translation>正在准备精确的全分辨率细节…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="749"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="750"/>
         <source>Catalog returned edit state for a different photo</source>
         <translation>图库目录返回了其他照片的编辑状态</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="208"/>
+        <location filename="../src/edit_history_controller.cpp" line="210"/>
         <source>The saved edit exceeds the 16-Grade-Node desktop limit</source>
         <translation>保存的编辑超过桌面版 16 个调色节点的上限</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="826"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="829"/>
         <source>Saving current adjustments locally…</source>
         <translation>正在自动保存当前调整…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="846"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="849"/>
         <source>Catalog returned autosave state for a different photo</source>
         <translation>图库目录返回了其他照片的自动保存状态</translation>
     </message>
@@ -1543,33 +1543,33 @@
         <translation>请先启用选中的调色节点，再编辑其控件</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="270"/>
+        <location filename="../src/edit_history_controller.cpp" line="272"/>
         <source>The saved Tone Curve cannot be represented safely</source>
         <translation>无法安全表示已保存的色调曲线</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="243"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="244"/>
         <source>Saving current adjustments before closing Precision…</source>
         <translation>正在保存当前调整，然后关闭精修…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="272"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="273"/>
         <source>Updating the Library preview…</source>
         <translation>正在更新图库预览…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="381"/>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="389"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="382"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="390"/>
         <source>Creating Library version “%1”…</source>
         <translation>正在创建图库版本“%1”…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="443"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="444"/>
         <source>Loading saved version into working changes…</source>
         <translation>正在将已保存版本载入工作修改…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="688"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="689"/>
         <source>Library version created · the previous state remains available</source>
         <translation>图库版本已创建 · 之前的状态仍然保留</translation>
     </message>
@@ -2506,44 +2506,44 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>EditPaintController</name>
     <message>
-        <location filename="../src/edit_paint_controller.cpp" line="53"/>
+        <location filename="../src/edit_paint_controller.cpp" line="71"/>
         <source>Paint layer</source>
         <translation>绘制层</translation>
     </message>
     <message>
-        <location filename="../src/edit_paint_controller.cpp" line="54"/>
+        <location filename="../src/edit_paint_controller.cpp" line="72"/>
         <source>Dodge &amp; Burn</source>
         <translation>加深／减淡</translation>
     </message>
     <message>
-        <location filename="../src/edit_paint_controller.cpp" line="301"/>
-        <location filename="../src/edit_paint_controller.cpp" line="324"/>
+        <location filename="../src/edit_paint_controller.cpp" line="327"/>
+        <location filename="../src/edit_paint_controller.cpp" line="350"/>
         <source>This layer is full. Add a new paint layer to continue.</source>
         <translation>此绘制层已满，请添加新绘制层后继续。</translation>
     </message>
     <message>
-        <location filename="../src/edit_paint_controller.cpp" line="330"/>
+        <location filename="../src/edit_paint_controller.cpp" line="356"/>
         <source>Could not map the paint stroke through Liquify.</source>
         <translation>无法将笔触映射到液化后的照片。</translation>
     </message>
     <message>
-        <location filename="../src/edit_paint_controller.cpp" line="381"/>
-        <location filename="../src/edit_paint_controller.cpp" line="422"/>
+        <location filename="../src/edit_paint_controller.cpp" line="412"/>
+        <location filename="../src/edit_paint_controller.cpp" line="453"/>
         <source>Stroke limit reached. Release the pointer to finish.</source>
         <translation>笔触已达到上限，请松开指针结束绘制。</translation>
     </message>
     <message>
-        <location filename="../src/edit_paint_controller.cpp" line="504"/>
+        <location filename="../src/edit_paint_controller.cpp" line="546"/>
         <source>Wait for the preview, then sample again.</source>
         <translation>请等待预览完成后重新取色。</translation>
     </message>
     <message>
-        <location filename="../src/edit_paint_controller.cpp" line="290"/>
+        <location filename="../src/edit_paint_controller.cpp" line="316"/>
         <source>Eight layers are in use. Select a matching layer or remove an unused one.</source>
         <translation>已使用八个图层，请选择混合模式相同的图层，或移除不用的图层。</translation>
     </message>
     <message>
-        <location filename="../src/edit_paint_controller.cpp" line="557"/>
+        <location filename="../src/edit_paint_controller.cpp" line="604"/>
         <source>Use a name of 1–64 characters. Up to 12 custom brushes can be saved.</source>
         <translation>名称须为 1–64 个字符，最多可保存 12 个自定义笔刷。</translation>
     </message>
@@ -2684,22 +2684,22 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>EditTargetedCurveController</name>
     <message>
-        <location filename="../src/edit_targeted_curve_controller.cpp" line="31"/>
+        <location filename="../src/edit_targeted_curve_controller.cpp" line="68"/>
         <source>Preparing curve input…</source>
         <translation>正在准备曲线取样…</translation>
     </message>
     <message>
-        <location filename="../src/edit_targeted_curve_controller.cpp" line="32"/>
+        <location filename="../src/edit_targeted_curve_controller.cpp" line="70"/>
         <source>Wait for the current preview, then retry</source>
         <translation>请等待当前预览完成后重试</translation>
     </message>
     <message>
-        <location filename="../src/edit_targeted_curve_controller.cpp" line="33"/>
+        <location filename="../src/edit_targeted_curve_controller.cpp" line="72"/>
         <source>Sample is outside the editable curve range</source>
         <translation>取样超出可编辑的曲线范围</translation>
     </message>
     <message>
-        <location filename="../src/edit_targeted_curve_controller.cpp" line="34"/>
+        <location filename="../src/edit_targeted_curve_controller.cpp" line="73"/>
         <source>Drag on the photo to adjust similar tones · Esc to cancel</source>
         <translation>在照片上拖动以调整相近色调 · Esc 取消</translation>
     </message>
@@ -7079,12 +7079,12 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PrecisionTargetedCurveOverlay</name>
     <message>
-        <location filename="../qml/PrecisionTargetedCurveOverlay.qml" line="69"/>
+        <location filename="../qml/PrecisionTargetedCurveOverlay.qml" line="72"/>
         <source>Retry sampling</source>
         <translation>重新取样</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionTargetedCurveOverlay.qml" line="75"/>
+        <location filename="../qml/PrecisionTargetedCurveOverlay.qml" line="78"/>
         <source>Close targeted adjustment</source>
         <translation>关闭直接调整</translation>
     </message>
@@ -7198,7 +7198,7 @@ R %2 · G %3 · B %4</translation>
         <translation>减去</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="319"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="346"/>
         <location filename="../qml/PrecisionPaintTools.qml" line="67"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
@@ -7218,12 +7218,12 @@ R %2 · G %3 · B %4</translation>
         </translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="250"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="275"/>
         <source>ACCEPTED REGIONS · %L1</source>
         <translation>已接受区域 · %L1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="52"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="54"/>
         <source>AI COMPLETION</source>
         <translation>AI 补全</translation>
     </message>
@@ -7234,33 +7234,33 @@ R %2 · G %3 · B %4</translation>
         <translation>AI 补全</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="147"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="156"/>
         <source>AI Completion is evaluated before Liquify. Bypass the Liquify node while painting and generating, then turn it back on.</source>
         <translation>AI 补全在液化之前执行。涂抹和生成时请先旁路液化节点，完成后再重新启用。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="63"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="66"/>
         <source>Accepted regions belong to this photo&apos;s fixed AI Completion node and are used by preview, detail, and export.</source>
         <translation>已接受区域属于此照片的固定 AI 补全节点，并统一用于预览、细节和导出。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="34"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="35"/>
         <source>Allow local AI Completion?</source>
         <translation>允许本机 AI 补全吗？</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="110"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="138"/>
         <location filename="../qml/PrecisionPaintTools.qml" line="163"/>
         <source>Brush size</source>
         <translation>画笔大小</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="198"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="212"/>
         <source>Cancel generation</source>
         <translation>取消生成</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="180"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="191"/>
         <source>Candidate preview is shown on the photo.</source>
         <translation>候选预览已显示在照片上。</translation>
     </message>
@@ -7270,69 +7270,69 @@ R %2 · G %3 · B %4</translation>
         <translation>空 · 涂抹以创建</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="99"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="105"/>
         <location filename="../qml/PrecisionPaintTools.qml" line="113"/>
         <source>Erase</source>
         <translation>擦除</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="212"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="229"/>
         <source>Exit</source>
         <translation>退出</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="198"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="212"/>
         <source>Generate preview</source>
         <translation>生成预览</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="178"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="189"/>
         <source>Generating a local candidate…</source>
         <translation>正在生成本地候选…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="181"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="192"/>
         <source>No candidate generated yet.</source>
         <translation>尚未生成候选。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="89"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="94"/>
         <location filename="../qml/PrecisionPaintTools.qml" line="22"/>
         <source>Paint</source>
         <translation>涂抹</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="73"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="76"/>
         <source>Paint a new region</source>
         <translation>涂抹新区域</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="62"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="65"/>
         <source>Paint the area to replace. Generation creates a preview candidate; the photo Recipe changes only after Apply.</source>
         <translation>涂抹要替换的区域。生成只会创建预览候选；点击应用后才会修改照片 Recipe。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="283"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="309"/>
         <source>Region %L1</source>
         <translation>区域 %L1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="292"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="318"/>
         <source>Remove this accepted region</source>
         <translation>移除此已接受区域</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="230"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="251"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="44"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="45"/>
         <source>Shadow will send a bounded crop of this photo and your painted selection to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI &amp; Models settings.</source>
         <translation>Shadow 会将此照片的有限裁剪区域和你的涂抹选区发送到本机 Infer Runtime。Shadow 不会上传该请求。之后可在“AI 与模型”设置中关闭此权限。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="128"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="118"/>
         <source>Undo stroke</source>
         <translation>撤销笔划</translation>
     </message>
@@ -7933,7 +7933,7 @@ R %2 · G %3 · B %4</translation>
         <translation>将所选节点导出为 LUT…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="234"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="258"/>
         <location filename="../qml/PrecisionAiMaskPromptOverlay.qml" line="357"/>
         <location filename="../qml/PrecisionGeometryTools.qml" line="223"/>
         <location filename="../qml/PrecisionGradeNodeMenus.qml" line="331"/>
@@ -8353,17 +8353,17 @@ R %2 · G %3 · B %4</translation>
         <translation>重置所有调整…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="401"/>
+        <location filename="../qml/PrecisionInspector.qml" line="404"/>
         <source>NODE STRENGTH</source>
         <translation>节点强度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="402"/>
+        <location filename="../qml/PrecisionInspector.qml" line="405"/>
         <source>%1%</source>
         <translation>%1%</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="404"/>
+        <location filename="../qml/PrecisionInspector.qml" line="407"/>
         <source>Blend the complete Grade Node with its input. Zero bypasses the node; the adjustment graph is evaluated only once.</source>
         <translation>将完整调色节点与其输入混合。零强度会旁路节点；调整图只计算一次。</translation>
     </message>
@@ -8565,17 +8565,17 @@ R %2 · G %3 · B %4</translation>
         <translation>目标色相（OKLCh）</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="467"/>
+        <location filename="../qml/PrecisionInspector.qml" line="470"/>
         <source>COLOR MAP</source>
         <translation>颜色映射</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="468"/>
+        <location filename="../qml/PrecisionInspector.qml" line="471"/>
         <source>OKLAB 5×5</source>
         <translation>Oklab 5×5</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="469"/>
+        <location filename="../qml/PrecisionInspector.qml" line="472"/>
         <source>Move a smooth connected Oklab mesh after Color Mixer and Point Color. This is a separate chroma-field correction, not a hue-keyed slider.</source>
         <translation>在颜色混合与点颜色之后移动平滑连接的 Oklab 网格。这是独立的色度场校正，不是按色相区分的滑块。</translation>
     </message>
@@ -8770,17 +8770,17 @@ R %2 · G %3 · B %4</translation>
         <translation>去朦胧</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="499"/>
+        <location filename="../qml/PrecisionInspector.qml" line="502"/>
         <source>COLOR GRADING</source>
         <translation>颜色分级</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="557"/>
+        <location filename="../qml/PrecisionInspector.qml" line="560"/>
         <source>Blending</source>
         <translation>混合</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="563"/>
+        <location filename="../qml/PrecisionInspector.qml" line="566"/>
         <source>Balance</source>
         <translation>平衡</translation>
     </message>
@@ -9002,13 +9002,13 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/PrecisionEffectsSection.qml" line="70"/>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="246"/>
-        <location filename="../qml/PrecisionInspector.qml" line="530"/>
+        <location filename="../qml/PrecisionInspector.qml" line="533"/>
         <source>Highlights</source>
         <translation>高光</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="247"/>
-        <location filename="../qml/PrecisionInspector.qml" line="516"/>
+        <location filename="../qml/PrecisionInspector.qml" line="519"/>
         <source>Shadows</source>
         <translation>阴影</translation>
     </message>
@@ -9222,12 +9222,12 @@ R %2 · G %3 · B %4</translation>
         <translation>使用吸管从图像建立一个或多个精确的 Oklch 颜色范围。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="500"/>
+        <location filename="../qml/PrecisionInspector.qml" line="503"/>
         <source>Tint shadows, midtones, and highlights independently with perceptual color wheels.</source>
         <translation>用感知色轮分别为阴影、中间调和高光着色。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="523"/>
+        <location filename="../qml/PrecisionInspector.qml" line="526"/>
         <source>Midtones</source>
         <translation>中间调</translation>
     </message>
@@ -9584,7 +9584,7 @@ R %2 · G %3 · B %4</translation>
         <translation>建议 · %1° · 垂直 %2% · 水平 %3% · %4 条线</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="225"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="244"/>
         <location filename="../qml/PrecisionGeometryTools.qml" line="211"/>
         <source>Apply</source>
         <translation>应用</translation>
@@ -10044,7 +10044,7 @@ R %2 · G %3 · B %4</translation>
         <translation>AI 人物细节</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="136"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="128"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="152"/>
         <location filename="../qml/PrecisionRetouchTools.qml" line="277"/>
         <source>Clear</source>
@@ -10252,8 +10252,8 @@ R %2 · G %3 · B %4</translation>
         <translation>在最终裁剪前以非破坏方式推动像素。液化仅属于当前照片，不能作为调色节点共享。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="302"/>
-        <location filename="../qml/PrecisionInspector.qml" line="413"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="328"/>
+        <location filename="../qml/PrecisionInspector.qml" line="416"/>
         <location filename="../qml/PrecisionLiquifyTools.qml" line="106"/>
         <location filename="../qml/PrecisionPaintTools.qml" line="233"/>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="39"/>

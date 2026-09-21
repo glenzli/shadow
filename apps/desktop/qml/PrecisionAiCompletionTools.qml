@@ -14,6 +14,7 @@ ColumnLayout {
     signal exitRequested
 
     spacing: 10
+    Layout.minimumWidth: 0
 
     function requestGeneration() {
         if (editor.imageCompletionExecutionAllowed) {
@@ -49,6 +50,7 @@ ColumnLayout {
 
     Label {
         Layout.fillWidth: true
+        Layout.minimumWidth: 0
         text: qsTr("AI COMPLETION")
         color: Theme.textPrimary
         font.pixelSize: Theme.fontBody
@@ -58,12 +60,13 @@ ColumnLayout {
 
     Label {
         Layout.fillWidth: true
+        Layout.minimumWidth: 0
         text: tools.authoring
             ? qsTr("Paint the area to replace. Generation creates a preview candidate; the photo Recipe changes only after Apply.")
             : qsTr("Accepted regions belong to this photo's fixed AI Completion node and are used by preview, detail, and export.")
         color: Theme.textMuted
         font.pixelSize: Theme.fontMeta
-        wrapMode: Text.WordWrap
+        wrapMode: Text.Wrap
     }
 
     ShadowButton {
@@ -84,28 +87,53 @@ ColumnLayout {
             Layout.fillWidth: true
             spacing: 8
 
-            ShadowButton {
-                Layout.fillWidth: true
-                text: qsTr("Paint")
+            ShadowIconButton {
+                objectName: "imageCompletionPaintButton"
+                buttonSize: 32
+                source: "qrc:/icons/brush.svg"
+                toolTipText: qsTr("Paint")
                 checkable: true
                 checked: !tools.editor.imageCompletionEraseMode
-                selected: checked
                 enabled: !tools.editor.imageCompletionBusy
                 onClicked: tools.editor.imageCompletionEraseMode = false
             }
 
-            ShadowButton {
-                Layout.fillWidth: true
-                text: qsTr("Erase")
+            ShadowIconButton {
+                objectName: "imageCompletionEraseButton"
+                buttonSize: 32
+                source: "qrc:/icons/eraser.svg"
+                toolTipText: qsTr("Erase")
                 checkable: true
                 checked: tools.editor.imageCompletionEraseMode
-                selected: checked
                 enabled: !tools.editor.imageCompletionBusy
                 onClicked: tools.editor.imageCompletionEraseMode = true
+            }
+
+            Item { Layout.fillWidth: true }
+
+            ShadowIconButton {
+                objectName: "imageCompletionUndoButton"
+                buttonSize: 32
+                source: "qrc:/icons/undo.svg"
+                toolTipText: qsTr("Undo stroke")
+                enabled: tools.editor.imageCompletionBrushPoints.length > 0
+                    && !tools.editor.imageCompletionBusy
+                onClicked: tools.editor.undoImageCompletionStroke()
+            }
+
+            ShadowIconButton {
+                objectName: "imageCompletionClearButton"
+                buttonSize: 32
+                source: "qrc:/icons/clear.svg"
+                toolTipText: qsTr("Clear")
+                enabled: tools.editor.imageCompletionBrushPoints.length > 0
+                    && !tools.editor.imageCompletionBusy
+                onClicked: tools.editor.clearImageCompletionSelection()
             }
         }
 
         ShadowSlider {
+            objectName: "imageCompletionBrushSize"
             Layout.fillWidth: true
             label: qsTr("Brush size")
             from: 0.002
@@ -116,43 +144,25 @@ ColumnLayout {
             displayMultiplier: 100
             suffix: "%"
             value: tools.editor.imageCompletionBrushRadius
+            enabled: !tools.editor.imageCompletionBusy
             onEdited: value => tools.editor.imageCompletionBrushRadius = value
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            ShadowButton {
-                Layout.fillWidth: true
-                text: qsTr("Undo stroke")
-                enabled: tools.editor.imageCompletionBrushPoints.length > 0
-                    && !tools.editor.imageCompletionBusy
-                onClicked: tools.editor.undoImageCompletionStroke()
-            }
-
-            ShadowButton {
-                Layout.fillWidth: true
-                text: qsTr("Clear")
-                enabled: tools.editor.imageCompletionBrushPoints.length > 0
-                    && !tools.editor.imageCompletionBusy
-                onClicked: tools.editor.clearImageCompletionSelection()
-            }
         }
 
         Label {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             visible: tools.editor.liquifyNodeMaterialized
                 && tools.editor.liquifyNodeEnabled
             text: qsTr("AI Completion is evaluated before Liquify. Bypass the Liquify node while painting and generating, then turn it back on.")
             color: Theme.warningText
             font.pixelSize: Theme.fontMeta
-            wrapMode: Text.WordWrap
+            wrapMode: Text.Wrap
         }
 
         Rectangle {
+            objectName: "imageCompletionStatusCard"
             Layout.fillWidth: true
-            implicitHeight: candidateStatus.implicitHeight + 20
+            implicitHeight: Math.max(18, candidateStatus.implicitHeight) + 20
             radius: Theme.controlRadius
             color: Theme.surfaceSubtle
             border.width: 1
@@ -174,6 +184,7 @@ ColumnLayout {
                 Label {
                     id: candidateStatus
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     text: tools.editor.imageCompletionBusy
                         ? qsTr("Generating a local candidate…")
                         : (tools.editor.imageCompletionHasCandidate
@@ -182,7 +193,7 @@ ColumnLayout {
                     color: tools.editor.imageCompletionHasCandidate
                         ? Theme.textPrimary : Theme.textMuted
                     font.pixelSize: Theme.fontMeta
-                    wrapMode: Text.WordWrap
+                    wrapMode: Text.Wrap
                 }
             }
         }
@@ -193,7 +204,10 @@ ColumnLayout {
             spacing: 8
 
             ShadowButton {
+                objectName: "imageCompletionGenerateButton"
                 Layout.fillWidth: true
+                variant: tools.editor.imageCompletionBusy
+                    ? ShadowButton.Secondary : ShadowButton.Primary
                 text: tools.editor.imageCompletionBusy
                     ? qsTr("Cancel generation") : qsTr("Generate preview")
                 enabled: tools.editor.imageCompletionBusy
@@ -208,8 +222,11 @@ ColumnLayout {
                 }
             }
 
-            ShadowButton {
-                text: qsTr("Exit")
+            ShadowIconButton {
+                objectName: "imageCompletionExitButton"
+                buttonSize: 32
+                source: "qrc:/icons/close.svg"
+                toolTipText: qsTr("Exit")
                 enabled: !tools.editor.imageCompletionBusy
                 onClicked: tools.exitRequested()
             }
@@ -221,17 +238,24 @@ ColumnLayout {
             spacing: 8
 
             ShadowButton {
+                objectName: "imageCompletionApplyButton"
                 Layout.fillWidth: true
+                variant: ShadowButton.Primary
                 text: qsTr("Apply")
                 onClicked: tools.editor.applyImageCompletionCandidate()
             }
-            ShadowButton {
-                Layout.fillWidth: true
-                text: qsTr("Retry")
+            ShadowIconButton {
+                objectName: "imageCompletionRetryButton"
+                buttonSize: 32
+                source: "qrc:/icons/refresh.svg"
+                toolTipText: qsTr("Retry")
                 onClicked: tools.editor.retryImageCompletion()
             }
-            ShadowButton {
-                text: qsTr("Cancel")
+            ShadowIconButton {
+                objectName: "imageCompletionCancelButton"
+                buttonSize: 32
+                source: "qrc:/icons/close.svg"
+                toolTipText: qsTr("Cancel")
                 onClicked: tools.exitRequested()
             }
         }
@@ -246,12 +270,14 @@ ColumnLayout {
 
     Label {
         Layout.fillWidth: true
+        Layout.minimumWidth: 0
         visible: tools.editor.imageCompletionRegions.length > 0
         text: qsTr("ACCEPTED REGIONS · %L1")
             .arg(tools.editor.imageCompletionRegions.length)
         color: Theme.textSecondary
         font.pixelSize: Theme.fontMeta
         font.weight: Font.DemiBold
+        wrapMode: Text.Wrap
     }
 
     Repeater {
@@ -316,6 +342,7 @@ ColumnLayout {
 
                 Label {
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     text: qsTr("%1 · %2")
                         .arg(String(regionCard.modelData.provider))
                         .arg(String(regionCard.modelData.modelBuild))

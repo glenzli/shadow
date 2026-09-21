@@ -328,7 +328,7 @@ Rectangle {
                     contentWidth: availableWidth
 
                     ColumnLayout {
-                        width: parent.width
+                        width: inspectorScroll.availableWidth
                         spacing: 7
                         enabled: inspector.editor.active
 
@@ -369,6 +369,9 @@ Rectangle {
 
                         PrecisionAiCompletionTools {
                                 Layout.fillWidth: true
+                                Layout.leftMargin: 12
+                                Layout.rightMargin: 12
+                                Layout.topMargin: 12
                                 visible:
                                     inspector.editor.selectedRecipeNodeKind === "completion"
                                     && inspectorTabStrip.currentIndex === 0
@@ -611,7 +614,7 @@ Rectangle {
                     contentWidth: availableWidth
 
                     ColumnLayout {
-                        width: parent.width
+                        width: specialToolScroll.availableWidth
                         spacing: 0
                         enabled: inspector.editor.active
                             && (!inspector.editor.stateBusy
@@ -664,6 +667,9 @@ Rectangle {
 
                         PrecisionAiCompletionTools {
                             Layout.fillWidth: true
+                            Layout.leftMargin: 12
+                            Layout.rightMargin: 12
+                            Layout.topMargin: 12
                             visible: inspector.activeToolMode
                                 === inspector.toolCompletion
                             editor: inspector.editor

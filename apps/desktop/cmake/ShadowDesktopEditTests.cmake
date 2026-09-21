@@ -1742,3 +1742,28 @@ if(BUILD_TESTING)
     set_tests_properties(shadow-desktop-paint-overlay-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30 LABELS "desktop;paint")
 endif()
+
+if(BUILD_TESTING)
+    qt_add_executable(shadow-precision-ai-completion-tools-contract-test
+        tests/precision_ai_completion_tools_contract_test.cpp)
+    target_compile_features(shadow-precision-ai-completion-tools-contract-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-precision-ai-completion-tools-contract-test PRIVATE
+        Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    qt_add_qml_module(shadow-precision-ai-completion-tools-contract-test
+        URI Shadow.CompletionContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/PrecisionAiCompletionTools.qml qml/ShadowButton.qml
+        qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/ShadowSlider.qml
+        qml/ShadowInlineSlider.qml qml/ShadowSwitch.qml qml/Theme.qml)
+    qt_add_resources(shadow-precision-ai-completion-tools-contract-test completion-test-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/brush.svg icons/eraser.svg icons/undo.svg icons/clear.svg
+        icons/close.svg icons/refresh.svg)
+    target_compile_definitions(shadow-precision-ai-completion-tools-contract-test PRIVATE
+        SHADOW_COMPLETION_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+    add_dependencies(shadow-precision-ai-completion-tools-contract-test shadow-desktop-release-translations)
+    add_test(NAME shadow-desktop-precision-ai-completion-tools-contract
+        COMMAND shadow-precision-ai-completion-tools-contract-test)
+    set_tests_properties(shadow-desktop-precision-ai-completion-tools-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
+        TIMEOUT 30 LABELS "desktop;completion")
+endif()

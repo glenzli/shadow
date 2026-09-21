@@ -467,7 +467,10 @@ Its implementation follows the same navigation:
   photo-local completion brush, local-execution authorization, cancellable proposal lifecycle,
   stale-context rejection, apply/retry transitions, and accepted-region presentation. Accepted
   rasters remain parameters of the fixed AI Completion node; QML does not create a parallel
-  retouch or asset subsystem.
+  retouch or asset subsystem. [`qml/PrecisionAiCompletionTools.qml`](qml/PrecisionAiCompletionTools.qml)
+  owns its bounded inspector actions; the packaged
+  [`completion panel contract`](tests/precision_ai_completion_tools_contract_test.cpp) checks
+  localized narrow layouts and pointer actions across authoring and candidate states.
 - [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
   component selection and presentation, in-session clipboard semantics, the enumerable
   scalar-parameter contract, geometry/condition validation, and brush strokes.
