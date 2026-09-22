@@ -129,27 +129,42 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
         int visual_height = -1;
     };
 
+    struct ItemPosition final {
+        int row = -1;
+        int column = -1;
+        // Grouped rows are stored relative to their section header so an
+        // insertion in an earlier section never rewrites every photo index.
+        int section_ordinal = -1;
+    };
+
     [[nodiscard]] static ProjectionRoles projectionRoles(const QHash<int, QByteArray>& roles);
     [[nodiscard]] QVariantMap sourceItem(int row, const ProjectionRoles& roles) const;
     [[nodiscard]] QVariantMap
     materializeItem(const QVariantMap& geometry, const QHash<int, QByteArray>& roles) const;
     [[nodiscard]] static qreal aspectRatio(const QVariantMap& item);
+    [[nodiscard]] int absoluteRow(const ItemPosition& position) const;
     void disconnectSourceModel();
     void requestRebuild();
     void requestAppend(int first);
     void flushSourceUpdates();
     void appendSourceRows();
+    [[nodiscard]] bool appendGroupedSourceRows(const QVector<Section>& next_sections);
     void
     updateSourceItems(const QModelIndex& first, const QModelIndex& last, const QList<int>& roles);
     void rebuild();
-    void
-    appendPhotoRows(QVector<Row>& rows, QVariantList items, const QString& section_key = {}) const;
+    void appendPhotoRows(
+        QVector<Row>& rows,
+        QVariantList items,
+        const QString& section_key = {},
+        bool first_section_row = true
+    ) const;
 
     QPointer<QAbstractItemModel> source_model_;
     QVector<QMetaObject::Connection> source_connections_;
     QTimer rebuild_timer_;
     QVector<Row> rows_;
-    QHash<QString, QPair<int, int>> item_positions_;
+    QHash<QString, ItemPosition> item_positions_;
+    QVector<int> section_header_rows_;
     QVariantList section_variants_;
     QVector<Section> sections_;
     int available_width_ = 0;

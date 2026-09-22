@@ -521,6 +521,142 @@ void section_anchors_follow_visible_header_rows() {
     );
 }
 
+void grouped_page_append_updates_section_tails_without_reset() {
+    ReviewModel photos;
+    photos.replace(
+        {
+            photo("a", 1200, 800),
+            photo("b", 1200, 800),
+            photo("c", 1200, 800),
+            photo("d", 1200, 800),
+            photo("e", 1200, 800),
+            photo("f", 1200, 800),
+            photo("g", 1200, 800),
+            photo("h", 1200, 800),
+        },
+        1
+    );
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&photos);
+    layout.setAvailableWidth(900);
+    const auto descriptor = [](const QString& key, const QStringList& members) {
+        QStringList representation_keys;
+        for (const QString& member : members) {
+            representation_keys.push_back(
+                member + QStringLiteral("\u001frepresentation-") + member
+            );
+        }
+        return QVariantMap{
+            {QStringLiteral("key"), key},
+            {QStringLiteral("title"), key},
+            {QStringLiteral("representationKeys"), representation_keys},
+        };
+    };
+    layout.setSections({
+        descriptor(
+            QStringLiteral("first"),
+            {QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c"), QStringLiteral("d")}
+        ),
+        descriptor(
+            QStringLiteral("second"),
+            {QStringLiteral("e"), QStringLiteral("f"), QStringLiteral("g"), QStringLiteral("h")}
+        ),
+    });
+    const int second_header_before =
+        layout.sectionAnchors().at(1).toMap().value("rowIndex").toInt();
+    const QVariantMap retained_before = layout.navigationTarget("b", "representation-b", 0, 0);
+    int resets = 0;
+    int insertions = 0;
+    QObject::connect(&layout, &QAbstractItemModel::modelReset, [&]() { ++resets; });
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::rowsInserted,
+        [&](const QModelIndex&, int first, int last) { insertions += last - first + 1; }
+    );
+    require(
+        photos.appendSnapshot(
+            {
+                photo("i", 1200, 800),
+                photo("j", 1200, 800),
+                photo("k", 1200, 800),
+                photo("l", 1200, 800),
+            },
+            1
+        ),
+        "a grouped page appends"
+    );
+    layout.setSections({
+        descriptor(QStringLiteral("first"), {"a", "b", "c", "d", "i", "j"}),
+        descriptor(QStringLiteral("second"), {"e", "f", "g", "h", "k", "l"}),
+    });
+    QCoreApplication::processEvents();
+    require(resets == 0 && insertions > 0, "grouped page append never resets the gallery");
+    require(
+        layout.data(layout.index(0, 0), JustifiedReviewLayoutModel::SectionItemCountRole).toInt()
+            == 6,
+        "the first header count follows the appended members"
+    );
+    const int second_header_after = layout.sectionAnchors().at(1).toMap().value("rowIndex").toInt();
+    require(
+        second_header_after > second_header_before,
+        "later section anchors shift with inserted rows"
+    );
+    require(
+        layout.data(
+                  layout.index(second_header_after, 0),
+                  JustifiedReviewLayoutModel::SectionItemCountRole
+        )
+                .toInt()
+            == 6,
+        "the second header count follows the appended members"
+    );
+    const QVariantMap retained_after = layout.navigationTarget("b", "representation-b", 0, 0);
+    require(
+        retained_after.value("layoutRow") == retained_before.value("layoutRow")
+            && retained_after.value("layoutX") == retained_before.value("layoutX"),
+        "an earlier selected photo retains its row and placement"
+    );
+    require(
+        layout.navigationTarget("j", "representation-j", 0, 0).value("sectionKey") == "first"
+            && layout.navigationTarget("l", "representation-l", 0, 0).value("sectionKey")
+                   == "second",
+        "new photos remain navigable in their exact sections"
+    );
+
+    require(
+        photos.appendSnapshot({photo("m", 1200, 800), photo("n", 1200, 800)}, 1),
+        "another grouped page appends"
+    );
+    layout.setSections({
+        descriptor(QStringLiteral("first"), {"a", "b", "c", "d", "i", "j", "m"}),
+        descriptor(QStringLiteral("second"), {"e", "f", "g", "h", "k", "l", "n"}),
+    });
+    QCoreApplication::processEvents();
+    const int later_row =
+        layout.navigationTarget("l", "representation-l", 0, 0).value("layoutRow").toInt();
+    int changed_row = -1;
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::dataChanged,
+        [&](const QModelIndex& first, const QModelIndex&, const QList<int>& roles) {
+            if (roles.contains(JustifiedReviewLayoutModel::ItemsRole)) {
+                changed_row = first.row();
+            }
+        }
+    );
+    require(photos.updateDecision("l", 1, "picked", 4), "later section decision updates");
+    require(
+        resets == 0 && changed_row == later_row
+            && layout.navigationTarget("l", "representation-l", 0, 0)
+                       .value("decisionRating")
+                       .toInt()
+                   == 4
+            && layout.navigationTarget("n", "representation-n", 0, 0).value("sectionKey")
+                   == "second",
+        "repeated insertions keep later-section navigation and badge updates exact"
+    );
+}
+
 void decisions_update_one_row_without_relayout_or_catalog_scan() {
     ReviewModel photos;
     QVector<ReviewItem> items;
@@ -606,6 +742,7 @@ int main(int argc, char* argv[]) {
     ordered_sections_split_rows_without_hiding_unassigned_photos();
     grouped_photo_rows_keep_one_visible_stack_representative();
     section_anchors_follow_visible_header_rows();
+    grouped_page_append_updates_section_tails_without_reset();
     decisions_update_one_row_without_relayout_or_catalog_scan();
     return EXIT_SUCCESS;
 }

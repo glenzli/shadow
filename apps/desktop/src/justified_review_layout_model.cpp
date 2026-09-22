@@ -116,6 +116,7 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
     source_model_ = source_model;
     rows_.clear();
     item_positions_.clear();
+    section_header_rows_.clear();
     projected_source_count_ = 0;
     endResetModel();
 
@@ -161,6 +162,7 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
             source_connections_.clear();
             rows_.clear();
             item_positions_.clear();
+            section_header_rows_.clear();
             projected_source_count_ = 0;
             endResetModel();
             emit sourceModelChanged();
@@ -270,9 +272,12 @@ void JustifiedReviewLayoutModel::setSections(const QVariantList& sections) {
     if (section_variants_ == normalized_variants) {
         return;
     }
+    const bool appended = appendGroupedSourceRows(normalized);
     section_variants_ = std::move(normalized_variants);
     sections_ = std::move(normalized);
-    rebuild();
+    if (!appended) {
+        rebuild();
+    }
     emit sectionsChanged();
 }
 
@@ -308,10 +313,9 @@ QVariantMap JustifiedReviewLayoutModel::navigationTarget(
         return {};
     }
 
-    const auto position =
-        item_positions_.value(photo_id + QChar{0x001f} + representation_id, {-1, -1});
-    const int current_row = position.first;
-    const int current_column = position.second;
+    const auto position = item_positions_.value(photo_id + QChar{0x001f} + representation_id);
+    const int current_row = absoluteRow(position);
+    const int current_column = position.column;
     if (current_row < 0) {
         for (int row = 0; row < rows_.size(); ++row) {
             if (!rows_.at(row).items.isEmpty()) {
@@ -489,6 +493,15 @@ qreal JustifiedReviewLayoutModel::aspectRatio(const QVariantMap& item) {
     return std::clamp(width / height, MIN_ASPECT_RATIO, MAX_ASPECT_RATIO);
 }
 
+int JustifiedReviewLayoutModel::absoluteRow(const ItemPosition& position) const {
+    if (position.section_ordinal >= 0) {
+        return position.section_ordinal < section_header_rows_.size()
+                   ? section_header_rows_.at(position.section_ordinal) + position.row
+                   : -1;
+    }
+    return position.row;
+}
+
 void JustifiedReviewLayoutModel::disconnectSourceModel() {
     for (const auto& connection : source_connections_) {
         disconnect(connection);
@@ -508,8 +521,10 @@ void JustifiedReviewLayoutModel::requestAppend(const int first) {
     if (full_rebuild_pending_) {
         return;
     }
-    if (!source_model_ || !sections_.isEmpty() || available_width_ < MIN_LAYOUT_WIDTH
-        || first < projected_source_count_) {
+    if (source_model_ && source_model_->rowCount() == projected_source_count_) {
+        return;
+    }
+    if (!source_model_ || available_width_ < MIN_LAYOUT_WIDTH || first < projected_source_count_) {
         requestRebuild();
         return;
     }
@@ -530,13 +545,17 @@ void JustifiedReviewLayoutModel::flushSourceUpdates() {
 void JustifiedReviewLayoutModel::appendSourceRows() {
     rebuild_timer_.stop();
     append_pending_ = false;
-    if (!source_model_ || !sections_.isEmpty() || available_width_ < MIN_LAYOUT_WIDTH
-        || source_model_->rowCount() < projected_source_count_) {
+    if (!source_model_) {
         rebuild();
         return;
     }
     const int source_count = source_model_->rowCount();
     if (source_count == projected_source_count_) {
+        return;
+    }
+    if (!sections_.isEmpty() || available_width_ < MIN_LAYOUT_WIDTH
+        || source_count < projected_source_count_) {
+        rebuild();
         return;
     }
     auto& diagnostics = ReviewDiagnostics::instance();
@@ -574,7 +593,7 @@ void JustifiedReviewLayoutModel::appendSourceRows() {
         for (int column = 0; column < items.size(); ++column) {
             item_positions_.insert(
                 representationKey(items.at(column).toMap()),
-                {first_changed_row, column}
+                {first_changed_row, column, -1}
             );
         }
         const QModelIndex changed = index(first_changed_row, 0);
@@ -591,7 +610,10 @@ void JustifiedReviewLayoutModel::appendSourceRows() {
         for (int row = first_inserted; row < rows_.size(); ++row) {
             const auto& items = rows_.at(row).items;
             for (int column = 0; column < items.size(); ++column) {
-                item_positions_.insert(representationKey(items.at(column).toMap()), {row, column});
+                item_positions_.insert(
+                    representationKey(items.at(column).toMap()),
+                    {row, column, -1}
+                );
             }
         }
         endInsertRows();
@@ -604,6 +626,208 @@ void JustifiedReviewLayoutModel::appendSourceRows() {
             source_count
         );
     }
+}
+
+bool JustifiedReviewLayoutModel::appendGroupedSourceRows(const QVector<Section>& next_sections) {
+    if (!source_model_ || full_rebuild_pending_ || rows_.isEmpty()
+        || available_width_ < MIN_LAYOUT_WIDTH || sections_.isEmpty()
+        || sections_.size() != next_sections.size()) {
+        return false;
+    }
+    const int source_count = source_model_->rowCount();
+    if (source_count <= projected_source_count_) {
+        return false;
+    }
+
+    // The fast path is valid only when every existing section keeps its exact
+    // identity, labels and membership prefix. A sort, filter, regroup or edit
+    // to an old member still takes the full rebuild path.
+    QHash<QString, int> appended_membership;
+    qsizetype previous_members = 0;
+    for (int section_index = 0; section_index < sections_.size(); ++section_index) {
+        const Section& old = sections_.at(section_index);
+        const Section& next = next_sections.at(section_index);
+        if (old.key != next.key || old.title != next.title || old.subtitle != next.subtitle
+            || old.navigation_label != next.navigation_label
+            || old.navigation_short_label != next.navigation_short_label
+            || old.navigation_major_label != next.navigation_major_label
+            || next.representation_keys.size() < old.representation_keys.size()
+            || !std::equal(
+                old.representation_keys.cbegin(),
+                old.representation_keys.cend(),
+                next.representation_keys.cbegin()
+            )) {
+            return false;
+        }
+        previous_members += old.representation_keys.size();
+        for (qsizetype member = old.representation_keys.size();
+             member < next.representation_keys.size();
+             ++member) {
+            const QString& key = next.representation_keys.at(member);
+            if (key.isEmpty() || item_positions_.contains(key)
+                || appended_membership.contains(key)) {
+                return false;
+            }
+            appended_membership.insert(key, section_index);
+        }
+    }
+    if (previous_members != projected_source_count_
+        || item_positions_.size() != projected_source_count_
+        || appended_membership.size() != source_count - projected_source_count_) {
+        return false;
+    }
+
+    QVector<int> header_rows;
+    header_rows.reserve(sections_.size());
+    for (int row = 0; row < rows_.size(); ++row) {
+        const Row& entry = rows_.at(row);
+        if (entry.kind == QStringLiteral("section")) {
+            const int ordinal = static_cast<int>(header_rows.size());
+            if (ordinal >= sections_.size() || entry.section_key != sections_.at(ordinal).key
+                || entry.section_item_count != sections_.at(ordinal).representation_keys.size()) {
+                return false;
+            }
+            header_rows.push_back(row);
+        } else if (
+            entry.kind != QStringLiteral("photos") || header_rows.isEmpty()
+            || entry.section_key != sections_.at(header_rows.size() - 1).key
+        ) {
+            // A partial grouping leaves fallback photos after its sections.
+            return false;
+        }
+    }
+    if (header_rows.size() != sections_.size()) {
+        return false;
+    }
+
+    const ProjectionRoles roles = projectionRoles(source_model_->roleNames());
+    QHash<QString, QVariantMap> appended_items;
+    appended_items.reserve(appended_membership.size());
+    for (int source_row = projected_source_count_; source_row < source_count; ++source_row) {
+        QVariantMap item = sourceItem(source_row, roles);
+        const QString key = representationKey(item);
+        if (item.isEmpty() || !appended_membership.contains(key) || appended_items.contains(key)) {
+            return false;
+        }
+        appended_items.insert(key, std::move(item));
+    }
+
+    struct SectionTail final {
+        int section_index;
+        int header_row;
+        int tail_row;
+        bool replace_tail;
+        QVector<Row> suffix_rows;
+        int member_count;
+    };
+    QVector<SectionTail> tails;
+    tails.reserve(sections_.size());
+    for (int section_index = 0; section_index < sections_.size(); ++section_index) {
+        const Section& old = sections_.at(section_index);
+        const Section& next = next_sections.at(section_index);
+        if (next.representation_keys.size() == old.representation_keys.size()) {
+            continue;
+        }
+        const int header_row = header_rows.at(section_index);
+        const int tail_row =
+            (section_index + 1 < header_rows.size() ? header_rows.at(section_index + 1)
+                                                    : static_cast<int>(rows_.size()))
+            - 1;
+        if (tail_row <= header_row || rows_.at(tail_row).kind != QStringLiteral("photos")
+            || rows_.at(tail_row).section_key != old.key) {
+            return false;
+        }
+        const bool replace_tail = !rows_.at(tail_row).justified;
+        QVariantList suffix_items = replace_tail ? rows_.at(tail_row).items : QVariantList{};
+        for (qsizetype member = old.representation_keys.size();
+             member < next.representation_keys.size();
+             ++member) {
+            suffix_items.push_back(appended_items.value(next.representation_keys.at(member)));
+        }
+        QVector<Row> suffix_rows;
+        appendPhotoRows(
+            suffix_rows,
+            std::move(suffix_items),
+            old.key,
+            replace_tail && tail_row == header_row + 1
+        );
+        if (suffix_rows.isEmpty()) {
+            return false;
+        }
+        tails.push_back({
+            section_index,
+            header_row,
+            tail_row,
+            replace_tail,
+            std::move(suffix_rows),
+            static_cast<int>(next.representation_keys.size()),
+        });
+    }
+
+    auto& diagnostics = ReviewDiagnostics::instance();
+    QElapsedTimer diagnostic_clock;
+    if (diagnostics.enabled()) {
+        diagnostic_clock.start();
+    }
+    rebuild_timer_.stop();
+    append_pending_ = false;
+    for (auto tail = tails.rbegin(); tail != tails.rend(); ++tail) {
+        rows_[tail->header_row].section_item_count = tail->member_count;
+        emit dataChanged(
+            index(tail->header_row, 0),
+            index(tail->header_row, 0),
+            {SectionItemCountRole}
+        );
+        if (tail->replace_tail) {
+            rows_[tail->tail_row] = std::move(tail->suffix_rows.front());
+            tail->suffix_rows.removeFirst();
+            const auto& items = rows_.at(tail->tail_row).items;
+            for (int column = 0; column < items.size(); ++column) {
+                item_positions_.insert(
+                    representationKey(items.at(column).toMap()),
+                    {tail->tail_row - tail->header_row, column, tail->section_index}
+                );
+            }
+            emit dataChanged(
+                index(tail->tail_row, 0),
+                index(tail->tail_row, 0),
+                {ItemsRole, RowHeightRole, UsedWidthRole}
+            );
+        }
+        if (!tail->suffix_rows.isEmpty()) {
+            const int first_inserted = tail->tail_row + 1;
+            const int inserted_count = static_cast<int>(tail->suffix_rows.size());
+            beginInsertRows({}, first_inserted, first_inserted + inserted_count - 1);
+            int insertion_row = first_inserted;
+            for (Row& row : tail->suffix_rows) {
+                rows_.insert(rows_.begin() + insertion_row++, std::move(row));
+            }
+            for (int row = first_inserted; row < first_inserted + inserted_count; ++row) {
+                const auto& items = rows_.at(row).items;
+                for (int column = 0; column < items.size(); ++column) {
+                    item_positions_.insert(
+                        representationKey(items.at(column).toMap()),
+                        {row - tail->header_row, column, tail->section_index}
+                    );
+                }
+            }
+            for (int section = tail->section_index + 1; section < section_header_rows_.size();
+                 ++section) {
+                section_header_rows_[section] += inserted_count;
+            }
+            endInsertRows();
+        }
+    }
+    projected_source_count_ = source_count;
+    emit sectionAnchorsChanged();
+    if (diagnostics.enabled()) {
+        diagnostics.record(
+            ReviewDiagnostics::Stage::LayoutAppend,
+            diagnostic_clock.elapsed(),
+            source_count
+        );
+    }
+    return true;
 }
 
 void JustifiedReviewLayoutModel::updateSourceItems(
@@ -644,7 +868,7 @@ void JustifiedReviewLayoutModel::updateSourceItems(
         }
         // Photo roles are materialized only for visible rows. Their current
         // source values need no second resident copy in the layout.
-        changed_rows.insert(position->first);
+        changed_rows.insert(absoluteRow(position.value()));
     }
     for (const int row : changed_rows) {
         emit dataChanged(index(row, 0), index(row, 0), {ItemsRole});
@@ -726,10 +950,25 @@ void JustifiedReviewLayoutModel::rebuild() {
     rows_ = std::move(next_rows);
     projected_source_count_ = source_model_ ? source_model_->rowCount() : 0;
     item_positions_.clear();
+    section_header_rows_.clear();
+    int current_section_ordinal = -1;
+    int current_section_header = -1;
     for (int row = 0; row < rows_.size(); ++row) {
-        const auto& items = rows_.at(row).items;
+        const Row& layout_row = rows_.at(row);
+        if (layout_row.kind == QStringLiteral("section")) {
+            section_header_rows_.push_back(row);
+            current_section_ordinal = static_cast<int>(section_header_rows_.size()) - 1;
+            current_section_header = row;
+        }
+        const auto& items = layout_row.items;
         for (int column = 0; column < items.size(); ++column) {
-            item_positions_.insert(representationKey(items.at(column).toMap()), {row, column});
+            const bool grouped = !layout_row.section_key.isEmpty() && current_section_ordinal >= 0;
+            item_positions_.insert(
+                representationKey(items.at(column).toMap()),
+                {grouped ? row - current_section_header : row,
+                 column,
+                 grouped ? current_section_ordinal : -1}
+            );
         }
     }
     endResetModel();
@@ -746,11 +985,12 @@ void JustifiedReviewLayoutModel::rebuild() {
 void JustifiedReviewLayoutModel::appendPhotoRows(
     QVector<Row>& rows,
     QVariantList items,
-    const QString& section_key
+    const QString& section_key,
+    const bool initial_section_row
 ) const {
     QVariantList current_items;
     qreal current_aspect_sum = 0.0;
-    bool first_section_row = true;
+    bool first_section_row = initial_section_row;
     const auto append_row =
         [&rows,
          this,

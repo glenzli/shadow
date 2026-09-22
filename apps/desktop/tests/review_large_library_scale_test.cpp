@@ -108,10 +108,15 @@ int main(int argc, char** argv) {
     const qint64 group_switch_ms = timer.elapsed();
     require(!grouping.sections().isEmpty(), "date and place groups remain navigable");
 
+    const int resets_before_grouped_append = resets;
     timer.restart();
     require(model.appendSnapshot(photos(photo_count + 96, 96), 1), "a grouped page appends");
     QCoreApplication::processEvents();
     const qint64 grouped_append_ms = timer.elapsed();
+    require(
+        resets == resets_before_grouped_append,
+        "a grouped page append preserves existing gallery rows"
+    );
     require(
         !layout
              .navigationTarget(
