@@ -224,6 +224,7 @@ void ReviewController::clearFilters() {
 }
 
 void ReviewController::clearLibraryFilterControls() {
+    setFilterRecentImports(false);
     availability_filter_settings_->setValue(QStringLiteral("library/hide_offline_uncached"), false);
     availability_filter_settings_->setValue(QStringLiteral("library/only_editable"), false);
     filtered_model_.clearFilters();
@@ -277,6 +278,16 @@ void ReviewController::setFilterOnlyEditable(const bool enabled) {
 
 void ReviewController::setFilterLiked(const QString& liked) {
     filtered_model_.setLikedFilter(liked);
+}
+
+void ReviewController::setFilterRecentImports(const bool enabled) {
+    if (recent_imports_filter_ == enabled)
+        return;
+    recent_imports_filter_ = enabled;
+    scheduleFilterQuery();
+    refreshRemoteLibraryPresentation();
+    emit itemCountChanged();
+    emit filtersChanged();
 }
 
 void ReviewController::setLibrarySortKey(const QString& sort_key) {
@@ -427,6 +438,7 @@ BackendLibraryPhotoOrder ReviewController::currentLibraryOrder() const noexcept 
 
 BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
     BackendLibraryPhotoFilter filter;
+    filter.recent_imports = recent_imports_filter_;
     filter.has_photo_ids = !person_filter_id_.isEmpty();
     filter.photo_ids = person_photo_ids_;
     const QString flag = filtered_model_.flagFilter();
@@ -509,8 +521,9 @@ PeopleScopeSnapshot ReviewController::peopleScopeSnapshot() const {
     scope.excluded_color = filtered_model_.excludedColorFilter();
     scope.semantic_keys = filtered_model_.semanticRepresentationKeys();
     scope.smart_category_keys = filtered_model_.smartCategoryRepresentationKeys();
-    scope.active = !scope.filter.album_id.isEmpty() || filtered_model_.hasActiveServerFilter()
-                   || scope.only_editable || filtered_model_.hideOfflineUncached()
+    scope.active = scope.filter.recent_imports || !scope.filter.album_id.isEmpty()
+                   || filtered_model_.hasActiveServerFilter() || scope.only_editable
+                   || filtered_model_.hideOfflineUncached()
                    || scope.excluded_flag != QStringLiteral("all")
                    || scope.excluded_color != QStringLiteral("all")
                    || !scope.semantic_keys.isEmpty() || !scope.smart_category_keys.isEmpty();

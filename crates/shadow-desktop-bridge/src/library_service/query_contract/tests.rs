@@ -84,6 +84,22 @@ fn filter_keeps_explicit_edited_state_distinct_from_no_edit_filter() {
 }
 
 #[test]
+fn recent_import_scope_round_trips_across_the_desktop_bridge() {
+    let filter = ffi::FfiLibraryPhotoFilter {
+        recent_imports: true,
+        ..neutral_ffi_filter()
+    };
+    let typed = library_filter_from_ffi(&filter).expect("parse recent import filter");
+    assert!(typed.recent_imports);
+    assert!(ffi_library_filter(typed).recent_imports);
+    assert!(
+        !library_filter_from_ffi(&neutral_ffi_filter())
+            .expect("parse neutral filter")
+            .recent_imports
+    );
+}
+
+#[test]
 fn keyword_filter_ids_round_trip_without_becoming_untyped_text() {
     let required = KeywordId::new_v7();
     let excluded = KeywordId::new_v7();
@@ -176,6 +192,7 @@ fn chinese_lunar_filter_round_trips_absence_and_regular_or_leap_month_identity()
 
 fn neutral_ffi_filter() -> ffi::FfiLibraryPhotoFilter {
     ffi::FfiLibraryPhotoFilter {
+        recent_imports: false,
         has_capture_start: false,
         capture_start_unix_seconds: 0,
         has_capture_end: false,

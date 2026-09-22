@@ -32,6 +32,7 @@ struct BackendLibraryLivingPlaceRule final {
 struct BackendLibraryPhotoFilter final {
     bool has_photo_ids = false;
     QStringList photo_ids;
+    bool recent_imports = false;
     bool has_capture_start = false;
     std::int64_t capture_start_unix_seconds = 0;
     bool has_capture_end = false;

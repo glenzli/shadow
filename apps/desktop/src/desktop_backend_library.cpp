@@ -74,6 +74,7 @@ ffi_library_flag(const BackendLibraryFlagFilter flag) {
 [[nodiscard]] shadow::desktop::FfiLibraryPhotoFilter
 ffi_library_filter(const BackendLibraryPhotoFilter& source) {
     shadow::desktop::FfiLibraryPhotoFilter filter;
+    filter.recent_imports = source.recent_imports;
     filter.has_capture_start = source.has_capture_start;
     filter.capture_start_unix_seconds = source.capture_start_unix_seconds;
     filter.has_capture_end = source.has_capture_end;
@@ -131,6 +132,7 @@ library_filter(const shadow::desktop::FfiLibraryPhotoFilter& source) {
     return {
         .has_photo_ids = source.has_photo_ids,
         .photo_ids = string_list(source.photo_ids),
+        .recent_imports = source.recent_imports,
         .has_capture_start = source.has_capture_start,
         .capture_start_unix_seconds = source.capture_start_unix_seconds,
         .has_capture_end = source.has_capture_end,

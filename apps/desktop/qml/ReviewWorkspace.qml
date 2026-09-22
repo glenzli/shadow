@@ -254,6 +254,7 @@ Item {
         || controller.filterExcludedKeywordIdsAny.length > 0
     readonly property bool hasActiveLibraryFilter:
         String(controller.personFilterId || "").length > 0 ||
+        controller.filterRecentImports === true ||
         controller.filterHideOfflineUncached === true
         || controller.filterOnlyEditable === true
         || controller.filterFlag !== "all"
@@ -308,6 +309,8 @@ Item {
         }
         if (isSystemCollectionActive("liked"))
             return qsTr("Liked")
+        if (isSystemCollectionActive("recent-imports"))
+            return qsTr("Recent Imports")
         if (isSystemCollectionActive("five-star"))
             return qsTr("5 Stars")
         if (semanticSearchController.hasResults)
@@ -686,7 +689,9 @@ Item {
 
     function applySystemCollection(kind) {
         controller.clearFilters()
-        if (kind === "liked")
+        if (kind === "recent-imports")
+            controller.filterRecentImports = true
+        else if (kind === "liked")
             controller.filterLiked = "liked"
         else if (kind === "five-star")
             controller.filterMinimumRating = 5
@@ -698,6 +703,24 @@ Item {
             return false
         if (kind === "all")
             return !hasActiveLibraryFilter
+        if (kind === "recent-imports")
+            return controller.filterRecentImports
+                && String(controller.personFilterId || "").length === 0
+                && !controller.filterHideOfflineUncached
+                && !controller.filterOnlyEditable
+                && controller.filterLiked === "all"
+                && controller.filterMinimumRating === 0
+                && controller.filterFlag === "all"
+                && controller.filterColorLabel === "all"
+                && controller.filterEditState === "all"
+                && controller.filterExcludedFlag === "all"
+                && controller.filterExcludedColorLabel === "all"
+                && !hasLibraryFacetFilter
+                && !hasLibraryKeywordFilter
+                && !semanticSearchController.hasResults
+                && smartCategoryController.selectedCategoryId.length === 0
+        if (controller.filterRecentImports)
+            return false
         if (kind === "liked")
             return controller.filterLiked === "liked"
                 && controller.filterMinimumRating === 0

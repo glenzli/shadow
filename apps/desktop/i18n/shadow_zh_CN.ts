@@ -13256,11 +13256,6 @@ Details: %3</source>
         <translation>最近导入</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSystemCollections.qml" line="73"/>
-        <source>Recent import sessions will appear here when import-time filtering is available.</source>
-        <translation>导入时间筛选可用后，最近导入会显示在这里。</translation>
-    </message>
-    <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="74"/>
         <location filename="../qml/ReviewSystemCollections.qml" line="77"/>
         <location filename="../qml/ReviewWorkspace.qml" line="273"/>
@@ -13268,25 +13263,10 @@ Details: %3</source>
         <translation>喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSystemCollections.qml" line="81"/>
-        <source>Show photos marked Like</source>
-        <translation>显示标记为喜欢的照片</translation>
-    </message>
-    <message>
         <location filename="../qml/ReviewSystemCollections.qml" line="85"/>
         <location filename="../qml/ReviewWorkspace.qml" line="275"/>
         <source>5 Stars</source>
         <translation>5 星</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewSystemCollections.qml" line="89"/>
-        <source>Show photos rated 5 stars</source>
-        <translation>显示评分为 5 星的照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewSystemCollections.qml" line="163"/>
-        <source>SOON</source>
-        <translation>即将支持</translation>
     </message>
     <message>
         <location filename="../qml/ReviewAlbumList.qml" line="24"/>

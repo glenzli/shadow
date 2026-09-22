@@ -592,6 +592,7 @@ mod ffi {
     struct FfiLibraryPhotoFilter {
         has_photo_ids: bool,
         photo_ids: Vec<String>,
+        recent_imports: bool,
         has_capture_start: bool,
         capture_start_unix_seconds: i64,
         has_capture_end: bool,

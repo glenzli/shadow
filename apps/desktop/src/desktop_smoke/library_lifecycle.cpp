@@ -187,12 +187,32 @@ void startStreamingScanLifecycle(
                  succeeded]() {
         if (*succeeded || controller.scanning() || controller.refreshing()
             || controller.reviewModel()->rowCount() == 0 || reviewGridCount(engine) == 0
+            || controller.librarySystemCollectionCounts()
+                       .value(QStringLiteral("recentImports"))
+                       .toULongLong()
+                   == 0
             || controller.statusText().startsWith(QStringLiteral("Final Library refresh failed"))
             || controller.scanProgress().value(QStringLiteral("phase")).toString()
                    != QStringLiteral("completed")) {
             return;
         }
+        // Applying a collection synchronously emits filter/model signals.
+        // Mark this admission first so the observer cannot recurse into it.
         *succeeded = true;
+        QObject* const workspace =
+            engine.rootObjects().front()->findChild<QObject*>(QStringLiteral("reviewWorkspace"));
+        if (workspace == nullptr
+            || !QMetaObject::invokeMethod(
+                workspace,
+                "applySystemCollection",
+                Qt::DirectConnection,
+                Q_ARG(QVariant, QVariant(QStringLiteral("recent-imports")))
+            )
+            || !controller.filterRecentImports()) {
+            qCritical() << "Recent Imports collection did not admit the completed import";
+            application.exit(EXIT_FAILURE);
+            return;
+        }
         // A normal multi-file import must publish a page during the
         // scan.  A two-file fixture can finish before the first
         // 150ms progress poll, however, so make that a diagnostic
@@ -275,6 +295,12 @@ void startStreamingScanLifecycle(
     QObject::connect(&controller, &ReviewController::refreshingChanged, &application, [evaluate]() {
         (*evaluate)();
     });
+    QObject::connect(
+        &controller,
+        &ReviewController::libraryFacetsChanged,
+        &application,
+        [evaluate]() { (*evaluate)(); }
+    );
     QTimer::singleShot(
         120'000,
         &application,

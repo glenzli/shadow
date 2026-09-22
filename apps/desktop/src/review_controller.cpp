@@ -213,6 +213,10 @@ QString ReviewController::filterLiked() const {
     return filtered_model_.likedFilter();
 }
 
+bool ReviewController::filterRecentImports() const noexcept {
+    return recent_imports_filter_;
+}
+
 QString ReviewController::librarySortKey() const {
     return library_sort_key_;
 }

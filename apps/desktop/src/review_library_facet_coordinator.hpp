@@ -61,6 +61,7 @@ class ReviewLibraryFacetCoordinator final : public QObject {
         std::uint64_t all_photo_count = 0;
         std::uint64_t liked_photo_count = 0;
         std::uint64_t five_star_photo_count = 0;
+        std::uint64_t recent_import_photo_count = 0;
         QString error;
         quint64 library_generation = 0;
         quint64 request_id = 0;
@@ -93,6 +94,7 @@ class ReviewLibraryFacetCoordinator final : public QObject {
     std::uint64_t all_photo_count_ = 0;
     std::uint64_t liked_photo_count_ = 0;
     std::uint64_t five_star_photo_count_ = 0;
+    std::uint64_t recent_import_photo_count_ = 0;
     bool system_collection_counts_available_ = false;
     LocalizedUiMessage global_status_message_;
     QFutureWatcher<TaskResult> watcher_;

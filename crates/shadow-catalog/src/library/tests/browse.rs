@@ -1,17 +1,92 @@
 use super::{
-    asset_registration_fixture::{register, register_kind},
+    asset_registration_fixture::{register, register_kind, register_scan_entry},
     library_fact_fixture::facts_for,
 };
 use crate::{
-    AlbumKind, Catalog, CommitRecipe, LibraryApertureRange, LibraryFacetKind, LibraryFacetValue,
-    LibraryLivingPlaceRule, LibraryPhotoCursor, LibraryPhotoCursorValue, LibraryPhotoFilter,
-    LibraryPhotoOrder, RecipeRefKind, RecipeRefTarget, RecordLibraryPlaceResolution,
-    RecordLibraryPlaceResolutionStatus, SetPhotoLibraryState, library_equipment_key,
+    AlbumKind, Catalog, CommitRecipe, ImportSessionState, LibraryApertureRange, LibraryFacetKind,
+    LibraryFacetValue, LibraryLivingPlaceRule, LibraryPhotoCursor, LibraryPhotoCursorValue,
+    LibraryPhotoFilter, LibraryPhotoOrder, RecipeRefKind, RecipeRefTarget,
+    RecordLibraryPlaceResolution, RecordLibraryPlaceResolutionStatus, SetPhotoLibraryState,
+    library_equipment_key,
 };
 use shadow_domain::{
-    EntityId, NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoFlag, RecipeCommit, RecipeCommitId,
-    RecipeId, RecipeSnapshot, RepresentationKind,
+    AssetLocation, EntityId, NewPhotoDecisionEvent, PhotoDecisionOrigin, PhotoFlag, Platform,
+    RecipeCommit, RecipeCommitId, RecipeId, RecipeSnapshot, RepresentationKind,
 };
+
+#[test]
+fn recent_imports_tracks_latest_completed_batch_that_added_photos() {
+    let mut catalog = Catalog::open_in_memory().expect("open catalog");
+    let root = AssetLocation::new(Platform::MacOs, b"/photos".to_vec(), "/photos");
+    let filter = LibraryPhotoFilter {
+        recent_imports: true,
+        ..LibraryPhotoFilter::default()
+    };
+    assert_eq!(
+        catalog.library_photo_count(&filter).expect("empty count"),
+        0
+    );
+
+    let first = catalog
+        .begin_import_session(&root, 10)
+        .expect("first import");
+    let first_photo = register_scan_entry(&mut catalog, first, "/photos/one.nef", 11);
+    catalog
+        .finish_import_session(first, ImportSessionState::Completed, None, 20)
+        .expect("complete first import");
+    assert_eq!(
+        catalog.library_photo_count(&filter).expect("first count"),
+        1
+    );
+
+    let interrupted = catalog
+        .begin_import_session(&root, 30)
+        .expect("running import");
+    register_scan_entry(&mut catalog, interrupted, "/photos/two.nef", 31);
+    assert_eq!(
+        catalog.library_photo_count(&filter).expect("running count"),
+        1
+    );
+    catalog
+        .finish_import_session(interrupted, ImportSessionState::Cancelled, None, 32)
+        .expect("cancel import");
+    assert_eq!(
+        catalog
+            .library_photo_count(&filter)
+            .expect("cancelled count"),
+        1
+    );
+
+    let rescan = catalog
+        .begin_import_session(&root, 40)
+        .expect("empty rescan");
+    register_scan_entry(&mut catalog, rescan, "/photos/one.nef", 41);
+    catalog
+        .finish_import_session(rescan, ImportSessionState::Completed, None, 42)
+        .expect("complete empty rescan");
+    assert_eq!(
+        catalog.library_photo_count(&filter).expect("rescan count"),
+        1
+    );
+
+    let next = catalog
+        .begin_import_session(&root, 50)
+        .expect("next import");
+    let next_photo = register_scan_entry(&mut catalog, next, "/photos/three.nef", 51);
+    catalog
+        .finish_import_session(next, ImportSessionState::Completed, None, 60)
+        .expect("complete next import");
+    let page = catalog
+        .library_photo_page(&filter, LibraryPhotoOrder::default(), None, 16)
+        .expect("recent import page");
+    assert_eq!(
+        catalog.library_photo_count(&filter).expect("recent count"),
+        1
+    );
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].photo_id, next_photo.photo_id);
+    assert_ne!(page.items[0].photo_id, first_photo.photo_id);
+}
 
 #[test]
 fn photo_first_library_page_includes_original_raster_sources() {

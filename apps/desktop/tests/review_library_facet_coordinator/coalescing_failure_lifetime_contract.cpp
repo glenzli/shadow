@@ -27,13 +27,13 @@ void run_coalescing_failure_lifetime_contracts() {
         }
         state->condition.notify_all();
         wait_until(
-            [&coordinator, &state]() { return !coordinator.busy() && call_count(state) == 16; },
+            [&coordinator, &state]() { return !coordinator.busy() && call_count(state) == 18; },
             "stale batch is replaced by one coalesced latest-generation batch"
         );
         require(
             coordinator.cameras().front().toMap().value(QStringLiteral("key"))
                     == QStringLiteral("latest-camera")
-                && call_count(state) == 16,
+                && call_count(state) == 18,
             "only the latest generation reaches the visible projection"
         );
     }

@@ -84,6 +84,10 @@ class ReviewController final : public QObject {
     )
     Q_PROPERTY(QString filterLiked READ filterLiked WRITE setFilterLiked NOTIFY filtersChanged)
     Q_PROPERTY(
+        bool filterRecentImports READ filterRecentImports WRITE setFilterRecentImports NOTIFY
+            filtersChanged
+    )
+    Q_PROPERTY(
         bool filterHideOfflineUncached READ filterHideOfflineUncached WRITE
             setFilterHideOfflineUncached NOTIFY filtersChanged
     )
@@ -384,6 +388,7 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString filterColorLabel() const;
     [[nodiscard]] QString filterEditState() const;
     [[nodiscard]] QString filterLiked() const;
+    [[nodiscard]] bool filterRecentImports() const noexcept;
     [[nodiscard]] bool filterHideOfflineUncached() const;
     [[nodiscard]] bool filterOnlyEditable() const;
     [[nodiscard]] QString librarySortKey() const;
@@ -480,6 +485,7 @@ class ReviewController final : public QObject {
     void setFilterColorLabel(const QString& color_label);
     void setFilterEditState(const QString& edit_state);
     void setFilterLiked(const QString& liked);
+    void setFilterRecentImports(bool enabled);
     void setFilterHideOfflineUncached(bool enabled);
     void setFilterOnlyEditable(bool enabled);
     void setLibrarySortKey(const QString& sort_key);
@@ -788,6 +794,7 @@ class ReviewController final : public QObject {
     QString person_filter_id_;
     QString person_filter_name_;
     QStringList person_photo_ids_;
+    bool recent_imports_filter_ = false;
     ReviewLibraryOrganizationCoordinator organization_coordinator_;
     ReviewSharedGradeCoordinator shared_grade_coordinator_;
     ReviewComparisonCoordinator comparison_coordinator_;
