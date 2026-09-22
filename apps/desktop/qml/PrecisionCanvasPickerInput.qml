@@ -221,6 +221,13 @@ Item {
         }
 
         function retouchBrushDiameter() {
+            // Before source geometry arrives the canvas fits a 1x1 placeholder to the
+            // viewport. Its display scale must not size an inactive or unresolved
+            // brush cursor; software rendering may still rasterize hidden children.
+            if (!pickerInput.editor.retouchPickerActive
+                    || pickerInput.levelZeroWidth <= 1
+                    || pickerInput.levelZeroHeight <= 1)
+                return 0.5
             if (pickerInput.editor.retouchSources !== undefined
                     && pickerInput.editor.retouchSources.projectionRequired === true) {
                 const p = pickerInput.normalizedContentPoint(inputArea, pointerX, pointerY)

@@ -594,6 +594,26 @@ int main(int argc, char* argv[]) {
             brush_cursor != nullptr && smaller_brush != nullptr && larger_brush != nullptr
                 && std::abs(brush_cursor->property("width").toDouble() - 3.6) < 0.01,
             "the retouch cursor scales its level-zero radius into the bounded preview"
+        )) {
+        return EXIT_FAILURE;
+    }
+    picker->setProperty("levelZeroWidth", 1.0);
+    picker->setProperty("levelZeroHeight", 1.0);
+    picker->setProperty("displayScale", 804.0);
+    drainBindings();
+    if (!require(
+            std::abs(brush_cursor->property("width").toDouble() - 0.5) < 0.01,
+            "a fitted placeholder cannot allocate a viewport-scaled retouch cursor"
+        )) {
+        return EXIT_FAILURE;
+    }
+    picker->setProperty("levelZeroWidth", 4'000.0);
+    picker->setProperty("levelZeroHeight", 3'000.0);
+    picker->setProperty("displayScale", 0.1);
+    drainBindings();
+    if (!require(
+            std::abs(brush_cursor->property("width").toDouble() - 3.6) < 0.01,
+            "the retouch cursor regains its exact radius when source geometry resolves"
         )
         || !require(
             QMetaObject::invokeMethod(smaller_brush, "activated")
