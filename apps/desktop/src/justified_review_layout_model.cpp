@@ -17,6 +17,7 @@ constexpr int MAX_SPACING = 32;
 constexpr qreal DEFAULT_ASPECT_RATIO = 4.0 / 3.0;
 constexpr qreal MIN_ASPECT_RATIO = 0.12;
 constexpr qreal MAX_ASPECT_RATIO = 8.0;
+const QString SOURCE_ROW_KEY = QStringLiteral("__sourceRow");
 
 [[nodiscard]] QString representationKey(const QVariantMap& item) {
     return item.value(QStringLiteral("photoId")).toString() + QChar{0x001f}
@@ -54,8 +55,15 @@ QVariant JustifiedReviewLayoutModel::data(const QModelIndex& index, const int ro
     }
     const Row& row = rows_.at(index.row());
     switch (role) {
-    case ItemsRole:
-        return row.items;
+    case ItemsRole: {
+        QVariantList visible_items;
+        visible_items.reserve(row.items.size());
+        const auto roles = source_model_ ? source_model_->roleNames() : QHash<int, QByteArray>{};
+        for (const QVariant& value : row.items) {
+            visible_items.push_back(materializeItem(value.toMap(), roles));
+        }
+        return visible_items;
+    }
     case RowHeightRole:
         return row.height;
     case UsedWidthRole:
@@ -305,6 +313,10 @@ QVariantMap JustifiedReviewLayoutModel::navigationTarget(
         for (int row = 0; row < rows_.size(); ++row) {
             if (!rows_.at(row).items.isEmpty()) {
                 QVariantMap first = rows_.at(row).items.front().toMap();
+                first = materializeItem(
+                    first,
+                    source_model_ ? source_model_->roleNames() : QHash<int, QByteArray>{}
+                );
                 first.insert(QStringLiteral("layoutRow"), row);
                 return first;
             }
@@ -366,13 +378,26 @@ QVariantMap JustifiedReviewLayoutModel::navigationTarget(
         || target_column >= rows_.at(target_row).items.size()) {
         return {};
     }
-    QVariantMap result = rows_.at(target_row).items.at(target_column).toMap();
+    QVariantMap result = materializeItem(
+        rows_.at(target_row).items.at(target_column).toMap(),
+        source_model_ ? source_model_->roleNames() : QHash<int, QByteArray>{}
+    );
     result.insert(QStringLiteral("layoutRow"), target_row);
     return result;
 }
 
+JustifiedReviewLayoutModel::ProjectionRoles
+JustifiedReviewLayoutModel::projectionRoles(const QHash<int, QByteArray>& roles) {
+    return {
+        .photo_id = roles.key("photoId", -1),
+        .representation_id = roles.key("representationId", -1),
+        .visual_width = roles.key("visualWidth", -1),
+        .visual_height = roles.key("visualHeight", -1),
+    };
+}
+
 QVariantMap
-JustifiedReviewLayoutModel::sourceItem(const int row, const QHash<int, QByteArray>& roles) const {
+JustifiedReviewLayoutModel::sourceItem(const int row, const ProjectionRoles& roles) const {
     QVariantMap item;
     if (source_model_ == nullptr) {
         return item;
@@ -383,8 +408,71 @@ JustifiedReviewLayoutModel::sourceItem(const int row, const QHash<int, QByteArra
         return item;
     }
 
-    for (auto it = roles.cbegin(); it != roles.cend(); ++it) {
-        item.insert(QString::fromLatin1(it.value()), source_model_->data(index, it.key()));
+    item.insert(SOURCE_ROW_KEY, row);
+    if (roles.photo_id >= 0) {
+        item.insert(QStringLiteral("photoId"), source_model_->data(index, roles.photo_id));
+    }
+    if (roles.representation_id >= 0) {
+        item.insert(
+            QStringLiteral("representationId"),
+            source_model_->data(index, roles.representation_id)
+        );
+    }
+    if (roles.visual_width >= 0) {
+        item.insert(QStringLiteral("visualWidth"), source_model_->data(index, roles.visual_width));
+    }
+    if (roles.visual_height >= 0) {
+        item.insert(
+            QStringLiteral("visualHeight"),
+            source_model_->data(index, roles.visual_height)
+        );
+    }
+    return item;
+}
+
+QVariantMap JustifiedReviewLayoutModel::materializeItem(
+    const QVariantMap& geometry,
+    const QHash<int, QByteArray>& roles
+) const {
+    QVariantMap item;
+    if (source_model_ != nullptr) {
+        const int photo_role = roles.key("photoId", -1);
+        const int representation_role = roles.key("representationId", -1);
+        const QString expected_photo = geometry.value(QStringLiteral("photoId")).toString();
+        const QString expected_representation =
+            geometry.value(QStringLiteral("representationId")).toString();
+        const auto matches = [&](const QModelIndex& candidate) {
+            return candidate.isValid()
+                   && (photo_role < 0
+                       || source_model_->data(candidate, photo_role).toString() == expected_photo)
+                   && (representation_role < 0
+                       || source_model_->data(candidate, representation_role).toString()
+                              == expected_representation);
+        };
+        QModelIndex source_index = source_model_->index(geometry.value(SOURCE_ROW_KEY).toInt(), 0);
+        if (!matches(source_index) && photo_role >= 0 && representation_role >= 0) {
+            source_index = {};
+            for (int row = 0; row < source_model_->rowCount(); ++row) {
+                const QModelIndex candidate = source_model_->index(row, 0);
+                if (matches(candidate)) {
+                    source_index = candidate;
+                    break;
+                }
+            }
+        }
+        if (matches(source_index)) {
+            for (auto it = roles.cbegin(); it != roles.cend(); ++it) {
+                item.insert(
+                    QString::fromLatin1(it.value()),
+                    source_model_->data(source_index, it.key())
+                );
+            }
+        }
+    }
+    for (auto it = geometry.cbegin(); it != geometry.cend(); ++it) {
+        if (it.key() != SOURCE_ROW_KEY) {
+            item.insert(it.key(), it.value());
+        }
     }
     return item;
 }
@@ -451,7 +539,7 @@ void JustifiedReviewLayoutModel::appendSourceRows() {
 
     const bool replace_tail = !rows_.isEmpty() && !rows_.last().justified;
     QVariantList suffix_items = replace_tail ? rows_.last().items : QVariantList{};
-    const QHash<int, QByteArray> roles = source_model_->roleNames();
+    const ProjectionRoles roles = projectionRoles(source_model_->roleNames());
     for (int source_row = projected_source_count_; source_row < source_count; ++source_row) {
         QVariantMap item = sourceItem(source_row, roles);
         if (item.isEmpty()) {
@@ -539,21 +627,9 @@ void JustifiedReviewLayoutModel::updateSourceItems(
             requestRebuild();
             return;
         }
-        QVariant& value = rows_[position->first].items[position->second];
-        QVariantMap item = value.toMap();
-        bool changed = false;
-        for (const int role : roles) {
-            const QString name = QString::fromLatin1(names.value(role));
-            const QVariant next = source_model_->data(source_index, role);
-            if (item.value(name) != next) {
-                item.insert(name, next);
-                changed = true;
-            }
-        }
-        if (changed) {
-            value = std::move(item);
-            changed_rows.insert(position->first);
-        }
+        // Photo roles are materialized only for visible rows. Their current
+        // source values need no second resident copy in the layout.
+        changed_rows.insert(position->first);
     }
     for (const int row : changed_rows) {
         emit dataChanged(index(row, 0), index(row, 0), {ItemsRole});
@@ -569,7 +645,7 @@ void JustifiedReviewLayoutModel::rebuild() {
         const int source_count = source_model_->rowCount();
         QVariantList source_items;
         source_items.reserve(source_count);
-        const QHash<int, QByteArray> roles = source_model_->roleNames();
+        const ProjectionRoles roles = projectionRoles(source_model_->roleNames());
         for (int source_row = 0; source_row < source_count; ++source_row) {
             QVariantMap item = sourceItem(source_row, roles);
             if (!item.isEmpty()) {

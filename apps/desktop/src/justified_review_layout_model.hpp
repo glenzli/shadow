@@ -96,6 +96,8 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
   private:
     struct Row final {
         QString kind = QStringLiteral("photos");
+        // Geometry, identity and source-row hints only. Card roles are read
+        // when a visible ListView row requests ItemsRole.
         QVariantList items;
         int height = 0;
         int used_width = 0;
@@ -120,7 +122,17 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
         QStringList representation_keys;
     };
 
-    [[nodiscard]] QVariantMap sourceItem(int row, const QHash<int, QByteArray>& roles) const;
+    struct ProjectionRoles final {
+        int photo_id = -1;
+        int representation_id = -1;
+        int visual_width = -1;
+        int visual_height = -1;
+    };
+
+    [[nodiscard]] static ProjectionRoles projectionRoles(const QHash<int, QByteArray>& roles);
+    [[nodiscard]] QVariantMap sourceItem(int row, const ProjectionRoles& roles) const;
+    [[nodiscard]] QVariantMap
+    materializeItem(const QVariantMap& geometry, const QHash<int, QByteArray>& roles) const;
     [[nodiscard]] static qreal aspectRatio(const QVariantMap& item);
     void disconnectSourceModel();
     void requestRebuild();

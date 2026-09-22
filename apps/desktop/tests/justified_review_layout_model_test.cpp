@@ -35,8 +35,12 @@ class CountedProjection final : public QSortFilterProxyModel {
   public:
     mutable int reads = 0;
     mutable int role_names_reads = 0;
+    mutable int title_reads = 0;
     QVariant data(const QModelIndex& index, int role) const override {
         ++reads;
+        if (role == ReviewModel::TitleRole) {
+            ++title_reads;
+        }
         return QSortFilterProxyModel::data(index, role);
     }
     QHash<int, QByteArray> roleNames() const override {
@@ -236,6 +240,34 @@ void appending_after_an_unfinished_row_reflows_only_the_tail() {
     );
 }
 
+void pending_source_reorder_never_presents_another_photos_metadata() {
+    ReviewModel photos;
+    const ReviewItem first = photo("a", 1200, 800);
+    const ReviewItem second = photo("b", 1200, 800);
+    photos.replace({first, second}, 1);
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&photos);
+    layout.setAvailableWidth(900);
+    photos.replace({second, first}, 2);
+    const QVariantList before_rebuild =
+        layout.data(layout.index(0, 0), JustifiedReviewLayoutModel::ItemsRole).toList();
+    require(
+        before_rebuild.at(0).toMap().value(QStringLiteral("photoId")) == QStringLiteral("a")
+            && before_rebuild.at(0).toMap().value(QStringLiteral("title")) == QStringLiteral("a")
+            && before_rebuild.at(1).toMap().value(QStringLiteral("photoId")) == QStringLiteral("b")
+            && before_rebuild.at(1).toMap().value(QStringLiteral("title")) == QStringLiteral("b"),
+        "a pending source reset must not pair old geometry with another photo's metadata"
+    );
+    QCoreApplication::processEvents();
+    const QVariantList after_rebuild =
+        layout.data(layout.index(0, 0), JustifiedReviewLayoutModel::ItemsRole).toList();
+    require(
+        after_rebuild.at(0).toMap().value(QStringLiteral("photoId")) == QStringLiteral("b")
+            && after_rebuild.at(0).toMap().value(QStringLiteral("title")) == QStringLiteral("b"),
+        "the rebuilt row must follow the new source order"
+    );
+}
+
 void large_library_page_append_reads_only_the_new_tail() {
     ReviewModel photos;
     QVector<ReviewItem> initial;
@@ -255,6 +287,16 @@ void large_library_page_append_reads_only_the_new_tail() {
     require(
         source.role_names_reads <= 2,
         "large-gallery construction must reuse the source role table across photos"
+    );
+    require(source.title_reads == 0, "layout construction must not retain every card's metadata");
+    const QVariantList first_visible_row =
+        layout.data(layout.index(0, 0), JustifiedReviewLayoutModel::ItemsRole).toList();
+    require(
+        !first_visible_row.isEmpty()
+            && first_visible_row.front().toMap().value(QStringLiteral("title"))
+                   == QStringLiteral("fixture")
+            && source.title_reads == first_visible_row.size(),
+        "a visible row must still receive full source metadata on demand"
     );
     const QVariantMap old_position = layout.navigationTarget("42", "representation-42", 0, 0);
     int resets = 0;
@@ -285,8 +327,14 @@ void large_library_page_append_reads_only_the_new_tail() {
     }
     source.reads = 0;
     source.role_names_reads = 0;
+    source.title_reads = 0;
     require(photos.appendSnapshot(std::move(page), 1), "the new page must be accepted");
     QCoreApplication::processEvents();
+    require(source.title_reads == 0, "appending offscreen photos must not fetch card metadata");
+    require(
+        source.role_names_reads <= 2,
+        "page append must reuse one source role table for the whole page"
+    );
     const QVariantMap retained = layout.navigationTarget("42", "representation-42", 0, 0);
     const QVariantMap appended = layout.navigationTarget("10095", "representation-10095", 0, 0);
     require(
@@ -296,10 +344,6 @@ void large_library_page_append_reads_only_the_new_tail() {
     require(
         source.reads < 20'000,
         "a 96-photo page must not read the 10000 previously projected photos"
-    );
-    require(
-        source.role_names_reads <= 2,
-        "page append must reuse one source role table for the whole page"
     );
     require(
         retained.value("layoutRow") == old_position.value("layoutRow")
@@ -515,7 +559,7 @@ void decisions_update_one_row_without_relayout_or_catalog_scan() {
     const auto elapsed = timer.nsecsElapsed();
     const auto after = layout.navigationTarget("9876", "representation-9876", 0, 0);
     require(resets == 0 && changed == 1, "one rating must never reset the full gallery");
-    require(source.reads < 20, "one decision must not scan unrelated photos or copy all roles");
+    require(source.reads < 300, "one decision may load its target card but not unrelated photos");
     require(
         after.value("decisionRating").toInt() == 4 && after.value("decisionFlag") == "picked",
         "updated rating and flag reach the gallery and keyboard snapshot"
@@ -557,6 +601,7 @@ int main(int argc, char* argv[]) {
     preserves_missing_source_roles_through_the_gallery_projection();
     coalesces_tail_insertions_without_resetting_visible_rows();
     appending_after_an_unfinished_row_reflows_only_the_tail();
+    pending_source_reorder_never_presents_another_photos_metadata();
     large_library_page_append_reads_only_the_new_tail();
     ordered_sections_split_rows_without_hiding_unassigned_photos();
     grouped_photo_rows_keep_one_visible_stack_representative();
