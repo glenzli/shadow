@@ -15,6 +15,8 @@ namespace {
 
 constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
 constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 80;
+constexpr std::uint32_t EDIT_DETAIL_FIRST_REGION_SIDE = 512;
+constexpr std::uint32_t EDIT_DETAIL_PROGRESSIVE_VIEWPORT_SIDE = 1'024;
 
 [[nodiscard]] LocalizedUiMessage edit_message(
     const char* const source,
@@ -139,10 +141,11 @@ void EditController::scheduleDetailRefreshForRecipeEdit(const int delay_ms) {
 
 void EditController::finishDetailTask() {
     EditDetailTaskResult result = detail_watcher_.result();
-    setDetailRunning(false);
+    const bool center_phase = std::exchange(detail_center_phase_, false);
     if (persistence_state_.closeAfterAutosave()) {
         detail_queued_ = false;
         before_requested_ = false;
+        setDetailRunning(false);
         maybeFinishDeferredApplicationClose();
         return;
     }
@@ -179,7 +182,10 @@ void EditController::finishDetailTask() {
             if (valid) {
                 auto& mutable_tile = result.viewport.tiles.front();
                 const QString ticket =
-                    QStringLiteral("viewport-%1-%2").arg(mutable_tile.x).arg(mutable_tile.y);
+                    (center_phase ? QStringLiteral("viewport-center-%1-%2")
+                                  : QStringLiteral("viewport-%1-%2"))
+                        .arg(mutable_tile.x)
+                        .arg(mutable_tile.y);
                 publications.push_back({
                     .ticket = ticket,
                     .bytes = std::move(mutable_tile.bytes),
@@ -228,6 +234,29 @@ void EditController::finishDetailTask() {
                 }
                 setFullResolutionState(false, true, result.viewport.retained_bytes);
                 emit detailTilesChanged();
+                // Keep the exact center visible over the retained preview while
+                // the complete viewport renders. An edit, pan, or photo switch
+                // advances the generation/token and prevents this continuation.
+                if (center_phase && detail_mode_ && active_ && !detail_queued_
+                    && accepts_edit_detail(
+                        result.generation,
+                        photo_generation_,
+                        render_revision_,
+                        detail_viewport_revision_
+                    )) {
+                    dispatchDetailRender(false);
+                    return;
+                }
+                if (center_phase) {
+                    setDetailRunning(false);
+                    if (detail_queued_) {
+                        maybeStartDetailRender();
+                    } else {
+                        maybeStartBeforePreview();
+                    }
+                    maybeFinishDeferredApplicationClose();
+                    return;
+                }
                 const double retained_mib =
                     static_cast<double>(detail_retained_bytes_) / (1'024.0 * 1'024.0);
                 setStatusMessage(edit_message(
@@ -241,6 +270,7 @@ void EditController::finishDetailTask() {
         }
     }
 
+    setDetailRunning(false);
     if (detail_queued_) {
         maybeStartDetailRender();
     } else {
@@ -267,6 +297,26 @@ void EditController::startDetailRender() {
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Preparing exact full-resolution detail…"))
     );
+    dispatchDetailRender(
+        detail_viewport_width_ > EDIT_DETAIL_PROGRESSIVE_VIEWPORT_SIDE
+        || detail_viewport_height_ > EDIT_DETAIL_PROGRESSIVE_VIEWPORT_SIDE
+    );
+}
+
+void EditController::dispatchDetailRender(const bool center_first) {
+    detail_center_phase_ = center_first;
+    // The first region is an exact, bounded 512px readback. The second pass
+    // retains the existing tile grid and surrounding pan margin unchanged.
+    const std::uint32_t width = center_first
+        ? EDIT_DETAIL_FIRST_REGION_SIDE
+        : detail_retain_pan_margin_
+            ? std::min(8'192U, std::max(1'025U, detail_viewport_width_ + 512U))
+            : detail_viewport_width_;
+    const std::uint32_t height = center_first
+        ? EDIT_DETAIL_FIRST_REGION_SIDE
+        : detail_retain_pan_margin_
+            ? std::min(8'192U, std::max(1'025U, detail_viewport_height_ + 512U))
+            : detail_viewport_height_;
     detail_watcher_.setFuture(
         QtConcurrent::run(
             EditTaskRunner::renderDetail,
@@ -278,15 +328,8 @@ void EditController::startDetailRender() {
             detail_render_token_,
             detail_center_x_,
             detail_center_y_,
-            // Keep a bounded surrounding region ready for subsequent pans.
-            // At high zoom this also preserves the fixed 512px tile grid,
-            // instead of rendering an uncacheable tiny crop at every position.
-            detail_retain_pan_margin_
-                ? std::min(8'192U, std::max(1'025U, detail_viewport_width_ + 512U))
-                : detail_viewport_width_,
-            detail_retain_pan_margin_
-                ? std::min(8'192U, std::max(1'025U, detail_viewport_height_ + 512U))
-                : detail_viewport_height_,
+            width,
+            height,
             EditDetailGeneration{
                 .photo = photo_generation_,
                 .recipe_revision = render_revision_,

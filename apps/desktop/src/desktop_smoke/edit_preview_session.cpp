@@ -9,12 +9,14 @@
 #include <QColorSpace>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QModelIndex>
 #include <QObject>
 #include <QPointer>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
+#include <QRect>
 #include <QSize>
 #include <QString>
 #include <QTimer>
@@ -28,6 +30,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <optional>
 
@@ -871,6 +874,7 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
 
     void requestFullDetail() {
         stage_ = Stage::AwaitFullDetail;
+        detail_timing_.start();
         editor_.requestDetailViewport(
             DETAIL_CENTER,
             DETAIL_CENTER,
@@ -888,6 +892,37 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             return;
         }
         const QVariantList tiles = editor_.detailTiles();
+        if (!center_detail_seen_ && tiles.size() == 1 && editor_.detailRendering()) {
+            const QVariantMap center = tiles.front().toMap();
+            const QString center_source = center.value(QStringLiteral("source")).toString();
+            if (QUrl(center_source).path().startsWith(
+                    QStringLiteral("/detail/viewport-center-"))) {
+                const int width = center.value(QStringLiteral("width")).toInt();
+                const int height = center.value(QStringLiteral("height")).toInt();
+                QSize decoded_size;
+                QImage image = edit_preview_provider_->requestImage(
+                    imageProviderRequestId(center_source), &decoded_size, {}
+                );
+                if (width <= 0 || height <= 0 || width > 512 || height > 512
+                    || image.isNull() || image.size() != QSize(width, height)
+                    || decoded_size != image.size()
+                    || image.format() != QImage::Format_RGB888
+                    || image.colorSpace() != QColorSpace(QColorSpace::SRgb)) {
+                    fail(QStringLiteral("the first exact center region is not readable RGB8"));
+                    return;
+                }
+                center_detail_rect_ = QRect(
+                    center.value(QStringLiteral("x")).toInt(),
+                    center.value(QStringLiteral("y")).toInt(),
+                    width,
+                    height
+                );
+                center_detail_source_ = center_source;
+                center_detail_image_ = std::move(image);
+                center_detail_seen_ = true;
+                center_detail_elapsed_ms_ = detail_timing_.elapsed();
+            }
+        }
         if (tiles.isEmpty() || editor_.detailRendering() || editor_.fullResolutionPreparing()
             || !editor_.fullResolutionReady()) {
             return;
@@ -951,6 +986,35 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             ));
             return;
         }
+        if (!center_detail_seen_
+            || QUrlQuery(QUrl(center_detail_source_)).queryItemValue(QStringLiteral("photo"))
+                != source_query.queryItemValue(QStringLiteral("photo"))
+            || QUrlQuery(QUrl(center_detail_source_)).queryItemValue(QStringLiteral("recipe"))
+                != source_query.queryItemValue(QStringLiteral("recipe"))
+            || QUrlQuery(QUrl(center_detail_source_)).queryItemValue(QStringLiteral("viewport"))
+                != source_query.queryItemValue(QStringLiteral("viewport"))
+            || center_detail_rect_.x() < static_cast<int>(x)
+            || center_detail_rect_.y() < static_cast<int>(y)
+            || center_detail_rect_.right() >= static_cast<int>(x + width)
+            || center_detail_rect_.bottom() >= static_cast<int>(y + height)) {
+            fail(QStringLiteral("the first center region is not part of this exact viewport"));
+            return;
+        }
+        for (int row = 0; row < center_detail_rect_.height(); ++row) {
+            const auto* const full_row = image.constScanLine(
+                row + center_detail_rect_.y() - static_cast<int>(y)
+            ) + (center_detail_rect_.x() - static_cast<int>(x)) * 3;
+            if (std::memcmp(
+                    full_row,
+                    center_detail_image_.constScanLine(row),
+                    static_cast<std::size_t>(center_detail_rect_.width()) * 3U
+                ) != 0) {
+                fail(QStringLiteral("the center and complete viewport disagree on exact pixels"));
+                return;
+            }
+        }
+        qInfo() << "Progressive detail timing: center" << center_detail_elapsed_ms_
+                << "ms complete" << detail_timing_.elapsed() << "ms";
         detail_source_ = source;
         succeed();
     }
@@ -1124,6 +1188,12 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
     QString roundtrip_fallback_source_;
     QString roundtrip_interactive_source_;
     QString detail_source_;
+    QString center_detail_source_;
+    QRect center_detail_rect_;
+    QImage center_detail_image_;
+    bool center_detail_seen_ = false;
+    QElapsedTimer detail_timing_;
+    qint64 center_detail_elapsed_ms_ = -1;
     QPointer<QQuickWindow> scene_graph_window_;
     std::optional<EditPreviewTextureTelemetrySnapshot> first_transport_evidence_;
     std::optional<EditPreviewTextureTelemetrySnapshot> recreated_transport_evidence_;

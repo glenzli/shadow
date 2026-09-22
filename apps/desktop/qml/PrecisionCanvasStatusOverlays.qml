@@ -93,10 +93,12 @@ Item {
 
     readonly property bool detailSurfaceRelevant:
         !comparisonActive && !fitView && zoomFactor >= 1.0
+    readonly property bool detailImageFailedSettled:
+        detailImageLoadFailed && !editor.detailRendering
     readonly property bool detailWaitActive:
-        detailSurfaceRelevant && !detailImageReady
+        detailSurfaceRelevant && (!detailImageReady || editor.detailRendering)
         && editor.detailErrorText.length === 0
-        && !detailImageLoadFailed
+        && !detailImageFailedSettled
         && (editor.detailMode || editor.detailRendering)
     readonly property bool primaryWaitActive:
         !previewFrameReady
@@ -202,7 +204,7 @@ Item {
 
         readonly property bool failed:
             overlays.editor.detailErrorText.length > 0
-            || overlays.detailImageLoadFailed
+            || overlays.detailImageFailedSettled
 
         anchors.top: comparisonBadge.bottom
         anchors.right: comparisonBadge.right

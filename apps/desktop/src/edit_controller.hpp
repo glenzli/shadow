@@ -1089,6 +1089,7 @@ class EditController final : public QObject {
     void finishDetailWarmupTask();
     void startPreviewRender();
     void startDetailRender();
+    void dispatchDetailRender(bool center_first);
     void startDetailWarmup();
 
   private:
@@ -1298,6 +1299,7 @@ class EditController final : public QObject {
     bool before_rendering_ = false;
     bool detail_mode_ = false;
     bool detail_rendering_ = false;
+    bool detail_center_phase_ = false;
     bool full_resolution_preparing_ = false;
     bool full_resolution_ready_ = false;
     bool preview_queued_ = false;
