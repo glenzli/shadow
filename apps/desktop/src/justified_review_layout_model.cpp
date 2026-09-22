@@ -32,7 +32,12 @@ constexpr qreal MAX_ASPECT_RATIO = 8.0;
 JustifiedReviewLayoutModel::JustifiedReviewLayoutModel(QObject* const parent) :
     QAbstractListModel(parent) {
     rebuild_timer_.setSingleShot(true);
-    connect(&rebuild_timer_, &QTimer::timeout, this, &JustifiedReviewLayoutModel::rebuild);
+    connect(
+        &rebuild_timer_,
+        &QTimer::timeout,
+        this,
+        &JustifiedReviewLayoutModel::flushSourceUpdates
+    );
 }
 
 JustifiedReviewLayoutModel::~JustifiedReviewLayoutModel() {
@@ -100,6 +105,7 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
     source_model_ = source_model;
     rows_.clear();
     item_positions_.clear();
+    projected_source_count_ = 0;
     endResetModel();
 
     if (source_model_ != nullptr) {
@@ -114,7 +120,13 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
             source_model_,
             &QAbstractItemModel::rowsInserted,
             this,
-            [request_rebuild](const QModelIndex&, const int, const int) { request_rebuild(); }
+            [this](const QModelIndex& parent, const int first, const int) {
+                if (parent.isValid()) {
+                    requestRebuild();
+                } else {
+                    requestAppend(first);
+                }
+            }
         ));
         source_connections_.append(connect(
             source_model_,
@@ -138,6 +150,7 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
             source_connections_.clear();
             rows_.clear();
             item_positions_.clear();
+            projected_source_count_ = 0;
             endResetModel();
             emit sourceModelChanged();
         }));
@@ -358,7 +371,8 @@ QVariantMap JustifiedReviewLayoutModel::navigationTarget(
     return result;
 }
 
-QVariantMap JustifiedReviewLayoutModel::sourceItem(const int row) const {
+QVariantMap
+JustifiedReviewLayoutModel::sourceItem(const int row, const QHash<int, QByteArray>& roles) const {
     QVariantMap item;
     if (source_model_ == nullptr) {
         return item;
@@ -369,7 +383,6 @@ QVariantMap JustifiedReviewLayoutModel::sourceItem(const int row) const {
         return item;
     }
 
-    const QHash<int, QByteArray> roles = source_model_->roleNames();
     for (auto it = roles.cbegin(); it != roles.cend(); ++it) {
         item.insert(QString::fromLatin1(it.value()), source_model_->data(index, it.key()));
     }
@@ -393,9 +406,101 @@ void JustifiedReviewLayoutModel::disconnectSourceModel() {
 }
 
 void JustifiedReviewLayoutModel::requestRebuild() {
+    full_rebuild_pending_ = true;
+    append_pending_ = false;
     if (!rebuild_timer_.isActive()) {
         rebuild_timer_.start(0);
     }
+}
+
+void JustifiedReviewLayoutModel::requestAppend(const int first) {
+    if (full_rebuild_pending_) {
+        return;
+    }
+    if (!source_model_ || !sections_.isEmpty() || available_width_ < MIN_LAYOUT_WIDTH
+        || first < projected_source_count_) {
+        requestRebuild();
+        return;
+    }
+    append_pending_ = true;
+    if (!rebuild_timer_.isActive()) {
+        rebuild_timer_.start(0);
+    }
+}
+
+void JustifiedReviewLayoutModel::flushSourceUpdates() {
+    if (full_rebuild_pending_) {
+        rebuild();
+    } else if (append_pending_) {
+        appendSourceRows();
+    }
+}
+
+void JustifiedReviewLayoutModel::appendSourceRows() {
+    rebuild_timer_.stop();
+    append_pending_ = false;
+    if (!source_model_ || !sections_.isEmpty() || available_width_ < MIN_LAYOUT_WIDTH
+        || source_model_->rowCount() < projected_source_count_) {
+        rebuild();
+        return;
+    }
+    const int source_count = source_model_->rowCount();
+    if (source_count == projected_source_count_) {
+        return;
+    }
+
+    const bool replace_tail = !rows_.isEmpty() && !rows_.last().justified;
+    QVariantList suffix_items = replace_tail ? rows_.last().items : QVariantList{};
+    const QHash<int, QByteArray> roles = source_model_->roleNames();
+    for (int source_row = projected_source_count_; source_row < source_count; ++source_row) {
+        QVariantMap item = sourceItem(source_row, roles);
+        if (item.isEmpty()) {
+            rebuild();
+            return;
+        }
+        suffix_items.push_back(std::move(item));
+    }
+    QVector<Row> suffix_rows;
+    appendPhotoRows(suffix_rows, std::move(suffix_items));
+    if (suffix_rows.isEmpty()) {
+        rebuild();
+        return;
+    }
+
+    const int first_changed_row = static_cast<int>(rows_.size()) - static_cast<int>(replace_tail);
+    if (replace_tail) {
+        for (const QVariant& value : rows_.last().items) {
+            item_positions_.remove(representationKey(value.toMap()));
+        }
+        rows_.last() = std::move(suffix_rows.front());
+        suffix_rows.removeFirst();
+        const auto& items = rows_.last().items;
+        for (int column = 0; column < items.size(); ++column) {
+            item_positions_.insert(
+                representationKey(items.at(column).toMap()),
+                {first_changed_row, column}
+            );
+        }
+        const QModelIndex changed = index(first_changed_row, 0);
+        emit dataChanged(changed, changed, {ItemsRole, RowHeightRole, UsedWidthRole});
+    }
+    if (!suffix_rows.isEmpty()) {
+        const int first_inserted = static_cast<int>(rows_.size());
+        beginInsertRows(
+            {},
+            first_inserted,
+            first_inserted + static_cast<int>(suffix_rows.size()) - 1
+        );
+        rows_.append(std::move(suffix_rows));
+        for (int row = first_inserted; row < rows_.size(); ++row) {
+            const auto& items = rows_.at(row).items;
+            for (int column = 0; column < items.size(); ++column) {
+                item_positions_.insert(representationKey(items.at(column).toMap()), {row, column});
+            }
+        }
+        endInsertRows();
+    }
+    projected_source_count_ = source_count;
 }
 
 void JustifiedReviewLayoutModel::updateSourceItems(
@@ -403,9 +508,9 @@ void JustifiedReviewLayoutModel::updateSourceItems(
     const QModelIndex& last,
     const QList<int>& roles
 ) {
-    // Structural notifications already scheduled a new snapshot. Unknown roles
-    // or changed dimensions/identities may affect placement and must rebuild.
-    if (source_model_ == nullptr || rebuild_timer_.isActive()) {
+    // A pending full rebuild supersedes updates. An append can still carry
+    // independent badge changes for rows already in the layout.
+    if (source_model_ == nullptr || full_rebuild_pending_) {
         return;
     }
     const auto names = source_model_->roleNames();
@@ -457,13 +562,16 @@ void JustifiedReviewLayoutModel::updateSourceItems(
 
 void JustifiedReviewLayoutModel::rebuild() {
     rebuild_timer_.stop();
+    full_rebuild_pending_ = false;
+    append_pending_ = false;
     QVector<Row> next_rows;
     if (source_model_ != nullptr && available_width_ >= MIN_LAYOUT_WIDTH) {
         const int source_count = source_model_->rowCount();
         QVariantList source_items;
         source_items.reserve(source_count);
+        const QHash<int, QByteArray> roles = source_model_->roleNames();
         for (int source_row = 0; source_row < source_count; ++source_row) {
-            QVariantMap item = sourceItem(source_row);
+            QVariantMap item = sourceItem(source_row, roles);
             if (!item.isEmpty()) {
                 source_items.push_back(std::move(item));
             }
@@ -520,6 +628,7 @@ void JustifiedReviewLayoutModel::rebuild() {
 
     beginResetModel();
     rows_ = std::move(next_rows);
+    projected_source_count_ = source_model_ ? source_model_->rowCount() : 0;
     item_positions_.clear();
     for (int row = 0; row < rows_.size(); ++row) {
         const auto& items = rows_.at(row).items;
@@ -571,6 +680,7 @@ void JustifiedReviewLayoutModel::appendPhotoRows(
             row.section_key = section_key;
             row.height = height;
             row.used_width = roundedDimension(std::max(0.0, x - spacing_));
+            row.justified = justify;
             rows.append(std::move(row));
             first_section_row = false;
         };

@@ -542,8 +542,38 @@ QHash<int, QByteArray> ReviewModel::roleNames() const {
 void ReviewModel::replace(QVector<ReviewItem> items, const quint64 generation) {
     beginResetModel();
     items_ = std::move(items);
+    rebuildPhotoIndex();
     generation_.store(generation, std::memory_order_release);
     endResetModel();
+}
+
+void ReviewModel::rebuildPhotoIndex() {
+    row_by_photo_id_.clear();
+    row_by_photo_id_.reserve(items_.size());
+    photo_index_valid_ = true;
+    for (qsizetype row = 0; row < items_.size(); ++row) {
+        const QString& photo_id = items_.at(row).photo_id;
+        if (photo_id.isEmpty() || row_by_photo_id_.contains(photo_id)) {
+            photo_index_valid_ = false;
+        }
+        row_by_photo_id_.insert(photo_id, row);
+    }
+}
+
+std::optional<qsizetype> ReviewModel::rowForPhoto(const QString& photo_id) const {
+    if (photo_index_valid_) {
+        const auto found = row_by_photo_id_.constFind(photo_id);
+        if (found == row_by_photo_id_.cend()) {
+            return std::nullopt;
+        }
+        return *found;
+    }
+    for (qsizetype row = 0; row < items_.size(); ++row) {
+        if (items_.at(row).photo_id == photo_id) {
+            return row;
+        }
+    }
+    return std::nullopt;
 }
 
 void ReviewModel::setGeneration(const quint64 generation) {
@@ -560,22 +590,22 @@ void ReviewModel::append(QVector<ReviewItem> items) {
     const auto last = first + items.size() - 1;
     beginInsertRows({}, static_cast<int>(first), static_cast<int>(last));
     items_.append(std::move(items));
+    for (qsizetype row = first; row <= last; ++row) {
+        const QString& photo_id = items_.at(row).photo_id;
+        if (photo_id.isEmpty() || row_by_photo_id_.contains(photo_id)) {
+            photo_index_valid_ = false;
+        }
+        row_by_photo_id_.insert(photo_id, row);
+    }
     endInsertRows();
 }
 
 bool ReviewModel::appendSnapshot(QVector<ReviewItem> items, const quint64 generation) {
-    if (!isGenerationCurrent(generation) || !has_unique_stable_keys(items)
-        || !has_unique_stable_keys(items_)) {
+    if (!isGenerationCurrent(generation) || !photo_index_valid_ || !has_unique_stable_keys(items)) {
         return false;
     }
-
-    QSet<QString> existing_keys;
-    existing_keys.reserve(items_.size());
-    for (const auto& item : items_) {
-        existing_keys.insert(item.photo_id);
-    }
     for (const auto& item : items) {
-        if (existing_keys.contains(item.photo_id)) {
+        if (row_by_photo_id_.contains(item.photo_id)) {
             return false;
         }
     }
@@ -584,10 +614,12 @@ bool ReviewModel::appendSnapshot(QVector<ReviewItem> items, const quint64 genera
 }
 
 bool ReviewModel::reconcileSnapshot(QVector<ReviewItem> items, const quint64 generation) {
-    if (!isGenerationCurrent(generation) || !has_unique_stable_keys(items)
-        || !has_unique_stable_keys(items_)) {
+    if (!isGenerationCurrent(generation) || !photo_index_valid_ || !has_unique_stable_keys(items)) {
         return false;
     }
+    // Structural signals may synchronously ask for a decision. Fall back to
+    // the current vector until every move/insert/remove has completed.
+    photo_index_valid_ = false;
 
     QSet<QString> desired_keys;
     desired_keys.reserve(items.size());
@@ -649,12 +681,12 @@ bool ReviewModel::reconcileSnapshot(QVector<ReviewItem> items, const quint64 gen
         const QModelIndex changed = index(static_cast<int>(target_row), 0);
         emit dataChanged(changed, changed, roles);
     }
+    rebuildPhotoIndex();
     return true;
 }
 
 bool ReviewModel::reconcilePrefixSnapshot(QVector<ReviewItem> items, const quint64 generation) {
-    if (!isGenerationCurrent(generation) || !has_unique_stable_keys(items)
-        || !has_unique_stable_keys(items_)) {
+    if (!isGenerationCurrent(generation) || !photo_index_valid_ || !has_unique_stable_keys(items)) {
         return false;
     }
 
@@ -746,6 +778,25 @@ bool ReviewModel::isGenerationCurrent(const quint64 generation) const noexcept {
     return generation_.load(std::memory_order_acquire) == generation;
 }
 
+int ReviewModel::rowOfPhoto(const QString& photo_id, const QString& representation_id) const {
+    if (photo_id.isEmpty() || representation_id.isEmpty()) {
+        return -1;
+    }
+    if (photo_index_valid_) {
+        const auto row = rowForPhoto(photo_id);
+        return row && items_.at(*row).representation_id == representation_id
+                   ? static_cast<int>(*row)
+                   : -1;
+    }
+    for (qsizetype row = 0; row < items_.size(); ++row) {
+        const auto& item = items_.at(row);
+        if (item.photo_id == photo_id && item.representation_id == representation_id) {
+            return static_cast<int>(row);
+        }
+    }
+    return -1;
+}
+
 QString ReviewModel::visualSourceFor(const QString& ticket) const {
     return reviewVisualSource(
         ticket,
@@ -763,32 +814,28 @@ QString ReviewModel::gridVisualSourceFor(const QString& ticket) const {
 }
 
 std::optional<ReviewDecisionValue> ReviewModel::decisionFor(const QString& photo_id) const {
-    const auto item =
-        std::find_if(items_.cbegin(), items_.cend(), [&photo_id](const ReviewItem& candidate) {
-            return candidate.photo_id == photo_id;
-        });
-    if (item == items_.cend()) {
+    const auto row = rowForPhoto(photo_id);
+    if (!row) {
         return std::nullopt;
     }
+    const auto& item = items_.at(*row);
     return ReviewDecisionValue{
-        .head_sequence = item->decision_head_sequence,
-        .flag = item->decision_flag,
-        .rating = item->decision_rating,
+        .head_sequence = item.decision_head_sequence,
+        .flag = item.decision_flag,
+        .rating = item.decision_rating,
     };
 }
 
 std::optional<ReviewLibraryStateValue> ReviewModel::libraryStateFor(const QString& photo_id) const {
-    const auto item =
-        std::find_if(items_.cbegin(), items_.cend(), [&photo_id](const ReviewItem& candidate) {
-            return candidate.photo_id == photo_id;
-        });
-    if (item == items_.cend()) {
+    const auto row = rowForPhoto(photo_id);
+    if (!row) {
         return std::nullopt;
     }
+    const auto& item = items_.at(*row);
     return ReviewLibraryStateValue{
-        .liked = item->liked,
-        .color_label = item->color_label,
-        .updated_at_ms = item->library_state_updated_at_ms,
+        .liked = item.liked,
+        .color_label = item.color_label,
+        .updated_at_ms = item.library_state_updated_at_ms,
     };
 }
 
@@ -852,8 +899,14 @@ bool ReviewModel::updateDecision(
     if (photo_id.isEmpty() || !is_decision_flag(flag) || rating < 0 || rating > 5) {
         return false;
     }
+    const auto indexed_row = photo_index_valid_ ? rowForPhoto(photo_id) : std::nullopt;
+    if (photo_index_valid_ && !indexed_row) {
+        return false;
+    }
+    const qsizetype first_row = indexed_row.value_or(0);
+    const qsizetype last_row = indexed_row ? *indexed_row + 1 : items_.size();
     bool found = false;
-    for (qsizetype row = 0; row < items_.size(); ++row) {
+    for (qsizetype row = first_row; row < last_row; ++row) {
         auto& item = items_[row];
         if (item.photo_id != photo_id) {
             continue;
@@ -885,8 +938,14 @@ bool ReviewModel::updateLibraryState(
     if (photo_id.isEmpty() || !is_color_label(color_label)) {
         return false;
     }
+    const auto indexed_row = photo_index_valid_ ? rowForPhoto(photo_id) : std::nullopt;
+    if (photo_index_valid_ && !indexed_row) {
+        return false;
+    }
+    const qsizetype first_row = indexed_row.value_or(0);
+    const qsizetype last_row = indexed_row ? *indexed_row + 1 : items_.size();
     bool any_changed = false;
-    for (qsizetype row = 0; row < items_.size(); ++row) {
+    for (qsizetype row = first_row; row < last_row; ++row) {
         auto& item = items_[row];
         if (item.photo_id != photo_id) {
             continue;

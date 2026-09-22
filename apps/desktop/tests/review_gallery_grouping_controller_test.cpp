@@ -116,6 +116,29 @@ void base_sections_pass_through_without_user_grouping() {
     );
 }
 
+void large_candidate_section_keeps_unique_members_in_order() {
+    QVariantList members;
+    members.reserve(10'001);
+    for (int index = 0; index < 10'000; ++index) {
+        members.push_back(QStringLiteral("photo-") + QString::number(index));
+    }
+    members.push_back(QStringLiteral("photo-42"));
+    ReviewGalleryGroupingController grouping;
+    grouping.setBaseSections({QVariantMap{
+        {QStringLiteral("key"), QStringLiteral("large-candidate-stack")},
+        {QStringLiteral("title"), QStringLiteral("Candidates")},
+        {QStringLiteral("representationKeys"), members},
+    }});
+    const QStringList result =
+        section(grouping.sections(), 0).value(QStringLiteral("representationKeys")).toStringList();
+    require(
+        result.size() == 10'000 && result.first() == QStringLiteral("photo-0")
+            && result.last() == QStringLiteral("photo-9999")
+            && result.at(42) == QStringLiteral("photo-42"),
+        "a large candidate section must keep first occurrence order and remove duplicates"
+    );
+}
+
 void independent_dimensions_form_composite_groups() {
     PhotoModel photos;
     photos.replace({
@@ -246,6 +269,7 @@ void date_granularities_are_mutually_exclusive_and_source_resets_rebuild() {
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     base_sections_pass_through_without_user_grouping();
+    large_candidate_section_keeps_unique_members_in_order();
     independent_dimensions_form_composite_groups();
     date_granularities_are_mutually_exclusive_and_source_resets_rebuild();
     return EXIT_SUCCESS;

@@ -107,6 +107,7 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
         QString navigation_major_label;
         int section_item_count = 0;
         int section_ordinal = -1;
+        bool justified = false;
     };
 
     struct Section final {
@@ -119,10 +120,13 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
         QStringList representation_keys;
     };
 
-    [[nodiscard]] QVariantMap sourceItem(int row) const;
+    [[nodiscard]] QVariantMap sourceItem(int row, const QHash<int, QByteArray>& roles) const;
     [[nodiscard]] static qreal aspectRatio(const QVariantMap& item);
     void disconnectSourceModel();
     void requestRebuild();
+    void requestAppend(int first);
+    void flushSourceUpdates();
+    void appendSourceRows();
     void
     updateSourceItems(const QModelIndex& first, const QModelIndex& last, const QList<int>& roles);
     void rebuild();
@@ -139,4 +143,7 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
     int available_width_ = 0;
     int target_row_height_ = 188;
     int spacing_ = 8;
+    int projected_source_count_ = 0;
+    bool full_rebuild_pending_ = false;
+    bool append_pending_ = false;
 };

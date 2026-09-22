@@ -109,12 +109,17 @@ struct CompiledSection final {
         if (key.isEmpty() || title.isEmpty() || seen.contains(key)) {
             continue;
         }
+        const QVariantList raw_keys = map.value(QStringLiteral("representationKeys")).toList();
         QStringList representation_keys;
-        for (const QVariant& raw_key : map.value(QStringLiteral("representationKeys")).toList()) {
+        representation_keys.reserve(raw_keys.size());
+        QSet<QString> seen_representation_keys;
+        seen_representation_keys.reserve(raw_keys.size());
+        for (const QVariant& raw_key : raw_keys) {
             const QString representation_key = raw_key.toString();
             if (!representation_key.isEmpty()
-                && !representation_keys.contains(representation_key)) {
+                && !seen_representation_keys.contains(representation_key)) {
                 representation_keys.push_back(representation_key);
+                seen_representation_keys.insert(representation_key);
             }
         }
         if (representation_keys.isEmpty()) {

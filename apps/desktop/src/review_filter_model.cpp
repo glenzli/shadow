@@ -15,6 +15,10 @@ int ReviewFilterModel::indexOfPhoto(
 ) const {
     if (photo_id.isEmpty() || representation_id.isEmpty())
         return -1;
+    if (const auto* review = qobject_cast<const ReviewModel*>(sourceModel())) {
+        const int source_row = review->rowOfPhoto(photo_id, representation_id);
+        return source_row < 0 ? -1 : mapFromSource(review->index(source_row, 0)).row();
+    }
     for (int row = 0; row < rowCount(); ++row) {
         const QModelIndex candidate = index(row, 0);
         if (data(candidate, ReviewModel::PhotoIdRole).toString() == photo_id
@@ -516,6 +520,18 @@ bool ReviewFilterModel::filterAcceptsRow(
     const QModelIndex row = sourceModel()->index(source_row, 0, source_parent);
     if (!row.isValid()) {
         return false;
+    }
+    if (!photo_scope_enabled_ && semantic_rank_by_key_.isEmpty() && smart_category_keys_.isEmpty()
+        && !only_editable_ && !hide_offline_uncached_ && flag_filter_ == QStringLiteral("all")
+        && excluded_flag_filter_ == QStringLiteral("all") && minimum_rating_ == 0
+        && color_filter_ == QStringLiteral("all") && excluded_color_filter_ == QStringLiteral("all")
+        && edit_filter_ == QStringLiteral("all") && liked_filter_ == QStringLiteral("all")
+        && capture_month_.isEmpty() && chinese_lunar_month_ == 0 && chinese_lunar_day_ == 0
+        && chinese_lunar_month_type_ == QStringLiteral("all") && camera_key_.isEmpty()
+        && lens_key_.isEmpty() && country_key_.isEmpty() && locality_key_.isEmpty()
+        && !travel_filter_enabled_ && !daily_filter_enabled_ && keyword_ids_all_.isEmpty()
+        && excluded_keyword_ids_any_.isEmpty()) {
+        return true;
     }
     if (photo_scope_enabled_
         && !photo_scope_ids_.contains(

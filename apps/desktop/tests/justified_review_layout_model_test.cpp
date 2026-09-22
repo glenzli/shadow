@@ -31,6 +31,23 @@ photo(const char* const id, const std::uint32_t width, const std::uint32_t heigh
     return item;
 }
 
+class CountedProjection final : public QSortFilterProxyModel {
+  public:
+    mutable int reads = 0;
+    mutable int role_names_reads = 0;
+    QVariant data(const QModelIndex& index, int role) const override {
+        ++reads;
+        return QSortFilterProxyModel::data(index, role);
+    }
+    QHash<int, QByteArray> roleNames() const override {
+        ++role_names_reads;
+        return QSortFilterProxyModel::roleNames();
+    }
+    void notify(const QList<int>& roles) {
+        emit dataChanged(index(0, 0), index(0, 0), roles);
+    }
+};
+
 void preserves_aspect_ratio_and_never_crops() {
     ReviewModel photos;
     photos.replace(
@@ -147,26 +164,148 @@ void preserves_missing_source_roles_through_the_gallery_projection() {
     );
 }
 
-void coalesces_source_notifications_into_one_layout_reset() {
+void coalesces_tail_insertions_without_resetting_visible_rows() {
     ReviewModel photos;
     JustifiedReviewLayoutModel layout;
     layout.setSourceModel(&photos);
     layout.setAvailableWidth(900);
 
     int layout_resets = 0;
+    int inserted_rows = 0;
     QObject::connect(&layout, &QAbstractItemModel::modelReset, [&layout_resets]() {
         ++layout_resets;
     });
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::rowsInserted,
+        [&inserted_rows](const QModelIndex&, int first, int last) {
+            inserted_rows += last - first + 1;
+        }
+    );
 
     photos.append({photo("a", 1200, 800)});
     photos.append({photo("b", 1200, 800)});
     photos.append({photo("c", 1200, 800)});
-    require(layout_resets == 0, "source changes must defer the expensive gallery rebuild");
+    require(
+        layout_resets == 0 && inserted_rows == 0,
+        "source changes must defer the gallery update"
+    );
 
     QCoreApplication::processEvents();
     require(
-        layout_resets == 1 && layout.rowCount() == 1,
-        "one event-loop turn must combine a burst of source notifications into one layout reset"
+        layout_resets == 0 && inserted_rows == 1 && layout.rowCount() == 1,
+        "one event-loop turn must combine tail insertions without resetting the gallery"
+    );
+}
+
+void appending_after_an_unfinished_row_reflows_only_the_tail() {
+    ReviewModel photos;
+    photos.replace({photo("a", 1200, 800), photo("b", 1200, 800), photo("c", 1200, 800)}, 1);
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&photos);
+    layout.setAvailableWidth(900);
+    require(layout.rowCount() == 1, "three photos initially share the unfinished last row");
+    int resets = 0;
+    int changes = 0;
+    int insertions = 0;
+    QObject::connect(&layout, &QAbstractItemModel::modelReset, [&resets]() { ++resets; });
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::dataChanged,
+        [&changes](const QModelIndex&, const QModelIndex&, const QList<int>&) { ++changes; }
+    );
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::rowsInserted,
+        [&insertions](const QModelIndex&, int first, int last) { insertions += last - first + 1; }
+    );
+    require(
+        photos.appendSnapshot({photo("d", 1200, 800), photo("e", 1200, 800)}, 1),
+        "the next page must append"
+    );
+    QCoreApplication::processEvents();
+    require(
+        resets == 0 && changes == 1 && insertions == 1 && layout.rowCount() == 2,
+        "the prior unfinished row must update while the new tail is inserted"
+    );
+    require(
+        layout.navigationTarget("d", "representation-d", 0, 0).value("layoutRow").toInt() == 0
+            && layout.navigationTarget("e", "representation-e", 0, 0).value("layoutRow").toInt()
+                   == 1,
+        "both pages must retain the intended photo order after reflow"
+    );
+}
+
+void large_library_page_append_reads_only_the_new_tail() {
+    ReviewModel photos;
+    QVector<ReviewItem> initial;
+    initial.reserve(10'000);
+    for (int i = 0; i < 10'000; ++i) {
+        auto item = photo("fixture", 1200, 800);
+        item.photo_id = QString::number(i);
+        item.representation_id = QStringLiteral("representation-") + item.photo_id;
+        initial.push_back(std::move(item));
+    }
+    photos.replace(std::move(initial), 1);
+    CountedProjection source;
+    source.setSourceModel(&photos);
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&source);
+    layout.setAvailableWidth(900);
+    require(
+        source.role_names_reads <= 2,
+        "large-gallery construction must reuse the source role table across photos"
+    );
+    const QVariantMap old_position = layout.navigationTarget("42", "representation-42", 0, 0);
+    int resets = 0;
+    int changed_rows = 0;
+    int inserted_rows = 0;
+    QObject::connect(&layout, &QAbstractItemModel::modelReset, [&resets]() { ++resets; });
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::dataChanged,
+        [&changed_rows](const QModelIndex&, const QModelIndex&, const QList<int>&) {
+            ++changed_rows;
+        }
+    );
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::rowsInserted,
+        [&inserted_rows](const QModelIndex&, int first, int last) {
+            inserted_rows += last - first + 1;
+        }
+    );
+
+    QVector<ReviewItem> page;
+    for (int i = 10'000; i < 10'096; ++i) {
+        auto item = photo("fixture", 1200, 800);
+        item.photo_id = QString::number(i);
+        item.representation_id = QStringLiteral("representation-") + item.photo_id;
+        page.push_back(std::move(item));
+    }
+    source.reads = 0;
+    source.role_names_reads = 0;
+    require(photos.appendSnapshot(std::move(page), 1), "the new page must be accepted");
+    QCoreApplication::processEvents();
+    const QVariantMap retained = layout.navigationTarget("42", "representation-42", 0, 0);
+    const QVariantMap appended = layout.navigationTarget("10095", "representation-10095", 0, 0);
+    require(
+        resets == 0 && inserted_rows > 0 && changed_rows <= 1,
+        "paging must update only the previous tail and newly inserted rows"
+    );
+    require(
+        source.reads < 20'000,
+        "a 96-photo page must not read the 10000 previously projected photos"
+    );
+    require(
+        source.role_names_reads <= 2,
+        "page append must reuse one source role table for the whole page"
+    );
+    require(
+        retained.value("layoutRow") == old_position.value("layoutRow")
+            && retained.value("layoutX") == old_position.value("layoutX")
+            && appended.value("photoId") == QStringLiteral("10095"),
+        "existing scroll geometry and appended-photo navigation remain valid"
     );
 }
 
@@ -338,18 +477,6 @@ void section_anchors_follow_visible_header_rows() {
     );
 }
 
-class CountedProjection final : public QSortFilterProxyModel {
-  public:
-    mutable int reads = 0;
-    QVariant data(const QModelIndex& index, int role) const override {
-        ++reads;
-        return QSortFilterProxyModel::data(index, role);
-    }
-    void notify(const QList<int>& roles) {
-        emit dataChanged(index(0, 0), index(0, 0), roles);
-    }
-};
-
 void decisions_update_one_row_without_relayout_or_catalog_scan() {
     ReviewModel photos;
     QVector<ReviewItem> items;
@@ -428,7 +555,9 @@ int main(int argc, char* argv[]) {
     density_changes_the_target_thumbnail_scale();
     keyboard_navigation_follows_rows_and_nearest_columns();
     preserves_missing_source_roles_through_the_gallery_projection();
-    coalesces_source_notifications_into_one_layout_reset();
+    coalesces_tail_insertions_without_resetting_visible_rows();
+    appending_after_an_unfinished_row_reflows_only_the_tail();
+    large_library_page_append_reads_only_the_new_tail();
     ordered_sections_split_rows_without_hiding_unassigned_photos();
     grouped_photo_rows_keep_one_visible_stack_representative();
     section_anchors_follow_visible_header_rows();
