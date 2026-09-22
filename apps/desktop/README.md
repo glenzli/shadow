@@ -159,7 +159,16 @@ Application startup is split from environment-driven automation:
   enables these bounded Review summaries. It emits after the first 16 events, then at most once per
   2,048 events or 30 seconds of observed work, plus an orderly-exit remainder. Without the setting,
   timing collection is disabled while failures still receive rate-limited warnings. Summaries contain
-  no photo identity, path, ticket, exception text, or image bytes.
+  no photo identity, path, ticket, exception text, or image bytes. The first completed Library page
+  is checkpointed so its measurements survive a later abnormal exit.
+  [`src/review_diagnostic_log.hpp`](src/review_diagnostic_log.hpp) writes completed summaries and a
+  session marker to `diagnostics/review.log` inside the application data directory. The prior file
+  is retained as `review.previous.log`; each is capped at 256 KiB. Writes are flushed before the
+  summary returns. Failure to write leaves console diagnostics available.
+  [`tests/review_large_library_scale_test.cpp`](tests/review_large_library_scale_test.cpp)
+  exercises model projection, ungrouped page append, month/place grouping, and grouped page append
+  with synthetic metadata. CTest uses 10,000 rows; set `SHADOW_REVIEW_SCALE_PHOTOS=100000` for the
+  explicit scale run. It reports elapsed phases and peak process RSS without photo payloads.
 - [`qml/Main.qml`](qml/Main.qml) owns application-window composition, named workspace routing,
   theme projection, and the stable application-shell entry points used by child workspaces. Map
   is an application-level workspace beside Review, Precision, and People; Library Management

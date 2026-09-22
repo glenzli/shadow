@@ -2,6 +2,8 @@
 
 #include <QAbstractListModel>
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QTimeZone>
 #include <QVariantMap>
 
 #include <cstdlib>
@@ -264,6 +266,33 @@ void date_granularities_are_mutually_exclusive_and_source_resets_rebuild() {
     require(photos.reads > 0, "capture metadata still invalidates date grouping");
 }
 
+void invalid_capture_day_uses_each_photos_timestamp() {
+    const qint64 january =
+        QDateTime(QDate(2024, 1, 15), QTime(12, 0), QTimeZone::UTC).toSecsSinceEpoch();
+    const qint64 february =
+        QDateTime(QDate(2024, 2, 15), QTime(12, 0), QTimeZone::UTC).toSecsSinceEpoch();
+    PhotoModel photos;
+    photos.replace({
+        {QStringLiteral("a"),
+         QStringLiteral("representation-a"),
+         QStringLiteral("invalid"),
+         january,
+         QString{}},
+        {QStringLiteral("b"),
+         QStringLiteral("representation-b"),
+         QStringLiteral("invalid"),
+         february,
+         QString{}},
+    });
+    ReviewGalleryGroupingController grouping;
+    grouping.setSourceModel(&photos);
+    grouping.setDimensionSelected(QStringLiteral("date.month"), true);
+    require(
+        grouping.sections().size() == 2,
+        "an invalid shared day string must not hide distinct timestamp fallback months"
+    );
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -272,5 +301,6 @@ int main(int argc, char** argv) {
     large_candidate_section_keeps_unique_members_in_order();
     independent_dimensions_form_composite_groups();
     date_granularities_are_mutually_exclusive_and_source_resets_rebuild();
+    invalid_capture_day_uses_each_photos_timestamp();
     return EXIT_SUCCESS;
 }

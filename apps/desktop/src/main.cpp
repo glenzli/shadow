@@ -31,6 +31,7 @@
 #include "pipeline_run_controller.hpp"
 #include "review_controller.hpp"
 #include "review_clustering_controller.hpp"
+#include "review_diagnostics.hpp"
 #include "review_focus_detail_provider.hpp"
 #include "review_gallery_grouping_controller.hpp"
 #include "semantic_search_controller.hpp"
@@ -135,6 +136,9 @@ int main(int argc, char* argv[]) {
         application_data = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     }
     QDir().mkpath(application_data);
+    if (!ReviewDiagnostics::instance().configureLogDirectory(application_data)) {
+        qWarning() << "Review diagnostic log is unavailable; summaries remain on the console";
+    }
     const QString catalog_path = QDir(application_data).filePath(QStringLiteral("catalog.sqlite"));
     const QString cache_root = QDir(application_data).filePath(QStringLiteral("cache"));
     const bool headless_startup_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST");

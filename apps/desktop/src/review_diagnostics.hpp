@@ -1,5 +1,7 @@
 #pragma once
 
+#include "review_diagnostic_log.hpp"
+
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QMutex>
@@ -19,6 +21,7 @@ class ReviewDiagnostics final {
         PageWait,
         PageBackend,
         PageProjection,
+        GroupingCompile,
         LayoutRebuild,
         LayoutAppend,
         ThumbnailLoad,
@@ -47,6 +50,23 @@ class ReviewDiagnostics final {
 
     [[nodiscard]] bool enabled() const noexcept {
         return enabled_;
+    }
+
+    [[nodiscard]] bool configureLogDirectory(const QString& application_data) {
+        const QMutexLocker lock(&mutex_);
+        return log_.configure(application_data);
+    }
+
+    // Persist the completed first page before the next event window. This
+    // makes short startup failures inspectable after an abnormal exit.
+    void checkpoint() {
+        if (!enabled_) {
+            return;
+        }
+        const QMutexLocker lock(&mutex_);
+        if (events_ != 0) {
+            flush(hasFailures());
+        }
     }
 
     void record(const Stage stage, const qint64 duration_ms, const int units = 0) {
@@ -99,10 +119,11 @@ class ReviewDiagnostics final {
         2048,
         4096,
     };
-    static constexpr std::array<const char*, 7> stage_names{
+    static constexpr std::array<const char*, 8> stage_names{
         "page_request_to_rows",
         "page_backend",
         "page_projection",
+        "grouping_compile",
         "layout_rebuild",
         "layout_append",
         "thumbnail_load",
@@ -213,10 +234,15 @@ class ReviewDiagnostics final {
                                      .arg(failures_[index]));
             }
         }
+        const QString summary = fields.join(QLatin1Char(' '));
+        if (log_.configured() && !log_.append(summary) && !persistence_warning_reported_) {
+            persistence_warning_reported_ = true;
+            qWarning() << "Review diagnostic log is unavailable; summaries remain on the console";
+        }
         if (warning) {
-            qWarning().noquote() << fields.join(QLatin1Char(' '));
+            qWarning().noquote() << summary;
         } else {
-            qInfo().noquote() << fields.join(QLatin1Char(' '));
+            qInfo().noquote() << summary;
         }
         metrics_ = {};
         counters_ = {};
@@ -235,4 +261,6 @@ class ReviewDiagnostics final {
     quint64 events_ = 0;
     bool first_timing_reported_ = false;
     bool failure_reported_ = false;
+    ReviewDiagnosticLog log_;
+    bool persistence_warning_reported_ = false;
 };

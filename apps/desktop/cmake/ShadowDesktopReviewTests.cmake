@@ -1,6 +1,56 @@
 # Review models, evidence/decision workflows, Library coordinators, and
 # packaged Review collection/profile contracts.
     add_executable(
+        shadow-review-diagnostic-log-test
+        tests/review_diagnostic_log_test.cpp
+        src/review_diagnostic_log.hpp
+    )
+    target_compile_features(shadow-review-diagnostic-log-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-review-diagnostic-log-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-review-diagnostic-log-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-review-diagnostic-log-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-review-diagnostic-log-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-review-diagnostic-log COMMAND shadow-review-diagnostic-log-test)
+
+    add_executable(
+        shadow-review-large-library-scale-test
+        tests/review_large_library_scale_test.cpp
+        src/review_model.cpp
+        src/review_visual_request.cpp
+        src/review_gallery_grouping_controller.cpp
+        src/justified_review_layout_model.cpp
+    )
+    target_compile_features(shadow-review-large-library-scale-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-review-large-library-scale-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-review-large-library-scale-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-review-large-library-scale-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-review-large-library-scale-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-large-library-scale
+        COMMAND shadow-review-large-library-scale-test
+    )
+    set_tests_properties(
+        shadow-desktop-review-large-library-scale
+        PROPERTIES TIMEOUT 180 LABELS "scale"
+    )
+
+    add_executable(
         shadow-review-visual-request-contract-test
         tests/review_visual_request_contract_test.cpp
         src/review_visual_request.cpp

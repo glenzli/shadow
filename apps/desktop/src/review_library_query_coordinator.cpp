@@ -467,6 +467,7 @@ void ReviewLibraryQueryCoordinator::finishPage() {
             request_clock_.elapsed(),
             model_->rowCount()
         );
+        diagnostics.checkpoint();
     }
     emit decisionsReconciled();
     if (reset_pending_ && !debounce_timer_.isActive()) {

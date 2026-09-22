@@ -1,8 +1,11 @@
 #include "review_gallery_grouping_controller.hpp"
 
+#include "review_diagnostics.hpp"
+
 #include <QCoreApplication>
 #include <QDate>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QLocale>
 #include <QTimeZone>
@@ -156,11 +159,21 @@ struct CompiledSection final {
     QAbstractItemModel& model,
     const QModelIndex& index,
     const int capture_day_role,
-    const int captured_at_role
+    const int captured_at_role,
+    QHash<QString, QDate>& parsed_days
 ) {
     if (capture_day_role >= 0) {
-        const QDate date =
-            QDate::fromString(model.data(index, capture_day_role).toString(), Qt::ISODate);
+        const QString day_text = model.data(index, capture_day_role).toString();
+        auto cached = parsed_days.constFind(day_text);
+        QDate date;
+        if (cached != parsed_days.cend()) {
+            date = cached.value();
+        } else {
+            date = QDate::fromString(day_text, Qt::ISODate);
+            if (parsed_days.size() < 4096) {
+                parsed_days.insert(day_text, date);
+            }
+        }
         if (date.isValid()) {
             return date;
         }
@@ -410,6 +423,11 @@ void ReviewGalleryGroupingController::disconnectSourceModel() {
 }
 
 void ReviewGalleryGroupingController::rebuild() {
+    auto& diagnostics = ReviewDiagnostics::instance();
+    QElapsedTimer diagnostic_clock;
+    if (diagnostics.enabled()) {
+        diagnostic_clock.start();
+    }
     const QVector<BaseSection> base_sections = normalizedBaseSections(base_sections_);
     QVariantList next_sections;
     if (selected_dimensions_.isEmpty()) {
@@ -434,6 +452,19 @@ void ReviewGalleryGroupingController::rebuild() {
         QVector<CompiledSection> compiled;
         QHash<QString, int> compiled_indices;
         const QLocale locale;
+        QString date_dimension;
+        for (const DimensionDefinition& definition : DIMENSIONS) {
+            const QString dimension = QString::fromLatin1(definition.key);
+            if (dimension.startsWith(QStringLiteral("date."))
+                && selected_dimensions_.contains(dimension)) {
+                date_dimension = dimension;
+                break;
+            }
+        }
+        const bool group_by_place = selected_dimensions_.contains(QStringLiteral("place.name"));
+        QHash<QString, QDate> parsed_days;
+        QHash<qint64, GroupingValue> date_values;
+        QHash<QString, GroupingValue> place_values;
         for (int row = 0; row < source_model_->rowCount(); ++row) {
             const QModelIndex index = source_model_->index(row, 0);
             const QString representation_key =
@@ -461,22 +492,7 @@ void ReviewGalleryGroupingController::rebuild() {
                 }
             }
 
-            const QDate date =
-                captureDate(*source_model_, index, capture_day_role, captured_at_role);
-            for (const DimensionDefinition& definition : DIMENSIONS) {
-                const QString dimension = QString::fromLatin1(definition.key);
-                if (!selected_dimensions_.contains(dimension)) {
-                    continue;
-                }
-                GroupingValue value;
-                if (dimension.startsWith(QStringLiteral("date."))) {
-                    value = dateGroupingValue(dimension, date, locale);
-                } else if (dimension == QStringLiteral("place.name")) {
-                    value = placeGroupingValue(
-                        place_role < 0 ? QString{}
-                                       : source_model_->data(index, place_role).toString()
-                    );
-                }
+            const auto add_dimension = [&](const QString& dimension, const GroupingValue& value) {
                 key_parts.push_back(dimension + QStringLiteral(":") + value.key);
                 title_parts.push_back(value.label);
                 if (navigation_label.isEmpty()) {
@@ -484,6 +500,35 @@ void ReviewGalleryGroupingController::rebuild() {
                     navigation_short_label = value.navigation_short_label;
                     navigation_major_label = value.navigation_major_label;
                 }
+            };
+            if (!date_dimension.isEmpty()) {
+                const QDate date = captureDate(
+                    *source_model_,
+                    index,
+                    capture_day_role,
+                    captured_at_role,
+                    parsed_days
+                );
+                const qint64 day_key = date.isValid() ? date.toJulianDay() : 0;
+                const auto cached = date_values.constFind(day_key);
+                GroupingValue value = cached != date_values.cend()
+                                          ? cached.value()
+                                          : dateGroupingValue(date_dimension, date, locale);
+                if (cached == date_values.cend() && date_values.size() < 4096) {
+                    date_values.insert(day_key, value);
+                }
+                add_dimension(date_dimension, value);
+            }
+            if (group_by_place) {
+                const QString raw_place =
+                    place_role < 0 ? QString{} : source_model_->data(index, place_role).toString();
+                const auto cached = place_values.constFind(raw_place);
+                GroupingValue value =
+                    cached != place_values.cend() ? cached.value() : placeGroupingValue(raw_place);
+                if (cached == place_values.cend() && place_values.size() < 4096) {
+                    place_values.insert(raw_place, value);
+                }
+                add_dimension(QStringLiteral("place.name"), value);
             }
 
             const QString group_key = key_parts.join(GROUP_SEPARATOR);
@@ -521,8 +566,22 @@ void ReviewGalleryGroupingController::rebuild() {
     }
 
     if (sections_ == next_sections) {
+        if (diagnostics.enabled()) {
+            diagnostics.record(
+                ReviewDiagnostics::Stage::GroupingCompile,
+                diagnostic_clock.elapsed(),
+                source_model_ ? source_model_->rowCount() : 0
+            );
+        }
         return;
     }
     sections_ = std::move(next_sections);
+    if (diagnostics.enabled()) {
+        diagnostics.record(
+            ReviewDiagnostics::Stage::GroupingCompile,
+            diagnostic_clock.elapsed(),
+            source_model_ ? source_model_->rowCount() : 0
+        );
+    }
     emit sectionsChanged();
 }
