@@ -52,6 +52,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     [[nodiscard]] bool hasActiveServerFilter() const;
     [[nodiscard]] bool semanticFilterActive() const noexcept;
     [[nodiscard]] bool smartCategoryFilterActive() const noexcept;
+    [[nodiscard]] QStringList semanticRepresentationKeys() const;
+    [[nodiscard]] QStringList smartCategoryRepresentationKeys() const;
 
     void setFlagFilter(const QString& filter);
     void setMinimumRating(int rating);

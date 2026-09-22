@@ -529,8 +529,12 @@ qt_add_executable(
     src/personal_location_search.hpp
     src/people_analysis_controller.cpp
     src/people_analysis_controller.hpp
+    src/people_scope_controller.cpp
+    src/people_scope_controller.hpp
     src/semantic_search_controller.cpp
     src/semantic_search_controller.hpp
+    src/review_clustering_controller.cpp
+    src/review_clustering_controller.hpp
     src/smart_category_controller.cpp
     src/smart_category_controller.hpp
     src/lut_library.cpp
@@ -978,6 +982,7 @@ qt_add_qml_module(
         qml/ReviewDecisionToolbar.qml
         qml/ReviewGallerySurface.qml
         qml/ReviewGalleryToolbar.qml
+        qml/ReviewClusteringControl.qml
         qml/ReviewGalleryGroupingControl.qml
         qml/ReviewGallerySectionNavigator.qml
         qml/SemanticSearchControl.qml

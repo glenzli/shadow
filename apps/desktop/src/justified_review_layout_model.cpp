@@ -506,7 +506,7 @@ void JustifiedReviewLayoutModel::rebuild() {
                 header.section_item_count = static_cast<int>(members.size());
                 header.section_ordinal = section_ordinal++;
                 next_rows.push_back(std::move(header));
-                appendPhotoRows(next_rows, std::move(members));
+                appendPhotoRows(next_rows, std::move(members), section.key);
             }
             QVariantList unassigned;
             for (const QString& key : source_order) {
@@ -531,11 +531,19 @@ void JustifiedReviewLayoutModel::rebuild() {
     emit sectionAnchorsChanged();
 }
 
-void JustifiedReviewLayoutModel::appendPhotoRows(QVector<Row>& rows, QVariantList items) const {
+void JustifiedReviewLayoutModel::appendPhotoRows(
+    QVector<Row>& rows,
+    QVariantList items,
+    const QString& section_key
+) const {
     QVariantList current_items;
     qreal current_aspect_sum = 0.0;
+    bool first_section_row = true;
     const auto append_row =
-        [&rows, this](QVariantList row_items, const qreal aspect_sum, const bool justify) {
+        [&rows,
+         this,
+         &section_key,
+         &first_section_row](QVariantList row_items, const qreal aspect_sum, const bool justify) {
             if (row_items.isEmpty() || !(aspect_sum > 0.0)) {
                 return;
             }
@@ -546,20 +554,25 @@ void JustifiedReviewLayoutModel::appendPhotoRows(QVector<Row>& rows, QVariantLis
                         : static_cast<qreal>(target_row_height_);
             const int height =
                 std::clamp(roundedDimension(natural_height), MIN_ROW_HEIGHT, MAX_ROW_HEIGHT);
+            const bool section_lead_row = first_section_row && !section_key.isEmpty();
             qreal x = 0.0;
             for (QVariant& variant : row_items) {
                 QVariantMap item = variant.toMap();
                 const qreal width = aspectRatio(item) * static_cast<qreal>(height);
                 item.insert(QStringLiteral("layoutX"), roundedDimension(x));
                 item.insert(QStringLiteral("layoutWidth"), roundedDimension(width));
+                item.insert(QStringLiteral("sectionKey"), section_key);
+                item.insert(QStringLiteral("sectionLeadRow"), section_lead_row);
                 variant = item;
                 x += width + static_cast<qreal>(spacing_);
             }
             Row row;
             row.items = std::move(row_items);
+            row.section_key = section_key;
             row.height = height;
             row.used_width = roundedDimension(std::max(0.0, x - spacing_));
             rows.append(std::move(row));
+            first_section_row = false;
         };
 
     for (QVariant& item : items) {

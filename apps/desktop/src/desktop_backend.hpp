@@ -341,6 +341,15 @@ class DesktopBackend final {
         const QString& language,
         std::uint64_t token
     ) const;
+    [[nodiscard]] std::uint64_t beginSimilarReview() const;
+    void cancelSimilarReview(std::uint64_t token) const;
+    [[nodiscard]] BackendSemanticSearchReport suggestSimilarReview(
+        const QString& infer_base_url,
+        const QString& credential_file,
+        const QString& photo_id,
+        const QString& representation_id,
+        std::uint64_t token
+    ) const;
     [[nodiscard]] BackendSmartClassificationBatch classifySmartCategoriesBatch(
         const QString& infer_base_url,
         const QString& credential_file,

@@ -94,6 +94,7 @@ pub use semantic_search::{
     DEFAULT_SEMANTIC_SEARCH_MAXIMUM_PHOTOS, MAX_SEMANTIC_SEARCH_PHOTOS, SemanticSearchError,
     SemanticSearchMatch, SemanticSearchPolicy, SemanticSearchReport, SemanticSearchSkipped,
     search_review_semantics, search_review_semantics_with_control,
+    suggest_similar_review_photos_with_control,
 };
 pub use smart_classification::{
     SmartCategoryCount, SmartCategoryDefinition, SmartCategoryFeedbackDecision, SmartCategoryMatch,

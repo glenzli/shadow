@@ -8,18 +8,30 @@ Item {
     id: people
 
     required property var controller
+    required property var scope
     required property var aiPreferences
     readonly property int renderedGroupCount: peopleGrid.count
     readonly property int selectedGroupCount: controller.selectedGroupCount
     property bool mergeMode: false
     property string nameQuery: ""
+    property bool useCurrentScope: true
     readonly property var visibleGroups: {
         const query = nameQuery.trim().toLocaleLowerCase()
-        return controller.groups.filter(group => query.length === 0
-            || String(group.displayName || "").toLocaleLowerCase().includes(query))
+        const scoped = useCurrentScope && scope.active
+        return controller.groups.filter(group =>
+            (!scoped || (scope.ready && Number(scope.counts[group.groupId] || 0) > 0))
+            && (query.length === 0
+                || String(group.displayName || "").toLocaleLowerCase().includes(query)))
     }
     property string renameGroupId: ""
     property string renameCurrentName: ""
+
+    onVisibleChanged: {
+        if (visible)
+            useCurrentScope = true
+        scope.setViewActive(visible)
+    }
+    Component.onCompleted: scope.setViewActive(visible)
 
     function requestStartAnalysis() {
         if (controller.busy)
@@ -253,6 +265,39 @@ Item {
         }
         RowLayout {
             Layout.fillWidth: true
+            visible: people.scope.active
+            spacing: 8
+            ShadowButton {
+                objectName: "peopleCurrentScopeButton"
+                text: qsTr("Current album and filters")
+                variant: people.useCurrentScope ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: people.useCurrentScope = true
+            }
+            ShadowButton {
+                objectName: "peopleAllLibraryButton"
+                text: qsTr("All Library")
+                variant: people.useCurrentScope ? ShadowButton.Ghost : ShadowButton.Primary
+                onClicked: people.useCurrentScope = false
+            }
+            BusyIndicator {
+                visible: people.useCurrentScope && people.scope.busy
+                running: visible
+                implicitWidth: 20
+                implicitHeight: 20
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: people.useCurrentScope
+                text: people.scope.errorText.length > 0 ? people.scope.errorText
+                    : people.scope.busy ? qsTr("Counting people in the current scope…")
+                    : qsTr("People shown here match the current album and filters.")
+                color: people.scope.errorText.length > 0 ? Theme.errorText : Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.Wrap
+            }
+        }
+        RowLayout {
+            Layout.fillWidth: true
             visible: people.controller.groups.length > 0
             spacing: 12
             ShadowTextField {
@@ -381,7 +426,9 @@ Item {
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("%n photos", "", personCard.modelData.photoCount)
+                            text: qsTr("%n photos", "", people.useCurrentScope && people.scope.active
+                                ? Number(people.scope.counts[personCard.modelData.groupId] || 0)
+                                : personCard.modelData.photoCount)
                             color: Theme.textMuted
                             font.pixelSize: Theme.fontMeta
                             horizontalAlignment: Text.AlignHCenter
@@ -401,7 +448,13 @@ Item {
                 anchors.centerIn: parent
                 width: Math.min(parent.width - 32, 460)
                 visible: peopleGrid.count === 0
-                text: people.nameQuery.length > 0 ? qsTr("No matching people")
+                text: people.useCurrentScope && people.scope.active && people.scope.busy
+                    ? qsTr("Counting people in the current scope…")
+                    : people.useCurrentScope && people.scope.active && people.scope.errorText.length > 0
+                    ? people.scope.errorText
+                    : people.nameQuery.length > 0 ? qsTr("No matching people")
+                    : people.useCurrentScope && people.scope.active && people.controller.hasResults
+                    ? qsTr("No analyzed people in the current scope.")
                     : people.controller.hasResults ? qsTr("No faces were found in the analyzed photos.")
                     : qsTr("Find and organize people locally. Open a person to browse their photos.")
                 color: Theme.textMuted

@@ -126,7 +126,8 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
     void
     updateSourceItems(const QModelIndex& first, const QModelIndex& last, const QList<int>& roles);
     void rebuild();
-    void appendPhotoRows(QVector<Row>& rows, QVariantList items) const;
+    void
+    appendPhotoRows(QVector<Row>& rows, QVariantList items, const QString& section_key = {}) const;
 
     QPointer<QAbstractItemModel> source_model_;
     QVector<QMetaObject::Connection> source_connections_;

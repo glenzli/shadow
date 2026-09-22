@@ -2,6 +2,7 @@
 
 #include "desktop_backend.hpp"
 #include "localized_ui_message.hpp"
+#include "people_scope_controller.hpp"
 #include "review_comparison_coordinator.hpp"
 #include "review_decision_coordinator.hpp"
 #include "review_filter_model.hpp"
@@ -501,6 +502,7 @@ class ReviewController final : public QObject {
     void setSemanticRepresentationOrder(const QStringList& ranked_keys);
     void setSmartCategoryRepresentationKeys(const QStringList& member_keys);
     void setLibraryAlbumId(const QString& album_id);
+    [[nodiscard]] PeopleScopeSnapshot peopleScopeSnapshot() const;
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
     Q_INVOKABLE void refreshSelectedPreviews(const QVariantList& targets);
@@ -559,6 +561,8 @@ class ReviewController final : public QObject {
     Q_INVOKABLE bool prepareRemoteExport(const QVariantList& targets);
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void openPerson(const QString& id, const QString& name, const QStringList& photos);
+    Q_INVOKABLE void
+    openPersonAllLibrary(const QString& id, const QString& name, const QStringList& photos);
     QString personFilterId() const {
         return person_filter_id_;
     }

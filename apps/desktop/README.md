@@ -121,12 +121,18 @@ Application startup is split from environment-driven automation:
   stable local naming, durable correction undo, incremental scan continuation, localization, and explicit clear. It delegates model execution and
   the independently clearable People Store through `DesktopBackend`; only logical photo ids needed
   to browse and split a person or reject co-occurring-face merges enter Qt, while embeddings and face geometry remain in Rust.
+- [`src/people_scope_controller.*`](src/people_scope_controller.hpp) projects global People groups
+  into the current Review album and filters. It counts all matching Catalog photos on a worker,
+  invalidates stale counts, and keeps person identity independent of the browsing scope.
 - [`src/semantic_search_controller.*`](src/semantic_search_controller.hpp) owns manual,
   session-only natural-language search admission, safe failure presentation, and the bounded
-  high/possible relevance projection; weak relative matches stay hidden.
+  relative similarity projection. It also owns the selected-photo comparison request.
   [`src/review_filter_model.*`](src/review_filter_model.hpp) composes that ranking with existing
   Review filters and restores source order when it is cleared; vectors, prompts, paths, and model
   provenance never enter the Qt model.
+- [`src/review_clustering_controller.*`](src/review_clustering_controller.hpp) owns the bounded
+  scope snapshot, background candidate grouping, progress, pause/resume, cancellation, and
+  session-only group projection.
 - [`src/smart_category_controller.*`](src/smart_category_controller.hpp) owns configurable,
   overlapping smart-category definitions, checkpointed background classification, atomic
   membership publication, and category selection. It consumes the rebuildable SigLIP sidecar
@@ -160,6 +166,8 @@ Application startup is split from environment-driven automation:
   [`qml/SemanticSearchControl.qml`](qml/SemanticSearchControl.qml) owns the integrated
   natural-language field, its asynchronous waiting/error state, and the responsive handoff from a
   wide toolbar field to an anchored compact popup.
+  [`qml/ReviewClusteringControl.qml`](qml/ReviewClusteringControl.qml) owns the selected/view/Manual
+  Album grouping entry and its visible task controls.
   [`qml/ReviewGalleryGroupingControl.qml`](qml/ReviewGalleryGroupingControl.qml) renders the
   grouping controller's open dimension registry as one anchored menu and communicates active
   composite grouping without owning any photo-membership rules.
@@ -1278,6 +1286,22 @@ visuals side by side, initially the selected photo and its adjacent visible resu
 navigate independently within the current Library order. There is intentionally no 1/2/4 layout,
 no winner action, and no metadata or learning write coupled to this view.
 
+The selected-photo similarity action uses Infer Runtime image embeddings to suggest a temporary
+group from nearby Review photos. Capture timestamps, when both are available, exclude photos more
+than two minutes apart; otherwise a bounded path-order neighborhood supplies candidates. Up to
+twelve neighbors are ranked by relative image similarity, with the anchor first. The group appears
+as a collapsed gallery section that can be expanded and opens directly in ordinary two-pane
+comparison; pane arrows then stay within that group. Clearing releases the session result.
+Similarity is not calibrated duplicate
+confidence or an aesthetic judgment, and no rating, flag, or photo metadata is written.
+The separate candidate-grouping task can snapshot selected photos or the loaded, filtered view,
+or page the current Manual Album. It checks at most 240 photos per run and links reciprocal nearby
+similarity candidates into temporary stacks of up to twelve. A Qt worker reports completed/total
+progress; pause waits for the current inference request, resume uses the same in-memory scope,
+and cancel invalidates the current provider token. The result is session-only. Album members not
+yet loaded in the gallery need to be loaded before they can enter the comparison view. The Recent
+Imports collection remains unavailable because import-session filtering is not implemented.
+
 Culling is a separate temporary workflow. A user explicitly gathers candidates, enters a focused
 1:1 duel, and repeatedly chooses the better photo, declares a tie, skips a pair, or undoes the last
 choice. One linear winner-stays pass identifies the top choice and retains only its direct losses as
@@ -1607,6 +1631,9 @@ one active search and one replaceable pending query. Clear and replacement cance
 the active Rust request and reject late results. The core caches exact-source image
 vectors across queries; QML displays relative ranking and scan coverage without
 inventing strong-match confidence. Model files remain managed by Infer Runtime.
+The separate similar-review controller shares this UI owner but has its own Rust cancellation
+token and transient result. Its anchor and candidates are checked against current Review visual
+identities before entering a group-scoped comparison.
 
 ## Independent photo editor
 

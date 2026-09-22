@@ -221,6 +221,17 @@ void ordered_sections_split_rows_without_hiding_unassigned_photos() {
             == QStringLiteral("possible"),
         "the second group starts only after the first group's photo rows"
     );
+    require(
+        layout.data(layout.index(1, 0), JustifiedReviewLayoutModel::SectionKeyRole).toString()
+                == QStringLiteral("strong")
+            && layout.data(layout.index(3, 0), JustifiedReviewLayoutModel::SectionKeyRole)
+                       .toString()
+                   == QStringLiteral("possible")
+            && layout.data(layout.index(4, 0), JustifiedReviewLayoutModel::SectionKeyRole)
+                   .toString()
+                   .isEmpty(),
+        "photo rows retain their presentation section without assigning unrelated photos"
+    );
     const QVariantMap unassigned =
         layout.data(layout.index(4, 0), JustifiedReviewLayoutModel::ItemsRole)
             .toList()
@@ -237,6 +248,36 @@ void ordered_sections_split_rows_without_hiding_unassigned_photos() {
         down.value(QStringLiteral("photoId")).toString() == QStringLiteral("c")
             && down.value(QStringLiteral("layoutRow")).toInt() == 3,
         "keyboard navigation skips section headings and reaches the next photo row"
+    );
+}
+
+void grouped_photo_rows_keep_one_visible_stack_representative() {
+    ReviewModel photos;
+    photos.replace({photo("a", 1200, 800), photo("b", 1200, 800), photo("c", 1200, 800)}, 1);
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&photos);
+    layout.setTargetRowHeight(360);
+    layout.setAvailableWidth(400);
+    layout.setSections({QVariantMap{
+        {QStringLiteral("key"), QStringLiteral("similar-review")},
+        {QStringLiteral("title"), QStringLiteral("Similar review candidates")},
+        {QStringLiteral("representationKeys"),
+         QStringList{
+             QStringLiteral("a\u001frepresentation-a"),
+             QStringLiteral("b\u001frepresentation-b"),
+             QStringLiteral("c\u001frepresentation-c"),
+         }},
+    }});
+    require(layout.rowCount() == 4, "three candidates occupy separate photo rows");
+    const QVariantMap anchor =
+        layout.navigationTarget(QStringLiteral("a"), QStringLiteral("representation-a"), 0, 0);
+    const QVariantMap next =
+        layout.navigationTarget(QStringLiteral("b"), QStringLiteral("representation-b"), 0, 0);
+    require(
+        anchor.value(QStringLiteral("sectionLeadRow")).toBool()
+            && !next.value(QStringLiteral("sectionLeadRow")).toBool()
+            && next.value(QStringLiteral("sectionKey")) == QStringLiteral("similar-review"),
+        "only the first photo row remains visible when a similar stack is collapsed"
     );
 }
 
@@ -389,6 +430,7 @@ int main(int argc, char* argv[]) {
     preserves_missing_source_roles_through_the_gallery_projection();
     coalesces_source_notifications_into_one_layout_reset();
     ordered_sections_split_rows_without_hiding_unassigned_photos();
+    grouped_photo_rows_keep_one_visible_stack_representative();
     section_anchors_follow_visible_header_rows();
     decisions_update_one_row_without_relayout_or_catalog_scan();
     return EXIT_SUCCESS;

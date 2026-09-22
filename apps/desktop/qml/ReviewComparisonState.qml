@@ -16,6 +16,9 @@ QtObject {
     property var leftComparisonSnapshot: null
     property var rightComparisonSnapshot: null
     property bool compareMode: false
+    property var groupSnapshots: []
+    readonly property bool groupMode: groupSnapshots.length > 1
+    readonly property int groupCount: groupSnapshots.length
     property string localComparisonStatusKey: ""
     property int localComparisonStatusSlot: -1
 
@@ -131,7 +134,42 @@ QtObject {
             0))
     }
 
+    function groupAdjacentSnapshot(snapshot, direction, other) {
+        const currentIndex = groupSnapshots.findIndex(value => sameIdentity(value, snapshot))
+        if (currentIndex < 0)
+            return null
+        for (let step = 1; step < groupSnapshots.length; ++step) {
+            const nextIndex = (currentIndex + direction * step
+                + groupSnapshots.length * step) % groupSnapshots.length
+            const target = groupSnapshots[nextIndex]
+            if (!sameIdentity(target, other))
+                return target
+        }
+        return null
+    }
+
+    function startGroupComparison(values) {
+        const snapshots = []
+        for (let index = 0; index < values.length; ++index) {
+            const snapshot = normalizedSnapshot(values[index])
+            if (!snapshotReady(snapshot))
+                continue
+            if (snapshots.some(value => sameIdentity(value, snapshot)))
+                continue
+            snapshots.push(snapshot)
+        }
+        if (snapshots.length < 2)
+            return false
+        groupSnapshots = snapshots
+        leftComparisonSnapshot = snapshots[0]
+        rightComparisonSnapshot = snapshots[1]
+        compareMode = true
+        clearLocalComparisonStatus()
+        return true
+    }
+
     function startQuickComparison() {
+        groupSnapshots = []
         const selected = selectedSnapshot()
         if (!snapshotReady(selected))
             return
@@ -153,6 +191,7 @@ QtObject {
     // action. The caller supplies two immutable selection snapshots, so the
     // two panes begin exactly with the photos the user selected.
     function startSelectedComparison(leftValue, rightValue) {
+        groupSnapshots = []
         const left = normalizedSnapshot(leftValue)
         const right = normalizedSnapshot(rightValue)
         if (!snapshotReady(left) || !snapshotReady(right)
@@ -177,9 +216,11 @@ QtObject {
             return
         const current = slot === 0
             ? leftComparisonSnapshot : rightComparisonSnapshot
-        const target = adjacentSnapshot(current, direction)
         const other = slot === 0
             ? rightComparisonSnapshot : leftComparisonSnapshot
+        const target = groupMode
+            ? groupAdjacentSnapshot(current, direction, other)
+            : adjacentSnapshot(current, direction)
         if (!snapshotReady(target) || sameIdentity(target, other)) {
             localComparisonStatusKey = "no-adjacent-photo"
             localComparisonStatusSlot = slot
@@ -202,6 +243,7 @@ QtObject {
     }
 
     function clearComparisonSlots() {
+        groupSnapshots = []
         leftComparisonSnapshot = null
         rightComparisonSnapshot = null
         compareMode = false
@@ -210,6 +252,7 @@ QtObject {
 
     function exitComparison() {
         compareMode = false
+        groupSnapshots = []
         clearLocalComparisonStatus()
     }
 

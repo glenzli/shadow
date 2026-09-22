@@ -181,6 +181,88 @@ int main(int argc, char* argv[]) {
     );
     failing.search(QStringLiteral("portrait"));
     waitForCompletion(failing);
+    SemanticSearchController similar(
+        SemanticSearchController::ImageRunner{
+            [](const QString& photo_id, const QString& representation_id, std::uint64_t) {
+                if (photo_id != QStringLiteral("anchor")
+                    || representation_id != QStringLiteral("representation-anchor")) {
+                    throw std::runtime_error("unexpected anchor");
+                }
+                return BackendSemanticSearchReport{
+                    .considered_photos = 2,
+                    .embedded_photos = 2,
+                    .matches = {
+                        {
+                            .photo_id = QStringLiteral("anchor"),
+                            .representation_id = QStringLiteral("representation-anchor"),
+                            .cosine_similarity = 1.0F,
+                        },
+                        {
+                            .photo_id = QStringLiteral("neighbor"),
+                            .representation_id = QStringLiteral("representation-neighbor"),
+                            .cosine_similarity = 0.8F,
+                        },
+                    },
+                };
+            }
+        },
+        {},
+        {}
+    );
+    similar.findSimilar(QStringLiteral("anchor"), QStringLiteral("representation-anchor"));
+    waitForCompletion(similar);
+    if (!require(similar.hasResults(), "image search publishes transient candidates")
+        || !require(
+            similar.anchorPhotoId() == QStringLiteral("anchor")
+                && similar.anchorRepresentationId() == QStringLiteral("representation-anchor"),
+            "image results retain the exact anchor identity"
+        )
+        || !require(
+            similar.rankedRepresentationKeys().size() == 2,
+            "anchor and neighbor remain visible"
+        )) {
+        return EXIT_FAILURE;
+    }
+    similar.clearSessionResults();
+    if (!require(
+            similar.anchorPhotoId().isEmpty() && !similar.hasResults(),
+            "clear removes the image session identity"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    QSemaphore similar_entered;
+    QSemaphore release_similar;
+    int similar_cancellations = 0;
+    SemanticSearchController cancellable_similar(
+        SemanticSearchController::ImageRunner{
+            [&](const QString&, const QString&, std::uint64_t) {
+                similar_entered.release();
+                release_similar.acquire();
+                return BackendSemanticSearchReport{};
+            }
+        },
+        [] { return std::uint64_t{1}; },
+        [&](std::uint64_t) { ++similar_cancellations; }
+    );
+    cancellable_similar.findSimilar(QStringLiteral("a"), QStringLiteral("ra"));
+    if (!similar_entered.tryAcquire(1, 2000)) {
+        release_similar.release();
+        return EXIT_FAILURE;
+    }
+    cancellable_similar.clearSessionResults();
+    if (!require(cancellable_similar.busy(), "cancel remains in flight until worker exits")
+        || !require(cancellable_similar.statusText().contains(QStringLiteral("Cancelling")),
+                    "image review exposes its cancellation state")) {
+        release_similar.release();
+        return EXIT_FAILURE;
+    }
+    release_similar.release();
+    waitForCompletion(cancellable_similar);
+    if (!require(similar_cancellations == 1 && !cancellable_similar.hasResults(),
+                 "cancelled image review rejects late results"))
+        return EXIT_FAILURE;
+
     return require(!failing.errorText().isEmpty(), "provider failure becomes a safe UI error")
                    && require(
                        !failing.errorText().contains(QStringLiteral("credential leaked detail")),

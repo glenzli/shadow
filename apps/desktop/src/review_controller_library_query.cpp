@@ -202,9 +202,17 @@ void ReviewController::openPerson(
     const QString& name,
     const QStringList& photos
 ) {
-    // Install membership before clearing controls, so opening the Library never
-    // instantiates unrelated retained rows. One immediate request replaces all
-    // debounced filter notifications emitted by this navigation transaction.
+    // Person membership intersects the existing album and filter lens. Keep
+    // the lens so returning to People restores the event's population.
+    setPersonFilter(id, name, photos);
+    requestLibraryReset();
+}
+
+void ReviewController::openPersonAllLibrary(
+    const QString& id,
+    const QString& name,
+    const QStringList& photos
+) {
     setPersonFilter(id, name, photos);
     clearLibraryFilterControls();
     requestLibraryReset();
@@ -489,4 +497,22 @@ BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
     filter.keyword_ids_all = filtered_model_.keywordIdsAll();
     filter.excluded_keyword_ids_any = filtered_model_.excludedKeywordIdsAny();
     return filter;
+}
+
+PeopleScopeSnapshot ReviewController::peopleScopeSnapshot() const {
+    PeopleScopeSnapshot scope;
+    scope.filter = currentLibraryFilter();
+    scope.filter.has_photo_ids = false;
+    scope.filter.photo_ids.clear();
+    scope.only_editable = filtered_model_.onlyEditable();
+    scope.excluded_flag = filtered_model_.excludedFlagFilter();
+    scope.excluded_color = filtered_model_.excludedColorFilter();
+    scope.semantic_keys = filtered_model_.semanticRepresentationKeys();
+    scope.smart_category_keys = filtered_model_.smartCategoryRepresentationKeys();
+    scope.active = !scope.filter.album_id.isEmpty() || filtered_model_.hasActiveServerFilter()
+                   || scope.only_editable || filtered_model_.hideOfflineUncached()
+                   || scope.excluded_flag != QStringLiteral("all")
+                   || scope.excluded_color != QStringLiteral("all")
+                   || !scope.semantic_keys.isEmpty() || !scope.smart_category_keys.isEmpty();
+    return scope;
 }

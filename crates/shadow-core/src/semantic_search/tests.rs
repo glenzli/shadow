@@ -153,6 +153,84 @@ fn bounded_current_visuals_rank_without_exposing_vectors_or_paths() {
 }
 
 #[test]
+fn similar_review_keeps_anchor_first_and_reuses_candidate_embeddings() {
+    let fixture = Fixture::new();
+    let (anchor_representation, _, _) = fixture.add_photo(1, "/photos/a.dng", b"first-jpeg");
+    let (unrelated_representation, _, _) = fixture.add_photo(2, "/photos/b.dng", b"second-jpeg");
+    let (similar_representation, _, _) = fixture.add_photo(3, "/photos/c.dng", b"first-jpeg");
+    let page = fixture.catalog.review_page(None, 8).expect("review page");
+    let anchor = page.items.first().expect("anchor");
+    let provider = FakeSemanticProvider::new();
+
+    for pass in 0..2 {
+        let report = suggest_similar_review_photos_with_control(
+            &fixture.catalog,
+            &fixture.cache_root,
+            &provider,
+            anchor.photo_id,
+            anchor_representation,
+            &|| false,
+        )
+        .expect("similar review");
+        assert_eq!(report.considered_photos, 3);
+        assert_eq!(report.matches.len(), 3);
+        assert_eq!(report.matches[0].representation_id, anchor_representation);
+        assert_eq!(report.matches[1].representation_id, similar_representation);
+        assert_eq!(
+            report.matches[2].representation_id,
+            unrelated_representation
+        );
+        assert_eq!(provider.image_calls.get(), if pass == 0 { 3 } else { 4 });
+    }
+}
+
+#[test]
+fn similar_review_rejects_a_replaced_anchor_and_honors_cancellation() {
+    let fixture = Fixture::new();
+    let (representation_id, source, mut replacement) =
+        fixture.add_photo(1, "/photos/a.dng", b"first-jpeg");
+    let anchor = fixture
+        .catalog
+        .review_page(None, 8)
+        .expect("review page")
+        .items[0]
+        .photo_id;
+    replacement.generator_version = "2".into();
+    replacement.created_at_ms += 1;
+    let provider = FakeSemanticProvider::replacing(
+        fixture.catalog.clone(),
+        RecordCachedArtifact {
+            representation_id,
+            expected_source: source,
+            artifact: replacement,
+        },
+    );
+    assert!(matches!(
+        suggest_similar_review_photos_with_control(
+            &fixture.catalog,
+            &fixture.cache_root,
+            &provider,
+            anchor,
+            representation_id,
+            &|| true,
+        ),
+        Err(SemanticSearchError::Cancelled)
+    ));
+    assert_eq!(provider.image_calls.get(), 0);
+    assert!(matches!(
+        suggest_similar_review_photos_with_control(
+            &fixture.catalog,
+            &fixture.cache_root,
+            &provider,
+            anchor,
+            representation_id,
+            &|| false,
+        ),
+        Err(SemanticSearchError::AnchorUnavailable)
+    ));
+}
+
+#[test]
 fn maximum_photo_policy_prevents_an_unbounded_library_scan() {
     let fixture = Fixture::new();
     fixture.add_photo(1, "/photos/a.dng", b"first-jpeg");

@@ -19,7 +19,10 @@ ApplicationWindow {
     required property var exportController
     required property var cacheMaintenanceController
     required property var peopleAnalysisController
+    required property var peopleScopeController
     required property var semanticSearchController
+    required property var similarReviewController
+    required property var reviewClusteringController
     required property var smartCategoryController
     required property var imageUnderstandingController
     required property var aiPreferences
@@ -231,7 +234,10 @@ ApplicationWindow {
     Connections {
         target: window.peopleAnalysisController
         function onGroupOpened(groupId, name, photoIds) {
-            window.controller.openPerson(groupId, name, photoIds)
+            if (peopleWorkspace.useCurrentScope || !window.peopleScopeController.active)
+                window.controller.openPerson(groupId, name, photoIds)
+            else
+                window.controller.openPersonAllLibrary(groupId, name, photoIds)
             window.showReview()
         }
         function onResultsChanged() {
@@ -370,6 +376,8 @@ ApplicationWindow {
             amapPlaceSearchService: window.amapPlaceSearchService
             personalProfile: window.personalProfile
             semanticSearchController: window.semanticSearchController
+            similarReviewController: window.similarReviewController
+            reviewClusteringController: window.reviewClusteringController
             smartCategoryController: window.smartCategoryController
             imageUnderstandingController: window.imageUnderstandingController
             // Qt WebView is a native child view on macOS rather than a scene-
@@ -416,9 +424,11 @@ ApplicationWindow {
         }
 
         PeopleWorkspace {
+            id: peopleWorkspace
             Layout.fillWidth: true
             Layout.fillHeight: true
             controller: window.peopleAnalysisController
+            scope: window.peopleScopeController
             aiPreferences: window.aiPreferences
         }
 

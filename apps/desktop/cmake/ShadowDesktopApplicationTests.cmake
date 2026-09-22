@@ -55,6 +55,36 @@
     )
 
     add_executable(
+        shadow-people-scope-controller-test
+        tests/people_scope_controller_test.cpp
+        src/ai_preferences.cpp
+        src/ai_preferences.hpp
+        src/people_analysis_controller.cpp
+        src/people_analysis_controller.hpp
+        src/people_scope_controller.cpp
+        src/people_scope_controller.hpp
+    )
+    target_compile_features(shadow-people-scope-controller-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-people-scope-controller-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-people-scope-controller-test PRIVATE Qt6::Concurrent Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(shadow-people-scope-controller-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-people-scope-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-people-scope-controller
+        COMMAND shadow-people-scope-controller-test
+    )
+
+    add_executable(
         shadow-semantic-search-controller-test
         tests/semantic_search_controller_test.cpp
         src/semantic_search_controller.cpp
@@ -82,6 +112,36 @@
     add_test(
         NAME shadow-desktop-semantic-search-controller
         COMMAND shadow-semantic-search-controller-test
+    )
+
+    add_executable(
+        shadow-review-clustering-controller-test
+        tests/review_clustering_controller_test.cpp
+        src/review_clustering_controller.cpp
+        src/review_clustering_controller.hpp
+    )
+    target_compile_features(shadow-review-clustering-controller-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-review-clustering-controller-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-review-clustering-controller-test
+        PRIVATE Qt6::Concurrent Qt6::Core
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-clustering-controller-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-clustering-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-clustering-controller
+        COMMAND shadow-review-clustering-controller-test
     )
 
     add_executable(

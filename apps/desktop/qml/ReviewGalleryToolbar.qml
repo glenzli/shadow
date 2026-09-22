@@ -144,6 +144,12 @@ Rectangle {
             grouping: toolbar.workspace.reviewGalleryGrouping
         }
 
+        ReviewClusteringControl {
+            Layout.preferredWidth: implicitWidth
+            Layout.preferredHeight: implicitHeight
+            workspace: toolbar.workspace
+        }
+
         Item { Layout.fillWidth: true }
 
         Item {
@@ -266,6 +272,50 @@ Rectangle {
                 else
                     toolbar.workspace.comparison.startQuickComparison()
             }
+        }
+
+        ShadowIconButton {
+            objectName: "findSimilarReviewButton"
+            source: toolbar.workspace.similarReviewController.busy
+                ? "" : "qrc:/icons/source-stack.svg"
+            selected: toolbar.workspace.similarReviewForSelection
+            toolTipText: toolbar.workspace.similarReviewController.busy
+                ? qsTr("Finding similar review candidates…")
+                : toolbar.workspace.similarReviewForSelection
+                    ? qsTr("Open similar photo comparison (%L1 candidates)")
+                        .arg(Math.max(0,
+                            toolbar.workspace.similarReviewController.shownResultCount - 1))
+                    : qsTr("Find similar photos near the selected photo")
+            accessibleName: toolTipText
+            enabled: toolbar.workspace.similarReviewForSelection
+                ? toolbar.workspace.similarReviewController.shownResultCount > 1
+                : toolbar.workspace.canFindSimilarReview
+            onClicked: {
+                if (toolbar.workspace.similarReviewForSelection)
+                    toolbar.workspace.openSimilarComparison()
+                else
+                    toolbar.workspace.findSimilarReview()
+            }
+            BusyIndicator {
+                anchors.centerIn: parent
+                width: 18
+                height: 18
+                visible: toolbar.workspace.similarReviewController.busy
+                running: visible
+            }
+        }
+
+        ShadowIconButton {
+            objectName: "clearSimilarReviewButton"
+            visible: toolbar.workspace.similarReviewController.hasResults
+                || toolbar.workspace.similarReviewController.busy
+                || toolbar.workspace.similarReviewController.errorText.length > 0
+            source: "qrc:/icons/clear.svg"
+            toolTipText: toolbar.workspace.similarReviewController.busy
+                ? qsTr("Cancel similar photo review")
+                : qsTr("Clear similar review candidates")
+            accessibleName: toolTipText
+            onClicked: toolbar.workspace.clearSimilarReview()
         }
 
         ShadowIconButton {

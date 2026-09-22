@@ -5,6 +5,9 @@
 //! independently of queries; stale results are rejected before ranked references return.
 
 mod embedding_cache;
+mod similar_review;
+
+pub use similar_review::suggest_similar_review_photos_with_control;
 
 use std::fmt::Write as _;
 
@@ -252,6 +255,8 @@ pub enum SemanticSearchError {
     Cancelled,
     #[error("semantic search policy is invalid")]
     InvalidPolicy,
+    #[error("the selected Review photo or its current JPEG visual is unavailable")]
+    AnchorUnavailable,
     #[error("infer-runtime image geometry disagrees with the selected Catalog artifact")]
     ProviderGeometryMismatch,
     #[error("could not prepare local vision input: {0}")]

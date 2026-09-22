@@ -68,7 +68,10 @@ Rectangle {
                 }
 
                 Label {
-                    text: qsTr("Preview comparison · double-click to zoom, drag to pan. Use Precision for original detail.")
+                    text: comparisonView.review.comparison.groupMode
+                        ? qsTr("Similar group · %L1 photos · arrows stay within this group. Check each photo before deciding.")
+                            .arg(comparisonView.review.comparison.groupCount)
+                        : qsTr("Preview comparison · double-click to zoom, drag to pan. Use Precision for original detail.")
                     color: comparisonView.review.textMuted
                     font.pixelSize: Theme.fontMeta
                 }
@@ -145,7 +148,9 @@ Rectangle {
                                 compact: true
                                 minimumButtonWidth: 34
                                 text: qsTr("‹")
-                                toolTipText: qsTr("Previous photo in this pane")
+                                toolTipText: comparisonView.review.comparison.groupMode
+                                    ? qsTr("Previous photo in this group")
+                                    : qsTr("Previous photo in this pane")
                                 onClicked: comparisonView.review.comparison
                                     .navigatePane(comparisonPane.paneIndex, -1)
                             }
@@ -165,7 +170,9 @@ Rectangle {
                                 compact: true
                                 minimumButtonWidth: 34
                                 text: qsTr("›")
-                                toolTipText: qsTr("Next photo in this pane")
+                                toolTipText: comparisonView.review.comparison.groupMode
+                                    ? qsTr("Next photo in this group")
+                                    : qsTr("Next photo in this pane")
                                 onClicked: comparisonView.review.comparison
                                     .navigatePane(comparisonPane.paneIndex, 1)
                             }

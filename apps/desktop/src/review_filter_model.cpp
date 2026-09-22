@@ -194,6 +194,14 @@ bool ReviewFilterModel::semanticFilterActive() const noexcept {
     return !semantic_rank_by_key_.isEmpty();
 }
 
+QStringList ReviewFilterModel::semanticRepresentationKeys() const {
+    return semantic_rank_by_key_.keys();
+}
+
+QStringList ReviewFilterModel::smartCategoryRepresentationKeys() const {
+    return smart_category_keys_.values();
+}
+
 void ReviewFilterModel::setFlagFilter(const QString& filter) {
     const QString normalized = normalizeFlagFilter(filter);
     if (flag_filter_ == normalized) {

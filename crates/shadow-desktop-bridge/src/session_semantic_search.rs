@@ -6,12 +6,62 @@ use anyhow::{Context, Result as AnyResult};
 use shadow_ai::InferRuntimeClient;
 use shadow_core::{
     MAX_SEMANTIC_SEARCH_PHOTOS, SemanticSearchPolicy, SemanticSearchReport,
-    search_review_semantics_with_control,
+    search_review_semantics_with_control, suggest_similar_review_photos_with_control,
 };
+use shadow_domain::{PhotoId, RepresentationId};
 
 use super::{DesktopSession, ffi};
 
 impl DesktopSession {
+    pub(crate) fn begin_similar_review(&self) -> AnyResult<u64> {
+        self.similar_review_token
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                value.checked_add(1)
+            })
+            .map(|value| value + 1)
+            .map_err(|_| anyhow::anyhow!("similar review token exhausted"))
+    }
+
+    pub(crate) fn cancel_similar_review(&self, token: u64) {
+        let _ = self.similar_review_token.compare_exchange(
+            token,
+            token.saturating_add(1),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
+    pub(crate) fn suggest_similar_review(
+        &self,
+        infer_base_url: &str,
+        credential_file: &str,
+        photo_id: &str,
+        representation_id: &str,
+        token: u64,
+    ) -> AnyResult<ffi::FfiSemanticSearchReport> {
+        let provider = InferRuntimeClient::from_credential_file_with_discovery(
+            (!infer_base_url.is_empty()).then_some(infer_base_url),
+            Path::new(credential_file),
+        )
+        .context("configure local similar-review provider")?;
+        let photo_id = photo_id
+            .parse::<PhotoId>()
+            .context("invalid review photo ID")?;
+        let representation_id = representation_id
+            .parse::<RepresentationId>()
+            .context("invalid review representation ID")?;
+        let report = suggest_similar_review_photos_with_control(
+            &self.catalog,
+            &self.cache_root,
+            &provider,
+            photo_id,
+            representation_id,
+            &|| self.similar_review_token.load(Ordering::Acquire) != token,
+        )
+        .context("suggest a temporary similar-photo review group")?;
+        ffi_semantic_search_report(report)
+    }
+
     pub(crate) fn begin_semantic_search(&self) -> AnyResult<u64> {
         self.semantic_search_token
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {

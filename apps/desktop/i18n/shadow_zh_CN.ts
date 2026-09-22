@@ -6371,6 +6371,14 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
+    <name>PeopleScopeController</name>
+    <message>
+        <location filename="../src/people_scope_controller.cpp" line="181"/>
+        <source>Could not count people in this scope.</source>
+        <translation>无法统计当前范围内的人物。</translation>
+    </message>
+</context>
+<context>
     <name>PeopleWorkspace</name>
     <message>
         <location filename="../qml/PeopleWorkspace.qml" line="391"/>
@@ -6535,6 +6543,32 @@ R %2 · G %3 · B %4</translation>
         <translation>
             <numerusform>%n 张照片</numerusform>
         </translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="268"/>
+        <source>Current album and filters</source>
+        <translation>当前相册与筛选</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="274"/>
+        <source>All Library</source>
+        <translation>整个图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="288"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="448"/>
+        <source>Counting people in the current scope…</source>
+        <translation>正在统计当前范围内的人物…</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="289"/>
+        <source>People shown here match the current album and filters.</source>
+        <translation>这里的人物符合当前相册与筛选条件。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="452"/>
+        <source>No analyzed people in the current scope.</source>
+        <translation>当前范围内没有已分析的人物。</translation>
     </message>
 </context>
 <context>
@@ -14230,6 +14264,114 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <source>More…</source>
         <translation>更多…</translation>
     </message>
+    <message>
+        <source>Similar review candidates</source>
+        <translation>相似审片候选</translation>
+    </message>
+    <message>
+        <source>Image similarity near the selected photo · review each candidate</source>
+        <translation>所选照片附近的图像相似候选 · 请逐张核对</translation>
+    </message>
+    <message>
+        <source>Find similar photos near the selected photo</source>
+        <translation>查找所选照片附近的相似照片</translation>
+    </message>
+    <message>
+        <source>Finding similar review candidates…</source>
+        <translation>正在查找相似审片候选…</translation>
+    </message>
+    <message>
+        <source>Open similar photo comparison (%L1 candidates)</source>
+        <translation>打开相似照片对比（%L1 张候选）</translation>
+    </message>
+    <message>
+        <source>Clear similar review candidates</source>
+        <translation>清除相似审片候选</translation>
+    </message>
+    <message>
+        <source>Similar group · %L1 photos · arrows stay within this group. Check each photo before deciding.</source>
+        <translation>相似组 · %L1 张照片 · 箭头仅在组内切换。请逐张核对后再决定。</translation>
+    </message>
+    <message>
+        <source>Previous photo in this group</source>
+        <translation>组内上一张照片</translation>
+    </message>
+    <message>
+        <source>Next photo in this group</source>
+        <translation>组内下一张照片</translation>
+    </message>
+    <message>
+        <source>Similar candidates are not loaded in this view. Adjust filters or load more photos.</source>
+        <translation>当前视图尚未载入这些相似候选。请调整筛选条件或加载更多照片。</translation>
+    </message>
+    <message>
+        <source>Compare group</source>
+        <translation>对比本组</translation>
+    </message>
+    <message>
+        <source>Show photos</source>
+        <translation>展开照片</translation>
+    </message>
+    <message>
+        <source>Collapse stack</source>
+        <translation>收起堆栈</translation>
+    </message>
+    <message>
+        <source>Group similar review candidates</source>
+        <translation>将相似审片候选分组</translation>
+    </message>
+    <message>
+        <source>Group similar photos</source>
+        <translation>将相似照片分组</translation>
+    </message>
+    <message>
+        <source>Suggested stacks use nearby image similarity. Review each group before deciding; ratings stay untouched.</source>
+        <translation>候选堆栈依据附近照片的图像相似性生成。请逐组核对后再决定；星级不会被修改。</translation>
+    </message>
+    <message>
+        <source>Group selected photos (%L1)</source>
+        <translation>对所选照片分组（%L1 张）</translation>
+    </message>
+    <message>
+        <source>Group loaded photos in this view (%L1)</source>
+        <translation>对当前视图已载入照片分组（%L1 张）</translation>
+    </message>
+    <message>
+        <source>Group current Manual Album: %1</source>
+        <translation>对当前手动相册分组：%1</translation>
+    </message>
+    <message>
+        <source>Each run checks at most 240 photos. Pause resumes in this session; changing a source preview is rechecked on use.</source>
+        <translation>每轮最多检查 240 张照片。暂停后可在本次会话中继续；使用时会重新核对源预览。</translation>
+    </message>
+    <message>
+        <source>Pause</source>
+        <translation>暂停</translation>
+    </message>
+    <message>
+        <source>Resume</source>
+        <translation>继续</translation>
+    </message>
+    <message>
+        <source>Clear groups</source>
+        <translation>清除分组</translation>
+    </message>
+    <message>
+        <source>Cancel similar photo review</source>
+        <translation>取消相似照片审片</translation>
+    </message>
+    <message>
+        <source>Load the rest of this album to compare its candidate group.</source>
+        <translation>请先载入此相册的其余照片，再比较该候选组。</translation>
+    </message>
+    <message>
+        <source>Candidate stack %L1</source>
+        <translation>候选堆栈 %L1</translation>
+    </message>
+    <message>
+        <source>Suggested by reciprocal nearby similarity · compare to confirm</source>
+        <translation>依据附近照片的双向相似关系建议 · 请对比确认</translation>
+    </message>
 </context>
 <context>
     <name>SemanticSearchController</name>
@@ -14257,6 +14399,81 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../src/semantic_search_controller.cpp" line="111"/>
         <source>Make sure Infer Runtime is running and Shadow access is configured, then try again.</source>
         <translation>请确认 Infer Runtime 正在运行且已为 Shadow 配置访问权限，然后重试。</translation>
+    </message>
+    <message>
+        <source>Select a photo to find similar review candidates.</source>
+        <translation>选择一张照片以查找相似审片候选。</translation>
+    </message>
+    <message>
+        <source>Comparing nearby photo previews…</source>
+        <translation>正在比较附近照片的预览…</translation>
+    </message>
+    <message>
+        <source>Similar review candidates are ready.</source>
+        <translation>相似审片候选已就绪。</translation>
+    </message>
+    <message>
+        <source>No comparable nearby photos were found.</source>
+        <translation>未找到可比较的附近照片。</translation>
+    </message>
+    <message>
+        <source>Similar photo review could not finish.</source>
+        <translation>相似照片审片未能完成。</translation>
+    </message>
+    <message>
+        <source>Cancelling similar photo review…</source>
+        <translation>正在取消相似照片审片…</translation>
+    </message>
+    <message>
+        <source>Cancelling semantic search…</source>
+        <translation>正在取消语义搜索…</translation>
+    </message>
+</context>
+<context>
+    <name>ReviewClusteringController</name>
+    <message>
+        <source>Choose photos or an album to group similar review candidates.</source>
+        <translation>选择照片或相册以生成相似审片候选组。</translation>
+    </message>
+    <message>
+        <source>Choose at least two local photos for candidate grouping.</source>
+        <translation>请至少选择两张本地照片以生成候选组。</translation>
+    </message>
+    <message>
+        <source>Collecting album photos…</source>
+        <translation>正在收集相册照片…</translation>
+    </message>
+    <message>
+        <source>Grouping candidates · %L1 of %L2 photos checked</source>
+        <translation>正在生成候选组 · 已检查 %L1 / %L2 张照片</translation>
+    </message>
+    <message>
+        <source>Pausing after the current photo…</source>
+        <translation>正在当前照片完成后暂停…</translation>
+    </message>
+    <message>
+        <source>Paused · %L1 of %L2 photos checked</source>
+        <translation>已暂停 · 已检查 %L1 / %L2 张照片</translation>
+    </message>
+    <message>
+        <source>Cancelling the current photo…</source>
+        <translation>正在取消当前照片的处理…</translation>
+    </message>
+    <message>
+        <source>%L1 candidate groups ready from the first %L2 photos.</source>
+        <translation>已从前 %L2 张照片生成 %L1 个候选组。</translation>
+    </message>
+    <message>
+        <source>%L1 candidate groups ready from %L2 photos.</source>
+        <translation>已从 %L2 张照片生成 %L1 个候选组。</translation>
+    </message>
+    <message>
+        <source>Candidate grouping was cancelled.</source>
+        <translation>已取消候选分组。</translation>
+    </message>
+    <message>
+        <source>Candidate grouping could not finish. Check Infer Runtime and try again.</source>
+        <translation>候选分组未能完成。请检查 Infer Runtime 后重试。</translation>
     </message>
 </context>
 <context>

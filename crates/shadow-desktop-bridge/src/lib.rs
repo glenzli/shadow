@@ -2850,6 +2850,16 @@ mod ffi {
             language: &str,
             token: u64,
         ) -> Result<FfiSemanticSearchReport>;
+        fn begin_similar_review(self: &DesktopSession) -> Result<u64>;
+        fn cancel_similar_review(self: &DesktopSession, token: u64);
+        fn suggest_similar_review(
+            self: &DesktopSession,
+            infer_base_url: &str,
+            credential_file: &str,
+            photo_id: &str,
+            representation_id: &str,
+            token: u64,
+        ) -> Result<FfiSemanticSearchReport>;
         fn classify_smart_categories_batch(
             self: &DesktopSession,
             infer_base_url: &str,
@@ -3376,6 +3386,7 @@ struct DesktopSession {
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
     semantic_search_token: AtomicU64,
+    similar_review_token: AtomicU64,
     people_analyses: people_analysis_service::PeopleAnalysisService,
     people_library: people_library_store::PeopleLibraryStore,
     subject_masks: subject_mask_service::SubjectMaskService,
@@ -3495,6 +3506,7 @@ fn open_desktop_session_at(
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
         semantic_search_token: AtomicU64::new(0),
+        similar_review_token: AtomicU64::new(0),
         people_analyses: people_analysis_service::PeopleAnalysisService::new(),
         people_library: people_library_store::PeopleLibraryStore::open(people_library_root)?,
         subject_masks,
