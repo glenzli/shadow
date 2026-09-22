@@ -1,4 +1,5 @@
 #include "edit_task_runner.hpp"
+#include "edit_performance_diagnostics.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -109,11 +110,13 @@ EditStateTaskResult loadState(
     EditStateTaskResult result;
     result.photo_generation = generation;
     result.kind = EditStateTaskKind::Open;
+    log_edit_performance_checkpoint("edit-state-worker-start", generation, 0);
     try {
         result.state = backend->photoEditState(photo_id, source_path);
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
+    log_edit_performance_checkpoint("edit-state-worker-finished", generation, 0);
     return result;
 }
 
