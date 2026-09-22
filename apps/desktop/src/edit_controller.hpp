@@ -2,6 +2,7 @@
 
 #include "desktop_backend.hpp"
 #include "edit_before_preview_state.hpp"
+#include "edit_display_scope_task.hpp"
 #include "edit_history.hpp"
 #include "edit_history_snapshot.hpp"
 #include "edit_persistence_state.hpp"
@@ -1157,12 +1158,11 @@ class EditController final : public QObject {
     void maybeFinishDeferredApplicationClose();
     void setPreviewRunning(EditPreviewKind kind, bool running);
     [[nodiscard]] std::optional<PreviewScopeHueQualifier> selectedPointColorScopeQualifier() const;
-    [[nodiscard]] PreviewDisplayScopeAnalysis analyzeCurrentDisplayScope(
-        const QByteArray& encoded_preview,
-        const std::optional<PreviewScopeHueQualifier>& point_color_qualifier
-    );
     void clearPointColorScopeReference() noexcept;
     void refreshCurrentDisplayScope();
+    void queueDisplayScope(EditPreviewKind kind, QByteArray encoded_preview, quint64 generation);
+    void startDisplayScopeTask();
+    void finishDisplayScopeTask();
     void markHistogramUpdating(EditPreviewKind kind);
     void publishHistogram(
         EditPreviewKind kind,
@@ -1276,6 +1276,15 @@ class EditController final : public QObject {
     quint64 detail_render_token_ = 0;
     quint64 detail_warmup_token_ = 0;
     quint64 preview_render_token_ = 0;
+    QFutureWatcher<EditDisplayScopeTaskResult> display_scope_watcher_;
+    std::optional<EditDisplayScopeTaskInput> pending_current_scope_;
+    std::optional<EditDisplayScopeTaskInput> pending_before_scope_;
+    QImage current_scope_image_;
+    quint64 current_scope_image_generation_ = 0;
+    quint64 current_scope_request_revision_ = 0;
+    quint64 before_scope_request_revision_ = 0;
+    quint64 point_color_reference_epoch_ = 0;
+    bool display_scope_task_active_ = false;
     QElapsedTimer interactive_preview_timing_;
     quint64 interactive_preview_timing_token_ = 0;
     quint64 mask_selection_revision_ = 0;

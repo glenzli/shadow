@@ -2,6 +2,7 @@
 
 #include "preview_diagnostics.hpp"
 
+#include <QtConcurrentRun>
 #include <QVariantMap>
 
 #include <array>
@@ -237,46 +238,6 @@ void EditController::publishHistogram(
     }
 }
 
-PreviewDisplayScopeAnalysis EditController::analyzeCurrentDisplayScope(
-    const QByteArray& encoded_preview,
-    const std::optional<PreviewScopeHueQualifier>& point_color_qualifier
-) {
-    if (!point_color_scope_active_ || !point_color_qualifier.has_value()) {
-        clearPointColorScopeReference();
-        return analyze_display_scope(encoded_preview, point_color_qualifier);
-    }
-
-    const auto same_qualifier = [&point_color_qualifier](
-                                    const PreviewScopeReferenceSelection& reference
-                                ) {
-        return reference.qualifier.center_degrees
-                == point_color_qualifier->center_degrees
-            && reference.qualifier.width_degrees
-                == point_color_qualifier->width_degrees
-            && reference.qualifier.softness == point_color_qualifier->softness;
-    };
-    if (point_color_scope_reference_.has_value()
-        && same_qualifier(*point_color_scope_reference_)) {
-        const PreviewDisplayScopeAnalysis frozen = analyze_display_scope(
-            encoded_preview,
-            *point_color_scope_reference_
-        );
-        if (frozen.available) {
-            return frozen;
-        }
-    }
-
-    point_color_scope_reference_ = capture_display_scope_reference(
-        encoded_preview,
-        *point_color_qualifier
-    );
-    if (point_color_scope_reference_->available) {
-        return analyze_display_scope(encoded_preview, *point_color_scope_reference_);
-    }
-    clearPointColorScopeReference();
-    return analyze_display_scope(encoded_preview, point_color_qualifier);
-}
-
 void EditController::refreshCurrentDisplayScope() {
     if (!histogram_.value(QStringLiteral("valid")).toBool()) {
         return;
@@ -297,15 +258,133 @@ void EditController::refreshCurrentDisplayScope() {
     if (point_color_scope_active_ && !point_color_qualifier.has_value()) {
         return;
     }
-    const PreviewDisplayScopeAnalysis display_scope = analyzeCurrentDisplayScope(
-        snapshot.bytes,
-        point_color_qualifier
-    );
-    const QVariantMap scope_snapshot = display_scope_snapshot(display_scope);
-    for (auto iterator = scope_snapshot.cbegin(); iterator != scope_snapshot.cend(); ++iterator) {
-        histogram_.insert(iterator.key(), iterator.value());
+    queueDisplayScope(EditPreviewKind::Current, snapshot.bytes, generation);
+}
+
+void EditController::queueDisplayScope(
+    const EditPreviewKind kind,
+    QByteArray encoded_preview,
+    const quint64 generation
+) {
+    if (encoded_preview.isEmpty()) {
+        return;
     }
-    emit histogramChanged();
+    const bool current = kind == EditPreviewKind::Current;
+    const std::optional<PreviewScopeHueQualifier> qualifier =
+        current && point_color_scope_active_ ? selectedPointColorScopeQualifier() : std::nullopt;
+    if (current && point_color_scope_active_ && !qualifier.has_value()) {
+        return;
+    }
+    QVariantMap& target = current ? histogram_ : before_histogram_;
+    target.insert(QStringLiteral("displayScopeAvailable"), false);
+    target.insert(QStringLiteral("displayScopeUpdating"), true);
+    if (current) {
+        emit histogramChanged();
+    } else {
+        emit beforeHistogramChanged();
+    }
+    EditDisplayScopeTaskInput input{
+        .kind = kind,
+        .photo_generation = photo_generation_,
+        .preview_generation = generation,
+        .request_revision = current ? ++current_scope_request_revision_
+                                    : ++before_scope_request_revision_,
+        .reference_epoch = point_color_reference_epoch_,
+        .encoded_preview = std::move(encoded_preview),
+        .decoded_preview = current && current_scope_image_generation_ == generation
+            ? current_scope_image_ : QImage{},
+        .qualifier = qualifier,
+        .reference = current && qualifier.has_value() ? point_color_scope_reference_
+                                                      : std::nullopt,
+    };
+    if (current) {
+        pending_current_scope_ = std::move(input);
+    } else {
+        pending_before_scope_ = std::move(input);
+    }
+    startDisplayScopeTask();
+}
+
+void EditController::startDisplayScopeTask() {
+    if (display_scope_task_active_) {
+        return;
+    }
+    std::optional<EditDisplayScopeTaskInput> input;
+    if (pending_current_scope_.has_value()) {
+        input = std::move(pending_current_scope_);
+        pending_current_scope_.reset();
+    } else if (pending_before_scope_.has_value()) {
+        input = std::move(pending_before_scope_);
+        pending_before_scope_.reset();
+    }
+    if (!input.has_value()) {
+        return;
+    }
+    if (input->kind == EditPreviewKind::Current && input->qualifier.has_value()
+        && input->reference_epoch == point_color_reference_epoch_
+        && point_color_scope_reference_.has_value()
+        && point_color_scope_reference_->qualifier.center_degrees
+            == input->qualifier->center_degrees
+        && point_color_scope_reference_->qualifier.width_degrees
+            == input->qualifier->width_degrees
+        && point_color_scope_reference_->qualifier.softness
+            == input->qualifier->softness) {
+        input->reference = point_color_scope_reference_;
+    }
+    display_scope_task_active_ = true;
+    display_scope_watcher_.setFuture(QtConcurrent::run(
+        run_edit_display_scope_task,
+        std::move(*input)
+    ));
+}
+
+void EditController::finishDisplayScopeTask() {
+    EditDisplayScopeTaskResult result = display_scope_watcher_.result();
+    display_scope_task_active_ = false;
+    const bool current = result.kind == EditPreviewKind::Current;
+    // Capturing the selector from the first ready preview is independent of
+    // accepting its scope overlay. A newer Recipe may already be rendering.
+    if (current && result.reference.has_value() && !point_color_scope_reference_.has_value()
+        && result.photo_generation == photo_generation_
+        && result.reference_epoch == point_color_reference_epoch_
+        && point_color_scope_active_) {
+        const auto qualifier = selectedPointColorScopeQualifier();
+        if (qualifier.has_value()
+            && qualifier->center_degrees == result.reference->qualifier.center_degrees
+            && qualifier->width_degrees == result.reference->qualifier.width_degrees
+            && qualifier->softness == result.reference->qualifier.softness) {
+            point_color_scope_reference_ = result.reference;
+        }
+    }
+    QVariantMap& target = current ? histogram_ : before_histogram_;
+    const bool valid_generation = target.value(QStringLiteral("generation")).toULongLong()
+        == result.preview_generation;
+    const bool current_request = result.request_revision
+        == (current ? current_scope_request_revision_ : before_scope_request_revision_);
+    const bool current_recipe = current ? render_revision_ == result.preview_generation
+                                        : before_preview_state_.revision()
+                                            == result.preview_generation;
+    if (active_ && result.photo_generation == photo_generation_ && valid_generation
+        && current_request && current_recipe && target.value(QStringLiteral("valid")).toBool()) {
+        if (current) {
+            current_scope_image_ = std::move(result.decoded_preview);
+            current_scope_image_generation_ = result.preview_generation;
+            if (result.reference_epoch == point_color_reference_epoch_) {
+                point_color_scope_reference_ = std::move(result.reference);
+            }
+        }
+        const QVariantMap scope_snapshot = display_scope_snapshot(result.scope);
+        for (auto iterator = scope_snapshot.cbegin(); iterator != scope_snapshot.cend(); ++iterator) {
+            target.insert(iterator.key(), iterator.value());
+        }
+        target.insert(QStringLiteral("displayScopeUpdating"), false);
+        if (current) {
+            emit histogramChanged();
+        } else {
+            emit beforeHistogramChanged();
+        }
+    }
+    startDisplayScopeTask();
 }
 
 void EditController::markHistogramFailed(const EditPreviewKind kind) {
@@ -322,6 +401,10 @@ void EditController::markHistogramFailed(const EditPreviewKind kind) {
 
 void EditController::clearHistograms() {
     clearPointColorScopeReference();
+    ++before_scope_request_revision_;
+    pending_before_scope_.reset();
+    current_scope_image_ = {};
+    current_scope_image_generation_ = 0;
     const QVariantMap empty = empty_histogram();
     if (histogram_ != empty) {
         histogram_ = empty;

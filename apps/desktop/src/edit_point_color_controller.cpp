@@ -137,6 +137,9 @@ void EditController::setPointColorScopeActive(const bool active) {
 
 void EditController::clearPointColorScopeReference() noexcept {
     point_color_scope_reference_.reset();
+    ++point_color_reference_epoch_;
+    ++current_scope_request_revision_;
+    pending_current_scope_.reset();
 }
 
 void EditController::removeSelectedPointColor() {

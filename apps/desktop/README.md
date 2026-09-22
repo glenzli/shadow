@@ -664,7 +664,11 @@ Its implementation follows the same navigation:
   memory/readiness state, and Recipe-change invalidation.
 - [`src/edit_analysis_controller.cpp`](src/edit_analysis_controller.cpp) owns histogram and
   display-scope validation/projection, Point Color reference freezing, analysis refresh,
-  publication, failure, and clearing.
+  publication, failure, and clearing. [`src/edit_display_scope_task.*`](src/edit_display_scope_task.hpp)
+  decodes settled JPEG and computes display scopes off the GUI thread, with generation-checked
+  publication by the controller.
+- [`src/edit_performance_diagnostics.*`](src/edit_performance_diagnostics.hpp) emits bounded,
+  opt-in edit-phase memory checkpoints without photo identities or image data.
 - [`src/edit_stroke_input.*`](src/edit_stroke_input.hpp) validates the bounded normalized-point
   transport shared by direct brush gestures. QML owns transient sampling, while Local Mask and
   Retouch controllers each commit one complete gesture to their own recipe domain.

@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_performance_diagnostics.hpp"
 
 #include <QtConcurrent>
 
@@ -234,6 +235,12 @@ void EditController::finishDetailTask() {
                 }
                 setFullResolutionState(false, true, result.viewport.retained_bytes);
                 emit detailTilesChanged();
+                log_edit_performance_checkpoint(
+                    center_phase ? "detail-center-published" : "detail-viewport-published",
+                    result.generation.photo,
+                    result.generation.recipe_revision,
+                    result.viewport.retained_bytes
+                );
                 // Keep the exact center visible over the retained preview while
                 // the complete viewport renders. An edit, pan, or photo switch
                 // advances the generation/token and prevents this continuation.
@@ -297,6 +304,7 @@ void EditController::startDetailRender() {
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Preparing exact full-resolution detail…"))
     );
+    log_edit_performance_checkpoint("detail-requested", photo_generation_, render_revision_);
     dispatchDetailRender(
         detail_viewport_width_ > EDIT_DETAIL_PROGRESSIVE_VIEWPORT_SIDE
         || detail_viewport_height_ > EDIT_DETAIL_PROGRESSIVE_VIEWPORT_SIDE
@@ -370,6 +378,7 @@ void EditController::startDetailWarmup() {
     // Any later pan, zoom, Recipe edit, or photo switch increments it and
     // causes this idle request to be discarded between tiles.
     detail_warmup_token_ = backend_->beginEditDetailRequest();
+    log_edit_performance_checkpoint("detail-warmup-start", photo_generation_, render_revision_);
     if (!full_resolution_ready_) {
         setFullResolutionState(true, false, 0);
     }
@@ -405,6 +414,12 @@ void EditController::finishDetailWarmupTask() {
     }
     if (result.error.isEmpty()) {
         setFullResolutionState(false, true, result.retained_bytes);
+        log_edit_performance_checkpoint(
+            "detail-warmup-ready",
+            result.photo_generation,
+            result.render_revision,
+            result.retained_bytes
+        );
     } else if (full_resolution_preparing_) {
         // A provider error remains visible only if the user explicitly asks
         // for full detail. The status bar should nevertheless stop reporting

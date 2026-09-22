@@ -201,6 +201,30 @@
     add_test(NAME shadow-desktop-preview-diagnostics COMMAND shadow-preview-diagnostics-test)
 
     add_executable(
+        shadow-edit-display-scope-task-test
+        tests/edit_display_scope_task_test.cpp
+        src/edit_display_scope_task.cpp
+        src/edit_display_scope_task.hpp
+        src/preview_diagnostics.cpp
+        src/preview_diagnostics.hpp
+    )
+    target_compile_features(shadow-edit-display-scope-task-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-edit-display-scope-task-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-edit-display-scope-task-test PRIVATE Qt6::Gui)
+    if(MSVC)
+        target_compile_options(shadow-edit-display-scope-task-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-edit-display-scope-task-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-edit-display-scope-task COMMAND shadow-edit-display-scope-task-test)
+
+    add_executable(
         shadow-edit-retouch-donor-selection-test
         tests/edit_retouch_donor_selection_test.cpp
         src/edit_retouch_donor_selection.cpp

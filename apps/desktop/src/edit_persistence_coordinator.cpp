@@ -2,6 +2,7 @@
 #include "edit_paint_controller.hpp"
 #include "edit_persistence_task_coordinator.hpp"
 #include "edit_source_admission.hpp"
+#include "edit_performance_diagnostics.hpp"
 
 #include <QtConcurrent>
 
@@ -153,6 +154,7 @@ bool EditController::openPhoto(
     representation_id_ = representation_id;
     source_path_ = source_path;
     title_ = title;
+    log_edit_performance_checkpoint("photo-open", photo_generation_, render_revision_);
     if (provisional_preview_source_ != provisional_preview_source) {
         provisional_preview_source_ = provisional_preview_source;
         emit provisionalPreviewSourceChanged();

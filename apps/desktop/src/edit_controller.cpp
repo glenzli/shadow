@@ -147,6 +147,12 @@ EditController::EditController(
         this,
         &EditController::finishPreviewTask
     );
+    connect(
+        &display_scope_watcher_,
+        &QFutureWatcher<EditDisplayScopeTaskResult>::finished,
+        this,
+        &EditController::finishDisplayScopeTask
+    );
     connect(&detail_debounce_, &QTimer::timeout, this, &EditController::startDetailRender);
     connect(
         &detail_watcher_,
@@ -185,6 +191,7 @@ EditController::~EditController() {
     detail_warmup_token_ = detail_render_token_;
     persistence_task_coordinator_->waitForFinished();
     preview_watcher_.waitForFinished();
+    display_scope_watcher_.waitForFinished();
     detail_watcher_.waitForFinished();
     detail_warmup_watcher_.waitForFinished();
 }
