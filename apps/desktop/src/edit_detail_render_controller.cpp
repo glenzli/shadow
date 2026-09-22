@@ -352,7 +352,8 @@ void EditController::dispatchDetailRender(const bool center_first) {
 
 void EditController::scheduleDetailWarmup() {
     const auto& raw_ai_denoise = grade_stack_.raw_ai_denoise;
-    if (crop_tool_active_ || detail_mode_ || settled_render_revision_ != render_revision_
+    if (neighbor_preview_preparation_pending_ || crop_tool_active_ || detail_mode_
+        || settled_render_revision_ != render_revision_
         || !work_scheduler_.admitsIdleDetailWarmup(workAdmissionState())
         || !edit_detail_admits_idle_warmup(
             raw_ai_denoise.present,
@@ -366,7 +367,8 @@ void EditController::scheduleDetailWarmup() {
 
 void EditController::startDetailWarmup() {
     const auto& raw_ai_denoise = grade_stack_.raw_ai_denoise;
-    if (crop_tool_active_ || detail_mode_ || settled_render_revision_ != render_revision_
+    if (neighbor_preview_preparation_pending_ || crop_tool_active_ || detail_mode_
+        || settled_render_revision_ != render_revision_
         || !work_scheduler_.admitsIdleDetailWarmup(workAdmissionState())
         || !edit_detail_admits_idle_warmup(
             raw_ai_denoise.present,
@@ -396,6 +398,16 @@ void EditController::startDetailWarmup() {
             render_revision_
         )
     );
+}
+
+void EditController::setNeighborPreviewPreparationPending(const bool pending) {
+    if (neighbor_preview_preparation_pending_ == pending)
+        return;
+    neighbor_preview_preparation_pending_ = pending;
+    if (pending)
+        detail_warmup_debounce_.stop();
+    else
+        scheduleDetailWarmup();
 }
 
 void EditController::finishDetailWarmupTask() {

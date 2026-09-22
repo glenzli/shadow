@@ -349,6 +349,8 @@ qt_add_executable(
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
+    src/edit_neighbor_preheater.cpp
+    src/edit_neighbor_preheater.hpp
     src/edit_interchange_controller.cpp
     src/edit_interchange_controller.hpp
     src/edit_interchange_application.cpp

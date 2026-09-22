@@ -1,6 +1,7 @@
 #pragma once
 
 class EditController;
+class EditNeighborPreheater;
 class EditPreviewProvider;
 class QCoreApplication;
 class QQmlApplicationEngine;
@@ -19,6 +20,8 @@ struct EditPreviewSessionOptions final {
     bool before_composition = false;
     bool request_full_detail = false;
     bool rapid_parameter_updates = false;
+    EditNeighborPreheater* edit_neighbor_preheater = nullptr;
+    bool verify_adjacent_edit = false;
     EditPreviewTransportExpectation transport_expectation = EditPreviewTransportExpectation::None;
 };
 

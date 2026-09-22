@@ -8,6 +8,7 @@
 #include "desktop_smoke_harness.hpp"
 #include "edit_controller.hpp"
 #include "edit_interchange_controller.hpp"
+#include "edit_neighbor_preheater.hpp"
 #include "edit_preview_presentation_context.hpp"
 #include "edit_preview_presentation_registry.hpp"
 #include "edit_preview_provider.hpp"
@@ -609,6 +610,7 @@ int main(int argc, char* argv[]) {
     );
     EditController
         editor(backend, edit_preview_store, edit_preview_presentation_context, &ai_preferences);
+    EditNeighborPreheater edit_neighbor_preheater(backend, editor, justified_review_layout);
     EditInterchangeController edit_interchange_controller(*backend, editor);
     LutExportController lut_export_controller([&](bool selected_only) {
         if (!editor.active() || editor.stateBusy()
@@ -726,6 +728,7 @@ int main(int argc, char* argv[]) {
             QVariant::fromValue(&review_gallery_grouping),
         },
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
+        {QStringLiteral("editNeighborPreheater"), QVariant::fromValue(&edit_neighbor_preheater)},
         {
             QStringLiteral("editInterchangeController"),
             QVariant::fromValue(&edit_interchange_controller),
@@ -825,6 +828,7 @@ int main(int argc, char* argv[]) {
         engine,
         controller,
         editor,
+        edit_neighbor_preheater,
         thumbnail_provider,
         edit_preview_provider,
         preferences,

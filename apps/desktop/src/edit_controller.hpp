@@ -1014,6 +1014,9 @@ class EditController final : public QObject {
     // required it queues the durable working snapshot and emits closeReady.
     Q_INVOKABLE bool prepareToClose();
     Q_INVOKABLE void retranslateUi();
+    // Adjacent-photo preparation outranks idle full-detail warmup. Explicit
+    // zoom/detail requests retain their normal foreground admission.
+    void setNeighborPreviewPreparationPending(bool pending);
 
   signals:
     void activeChanged();
@@ -1235,6 +1238,7 @@ class EditController final : public QObject {
     QTimer preview_debounce_;
     QTimer detail_debounce_;
     QTimer detail_warmup_debounce_;
+    bool neighbor_preview_preparation_pending_ = false;
     SessionEditHistory<EditHistorySnapshot> history_;
     // Slider/curve gestures render a deliberately smaller proxy so the first
     // useful frame wins over pixel-perfect fidelity. Once every gesture ends,

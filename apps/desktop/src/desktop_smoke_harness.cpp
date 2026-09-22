@@ -8,6 +8,7 @@
 #include "desktop_smoke/scenario_setup.hpp"
 #include "desktop_smoke/visual_capture.hpp"
 #include "edit_controller.hpp"
+#include "edit_neighbor_preheater.hpp"
 #include "review_controller.hpp"
 #include "ui_preferences.hpp"
 
@@ -22,6 +23,7 @@ void installDesktopSmokeHarness(
     QQmlApplicationEngine& engine,
     ReviewController& controller,
     EditController& editor,
+    EditNeighborPreheater& edit_neighbor_preheater,
     ThumbnailProvider* const thumbnail_provider,
     EditPreviewProvider* const edit_preview_provider,
     UiPreferences& preferences,
@@ -57,6 +59,8 @@ void installDesktopSmokeHarness(
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_SOFTWARE_PREVIEW_SMOKE");
     const bool rapid_preview_smoke =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_RAPID_PREVIEW_SMOKE");
+    const bool edit_neighbor_smoke =
+        qEnvironmentVariableIsSet("SHADOW_DESKTOP_EDIT_NEIGHBOR_SMOKE");
     const bool streaming_scan_smoke =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_STREAMING_SCAN_SMOKE");
     const bool reopen_library_smoke =
@@ -152,6 +156,7 @@ void installDesktopSmokeHarness(
                 .before_composition = before_composition,
                 .request_full_detail = true,
                 .rapid_parameter_updates = rapid_preview_smoke,
+                .edit_neighbor_preheater = &edit_neighbor_preheater,
                 .transport_expectation =
                     metal_preview_smoke ? DesktopSmoke::EditPreviewTransportExpectation::MetalNative
                     : software_preview_smoke
@@ -173,6 +178,8 @@ void installDesktopSmokeHarness(
                 .before_composition = before_composition,
                 .request_full_detail = false,
                 .rapid_parameter_updates = rapid_preview_smoke,
+                .edit_neighbor_preheater = &edit_neighbor_preheater,
+                .verify_adjacent_edit = edit_neighbor_smoke,
                 .transport_expectation =
                     metal_preview_smoke ? DesktopSmoke::EditPreviewTransportExpectation::MetalNative
                     : software_preview_smoke

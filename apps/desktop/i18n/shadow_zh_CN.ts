@@ -7366,6 +7366,22 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PrecisionWorkspace</name>
     <message>
+        <source>Previous photo</source>
+        <translation>上一张照片</translation>
+    </message>
+    <message>
+        <source>Next photo</source>
+        <translation>下一张照片</translation>
+    </message>
+    <message>
+        <source>Preparing next photo…</source>
+        <translation>正在预备下一张照片…</translation>
+    </message>
+    <message>
+        <source>Next photo prepared</source>
+        <translation>下一张照片已预备</translation>
+    </message>
+    <message>
         <source>Finish painting to adjust the accepted regions.</source>
         <translation>结束绘制后，即可调整已接受的区域。</translation>
     </message>

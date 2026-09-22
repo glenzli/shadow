@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 // Page-level composition only.  The canvas owns mutually dependent viewport
@@ -10,6 +11,7 @@ Item {
     id: precision
 
     required property var editor
+    required property var editNeighborPreheater
     required property var interchangeController
     property var lutExportController: null
     required property var editPreviewPresentation
@@ -18,6 +20,7 @@ Item {
     signal openLutLibraryRequested()
     signal openOpticsProfileLibraryRequested()
     signal returnToReviewRequested()
+    signal adjacentEditRequested(int direction)
 
     // Special canvas tools are mutually exclusive and page-scoped. They do
     // not belong to a Grade Node parameter section because each tool owns a
@@ -324,6 +327,20 @@ Item {
         }
     }
 
+    Shortcut {
+        sequence: "Ctrl+Alt+Left"
+        enabled: precision.visible && precision.editor.active
+            && Boolean(precision.editNeighborPreheater.previousTarget.photoId)
+        onActivated: precision.adjacentEditRequested(-1)
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Alt+Right"
+        enabled: precision.visible && precision.editor.active
+            && Boolean(precision.editNeighborPreheater.nextTarget.photoId)
+        onActivated: precision.adjacentEditRequested(1)
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: 0
@@ -442,6 +459,45 @@ Item {
             onCloseRequested: precision.closeColorWarper()
             onWidthRequested: value => precision.colorWarperPanelWidth =
                 Math.max(340, Math.min(precision.width * 0.5, value))
+        }
+    }
+
+    Row {
+        objectName: "precisionEditSequence"
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 14
+        spacing: 8
+        visible: precision.editor.active
+            && (Boolean(precision.editNeighborPreheater.previousTarget.photoId)
+                || Boolean(precision.editNeighborPreheater.nextTarget.photoId))
+        z: 2
+
+        ShadowButton {
+            objectName: "previousEditPhoto"
+            compact: true
+            text: qsTr("Previous photo")
+            enabled: Boolean(precision.editNeighborPreheater.previousTarget.photoId)
+            onClicked: precision.adjacentEditRequested(-1)
+        }
+
+        Label {
+            anchors.verticalCenter: parent.verticalCenter
+            text: precision.editNeighborPreheater.preparing
+                ? qsTr("Preparing next photo…")
+                : precision.editNeighborPreheater.prepared
+                    ? qsTr("Next photo prepared") : ""
+            visible: text.length > 0
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontCaption
+        }
+
+        ShadowButton {
+            objectName: "nextEditPhoto"
+            compact: true
+            text: qsTr("Next photo")
+            enabled: Boolean(precision.editNeighborPreheater.nextTarget.photoId)
+            onClicked: precision.adjacentEditRequested(1)
         }
     }
 

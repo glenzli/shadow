@@ -673,6 +673,18 @@ Its implementation follows the same navigation:
   foreground preview and detail work, runs it on one low-priority thread, and defers idle detail
   warmup until pending scope work finishes. The controller retains generation and cancellation
   authority.
+- [`src/edit_neighbor_preheater.*`](src/edit_neighbor_preheater.hpp) reads the adjacent identities
+  from the filtered Review layout while Precision is open. At the loaded-page boundary it requests
+  the next filtered Catalog page. Its pending target defers the current photo's idle full-detail
+  warmup; explicit zoom/detail work remains foreground. After the current preview and save
+  work settle, one low-priority worker loads the next local photo's edit state and runs an
+  invisible interactive preview through the existing exact-source cache. The two-entry warm
+  session cache can retain the current and next sources; a previously opened source remains
+  available until normal cache eviction. Foreground work or navigation cancels the worker's
+  preview token, and no prefetched frame is published. Decode preparation still has the native
+  cancellation boundary of the ordinary preview path, so an in-flight decode can finish before
+  the worker releases its slot. `SHADOW_EDIT_PREFETCH_DIAGNOSTICS=1` records one terminal timing
+  line per attempt without photo IDs or paths.
 
 Set `SHADOW_INTERACTIVE_TIMING=1` to include `shadow.edit-checkpoint` records for photo open,
 state loading, settled preview, display scopes, and detail. Each record carries only the stage,
@@ -1506,6 +1518,13 @@ Review item used by an edit smoke instead of relying on Library order.
 Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, lazily requested
 colour-neutral baseline with the current composition and its independent analysis sidecar.
 This exercises warm decoded-session reuse without treating the baseline as unprocessed sensor data.
+
+With two local photos in an isolated scanned folder, `SHADOW_DESKTOP_EDIT_NEIGHBOR_SMOKE=1`
+alongside `SHADOW_DESKTOP_SMOKE_TEST=1` and `SHADOW_DESKTOP_OPEN_FIRST_EDIT=1` waits for the
+adjacent source to be prepared, clicks the packaged Precision next-photo control, then returns
+through the previous-photo control. Both settled frames must belong to their selected photos.
+The background worker remains read-only;
+use a task-private `SHADOW_DESKTOP_DATA_ROOT` for the Catalog created by the smoke.
 
 `SHADOW_DESKTOP_BEFORE_COMPOSITION_SMOKE=1` additionally crops and rotates the selected photo,
 reads both frames back through the provider to verify matching dimensions, then changes
