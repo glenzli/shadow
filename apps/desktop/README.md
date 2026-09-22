@@ -152,6 +152,14 @@ Application startup is split from environment-driven automation:
   locality label with country/display-name fallback. The dimension registry is
   presentation-generic so separate country/locality choices and People can be added as providers
   without moving grouping policy into layout or QML.
+- [`src/review_diagnostics.hpp`](src/review_diagnostics.hpp) owns bounded Review timing and failure
+  summaries across Library paging, layout, and thumbnail loading. Set
+  `SHADOW_REVIEW_DIAGNOSTICS=1` before launch to collect phase counts, p95 bucket bounds, maxima,
+  cache hits, stale pages, and failures. The existing `SHADOW_INTERACTIVE_TIMING` setting also
+  enables these bounded Review summaries. It emits after the first 16 events, then at most once per
+  2,048 events or 30 seconds of observed work, plus an orderly-exit remainder. Without the setting,
+  timing collection is disabled while failures still receive rate-limited warnings. Summaries contain
+  no photo identity, path, ticket, exception text, or image bytes.
 - [`qml/Main.qml`](qml/Main.qml) owns application-window composition, named workspace routing,
   theme projection, and the stable application-shell entry points used by child workspaces. Map
   is an application-level workspace beside Review, Precision, and People; Library Management

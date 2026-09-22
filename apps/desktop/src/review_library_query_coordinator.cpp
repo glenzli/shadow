@@ -1,8 +1,8 @@
 #include "review_library_query_coordinator.hpp"
 
 #include "review_decision_coordinator.hpp"
+#include "review_diagnostics.hpp"
 
-#include <QDebug>
 #include <QtConcurrentRun>
 
 #include <algorithm>
@@ -317,10 +317,6 @@ void ReviewLibraryQueryCoordinator::beginReset() {
     if (!scan_running_) {
         terminal_refresh_active_ = true;
     }
-    if (qEnvironmentVariableIsSet("SHADOW_INTERACTIVE_TIMING"))
-        qInfo() << "Review query start" << "generation" << generation_ << "person_members"
-                << active_filter_.photo_ids.size() << "request_wait_ms"
-                << (request_clock_.isValid() ? request_clock_.elapsed() : 0);
     emit queryStarted(active_filter_, generation_);
     startPage(PageKind::InitialReset);
 }
@@ -357,6 +353,12 @@ void ReviewLibraryQueryCoordinator::finishPage() {
     QElapsedTimer projection_clock;
     projection_clock.start();
     PageTaskResult result = page_watcher_.result();
+    auto& diagnostics = ReviewDiagnostics::instance();
+    diagnostics.record(
+        ReviewDiagnostics::Stage::PageBackend,
+        result.backend_ms,
+        static_cast<int>(result.page.items.size())
+    );
     page_running_ = false;
     page_reset_running_ = false;
     const bool accepted = !reset_pending_ && result.generation == generation_
@@ -368,11 +370,13 @@ void ReviewLibraryQueryCoordinator::finishPage() {
         }
     };
     if (!accepted) {
+        diagnostics.count(ReviewDiagnostics::Counter::StalePage);
         continue_pending();
         return;
     }
 
     const auto finish_failure = [this, &result, &continue_pending](const QString& error) {
+        ReviewDiagnostics::instance().failure(ReviewDiagnostics::Failure::Page);
         if (result.kind == PageKind::InitialReset && !scan_running_) {
             terminal_refresh_active_ = false;
         }
@@ -452,11 +456,18 @@ void ReviewLibraryQueryCoordinator::finishPage() {
     if (result.kind == PageKind::InitialReset && !scan_running_) {
         terminal_refresh_active_ = false;
     }
-    if (qEnvironmentVariableIsSet("SHADOW_INTERACTIVE_TIMING"))
-        qInfo() << "Review query presented" << "generation" << result.generation << "backend_ms"
-                << result.backend_ms << "projection_ms" << projection_clock.elapsed()
-                << "request_to_rows_ms" << (request_clock_.isValid() ? request_clock_.elapsed() : 0)
-                << "rows" << model_->rowCount();
+    diagnostics.record(
+        ReviewDiagnostics::Stage::PageProjection,
+        projection_clock.elapsed(),
+        model_->rowCount()
+    );
+    if (result.kind == PageKind::InitialReset && request_clock_.isValid()) {
+        diagnostics.record(
+            ReviewDiagnostics::Stage::PageWait,
+            request_clock_.elapsed(),
+            model_->rowCount()
+        );
+    }
     emit decisionsReconciled();
     if (reset_pending_ && !debounce_timer_.isActive()) {
         emit workStateChanged();

@@ -1,6 +1,9 @@
 #include "justified_review_layout_model.hpp"
 
+#include "review_diagnostics.hpp"
+
 #include <QAbstractItemModel>
+#include <QElapsedTimer>
 
 #include <algorithm>
 #include <cmath>
@@ -536,6 +539,11 @@ void JustifiedReviewLayoutModel::appendSourceRows() {
     if (source_count == projected_source_count_) {
         return;
     }
+    auto& diagnostics = ReviewDiagnostics::instance();
+    QElapsedTimer diagnostic_clock;
+    if (diagnostics.enabled()) {
+        diagnostic_clock.start();
+    }
 
     const bool replace_tail = !rows_.isEmpty() && !rows_.last().justified;
     QVariantList suffix_items = replace_tail ? rows_.last().items : QVariantList{};
@@ -589,6 +597,13 @@ void JustifiedReviewLayoutModel::appendSourceRows() {
         endInsertRows();
     }
     projected_source_count_ = source_count;
+    if (diagnostics.enabled()) {
+        diagnostics.record(
+            ReviewDiagnostics::Stage::LayoutAppend,
+            diagnostic_clock.elapsed(),
+            source_count
+        );
+    }
 }
 
 void JustifiedReviewLayoutModel::updateSourceItems(
@@ -637,6 +652,11 @@ void JustifiedReviewLayoutModel::updateSourceItems(
 }
 
 void JustifiedReviewLayoutModel::rebuild() {
+    auto& diagnostics = ReviewDiagnostics::instance();
+    QElapsedTimer diagnostic_clock;
+    if (diagnostics.enabled()) {
+        diagnostic_clock.start();
+    }
     rebuild_timer_.stop();
     full_rebuild_pending_ = false;
     append_pending_ = false;
@@ -714,6 +734,13 @@ void JustifiedReviewLayoutModel::rebuild() {
     }
     endResetModel();
     emit sectionAnchorsChanged();
+    if (diagnostics.enabled()) {
+        diagnostics.record(
+            ReviewDiagnostics::Stage::LayoutRebuild,
+            diagnostic_clock.elapsed(),
+            projected_source_count_
+        );
+    }
 }
 
 void JustifiedReviewLayoutModel::appendPhotoRows(
