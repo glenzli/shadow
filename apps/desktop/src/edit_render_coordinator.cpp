@@ -85,6 +85,13 @@ void EditController::requestBeforePreview() {
 
 void EditController::finishPreviewTask() {
     EditPreviewTaskResult result = preview_watcher_.result();
+    if (result.generation.policy == EditPreviewPolicy::Settled) {
+        log_edit_performance_checkpoint(
+            "settled-preview-task-finished",
+            result.generation.photo,
+            result.generation.current_revision
+        );
+    }
     const EditPreviewKind kind = result.generation.kind();
     if (interactive_preview_timing_token_ == result.generation.render_token) {
         qInfo().noquote()
@@ -334,6 +341,7 @@ void EditController::finishPreviewTask() {
             scheduleDetailWarmup();
         }
     }
+    startDisplayScopeTask();
     maybeFinishDeferredApplicationClose();
 }
 
@@ -356,6 +364,11 @@ void EditController::startPreviewRender() {
     const std::uint32_t max_edge = EDIT_PREVIEW_EDGE;
     const std::uint8_t jpeg_quality = interactive
         ? EDIT_INTERACTIVE_PREVIEW_QUALITY : EDIT_PREVIEW_QUALITY;
+    if (policy == EditPreviewPolicy::Settled) {
+        log_edit_performance_checkpoint(
+            "settled-preview-admitted", photo_generation_, render_revision_
+        );
+    }
     preview_render_token_ = backend_->beginEditPreviewRequest();
     if (interactive && interactive_timing_enabled()) {
         interactive_preview_timing_.restart();
@@ -408,6 +421,11 @@ void EditController::startPreviewRender() {
         jpeg_quality,
         std::move(generation)
     ));
+    if (policy == EditPreviewPolicy::Settled) {
+        log_edit_performance_checkpoint(
+            "settled-preview-dispatched", photo_generation_, render_revision_
+        );
+    }
 }
 
 void EditController::maybeStartBeforePreview() {

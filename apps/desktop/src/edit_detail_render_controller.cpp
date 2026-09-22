@@ -114,6 +114,7 @@ void EditController::leaveDetailMode() {
     if (full_resolution_preparing_) {
         setFullResolutionState(false, false, 0);
     }
+    startDisplayScopeTask();
 }
 
 void EditController::cancelDetailWarmupForRecipeEdit() {
@@ -283,6 +284,7 @@ void EditController::finishDetailTask() {
     } else {
         maybeStartBeforePreview();
     }
+    startDisplayScopeTask();
     maybeFinishDeferredApplicationClose();
 }
 
@@ -292,6 +294,7 @@ void EditController::startDetailRender() {
         return;
     }
     if (stateTaskRunning() || current_rendering_ || before_rendering_
+        || detail_warmup_watcher_.isRunning()
         || settled_render_revision_ != render_revision_ || detail_rendering_) {
         detail_queued_ = true;
         return;
@@ -349,9 +352,8 @@ void EditController::dispatchDetailRender(const bool center_first) {
 
 void EditController::scheduleDetailWarmup() {
     const auto& raw_ai_denoise = grade_stack_.raw_ai_denoise;
-    if (!active_ || crop_tool_active_ || detail_mode_ || stateTaskRunning() || current_rendering_
-        || detail_rendering_ || settled_render_revision_ != render_revision_
-        || detail_warmup_watcher_.isRunning()
+    if (crop_tool_active_ || detail_mode_ || settled_render_revision_ != render_revision_
+        || !work_scheduler_.admitsIdleDetailWarmup(workAdmissionState())
         || !edit_detail_admits_idle_warmup(
             raw_ai_denoise.present,
             raw_ai_denoise.enabled,
@@ -364,9 +366,8 @@ void EditController::scheduleDetailWarmup() {
 
 void EditController::startDetailWarmup() {
     const auto& raw_ai_denoise = grade_stack_.raw_ai_denoise;
-    if (!active_ || crop_tool_active_ || detail_mode_ || stateTaskRunning() || current_rendering_
-        || before_rendering_ || detail_rendering_ || settled_render_revision_ != render_revision_
-        || detail_warmup_watcher_.isRunning()
+    if (crop_tool_active_ || detail_mode_ || settled_render_revision_ != render_revision_
+        || !work_scheduler_.admitsIdleDetailWarmup(workAdmissionState())
         || !edit_detail_admits_idle_warmup(
             raw_ai_denoise.present,
             raw_ai_denoise.enabled,
@@ -407,9 +408,9 @@ void EditController::finishDetailWarmupTask() {
         if (full_resolution_preparing_) {
             setFullResolutionState(false, false, 0);
         }
-        if (active_ && !detail_mode_ && settled_render_revision_ == render_revision_) {
-            scheduleDetailWarmup();
-        }
+        maybeStartDetailRender();
+        startDisplayScopeTask();
+        scheduleDetailWarmup();
         return;
     }
     if (result.error.isEmpty()) {
@@ -426,6 +427,8 @@ void EditController::finishDetailWarmupTask() {
         // active background development.
         setFullResolutionState(false, false, 0);
     }
+    maybeStartDetailRender();
+    startDisplayScopeTask();
 }
 
 void EditController::maybeStartDetailRender() {
@@ -433,6 +436,7 @@ void EditController::maybeStartDetailRender() {
         return;
     }
     if (stateTaskRunning() || current_rendering_ || before_rendering_
+        || detail_warmup_watcher_.isRunning()
         || settled_render_revision_ != render_revision_) {
         return;
     }

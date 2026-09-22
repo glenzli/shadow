@@ -669,6 +669,16 @@ Its implementation follows the same navigation:
   publication by the controller.
 - [`src/edit_performance_diagnostics.*`](src/edit_performance_diagnostics.hpp) emits bounded,
   opt-in edit-phase memory checkpoints without photo identities or image data.
+- [`src/edit_work_scheduler.*`](src/edit_work_scheduler.hpp) admits display-scope analysis after
+  foreground preview and detail work, runs it on one low-priority thread, and defers idle detail
+  warmup until pending scope work finishes. The controller retains generation and cancellation
+  authority.
+
+Set `SHADOW_INTERACTIVE_TIMING=1` to include `shadow.edit-checkpoint` records for photo open,
+state loading, settled preview, display scopes, and detail. Each record carries only the stage,
+photo/Recipe generations, retained detail-source bytes, and macOS physical footprint (or
+`unavailable` on other platforms). These checkpoints are emitted at phase boundaries, not per
+pixel or per frame; compare adjacent stages to locate a memory rise before profiling that owner.
 - [`src/edit_stroke_input.*`](src/edit_stroke_input.hpp) validates the bounded normalized-point
   transport shared by direct brush gestures. QML owns transient sampling, while Local Mask and
   Retouch controllers each commit one complete gesture to their own recipe domain.

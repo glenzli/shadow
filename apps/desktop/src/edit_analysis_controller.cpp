@@ -1,8 +1,8 @@
 #include "edit_controller.hpp"
 
+#include "edit_performance_diagnostics.hpp"
 #include "preview_diagnostics.hpp"
 
-#include <QtConcurrentRun>
 #include <QVariantMap>
 
 #include <array>
@@ -306,7 +306,7 @@ void EditController::queueDisplayScope(
 }
 
 void EditController::startDisplayScopeTask() {
-    if (display_scope_task_active_) {
+    if (!work_scheduler_.admitsDisplayScope(workAdmissionState())) {
         return;
     }
     std::optional<EditDisplayScopeTaskInput> input;
@@ -332,10 +332,7 @@ void EditController::startDisplayScopeTask() {
         input->reference = point_color_scope_reference_;
     }
     display_scope_task_active_ = true;
-    display_scope_watcher_.setFuture(QtConcurrent::run(
-        run_edit_display_scope_task,
-        std::move(*input)
-    ));
+    display_scope_watcher_.setFuture(work_scheduler_.runDisplayScope(std::move(*input)));
 }
 
 void EditController::finishDisplayScopeTask() {
@@ -383,8 +380,17 @@ void EditController::finishDisplayScopeTask() {
         } else {
             emit beforeHistogramChanged();
         }
+        log_edit_performance_checkpoint(
+            current ? "current-display-scope-published" : "before-display-scope-published",
+            result.photo_generation,
+            result.preview_generation
+        );
     }
     startDisplayScopeTask();
+    if (!display_scope_task_active_ && !pending_current_scope_.has_value()
+        && !pending_before_scope_.has_value()) {
+        scheduleDetailWarmup();
+    }
 }
 
 void EditController::markHistogramFailed(const EditPreviewKind kind) {

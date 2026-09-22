@@ -10,6 +10,7 @@
 #include "edit_preview_provider.hpp"
 #include "edit_task_runner.hpp"
 #include "edit_version_model.hpp"
+#include "edit_work_scheduler.hpp"
 #include "localized_ui_message.hpp"
 #include "preview_diagnostics.hpp"
 #include "tone_curve_point_model.hpp"
@@ -1163,6 +1164,7 @@ class EditController final : public QObject {
     void queueDisplayScope(EditPreviewKind kind, QByteArray encoded_preview, quint64 generation);
     void startDisplayScopeTask();
     void finishDisplayScopeTask();
+    [[nodiscard]] EditWorkAdmissionState workAdmissionState() const noexcept;
     void markHistogramUpdating(EditPreviewKind kind);
     void publishHistogram(
         EditPreviewKind kind,
@@ -1276,6 +1278,7 @@ class EditController final : public QObject {
     quint64 detail_render_token_ = 0;
     quint64 detail_warmup_token_ = 0;
     quint64 preview_render_token_ = 0;
+    EditWorkScheduler work_scheduler_;
     QFutureWatcher<EditDisplayScopeTaskResult> display_scope_watcher_;
     std::optional<EditDisplayScopeTaskInput> pending_current_scope_;
     std::optional<EditDisplayScopeTaskInput> pending_before_scope_;

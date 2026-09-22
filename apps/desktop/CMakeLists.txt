@@ -390,6 +390,8 @@ qt_add_executable(
     src/edit_analysis_controller.cpp
     src/edit_display_scope_task.cpp
     src/edit_display_scope_task.hpp
+    src/edit_work_scheduler.cpp
+    src/edit_work_scheduler.hpp
     src/edit_performance_diagnostics.cpp
     src/edit_performance_diagnostics.hpp
     src/edit_raw_foundation_controller.cpp

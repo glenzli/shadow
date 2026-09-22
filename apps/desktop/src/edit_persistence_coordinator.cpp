@@ -528,6 +528,11 @@ bool EditController::prepareToClose() {
 
 void EditController::finishStateTask() {
     EditStateTaskResult result = completeStateTask();
+    if (result.kind == EditStateTaskKind::Open) {
+        log_edit_performance_checkpoint(
+            "edit-state-task-finished", result.photo_generation, render_revision_
+        );
+    }
     if (result.photo_generation != photo_generation_) {
         if (persistence_state_.clearPendingVersionActions()) {
             emit stateBusyChanged();
@@ -643,6 +648,9 @@ void EditController::finishStateTask() {
         }
     } else {
         applyState(std::move(result.state));
+    }
+    if (result.kind == EditStateTaskKind::Open) {
+        log_edit_performance_checkpoint("edit-state-applied", photo_generation_, render_revision_);
     }
     if (result.kind == EditStateTaskKind::ResetIncompatibleRecipe) {
         if (!recipe_recovery_message_.isEmpty()) {

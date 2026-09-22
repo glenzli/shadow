@@ -225,6 +225,31 @@
     add_test(NAME shadow-desktop-edit-display-scope-task COMMAND shadow-edit-display-scope-task-test)
 
     add_executable(
+        shadow-edit-work-scheduler-test
+        tests/edit_work_scheduler_test.cpp
+        src/edit_work_scheduler.cpp
+        src/edit_work_scheduler.hpp
+        src/edit_display_scope_task.cpp
+        src/edit_display_scope_task.hpp
+        src/preview_diagnostics.cpp
+        src/preview_diagnostics.hpp
+    )
+    target_compile_features(shadow-edit-work-scheduler-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-edit-work-scheduler-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-edit-work-scheduler-test PRIVATE Qt6::Gui Qt6::Concurrent)
+    if(MSVC)
+        target_compile_options(shadow-edit-work-scheduler-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-edit-work-scheduler-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-edit-work-scheduler COMMAND shadow-edit-work-scheduler-test)
+
+    add_executable(
         shadow-edit-retouch-donor-selection-test
         tests/edit_retouch_donor_selection_test.cpp
         src/edit_retouch_donor_selection.cpp
