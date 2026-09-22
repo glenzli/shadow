@@ -86,6 +86,24 @@ class PhotoModel final : public QAbstractListModel {
         endResetModel();
     }
 
+    void append(QVector<Photo> photos) {
+        if (photos.isEmpty()) {
+            return;
+        }
+        const int first = static_cast<int>(photos_.size());
+        beginInsertRows({}, first, first + static_cast<int>(photos.size()) - 1);
+        for (Photo& photo : photos) {
+            photos_.push_back(std::move(photo));
+        }
+        endInsertRows();
+    }
+
+    void insertAt(const int row, Photo photo) {
+        beginInsertRows({}, row, row);
+        photos_.insert(row, std::move(photo));
+        endInsertRows();
+    }
+
   private:
     QVector<Photo> photos_;
 };
@@ -293,6 +311,98 @@ void invalid_capture_day_uses_each_photos_timestamp() {
     );
 }
 
+void tail_append_reads_only_new_rows_and_matches_full_grouping() {
+    PhotoModel photos;
+    photos.replace({
+        {QStringLiteral("a"),
+         QStringLiteral("representation-a"),
+         QStringLiteral("2024-03-18"),
+         0,
+         QStringLiteral("Beijing")},
+        {QStringLiteral("b"),
+         QStringLiteral("representation-b"),
+         QStringLiteral("2024-04-19"),
+         0,
+         QStringLiteral("Shanghai")},
+    });
+    ReviewGalleryGroupingController grouping;
+    grouping.setSourceModel(&photos);
+    grouping.setDimensionSelected(QStringLiteral("date.month"), true);
+    grouping.setDimensionSelected(QStringLiteral("place.name"), true);
+
+    photos.reads = 0;
+    photos.append({
+        {QStringLiteral("c"),
+         QStringLiteral("representation-c"),
+         QStringLiteral("2024-03-20"),
+         0,
+         QStringLiteral("Beijing")},
+        {QStringLiteral("d"),
+         QStringLiteral("representation-d"),
+         QStringLiteral("2024-05-01"),
+         0,
+         QStringLiteral("London")},
+        {QStringLiteral("e"),
+         QStringLiteral("representation-e"),
+         QStringLiteral("2024-03-21"),
+         0,
+         QStringLiteral("Beijing")},
+    });
+    require(photos.reads <= 15, "tail append reads grouping roles from new photos only");
+
+    const QVariantList incrementally_grouped = grouping.sections();
+    ReviewGalleryGroupingController rebuilt;
+    rebuilt.setSourceModel(&photos);
+    rebuilt.setDimensionSelected(QStringLiteral("date.month"), true);
+    rebuilt.setDimensionSelected(QStringLiteral("place.name"), true);
+    require(
+        incrementally_grouped == rebuilt.sections(),
+        "tail append keeps exact full-rebuild group identities, order and members"
+    );
+
+    rebuilt.setSourceModel(nullptr);
+    photos.reads = 0;
+    photos.append({
+        {QStringLiteral("g"),
+         QStringLiteral("representation-g"),
+         QStringLiteral("2024-05-02"),
+         0,
+         QStringLiteral("London")},
+        {QStringLiteral("h"),
+         QStringLiteral("representation-h"),
+         QStringLiteral("2024-06-01"),
+         0,
+         QStringLiteral("Tokyo")},
+    });
+    require(
+        photos.reads <= 16,
+        "later pages also use the incremental path after creating a new group"
+    );
+    ReviewGalleryGroupingController rebuilt_after;
+    rebuilt_after.setSourceModel(&photos);
+    rebuilt_after.setDimensionSelected(QStringLiteral("date.month"), true);
+    rebuilt_after.setDimensionSelected(QStringLiteral("place.name"), true);
+    require(
+        grouping.sections() == rebuilt_after.sections(),
+        "later pages preserve the full-rebuild group order and membership"
+    );
+
+    photos.reads = 0;
+    photos.insertAt(
+        1,
+        {QStringLiteral("f"),
+         QStringLiteral("representation-f"),
+         QStringLiteral("2024-02-01"),
+         0,
+         QStringLiteral("Paris")}
+    );
+    require(photos.reads > 15, "non-tail insertion invalidates the incremental projection");
+    require(
+        grouping.sections() == rebuilt_after.sections(),
+        "non-tail insertion still recompiles both source projections consistently"
+    );
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -302,5 +412,6 @@ int main(int argc, char** argv) {
     independent_dimensions_form_composite_groups();
     date_granularities_are_mutually_exclusive_and_source_resets_rebuild();
     invalid_capture_day_uses_each_photos_timestamp();
+    tail_append_reads_only_new_rows_and_matches_full_grouping();
     return EXIT_SUCCESS;
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractItemModel>
+#include <QHash>
 #include <QMetaObject>
 #include <QObject>
 #include <QPointer>
@@ -55,10 +56,13 @@ class ReviewGalleryGroupingController final : public QObject {
   private:
     void disconnectSourceModel();
     void rebuild();
+    void appendRows(const QModelIndex& parent, int first, int last);
 
     QPointer<QAbstractItemModel> source_model_;
     QList<QMetaObject::Connection> source_connections_;
     QVariantList base_sections_;
     QVariantList sections_;
     QSet<QString> selected_dimensions_;
+    QHash<QString, int> section_indices_;
+    int projected_source_count_ = 0;
 };
