@@ -13,6 +13,53 @@ Item {
     required property var model
 
     property bool selectingFromFilmstrip: false
+    property int lastPageRequestCount: -1
+    property string pendingForwardPhotoId: ""
+    property string pendingForwardRepresentationId: ""
+
+    function clearPendingForward() {
+        pendingForwardPhotoId = ""
+        pendingForwardRepresentationId = ""
+    }
+
+    function maybeLoadMore(force) {
+        const controller = review.controller
+        if (!visible || !controller.hasMore || controller.scanning
+                || controller.refreshing || controller.busy
+                || controller.loadingMore || controller.comparisonBusy
+                || controller.decisionBusy)
+            return
+        if (!force && filmstrip.contentX + filmstrip.width
+                < filmstrip.contentWidth - 252)
+            return
+        // One automatic request per loaded count bounds retries when a page
+        // fails or contains no photos admitted by the client-side filter.
+        if (!force && lastPageRequestCount === filmstrip.count)
+            return
+        lastPageRequestCount = filmstrip.count
+        controller.loadMore()
+    }
+
+    function resumePendingForward() {
+        if (pendingForwardPhotoId.length === 0)
+            return
+        if (!visible || review.selectedPhotoId !== pendingForwardPhotoId
+                || review.selectedRepresentationId !== pendingForwardRepresentationId) {
+            clearPendingForward()
+            return
+        }
+        // A proxy may briefly have no stable row while it inserts the page.
+        // Wait for its next signal instead of dropping the keyboard intent.
+        if (model.indexOfPhoto(pendingForwardPhotoId,
+                pendingForwardRepresentationId) < 0)
+            return
+        const target = review.justifiedReviewLayout.navigationTarget(
+            pendingForwardPhotoId, pendingForwardRepresentationId, 1, 0)
+        if (target && String(target.photoId || "").length > 0) {
+            clearPendingForward()
+            review.selectPhoto(target, Qt.NoModifier)
+        }
+    }
 
     function restoreSelection() {
         if (!visible)
@@ -21,8 +68,19 @@ Item {
         filmstrip.syncCurrentSelection()
     }
 
-    onVisibleChanged: Qt.callLater(restoreSelection)
-    onModelChanged: Qt.callLater(restoreSelection)
+    onVisibleChanged: {
+        if (visible)
+            lastPageRequestCount = -1
+        else
+            clearPendingForward()
+        Qt.callLater(restoreSelection)
+        Qt.callLater(maybeLoadMore)
+    }
+    onModelChanged: {
+        lastPageRequestCount = -1
+        clearPendingForward()
+        Qt.callLater(restoreSelection)
+    }
 
     // Unhandled arrows bubble here from the filmstrip, preview and zoom/HUD
     // controls, so inspecting a photo never disables continued culling.
@@ -57,8 +115,18 @@ Item {
             review.selectedRepresentationId,
             direction,
             0)
-        if (!target || String(target.photoId || "").length === 0)
+        if (!target || String(target.photoId || "").length === 0) {
+            if (direction > 0 && review.selectedPhotoId.length > 0
+                    && model.indexOfPhoto(review.selectedPhotoId,
+                        review.selectedRepresentationId) >= 0
+                    && review.controller.hasMore) {
+                pendingForwardPhotoId = review.selectedPhotoId
+                pendingForwardRepresentationId = review.selectedRepresentationId
+                maybeLoadMore(true)
+            }
             return
+        }
+        clearPendingForward()
         review.selectPhoto(target, 0)
     }
 
@@ -149,6 +217,30 @@ Item {
     }
 
     Rectangle {
+        objectName: "filmstripPageStatus"
+        anchors.left: heroImage.left
+        anchors.bottom: filmstripPanel.top
+        anchors.leftMargin: 14
+        anchors.bottomMargin: 14
+        z: 3
+        width: pageStatus.implicitWidth + 20
+        height: 30
+        radius: Theme.controlRadius
+        color: Theme.menuSurface
+        border.width: 1
+        border.color: Theme.borderStrong
+        visible: root.visible && root.review.controller.loadingMore
+
+        Label {
+            id: pageStatus
+            anchors.centerIn: parent
+            text: qsTr("Loading more photos…")
+            color: Theme.textPrimary
+            font.pixelSize: Theme.fontMeta
+        }
+    }
+
+    Rectangle {
         id: filmstripPanel
         anchors.left: parent.left
         anchors.right: parent.right
@@ -187,7 +279,13 @@ Item {
             }
 
             Component.onCompleted: Qt.callLater(root.restoreSelection)
-            onCountChanged: Qt.callLater(root.restoreSelection)
+            onCountChanged: {
+                Qt.callLater(root.restoreSelection)
+                Qt.callLater(root.resumePendingForward)
+                Qt.callLater(root.maybeLoadMore)
+            }
+            onContentXChanged: Qt.callLater(root.maybeLoadMore)
+            onWidthChanged: Qt.callLater(root.maybeLoadMore)
             delegate: Rectangle {
                 id: filmCard
                 required property string photoId
@@ -358,17 +456,61 @@ Item {
 
     Connections {
         target: root.model
-        function onModelReset() { Qt.callLater(root.restoreSelection) }
+        function onRowsRemoved() {
+            Qt.callLater(function() {
+                if (root.pendingForwardPhotoId.length > 0
+                        && root.model.indexOfPhoto(root.pendingForwardPhotoId,
+                            root.pendingForwardRepresentationId) < 0)
+                    root.clearPendingForward()
+            })
+        }
+        function onRowsInserted() {
+            Qt.callLater(root.resumePendingForward)
+        }
+        function onModelReset() {
+            root.clearPendingForward()
+            root.lastPageRequestCount = -1
+            Qt.callLater(root.restoreSelection)
+            Qt.callLater(root.maybeLoadMore)
+        }
         function onLayoutChanged() { Qt.callLater(root.restoreSelection) }
+    }
+
+    Connections {
+        target: root.review.justifiedReviewLayout
+        function onRowsInserted() { Qt.callLater(root.resumePendingForward) }
+        function onDataChanged() { Qt.callLater(root.resumePendingForward) }
+        function onModelReset() { Qt.callLater(root.resumePendingForward) }
+    }
+
+    Connections {
+        target: root.review.controller
+        function onLoadingMoreChanged() {
+            if (!root.review.controller.loadingMore)
+                Qt.callLater(root.resumePendingForward)
+        }
+        function onHasMoreChanged() { Qt.callLater(root.maybeLoadMore) }
+        function onScanningChanged() { Qt.callLater(root.maybeLoadMore) }
+        function onRefreshingChanged() { Qt.callLater(root.maybeLoadMore) }
+        function onBusyChanged() { Qt.callLater(root.maybeLoadMore) }
+        function onComparisonStateChanged() { Qt.callLater(root.maybeLoadMore) }
+        function onDecisionStateChanged() { Qt.callLater(root.maybeLoadMore) }
     }
 
     Connections {
         target: root.review
         function onSelectedPhotoIdChanged() {
+            if (root.pendingForwardPhotoId.length > 0
+                    && root.review.selectedPhotoId !== root.pendingForwardPhotoId)
+                root.clearPendingForward()
             if (!root.selectingFromFilmstrip)
                 Qt.callLater(filmstrip.syncCurrentSelection)
         }
         function onSelectedRepresentationIdChanged() {
+            if (root.pendingForwardRepresentationId.length > 0
+                    && root.review.selectedRepresentationId
+                        !== root.pendingForwardRepresentationId)
+                root.clearPendingForward()
             if (!root.selectingFromFilmstrip)
                 Qt.callLater(filmstrip.syncCurrentSelection)
         }

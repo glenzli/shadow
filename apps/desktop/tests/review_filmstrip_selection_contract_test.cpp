@@ -79,6 +79,19 @@ ReviewSinglePreview {
         property bool selectedLiked: false
         property string selectedColorLabel: "none"
         property var justifiedReviewLayout: navigationModel
+        property QtObject controller: QtObject {
+            property bool hasMore: false
+            property bool scanning: false
+            property bool refreshing: false
+            property bool busy: false
+            property bool loadingMore: false
+            property bool comparisonBusy: false
+            property bool decisionBusy: false
+            property int loadCount: 0
+            signal comparisonStateChanged()
+            signal decisionStateChanged()
+            function loadMore() { ++loadCount; loadingMore = true }
+        }
         property var comparison: ({compareMode: false})
         property var culling: ({arenaActive: false, containsCandidate: function() { return false }})
         property int opened: 0
@@ -226,5 +239,80 @@ ReviewSinglePreview {
         content && content->childItems().size() < 100,
         "selection synchronization instantiated the whole library"
     );
+    auto* controller = review->property("controller").value<QObject*>();
+    check(controller != nullptr, "filmstrip paging controller is unavailable");
+    if (controller) {
+        QVector<ReviewItem> page;
+        for (int index = 0; index < 2; ++index) {
+            ReviewItem photo;
+            photo.photo_id = QStringLiteral("page-%1").arg(index);
+            photo.representation_id = QStringLiteral("raw");
+            photo.title = photo.photo_id;
+            page.push_back(photo);
+        }
+        source.replace(page, 3);
+        review->setProperty("selectedPhotoId", QStringLiteral("page-1"));
+        check(selection_visible(), "page-boundary selection was not visible");
+        controller->setProperty("hasMore", true);
+        QMetaObject::invokeMethod(root.get(), "forceGalleryFocus");
+        QTest::keyClick(&window, Qt::Key_Right);
+        check(
+            controller->property("loadCount").toInt() == 1
+                && review->property("selectedPhotoId") == QStringLiteral("page-1"),
+            "right arrow did not request the next page while retaining the current photo"
+        );
+        auto* page_status = root->findChild<QQuickItem*>(QStringLiteral("filmstripPageStatus"));
+        check(page_status && page_status->isVisible(), "filmstrip page load has no visible status");
+        ReviewItem next_photo;
+        next_photo.photo_id = QStringLiteral("page-2");
+        next_photo.representation_id = QStringLiteral("raw");
+        next_photo.title = next_photo.photo_id;
+        source.append({next_photo});
+        controller->setProperty("hasMore", false);
+        controller->setProperty("loadingMore", false);
+        const bool advanced = QTest::qWaitFor([&] {
+            return review->property("selectedPhotoId") == QStringLiteral("page-2");
+        });
+        if (!advanced) {
+            const auto target = navigation.navigationTarget(
+                QStringLiteral("page-1"), QStringLiteral("raw"), 1, 0);
+            std::cerr << "page boundary state: source=" << source.rowCount()
+                      << " filtered=" << filtered.rowCount()
+                      << " layout=" << navigation.rowCount()
+                      << " pending="
+                      << root->property("pendingForwardPhotoId").toString().toStdString()
+                      << " selected="
+                      << review->property("selectedPhotoId").toString().toStdString()
+                      << " next="
+                      << target.value(QStringLiteral("photoId")).toString().toStdString()
+                      << '\n';
+        }
+        check(advanced, "pending right arrow did not advance after the next page arrived");
+        check(selection_visible(), "next-page photo was not revealed in the filmstrip");
+        check(
+            controller->property("loadCount").toInt() == 1,
+            "a single page-boundary action requested duplicate pages"
+        );
+        controller->setProperty("hasMore", true);
+        QMetaObject::invokeMethod(root.get(), "forceGalleryFocus");
+        QTest::keyClick(&window, Qt::Key_Right);
+        check(
+            controller->property("loadCount").toInt() == 2,
+            "the next page-boundary action did not request another page"
+        );
+        review->setProperty("selectedPhotoId", QStringLiteral("page-0"));
+        ReviewItem later_photo;
+        later_photo.photo_id = QStringLiteral("page-3");
+        later_photo.representation_id = QStringLiteral("raw");
+        later_photo.title = later_photo.photo_id;
+        source.append({later_photo});
+        controller->setProperty("hasMore", false);
+        controller->setProperty("loadingMore", false);
+        QCoreApplication::processEvents();
+        check(
+            review->property("selectedPhotoId") == QStringLiteral("page-0"),
+            "a stale pending arrow overrode the user's newer selection"
+        );
+    }
     return ok && !warnings ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -12016,6 +12016,10 @@ Details: %3</source>
 <context>
     <name>ReviewSinglePreview</name>
     <message>
+        <source>Loading more photos…</source>
+        <translation>正在载入更多照片…</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewSinglePreview.qml" line="97"/>
         <source>Select a photo to begin review</source>
         <translation>选择一张照片开始选片</translation>
