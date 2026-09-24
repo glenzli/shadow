@@ -727,6 +727,7 @@ qt_add_resources(
         icons/refresh.svg
         icons/reset-all.svg
         icons/retouch.svg
+        icons/review-cluster.svg
         icons/review-grid.svg
         icons/scopes.svg
         icons/settings.svg

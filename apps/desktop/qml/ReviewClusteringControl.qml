@@ -14,7 +14,7 @@ Item {
 
     ShadowIconButton {
         anchors.centerIn: parent
-        source: "qrc:/icons/source-stack.svg"
+        source: "qrc:/icons/review-cluster.svg"
         selected: control.workspace.reviewClusteringController.hasResults
         toolTipText: qsTr("Group similar review candidates")
         accessibleName: toolTipText
