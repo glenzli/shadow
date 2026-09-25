@@ -272,6 +272,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowDialog.qml
             qml/ShadowTextField.qml
             qml/PeopleWorkspace.qml
             qml/ShadowIconButton.qml

@@ -9,6 +9,7 @@
     qt_add_qml_module(shadow-lut-export-controller-test
         URI Shadow.LutExportContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
         QML_FILES
+            qml/ShadowDialog.qml
             qml/ShadowComboBox.qml
             qml/ShadowIcon.qml
  qml/LutExportDialog.qml qml/ShadowButton.qml qml/Theme.qml)
@@ -61,6 +62,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowDialog.qml
             qml/ShadowRecipeInterchangeDialog.qml
             qml/ShadowButton.qml
             qml/ShadowIconButton.qml
@@ -1833,7 +1835,7 @@ if(BUILD_TESTING)
         Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
     qt_add_qml_module(shadow-precision-ai-completion-tools-contract-test
         URI Shadow.CompletionContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
-        QML_FILES qml/PrecisionAiCompletionTools.qml qml/ShadowButton.qml
+        QML_FILES qml/ShadowDialog.qml qml/PrecisionAiCompletionTools.qml qml/ShadowButton.qml
         qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/ShadowSlider.qml
         qml/ShadowInlineSlider.qml qml/ShadowSwitch.qml qml/Theme.qml)
     qt_add_resources(shadow-precision-ai-completion-tools-contract-test completion-test-icons

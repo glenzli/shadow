@@ -69,6 +69,9 @@ Initial preparation may use the existing RAW Metal route, but registration/fusio
 After import, interactive adjustments reuse the normal warm editor source; only a new composition
 reruns multi-photo registration. No new host/device transfer is added to ordinary RAW editing.
 
+Shared confirmation surfaces use [`qml/ShadowDialog.qml`](qml/ShadowDialog.qml) for theme-aware
+titles, spacing and standard action buttons; acceptance policy remains with each feature.
+
 ## Desktop source index
 
 Application startup is split from environment-driven automation:

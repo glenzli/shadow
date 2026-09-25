@@ -4,8 +4,9 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-Dialog {
+ShadowDialog {
     id: dialog
+    objectName: "pipelineExportDialog"
     required property var pipeline
     property url destination
     parent: Overlay.overlay
@@ -42,7 +43,16 @@ Dialog {
             Label { text: qsTr("Color space"); color: Theme.textSecondary; font.pixelSize: Theme.fontBody }
             ShadowComboBox { id: color; model: ["sRGB", "Display P3"]; Layout.fillWidth: true }
             Label { text: qsTr("JPEG quality"); visible: format.currentIndex === 0; color: Theme.textSecondary; font.pixelSize: Theme.fontBody }
-            SpinBox { id: quality; from: 1; to: 100; value: 95; editable: true; visible: format.currentIndex === 0; font.pixelSize: Theme.fontBody }
+            ShadowTextField {
+                id: quality
+                objectName: "pipelineExportQuality"
+                Layout.fillWidth: true
+                text: "95"
+                validator: IntValidator { bottom: 1; top: 100 }
+                inputMethodHints: Qt.ImhDigitsOnly
+                visible: format.currentIndex === 0
+                Accessible.name: qsTr("JPEG quality")
+            }
             Label { text: qsTr("TIFF bit depth"); visible: format.currentIndex === 2; color: Theme.textSecondary; font.pixelSize: Theme.fontBody }
             ShadowComboBox { id: depth; model: ["8", "16"]; currentIndex: 1; visible: format.currentIndex === 2; Layout.fillWidth: true }
         }
@@ -63,13 +73,20 @@ Dialog {
         }
     }
     footer: DialogButtonBox {
+        alignment: Qt.AlignRight
+        spacing: 8
+        leftPadding: 20; rightPadding: 20; topPadding: 0; bottomPadding: 20
+        background: Item {}
         ShadowButton { text: qsTr("Cancel"); onClicked: dialog.close() }
         ShadowButton {
+            objectName: "pipelineConfirmExportButton"
             text: qsTr("Export")
+            variant: ShadowButton.Primary
             enabled: dialog.destination.toString().length > 0
+                && (format.currentIndex !== 0 || quality.acceptableInput)
             onClicked: {
                 const options = { format: ["jpeg", "png", "tiff"][format.currentIndex],
-                    quality: quality.value, bitDepth: format.currentIndex === 2 && depth.currentIndex === 1 ? 16 : 8,
+                    quality: format.currentIndex === 0 ? Number(quality.text) : 95, bitDepth: format.currentIndex === 2 && depth.currentIndex === 1 ? 16 : 8,
                     colorSpace: color.currentIndex === 0 ? "srgb" : "display-p3", maxEdge: 0, metadataPolicy: "none" }
                 if (dialog.pipeline.configureExport(dialog.destination, options)) {
                     dialog.close()

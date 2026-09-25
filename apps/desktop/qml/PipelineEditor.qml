@@ -122,24 +122,32 @@ ApplicationWindow {
                         onClicked: window.editor.redo()
                     }
                 }
-                ShadowButton {
-                    compact: true
-                    text: qsTr("Open photos…")
+                ShadowIconButton {
+                    objectName: "pipelineOpenPhotosButton"
+                    source: "qrc:/icons/add-folder.svg"
+                    toolTipText: qsTr("Open photos…")
                     visible: pipeline.interactive && !pipeline.finished
                     enabled: !pipeline.busy && pipeline.completedCount === 0
                     onClicked: photoPicker.open()
                 }
-                ShadowButton {
-                    compact: true
-                    variant: ShadowButton.Ghost
-                    text: pipeline.finished ? qsTr("Close") : qsTr("Cancel session")
+                ShadowIconButton {
+                    objectName: "pipelineCloseSessionButton"
+                    source: "qrc:/icons/close.svg"
+                    toolTipText: pipeline.finished ? qsTr("Close") : qsTr("Cancel session")
                     onClicked: window.requestClose()
                 }
-                ShadowButton {
-                    compact: true
-                    variant: ShadowButton.Primary
+                Rectangle {
+                    implicitWidth: 1
+                    implicitHeight: 18
                     visible: !pipeline.finished
-                    text: pipeline.completedCount > 0
+                    color: Theme.border
+                }
+                ShadowIconButton {
+                    objectName: "pipelineExportPhotosButton"
+                    variant: ShadowIconButton.Tinted
+                    source: pipeline.completedCount > 0 ? "qrc:/icons/refresh.svg" : "qrc:/icons/export.svg"
+                    visible: !pipeline.finished
+                    toolTipText: pipeline.completedCount > 0
                         ? qsTr("Retry remaining") : qsTr("Export %1 photos…").arg(pipeline.photoCount)
                     enabled: pipeline.photoCount > 0 && !pipeline.busy
                     onClicked: window.exportPhotos()
@@ -321,11 +329,12 @@ ApplicationWindow {
         id: exportDialog
         pipeline: window.pipeline
     }
-    Dialog {
+    ShadowDialog {
         id: closeDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
-        width: 450
+        objectName: "pipelineCloseSessionDialog"
+        width: Math.min(450, parent ? parent.width - 40 : 450)
         modal: true
         title: qsTr("Close this editing session?")
         contentItem: Label {
@@ -335,8 +344,12 @@ ApplicationWindow {
             color: Theme.textPrimary
         }
         footer: DialogButtonBox {
+            alignment: Qt.AlignRight
+            spacing: 8
+            leftPadding: 20; rightPadding: 20; topPadding: 0; bottomPadding: 20
+            background: Item {}
             ShadowButton { text: qsTr("Keep editing"); onClicked: closeDialog.close() }
-            ShadowButton { text: qsTr("Close session"); onClicked: { closeDialog.close(); pipeline.cancel() } }
+            ShadowButton { variant: ShadowButton.Danger; text: qsTr("Close session"); onClicked: { closeDialog.close(); pipeline.cancel() } }
         }
     }
     LutManagerWindow { id: lutManager; lutLibrary: window.lutLibrary }

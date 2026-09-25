@@ -793,6 +793,7 @@ qt_add_qml_module(
     URI Shadow.ServerManager
     VERSION 1.0
     QML_FILES
+        qml/ShadowDialog.qml
         qml/ShadowTextField.qml
         qml/ServerManagerMain.qml
         qml/SettingsLibraryServerPane.qml
@@ -846,6 +847,7 @@ qt_add_qml_module(
     URI Shadow.App
     VERSION 1.0
     QML_FILES
+        qml/ShadowDialog.qml
         qml/ReviewGalleryActionsMenu.qml
         qml/ShadowComboBox.qml
         qml/ShadowMenu.qml

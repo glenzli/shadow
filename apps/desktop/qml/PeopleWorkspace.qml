@@ -92,7 +92,7 @@ Item {
         }
     }
 
-    Dialog {
+    ShadowDialog {
         id: peopleConsentDialog
         objectName: "peopleConsentDialog"
         anchors.centerIn: parent
@@ -130,7 +130,7 @@ Item {
         }
     }
 
-    Dialog {
+    ShadowDialog {
         id: clearPeopleDataDialog
         objectName: "clearPeopleDataDialog"
         anchors.centerIn: parent
@@ -140,15 +140,14 @@ Item {
         standardButtons: Dialog.Cancel | Dialog.Ok
         onAccepted: people.controller.clearPeopleData()
 
-        Label {
-            width: 420
+        contentItem: Label {
             text: qsTr("Stored face references, people groups, thumbnails, and your merges will be removed. Original photos and edits are not changed.")
             color: Theme.textPrimary
             wrapMode: Text.WordWrap
         }
     }
 
-    Dialog {
+    ShadowDialog {
         id: personNameDialog
         objectName: "peopleNameDialog"
         anchors.centerIn: parent

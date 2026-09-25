@@ -26,14 +26,17 @@ ColumnLayout {
         }
     }
 
-    Dialog {
+    ShadowDialog {
         id: localExecutionDialog
         objectName: "imageCompletionLocalExecutionDialog"
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(500, parent.width - 48)
         modal: true
-        implicitHeight: Math.max(230, localExecutionExplanation.implicitHeight + 124)
+        // The wrapping explanation supplies its own height; avoid the platform
+        // Dialog's implicit-content feedback while the inspector is laid out.
+        implicitHeight: localExecutionExplanation.implicitHeight
+            + 40 + 24 + Theme.controlHeight + 2 * spacing
         title: qsTr("Allow local AI Completion?")
         standardButtons: Dialog.Cancel | Dialog.Ok
         onAccepted: {
@@ -43,7 +46,6 @@ ColumnLayout {
 
         contentItem: Label {
             id: localExecutionExplanation
-            width: localExecutionDialog.availableWidth
             text: qsTr("Shadow will send a bounded crop of this photo and the selected area to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI & Models settings.")
             color: Theme.textPrimary
             wrapMode: Text.WordWrap

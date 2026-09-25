@@ -307,8 +307,27 @@ int main(int argc, char* argv[]) {
     );
     FakePeopleAnalysisController controller;
     FakePeoplePreferences preferences;
+    // This fixture exercises the complete Library; album-scoped projection has its own contract.
+    QQmlComponent scope_component{&engine};
+    scope_component.setData(R"QML(
+import QtQml
+QtObject {
+    property bool active: false
+    property bool ready: true
+    property bool busy: false
+    property string errorText: ""
+    property var counts: ({})
+    function setViewActive(active) {}
+}
+)QML", QUrl{});
+    std::unique_ptr<QObject> scope{scope_component.create()};
+    if (!scope) {
+        std::cerr << scope_component.errorString().toStdString();
+        return EXIT_FAILURE;
+    }
     std::unique_ptr<QObject> object{component.createWithInitialProperties({
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
+        {QStringLiteral("scope"), QVariant::fromValue(scope.get())},
         {QStringLiteral("aiPreferences"), QVariant::fromValue(&preferences)},
         {QStringLiteral("width"), 900.0},
         {QStringLiteral("height"), 700.0},

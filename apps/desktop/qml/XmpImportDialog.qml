@@ -6,7 +6,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-Dialog {
+ShadowDialog {
     id: dialog
 
     required property var interchangeController

@@ -15798,4 +15798,19 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>所有文件 (*)</translation>
     </message>
 </context>
+<context>
+    <name>ShadowDialog</name>
+    <message>
+        <source>OK</source>
+        <translation>确定</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>保存</translation>
+    </message>
+</context>
 </TS>

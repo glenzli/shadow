@@ -25,13 +25,30 @@ int main(int argc, char** argv) {
     QQmlComponent component(&engine);
     component.setData(R"QML(
 import QtQuick
+import QtQuick.Controls
 import Shadow.FormControlsContract
 Item {
+    id: fixture
     width: 420; height: 360
     property int activations: 0
+    property int acceptedCount: 0
+    property int rejectedCount: 0
     property bool dark: false
     onDarkChanged: Theme.effectiveDark = dark
     Component.onCompleted: Theme.effectiveDark = dark
+    ShadowDialog {
+        id: confirmation
+        objectName: "confirmation"
+        width: 360
+        x: 20; y: 24
+        title: "A themed confirmation"
+        standardButtons: Dialog.Cancel | Dialog.Ok
+        onAccepted: fixture.acceptedCount++
+        onRejected: fixture.rejectedCount++
+        contentItem: Label { text: "Wrapped dialog content"; wrapMode: Text.WordWrap }
+        function acceptItem() { return standardButton(Dialog.Ok) }
+        function rejectItem() { return standardButton(Dialog.Cancel) }
+    }
     ShadowTextField {
         objectName: "field"
         x: 12; y: 12; width: 260
@@ -122,6 +139,36 @@ Item {
                   && root->property("activations").toInt() == count + 1,
               "Escape committed a cancelled combo selection");
         check(field->height() == combo->height(), "field and combo heights drifted");
+    }
+    auto* confirmation = root->findChild<QObject*>(QStringLiteral("confirmation"));
+    check(confirmation, "the packaged shared dialog is missing");
+    if (confirmation) {
+        for (const bool dark : {false, true}) {
+            root->setProperty("dark", dark);
+            const int accepted = root->property("acceptedCount").toInt();
+            const int rejected = root->property("rejectedCount").toInt();
+            QMetaObject::invokeMethod(confirmation, "open");
+            check(QTest::qWaitFor([&] { return confirmation->property("opened").toBool(); }),
+                  "shared confirmation did not open");
+            QVariant button;
+            QMetaObject::invokeMethod(confirmation, "acceptItem", Q_RETURN_ARG(QVariant, button));
+            auto* accept = qobject_cast<QQuickItem*>(button.value<QObject*>());
+            check(accept && accept->isVisible(), "the standard accept action disappeared");
+            if (accept) {
+                QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier,
+                                 accept->mapToScene(QPointF(accept->width() / 2, accept->height() / 2)).toPoint());
+                check(root->property("acceptedCount").toInt() == accepted + 1,
+                      "styled action must accept exactly once");
+            }
+            QMetaObject::invokeMethod(confirmation, "open");
+            check(QTest::qWaitFor([&] { return confirmation->property("opened").toBool(); }),
+                  "shared confirmation did not reopen");
+            QTest::keyClick(&window, Qt::Key_Escape);
+            check(root->property("rejectedCount").toInt() == rejected + 1,
+                  "Escape must reject exactly once without acceptance");
+            check(root->property("acceptedCount").toInt() == accepted + 1,
+                  "rejecting a dialog accepted the action");
+        }
     }
     QTest::qWait(150);
     const QImage frame = window.grabWindow();
