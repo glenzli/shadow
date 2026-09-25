@@ -27,6 +27,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -885,41 +886,114 @@ MetalSceneLinearRegionLease develop_metal_scene_linear_region_optics(
     }
 }
 
-MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
+struct MetalPreviewOpticsCache::Resources final {
+    Dimensions dimensions;
+    OpticsProfileReceipt receipt;
+    MetalSceneLinearRegionOpticsParameters parameters;
+    OwnedObjectiveCObject coordinate_buffer;
+    OwnedObjectiveCObject gain_buffer;
+    std::uint64_t coordinate_bytes = 0U;
+    std::uint64_t gain_bytes = 0U;
+    bool has_coordinates = false;
+    bool has_profile_gains = false;
+    [[nodiscard]] std::uint64_t bytes() const noexcept {
+        return coordinate_bytes + gain_bytes;
+    }
+};
+
+struct MetalPreviewOpticsCache::Impl final {
+    std::shared_ptr<const OpticsProvider> provider;
+    Dimensions dimensions;
+    AssetMetadata metadata;
+    OpticsSettings settings;
+    std::uint64_t budget_bytes = 0U;
+    mutable std::mutex mutex;
+    std::shared_ptr<const Resources> resources;
+    std::atomic<std::uint64_t> retained_bytes{0U};
+};
+
+MetalPreviewOpticsCache::MetalPreviewOpticsCache(
+    std::shared_ptr<const OpticsProvider> provider,
+    const Dimensions dimensions,
+    AssetMetadata metadata,
+    OpticsSettings settings,
+    const std::uint64_t budget_bytes
+) : implementation_(std::make_unique<Impl>()) {
+    implementation_->provider = std::move(provider);
+    implementation_->dimensions = dimensions;
+    implementation_->metadata = std::move(metadata);
+    implementation_->settings = std::move(settings);
+    implementation_->budget_bytes = std::min(budget_bytes, maximum_preview_optics_cache_bytes);
+}
+
+MetalPreviewOpticsCache::~MetalPreviewOpticsCache() = default;
+
+std::uint64_t MetalPreviewOpticsCache::retained_bytes() const noexcept {
+    return implementation_->retained_bytes.load(std::memory_order_relaxed);
+}
+
+MetalPreviewOpticsResult
+MetalPreviewOpticsCache::apply(const MetalRawPreviewResidentOutput& source) const {
+    auto& state = *implementation_;
+    if (source.dimensions() != state.dimensions) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "cached preview optics source extent changed"
+        );
+    }
+    std::shared_ptr<const Resources> resources;
+    bool reused = false;
+    {
+        // Only first preparation is serialized. Every render has separate output/error buffers.
+        std::lock_guard lock(state.mutex);
+        resources = state.resources;
+        reused = resources != nullptr;
+        if (!resources) {
+            const auto optics = prepare_scene_linear_region_optics(
+                state.provider.get(),
+                state.dimensions,
+                state.metadata,
+                state.settings
+            );
+            resources = prepare_resources(
+                source,
+                optics,
+                optics.prepare_region({0U, 0U, state.dimensions.width, state.dimensions.height})
+            );
+            if (resources->bytes() <= state.budget_bytes) {
+                state.resources = resources;
+                state.retained_bytes.store(resources->bytes(), std::memory_order_relaxed);
+            }
+        }
+    }
+    try {
+        auto output = execute(source, *resources, !reused);
+        return {std::move(output), resources->receipt, retained_bytes(), reused};
+    } catch (...) {
+        // A failed device attempt must not pin resources or poison the next retry.
+        std::lock_guard lock(state.mutex);
+        if (state.resources == resources) {
+            state.resources.reset();
+            state.retained_bytes.store(0U, std::memory_order_relaxed);
+        }
+        throw;
+    }
+}
+
+std::shared_ptr<const MetalPreviewOpticsCache::Resources>
+MetalPreviewOpticsCache::prepare_resources(
     const MetalRawPreviewResidentOutput& source,
     const PreparedSceneLinearRegionOptics& optics,
-    lensfun_modifier_plan::PreparedRegion region
+    const lensfun_modifier_plan::PreparedRegion& region
 ) {
     validate_preview_prepared_region(source, optics, region);
     auto& runtime = context();
     if (!runtime.available()) {
-        throw DecodeError(
-            DecodeErrorCode::unsupported,
-            0,
-            runtime.diagnostic_.empty() ? "Metal scene-linear preview optics is unavailable"
-                                        : runtime.diagnostic_
-        );
+        throw DecodeError(DecodeErrorCode::unsupported, 0, "Metal preview optics is unavailable");
     }
     @autoreleasepool {
-        id<MTLDevice> source_device = static_cast<id<MTLDevice>>(source.native_device_handle());
-        id<MTLBuffer> source_buffer = static_cast<id<MTLBuffer>>(source.native_buffer_handle());
-        if (source_device == nil || source_buffer == nil
-            || static_cast<std::uint64_t>(source_device.registryID)
-                   != static_cast<std::uint64_t>(runtime.device_.registryID)) {
-            throw DecodeError(
-                DecodeErrorCode::invalid_request,
-                0,
-                "Metal preview optics source does not belong to the active device"
-            );
-        }
-        if (environment_enabled("SHADOW_TEST_METAL_SCENE_LINEAR_OPTICS_FAIL")) {
-            throw DecodeError(
-                DecodeErrorCode::internal,
-                0,
-                "test-forced Metal scene-linear preview optics failure"
-            );
-        }
-
+        auto resources = std::make_shared<Resources>();
         constexpr std::array<float, 2U> dummy_coordinates{0.0F, 0.0F};
         constexpr std::array<float, 1U> dummy_gain{1.0F};
         const auto& absolute_source_coordinates = region.absolute_source_coordinates();
@@ -952,25 +1026,100 @@ MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
                 "Metal preview optics evidence exceeds this device's buffer limit"
             );
         }
-        OwnedObjectiveCObject coordinate_buffer([runtime.device_
+        resources->coordinate_buffer = OwnedObjectiveCObject([runtime.device_
             newBufferWithBytes:has_coordinates
                                    ? static_cast<const void*>(absolute_source_coordinates.data())
                                    : static_cast<const void*>(dummy_coordinates.data())
                         length:coordinate_bytes
                        options:MTLResourceStorageModeShared]);
-        OwnedObjectiveCObject gain_buffer([runtime.device_
+        resources->gain_buffer = OwnedObjectiveCObject([runtime.device_
             newBufferWithBytes:has_profile_gains
                                    ? static_cast<const void*>(profile_vignetting_gains.data())
                                    : static_cast<const void*>(dummy_gain.data())
                         length:gain_bytes
                        options:MTLResourceStorageModeShared]);
+
+        if (!resources->coordinate_buffer || !resources->gain_buffer) {
+            throw DecodeError(
+                DecodeErrorCode::resource_limit,
+                0,
+                "Metal preview optics cannot allocate side resources"
+            );
+        }
+        resources->dimensions = source.dimensions();
+        resources->receipt = optics.receipt();
+        resources->parameters = make_parameters(optics.full_dimensions(), region);
+        resources->parameters.source_buffer_origin_x = 0U;
+        resources->parameters.source_buffer_origin_y = 0U;
+        resources->parameters.source_buffer_width = source.dimensions().width;
+        resources->coordinate_bytes = coordinate_bytes;
+        resources->gain_bytes = gain_bytes;
+        resources->has_coordinates = has_coordinates;
+        resources->has_profile_gains = has_profile_gains;
+        return resources;
+    }
+}
+
+MetalSceneLinearRegionLease MetalPreviewOpticsCache::execute(
+    const MetalRawPreviewResidentOutput& source,
+    const Resources& resources,
+    const bool uploaded
+) {
+    auto& runtime = context();
+    if (!runtime.available()) {
+        throw DecodeError(
+            DecodeErrorCode::unsupported,
+            0,
+            runtime.diagnostic_.empty() ? "Metal scene-linear preview optics is unavailable"
+                                        : runtime.diagnostic_
+        );
+    }
+    if (source.dimensions() != resources.dimensions
+        || source.row_stride_bytes()
+               != static_cast<std::size_t>(resources.dimensions.width) * 3U * sizeof(float)
+        || source.output_bytes() < checked_rgb_bytes(
+               resources.dimensions.width,
+               resources.dimensions.height,
+               "Metal preview optics source dimensions overflow"
+           )) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "cached Metal preview optics requires its exact packed RGB extent"
+        );
+    }
+    @autoreleasepool {
+        id<MTLDevice> source_device = static_cast<id<MTLDevice>>(source.native_device_handle());
+        id<MTLBuffer> source_buffer = static_cast<id<MTLBuffer>>(source.native_buffer_handle());
+        if (source_device == nil || source_buffer == nil
+            || static_cast<std::uint64_t>(source_device.registryID)
+                   != static_cast<std::uint64_t>(runtime.device_.registryID)) {
+            throw DecodeError(
+                DecodeErrorCode::invalid_request,
+                0,
+                "Metal preview optics source does not belong to the active device"
+            );
+        }
+        if (environment_enabled("SHADOW_TEST_METAL_SCENE_LINEAR_OPTICS_FAIL")) {
+            throw DecodeError(
+                DecodeErrorCode::internal,
+                0,
+                "test-forced Metal scene-linear preview optics failure"
+            );
+        }
+
+        const std::size_t output_bytes = checked_rgb_bytes(
+            source.dimensions().width,
+            source.dimensions().height,
+            "Metal preview optics output dimensions overflow"
+        );
         OwnedObjectiveCObject output_buffer([runtime.device_
             newBufferWithLength:output_bytes
                         options:MTLResourceStorageModePrivate]);
         OwnedObjectiveCObject failure_buffer([runtime.device_
             newBufferWithLength:sizeof(std::uint32_t)
                         options:MTLResourceStorageModeShared]);
-        if (!coordinate_buffer || !gain_buffer || !output_buffer || !failure_buffer) {
+        if (!output_buffer || !failure_buffer) {
             throw DecodeError(
                 DecodeErrorCode::resource_limit,
                 0,
@@ -981,10 +1130,7 @@ MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
             static_cast<std::uint32_t*>([static_cast<id<MTLBuffer>>(failure_buffer.get())
                 contents]);
         *failure = 0U;
-        auto parameters = make_parameters(optics.full_dimensions(), region);
-        parameters.source_buffer_origin_x = 0U;
-        parameters.source_buffer_origin_y = 0U;
-        parameters.source_buffer_width = source.dimensions().width;
+        const auto& parameters = resources.parameters;
         id<MTLCommandBuffer> command_buffer = [runtime.queue_ commandBuffer];
         id<MTLComputeCommandEncoder> encoder =
             command_buffer == nil ? nil : [command_buffer computeCommandEncoder];
@@ -1005,10 +1151,12 @@ MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
         );
         [encoder setComputePipelineState:runtime.pipeline_];
         [encoder setBuffer:source_buffer offset:0U atIndex:0U];
-        [encoder setBuffer:static_cast<id<MTLBuffer>>(coordinate_buffer.get())
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(resources.coordinate_buffer.get())
                     offset:0U
                    atIndex:1U];
-        [encoder setBuffer:static_cast<id<MTLBuffer>>(gain_buffer.get()) offset:0U atIndex:2U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(resources.gain_buffer.get())
+                    offset:0U
+                   atIndex:2U];
         [encoder setBuffer:static_cast<id<MTLBuffer>>(output_buffer.get()) offset:0U atIndex:3U];
         [encoder setBuffer:static_cast<id<MTLBuffer>>(failure_buffer.get()) offset:0U atIndex:4U];
         [encoder setBytes:&parameters length:sizeof(parameters) atIndex:5U];
@@ -1041,14 +1189,24 @@ MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
         implementation->dimensions = source.dimensions();
         implementation->output_bytes = output_bytes;
         implementation->completion_fence = fence_value;
-        implementation->coordinate_upload_count = has_coordinates ? 1U : 0U;
+        implementation->coordinate_upload_count = uploaded && resources.has_coordinates ? 1U : 0U;
         implementation->coordinate_upload_bytes =
-            has_coordinates ? static_cast<std::uint64_t>(coordinate_bytes) : 0U;
-        implementation->profile_gain_upload_count = has_profile_gains ? 1U : 0U;
+            uploaded && resources.has_coordinates ? resources.coordinate_bytes : 0U;
+        implementation->profile_gain_upload_count =
+            uploaded && resources.has_profile_gains ? 1U : 0U;
         implementation->profile_gain_upload_bytes =
-            has_profile_gains ? static_cast<std::uint64_t>(gain_bytes) : 0U;
+            uploaded && resources.has_profile_gains ? resources.gain_bytes : 0U;
         return MetalSceneLinearRegionLease(std::move(implementation));
     }
+}
+
+MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
+    const MetalRawPreviewResidentOutput& source,
+    const PreparedSceneLinearRegionOptics& optics,
+    lensfun_modifier_plan::PreparedRegion region
+) {
+    auto resources = MetalPreviewOpticsCache::prepare_resources(source, optics, region);
+    return MetalPreviewOpticsCache::execute(source, *resources, true);
 }
 
 bool metal_scene_linear_region_optics_available() noexcept {

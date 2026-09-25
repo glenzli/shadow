@@ -608,7 +608,8 @@ WarmEditPreviewSession::WarmEditPreviewSession(
     std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source,
     std::shared_ptr<const OpticsProvider> retained_optics_provider,
     OpticsSettings retained_optics_settings,
-    std::shared_ptr<detail::WarmEditGpuSession> adopted_warm_gpu_session
+    std::shared_ptr<detail::WarmEditGpuSession> adopted_warm_gpu_session,
+    std::shared_ptr<detail::MetalPreviewOpticsCache> optics_cache
 ) :
     working_proxy_(std::move(working_proxy)), max_edge_(max_edge),
     raw_development_receipt_(std::move(raw_development_receipt)),
@@ -618,7 +619,16 @@ WarmEditPreviewSession::WarmEditPreviewSession(
     highlight_chroma_risk_map_(std::move(highlight_chroma_risk_map)),
     raw_rebinding_source_(std::move(raw_rebinding_source)),
     retained_optics_provider_(std::move(retained_optics_provider)),
-    retained_optics_settings_(std::move(retained_optics_settings)) {
+    retained_optics_settings_(std::move(retained_optics_settings)),
+    optics_cache_(std::move(optics_cache)) {
+    if (!optics_cache_ && raw_rebinding_source_ && retained_optics_provider_) {
+        optics_cache_ = std::make_shared<detail::MetalPreviewOpticsCache>(
+            retained_optics_provider_,
+            working_proxy_.dimensions,
+            raw_rebinding_source_->metadata(),
+            retained_optics_settings_
+        );
+    }
     if (adopted_warm_gpu_session) {
         warm_gpu_session_ = std::move(adopted_warm_gpu_session);
     } else {
@@ -687,7 +697,13 @@ WarmEditPreviewSession::highlight_chroma_risk_map() const noexcept {
 }
 
 WarmEditPreviewGpuStats WarmEditPreviewSession::gpu_stats() const noexcept {
-    return warm_gpu_session_ ? warm_gpu_session_->stats() : WarmEditPreviewGpuStats{};
+    auto stats = warm_gpu_session_ ? warm_gpu_session_->stats() : WarmEditPreviewGpuStats{};
+    const auto optics_bytes = optics_cache_ ? optics_cache_->retained_bytes() : 0U;
+    stats.resident_bytes =
+        optics_bytes > std::numeric_limits<std::uint64_t>::max() - stats.resident_bytes
+            ? std::numeric_limits<std::uint64_t>::max()
+            : stats.resident_bytes + optics_bytes;
+    return stats;
 }
 
 bool WarmEditPreviewSession::supports_raw_development_rebinding() const noexcept {
@@ -739,106 +755,82 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
         if (auto resident = raw_rebinding_source_->try_bind_metal_resident(raw_development_plan)) {
             log_warm_rebind_timing(timing_enabled, "resident-rebind-ready", timing_started);
             try {
-                const Dimensions dimensions = resident->output.dimensions();
-                auto optics = detail::prepare_scene_linear_region_optics(
-                    retained_optics_provider_.get(),
-                    dimensions,
-                    raw_rebinding_source_->metadata(),
-                    retained_optics_settings_
+                auto optics_result = optics_cache_->apply(resident->output);
+                auto& corrected = optics_result.output;
+                log_warm_rebind_timing(
+                    timing_enabled,
+                    optics_result.reused_resources ? "resident-optics-cache-hit"
+                                                   : "resident-optics-cache-miss",
+                    timing_started
                 );
-                if (!optics.device_resident_eligible()) {
-                    log_warm_rebind_timing(
-                        timing_enabled,
-                        "resident-optics-declined",
-                        timing_started
+                log_warm_rebind_timing(timing_enabled, "resident-optics-ready", timing_started);
+                const SourceRenderingReceipt source_rendering = resolve_source_rendering(
+                    raw_rebinding_source_->metadata(),
+                    resident->pipeline_receipt
+                );
+                const auto source_rendering_attempt = detail::apply_source_rendering_in_place_metal(
+                    detail::MetalSceneLinearRegionWarmPreviewAccess::device(corrected),
+                    detail::MetalSceneLinearRegionWarmPreviewAccess::queue(corrected),
+                    detail::MetalSceneLinearRegionWarmPreviewAccess::buffer(corrected),
+                    corrected.dimensions(),
+                    source_rendering
+                );
+                if (source_rendering_attempt.applied) {
+                    FloatRgbImage layout = resident_working_proxy(
+                        corrected.dimensions(),
+                        static_cast<std::size_t>(corrected.dimensions().width) * 3U * sizeof(float)
                     );
-                } else {
-                    const GeometryPixelRect full_region{
-                        .x = 0U,
-                        .y = 0U,
-                        .width = dimensions.width,
-                        .height = dimensions.height,
-                    };
-                    auto corrected = detail::apply_metal_scene_linear_preview_optics(
-                        resident->output,
-                        optics,
-                        optics.prepare_region(full_region)
-                    );
-                    log_warm_rebind_timing(timing_enabled, "resident-optics-ready", timing_started);
-                    const SourceRenderingReceipt source_rendering = resolve_source_rendering(
-                        raw_rebinding_source_->metadata(),
-                        resident->pipeline_receipt
-                    );
-                    const auto source_rendering_attempt =
-                        detail::apply_source_rendering_in_place_metal(
-                            detail::MetalSceneLinearRegionWarmPreviewAccess::device(corrected),
-                            detail::MetalSceneLinearRegionWarmPreviewAccess::queue(corrected),
-                            detail::MetalSceneLinearRegionWarmPreviewAccess::buffer(corrected),
-                            corrected.dimensions(),
-                            source_rendering
-                        );
-                    if (source_rendering_attempt.applied) {
-                        FloatRgbImage layout = resident_working_proxy(
-                            corrected.dimensions(),
-                            static_cast<std::size_t>(corrected.dimensions().width) * 3U
-                                * sizeof(float)
-                        );
-                        auto warm = detail::prepare_warm_edit_gpu_session(
-                            detail::WarmEditGpuAdoptedSource{
-                                .dimensions = corrected.dimensions(),
-                                .row_stride_bytes = layout.row_stride_bytes,
-                                .native_device_handle =
-                                    detail::MetalSceneLinearRegionWarmPreviewAccess::device(
-                                        corrected
-                                    ),
-                                .native_buffer_handle =
-                                    detail::MetalSceneLinearRegionWarmPreviewAccess::buffer(
-                                        corrected
-                                    ),
-                                .source_buffer_bytes = corrected.retained_bytes(),
-                                .external_resident_bytes =
-                                    resident->output.external_resident_bytes(),
-                                .resident_allowance_bytes =
-                                    resident->output.resident_allowance_bytes(),
-                                .working_space = layout.working_space,
-                                .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
-                                .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
-                                .sensor_clipping_mask = resident->sensor_clipping_mask.has_value()
-                                                            ? &*resident->sensor_clipping_mask
-                                                            : nullptr,
-                                .highlight_chroma_risk_map =
-                                    resident->highlight_chroma_risk_map.has_value()
-                                        ? &*resident->highlight_chroma_risk_map
-                                        : nullptr,
-                            }
-                        );
-                        if (warm.session) {
-                            log_warm_rebind_timing(
-                                timing_enabled,
-                                "resident-warm-session-ready",
-                                timing_started
-                            );
-                            return WarmEditPreviewSession(
-                                layout,
-                                max_edge_,
-                                std::move(resident->raw_development_receipt),
-                                std::move(resident->pipeline_receipt),
-                                optics.receipt(),
-                                std::move(resident->sensor_clipping_mask),
-                                std::move(resident->highlight_chroma_risk_map),
-                                raw_rebinding_source_,
-                                retained_optics_provider_,
-                                retained_optics_settings_,
-                                std::move(warm.session)
-                            );
+                    auto warm = detail::prepare_warm_edit_gpu_session(
+                        detail::WarmEditGpuAdoptedSource{
+                            .dimensions = corrected.dimensions(),
+                            .row_stride_bytes = layout.row_stride_bytes,
+                            .native_device_handle =
+                                detail::MetalSceneLinearRegionWarmPreviewAccess::device(corrected),
+                            .native_buffer_handle =
+                                detail::MetalSceneLinearRegionWarmPreviewAccess::buffer(corrected),
+                            .source_buffer_bytes = corrected.retained_bytes(),
+                            .external_resident_bytes = resident->output.external_resident_bytes()
+                                                       + optics_result.retained_resource_bytes,
+                            .resident_allowance_bytes = resident->output.resident_allowance_bytes(),
+                            .working_space = layout.working_space,
+                            .level_zero_to_raster_scale_x = layout.level_zero_to_raster_scale_x,
+                            .level_zero_to_raster_scale_y = layout.level_zero_to_raster_scale_y,
+                            .sensor_clipping_mask = resident->sensor_clipping_mask.has_value()
+                                                        ? &*resident->sensor_clipping_mask
+                                                        : nullptr,
+                            .highlight_chroma_risk_map =
+                                resident->highlight_chroma_risk_map.has_value()
+                                    ? &*resident->highlight_chroma_risk_map
+                                    : nullptr,
                         }
-                    }
-                    log_warm_rebind_timing(
-                        timing_enabled,
-                        "resident-optics-warm-session-declined",
-                        timing_started
                     );
+                    if (warm.session) {
+                        log_warm_rebind_timing(
+                            timing_enabled,
+                            "resident-warm-session-ready",
+                            timing_started
+                        );
+                        return WarmEditPreviewSession(
+                            layout,
+                            max_edge_,
+                            std::move(resident->raw_development_receipt),
+                            std::move(resident->pipeline_receipt),
+                            std::move(optics_result.receipt),
+                            std::move(resident->sensor_clipping_mask),
+                            std::move(resident->highlight_chroma_risk_map),
+                            raw_rebinding_source_,
+                            retained_optics_provider_,
+                            retained_optics_settings_,
+                            std::move(warm.session),
+                            optics_cache_
+                        );
+                    }
                 }
+                log_warm_rebind_timing(
+                    timing_enabled,
+                    "resident-optics-warm-session-declined",
+                    timing_started
+                );
             } catch (const DecodeError& error) {
                 // Device optics is an optional continuation. Preserve the existing precise host
                 // implementation whenever its prepared full-preview evidence cannot be admitted.
@@ -913,7 +905,8 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                         raw_rebinding_source_,
                         retained_optics_provider_,
                         retained_optics_settings_,
-                        std::move(warm.session)
+                        std::move(warm.session),
+                        optics_cache_
                     );
                 }
                 log_warm_rebind_timing(
@@ -950,7 +943,9 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
         std::move(prepared.highlight_chroma_risk_map),
         raw_rebinding_source_,
         retained_optics_provider_,
-        retained_optics_settings_
+        retained_optics_settings_,
+        nullptr,
+        optics_cache_
     );
 }
 
@@ -987,7 +982,9 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_foundation_amount(
         std::move(prepared.highlight_chroma_risk_map),
         raw_rebinding_source_,
         retained_optics_provider_,
-        retained_optics_settings_
+        retained_optics_settings_,
+        nullptr,
+        optics_cache_
     );
 }
 

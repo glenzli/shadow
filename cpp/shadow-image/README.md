@@ -458,6 +458,12 @@ The Metal preview continuation keeps the complete resident RGB buffer layout sep
 exact Lensfun source preimage and its compact gain table. A full-preview remap may sample a strict
 interior subset without materializing/redeveloping RAW; logical preimage bounds remain validated
 before device sampling. Regional consumers retain their compact source layout.
+`MetalPreviewOpticsCache` in that owner binds provider, photo metadata, settings and dimensions to
+one RAW preview lineage. The first rebind validates/uploads immutable maps and gains; subsequent
+rebinds share those device resources while retaining independent outputs and the exact RAW path.
+Retention is capped at 64 MiB per lineage and charged to adopted-session admission; oversized
+resources execute transiently. Device failure releases the cached maps, and new source/optics
+preparation creates a new owner. CPU mapping arrays are released after upload.
 `src/optics/scene_linear_region_optics.*` classifies the prepared plan as neutral, owned pointwise, coordinate-remapping, or materialization-only; CPU resident RAW currently admits only neutral or owned pointwise plans and fails closed for the other classes.
 `src/acceleration/image_acceleration_policy.*` is the single parser for
 `SHADOW_IMAGE_ACCELERATION`; RAW, edit, display, and optics boundaries project its neutral choice

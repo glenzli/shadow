@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -534,6 +535,98 @@ void rebindable_preview_full_frame_stays_resident_through_optics(
         corrected.debug_readback(),
         *expected_result.corrected_scene_linear_rgb,
         "resident rebind optics matches the same full-preview Lensfun oracle"
+    );
+
+    std::shared_ptr<const image::OpticsProvider> retained_provider = std::move(provider);
+    image::detail::MetalPreviewOpticsCache
+        cache(retained_provider, resident->output.dimensions(), metadata, settings);
+    auto first = cache.apply(resident->output);
+    auto next = cache.apply(resident->output);
+    expect(
+        !first.reused_resources && next.reused_resources,
+        "the same source lineage prepares mapping resources only once"
+    );
+    expect(
+        first.retained_resource_bytes > 0U
+            && first.retained_resource_bytes <= image::detail::maximum_preview_optics_cache_bytes
+            && next.retained_resource_bytes == first.retained_resource_bytes,
+        "mapping retention is charged once within the bounded side-resource budget"
+    );
+    expect(
+        first.output.telemetry().coordinate_upload_count == (region.coordinate_remap() ? 1U : 0U)
+            && first.output.telemetry().profile_gain_upload_count == (profile_vignetting ? 1U : 0U)
+            && next.output.telemetry().coordinate_upload_count == 0U
+            && next.output.telemetry().profile_gain_upload_count == 0U,
+        "a warm rebind performs no repeated coordinate or gain upload"
+    );
+    expect_near(
+        next.output.debug_readback(),
+        *expected_result.corrected_scene_linear_rgb,
+        "cached side resources preserve the complete CPU optics oracle"
+    );
+    auto concurrent = std::async(std::launch::async, [&] { return cache.apply(resident->output); });
+    auto independent = cache.apply(resident->output);
+    auto parallel = concurrent.get();
+    expect(
+        independent.reused_resources && parallel.reused_resources,
+        "concurrent renders share immutable optics inputs"
+    );
+    expect_near(
+        parallel.output.debug_readback(),
+        independent.output.debug_readback(),
+        "concurrent cached renders keep independent output state"
+    );
+    {
+        ScopedEnvironment failure("SHADOW_TEST_METAL_SCENE_LINEAR_OPTICS_FAIL", "1");
+        bool rejected = false;
+        try {
+            (void)cache.apply(resident->output);
+        } catch (const image::DecodeError&) {
+            rejected = true;
+        }
+        expect(
+            rejected && cache.retained_bytes() == 0U,
+            "device failure releases cached side resources for a clean retry"
+        );
+    }
+    auto recovered = cache.apply(resident->output);
+    expect(
+        !recovered.reused_resources && recovered.output.valid(),
+        "a failed cached execution can prepare fresh resources on retry"
+    );
+    expect_near(
+        first.output.debug_readback(),
+        *expected_result.corrected_scene_linear_rgb,
+        "an earlier completed output survives cache failure and replacement"
+    );
+
+    image::detail::MetalPreviewOpticsCache
+        transient(retained_provider, resident->output.dimensions(), metadata, settings, 0U);
+    auto uncached = transient.apply(resident->output);
+    auto again = transient.apply(resident->output);
+    expect(
+        !uncached.reused_resources && !again.reused_resources && transient.retained_bytes() == 0U,
+        "resources above the retention budget execute without being pinned"
+    );
+    expect_near(
+        again.output.debug_readback(),
+        *expected_result.corrected_scene_linear_rgb,
+        "budget refusal preserves the exact optical result"
+    );
+
+    auto mismatched_dimensions = resident->output.dimensions();
+    --mismatched_dimensions.width;
+    image::detail::MetalPreviewOpticsCache
+        mismatched(retained_provider, mismatched_dimensions, metadata, settings);
+    bool refused_extent = false;
+    try {
+        (void)mismatched.apply(resident->output);
+    } catch (const image::DecodeError&) {
+        refused_extent = true;
+    }
+    expect(
+        refused_extent && mismatched.retained_bytes() == 0U,
+        "a different preview extent cannot borrow cached mapping evidence"
     );
 }
 

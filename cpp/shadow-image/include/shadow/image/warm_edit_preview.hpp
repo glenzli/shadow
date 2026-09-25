@@ -179,7 +179,8 @@ template <typename T> struct CancellableEditPreviewResult final {
 
 namespace detail {
 class WarmEditGpuSession;
-}
+class MetalPreviewOpticsCache;
+} // namespace detail
 namespace raw_pipeline_detail {
 class RawPreviewRebindingSource;
 struct RawPreviewRebindingTelemetry;
@@ -368,7 +369,8 @@ class WarmEditPreviewSession final {
             nullptr,
         std::shared_ptr<const OpticsProvider> retained_optics_provider = nullptr,
         OpticsSettings retained_optics_settings = default_optics_settings(),
-        std::shared_ptr<detail::WarmEditGpuSession> adopted_warm_gpu_session = nullptr
+        std::shared_ptr<detail::WarmEditGpuSession> adopted_warm_gpu_session = nullptr,
+        std::shared_ptr<detail::MetalPreviewOpticsCache> optics_cache = nullptr
     );
 
     FloatRgbImage working_proxy_;
@@ -383,6 +385,7 @@ class WarmEditPreviewSession final {
     std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source_;
     std::shared_ptr<const OpticsProvider> retained_optics_provider_;
     OpticsSettings retained_optics_settings_;
+    std::shared_ptr<detail::MetalPreviewOpticsCache> optics_cache_;
 
     friend WarmEditPreviewSession prepare_warm_edit_preview(
         const DecodeSession& session,
