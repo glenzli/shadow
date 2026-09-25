@@ -69,6 +69,11 @@ struct MetalSceneLinearRegionOpticsParameters final {
     std::uint32_t source_origin_y = 0U;
     std::uint32_t source_width = 0U;
     std::uint32_t source_height = 0U;
+    // Source RGB may be a compact region or a complete resident preview; gains always remain
+    // compact and aligned with the exact logical source preimage above.
+    std::uint32_t source_buffer_origin_x = 0U;
+    std::uint32_t source_buffer_origin_y = 0U;
+    std::uint32_t source_buffer_width = 0U;
     std::uint32_t output_origin_x = 0U;
     std::uint32_t output_origin_y = 0U;
     std::uint32_t output_width = 0U;
@@ -80,7 +85,7 @@ struct MetalSceneLinearRegionOpticsParameters final {
     float manual_vignette_midpoint = 0.5F;
 };
 
-static_assert(sizeof(MetalSceneLinearRegionOpticsParameters) == 60U);
+static_assert(sizeof(MetalSceneLinearRegionOpticsParameters) == 72U);
 
 class OwnedObjectiveCObject final {
   public:
@@ -375,11 +380,11 @@ void validate_preview_prepared_region(
         );
     }
     if (manual_optics::has_manual_geometry(region.manual_output_settings())
-        || !source_preimage.has_value() || *source_preimage != full_rect) {
+        || !source_preimage.has_value() || !rect_inside(*source_preimage, full_dimensions)) {
         throw DecodeError(
             DecodeErrorCode::unsupported,
             0,
-            "Metal preview optics cannot safely continue cropped or manual-geometry evidence"
+            "Metal preview optics requires a contained source preimage without manual geometry"
         );
     }
     const std::size_t output_pixels = checked_rgb_bytes(
@@ -403,7 +408,21 @@ void validate_preview_prepared_region(
             "Metal preview pointwise optics unexpectedly carries remap coordinates"
         );
     }
-    const std::size_t expected_gains = output_pixels * 3U;
+    if (source.row_stride_bytes()
+            != static_cast<std::size_t>(full_dimensions.width) * 3U * sizeof(float)
+        || source.output_bytes() < output_pixels * 3U * sizeof(float)) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "Metal preview optics requires a complete packed RGB source buffer"
+        );
+    }
+    const std::size_t expected_gains = checked_rgb_bytes(
+                                           source_preimage->width,
+                                           source_preimage->height,
+                                           "Metal preview optics gain dimensions overflow"
+                                       )
+                                       / sizeof(float);
     if (region.profile_vignetting()) {
         if (profile_vignetting_gains.size() != expected_gains
             || !std::all_of(
@@ -455,6 +474,9 @@ void validate_preview_prepared_region(
         parameters.source_origin_y = source_preimage->y;
         parameters.source_width = source_preimage->width;
         parameters.source_height = source_preimage->height;
+        parameters.source_buffer_origin_x = source_preimage->x;
+        parameters.source_buffer_origin_y = source_preimage->y;
+        parameters.source_buffer_width = source_preimage->width;
     }
     return parameters;
 }
@@ -959,8 +981,10 @@ MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
             static_cast<std::uint32_t*>([static_cast<id<MTLBuffer>>(failure_buffer.get())
                 contents]);
         *failure = 0U;
-        const MetalSceneLinearRegionOpticsParameters parameters =
-            make_parameters(optics.full_dimensions(), region);
+        auto parameters = make_parameters(optics.full_dimensions(), region);
+        parameters.source_buffer_origin_x = 0U;
+        parameters.source_buffer_origin_y = 0U;
+        parameters.source_buffer_width = source.dimensions().width;
         id<MTLCommandBuffer> command_buffer = [runtime.queue_ commandBuffer];
         id<MTLComputeCommandEncoder> encoder =
             command_buffer == nil ? nil : [command_buffer computeCommandEncoder];

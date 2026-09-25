@@ -43,11 +43,12 @@ oriented_dimensions(const image::Dimensions dimensions, const std::int32_t orien
                : dimensions;
 }
 
-[[nodiscard]] image::RawFrame resident_fixture(const std::int32_t orientation) {
+[[nodiscard]] image::RawFrame
+resident_fixture(const std::int32_t orientation, const image::Dimensions dimensions = {128U, 96U}) {
     image::RawFrame frame = synthetic_bayer_frame();
     frame.descriptor.provider_id = "generic-open-raw-provider";
     frame.descriptor.provider_version = "provider-v1";
-    frame.descriptor.storage_dimensions = {128U, 96U};
+    frame.descriptor.storage_dimensions = dimensions;
     frame.descriptor.active_dimensions = frame.descriptor.storage_dimensions;
     frame.descriptor.orientation = orientation;
     frame.descriptor.bits_per_sample = 12U;
@@ -434,10 +435,25 @@ void irregular_tiles_match_and_nominal_path_has_zero_readback(
 }
 
 void rebindable_preview_full_frame_stays_resident_through_optics(
-    const std::filesystem::path& database
+    const std::filesystem::path& database,
+    const bool strict_source_subset = false,
+    const bool profile_vignetting = true
 ) {
-    image::RawFrame frame = resident_fixture(0);
-    const image::AssetMetadata metadata = nikon_d850_metadata();
+    image::RawFrame frame = resident_fixture(
+        0,
+        strict_source_subset ? image::Dimensions{1536U, 1024U} : image::Dimensions{128U, 96U}
+    );
+    image::AssetMetadata metadata = nikon_d850_metadata();
+    if (strict_source_subset) {
+        metadata.make = metadata.normalized_make = "Canon";
+        metadata.model = metadata.normalized_model =
+            profile_vignetting ? "EOS 5D Mark II" : "EOS R";
+        metadata.lens_make = "Canon";
+        metadata.lens_model =
+            profile_vignetting ? "Canon EF 24-105mm f/4L IS USM" : "Canon RF 24-105mm F4L IS USM";
+        metadata.focal_length_mm = metadata.focal_length_35mm = 105.0;
+        metadata.aperture_f_number = 5.6;
+    }
     ResidentOpticsRawSession session(std::move(frame), metadata);
     auto prepared = image::raw_pipeline_detail::prepare_raw_frame_source(
         session,
@@ -464,11 +480,13 @@ void rebindable_preview_full_frame_stays_resident_through_optics(
         return;
     }
     auto provider = image::make_lensfun_optics_provider(database);
+    auto settings = optics_settings();
+    settings.correct_vignetting = profile_vignetting;
     auto optics = image::detail::prepare_scene_linear_region_optics(
         provider.get(),
         resident->output.dimensions(),
         metadata,
-        optics_settings()
+        settings
     );
     const image::GeometryPixelRect full_region{
         0U,
@@ -478,14 +496,20 @@ void rebindable_preview_full_frame_stays_resident_through_optics(
     };
     auto region = optics.prepare_region(full_region);
     expect(
-        optics.device_resident_eligible() && region.source_preimage().has_value()
-            && *region.source_preimage() == full_region,
-        "the full preview carries directly-adoptable optics evidence"
+        optics.device_resident_eligible() && region.source_preimage().has_value(),
+        "the full preview carries owned optics evidence"
     );
-    if (!optics.device_resident_eligible() || !region.source_preimage().has_value()
-        || *region.source_preimage() != full_region) {
+    if (!optics.device_resident_eligible() || !region.source_preimage().has_value()) {
         return;
     }
+    expect(
+        (*region.source_preimage() != full_region) == strict_source_subset,
+        "telephoto correction samples a strict subset of the resident full image"
+    );
+    expect(
+        region.profile_vignetting() == profile_vignetting,
+        "the fixture exercises both compact source-aligned gains and geometry-only sampling"
+    );
     const auto expected_result = optics.lensfun_plan()->correct_scene_linear_reference(*full);
     expect(
         expected_result.corrected_scene_linear_rgb.has_value(),
@@ -760,6 +784,8 @@ int main() {
     const std::filesystem::path database_path(database);
     irregular_tiles_match_and_nominal_path_has_zero_readback(database_path);
     rebindable_preview_full_frame_stays_resident_through_optics(database_path);
+    rebindable_preview_full_frame_stays_resident_through_optics(database_path, true, true);
+    rebindable_preview_full_frame_stays_resident_through_optics(database_path, true, false);
     every_orientation_matches_the_complete_oracle(database_path);
     output_survives_source_plan_and_provider_destruction(database_path);
     concurrent_regions_preserve_independent_outputs(database_path);

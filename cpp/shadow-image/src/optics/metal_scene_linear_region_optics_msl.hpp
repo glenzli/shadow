@@ -15,6 +15,9 @@ struct MetalSceneLinearRegionOpticsParameters {
     uint source_origin_y;
     uint source_width;
     uint source_height;
+    uint source_buffer_origin_x;
+    uint source_buffer_origin_y;
+    uint source_buffer_width;
     uint output_origin_x;
     uint output_origin_y;
     uint output_width;
@@ -57,10 +60,14 @@ inline float profiled_source_value(
         atomic_fetch_or_explicit(failure, 1u, memory_order_relaxed);
         return 0.0f;
     }
-    const uint index = (local_y * parameters.source_width + local_x) * 3u + channel;
-    float value = source[index];
+    const uint source_index = (
+        (absolute_y - parameters.source_buffer_origin_y) * parameters.source_buffer_width
+        + absolute_x - parameters.source_buffer_origin_x
+    ) * 3u + channel;
+    float value = source[source_index];
     if (parameters.profile_vignetting != 0u) {
-        value *= profile_gains[index];
+        const uint gain_index = (local_y * parameters.source_width + local_x) * 3u + channel;
+        value *= profile_gains[gain_index];
     }
     if (!isfinite(value)) {
         atomic_fetch_or_explicit(failure, 1u, memory_order_relaxed);

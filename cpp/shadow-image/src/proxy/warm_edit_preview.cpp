@@ -839,10 +839,18 @@ WarmEditPreviewSession WarmEditPreviewSession::rebind_raw_development_plan(
                         timing_started
                     );
                 }
-            } catch (const DecodeError&) {
+            } catch (const DecodeError& error) {
                 // Device optics is an optional continuation. Preserve the existing precise host
                 // implementation whenever its prepared full-preview evidence cannot be admitted.
                 log_warm_rebind_timing(timing_enabled, "resident-optics-fallback", timing_started);
+                if (timing_enabled) {
+                    std::fprintf(
+                        stderr,
+                        "shadow.interactive-timing component=warm-preview-rebind "
+                        "stage=resident-optics-diagnostic reason=\"%.240s\"\n",
+                        error.what()
+                    );
+                }
             }
         } else {
             log_warm_rebind_timing(timing_enabled, "resident-rebind-declined", timing_started);

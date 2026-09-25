@@ -454,6 +454,10 @@ executor; automatic mode uses it for full-resolution manual optics while explici
 the f64 coordinate oracle. `src/optics/lensfun_optics.cpp` consumes catalog matches, preserves provider fallback semantics, and selects the stable correction receipt/plan boundary.
 `src/optics/lensfun_modifier_plan.*` clones resolved Lensfun camera/lens state into provider-independent immutable plan ownership.
 `src/optics/lensfun_region_plan.cpp` compiles absolute RGB inverse maps, exact bilinear source preimages, and source-aligned profile-vignette gains; `src/optics/lensfun_cpu_reference.cpp` owns full-frame and regional CPU oracle execution.
+The Metal preview continuation keeps the complete resident RGB buffer layout separate from the
+exact Lensfun source preimage and its compact gain table. A full-preview remap may sample a strict
+interior subset without materializing/redeveloping RAW; logical preimage bounds remain validated
+before device sampling. Regional consumers retain their compact source layout.
 `src/optics/scene_linear_region_optics.*` classifies the prepared plan as neutral, owned pointwise, coordinate-remapping, or materialization-only; CPU resident RAW currently admits only neutral or owned pointwise plans and fails closed for the other classes.
 `src/acceleration/image_acceleration_policy.*` is the single parser for
 `SHADOW_IMAGE_ACCELERATION`; RAW, edit, display, and optics boundaries project its neutral choice
