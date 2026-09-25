@@ -236,6 +236,14 @@ ApplicationWindow {
                 editor: window.editor
                 interchangeController: window.interchangeController
                 editPreviewPresentation: window.editPreviewPresentation
+                // The independent editor already owns its own photo navigation.
+                // It has no Library-neighbor preheater to expose here.
+                editNeighborPreheater: ({
+                    previousTarget: { photoId: "" },
+                    nextTarget: { photoId: "" },
+                    preparing: false,
+                    prepared: false
+                })
                 lutLibrary: window.lutLibrary
                 captureMetadata: pipeline.captureMetadata
                 onOpenLutLibraryRequested: lutManager.openManager()
