@@ -7986,18 +7986,18 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="505"/>
-        <source>Hide Basic Adjustments</source>
-        <translation>隐藏基础调整</translation>
+        <source>Hide RAW Development</source>
+        <translation>隐藏 RAW 显影</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="506"/>
-        <source>Show Basic Adjustments</source>
-        <translation>显示基础调整</translation>
+        <source>Show RAW Development</source>
+        <translation>显示 RAW 显影</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="25"/>
-        <source>A fixed photo-local node before Basic Adjustments.</source>
-        <translation>位于基础调整之前的固定照片本地节点。</translation>
+        <source>A fixed photo-local node before RAW Development.</source>
+        <translation>位于 RAW 显影之前的固定照片本地节点。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="30"/>
@@ -8409,8 +8409,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="468"/>
-        <source>Basic Adjustments</source>
-        <translation>基础调整</translation>
+        <source>RAW Development</source>
+        <translation>RAW 显影</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="479"/>

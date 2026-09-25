@@ -88,7 +88,7 @@ impl DesktopSession {
     }
 }
 
-fn representation_kind(path: &Path) -> Option<RepresentationKind> {
+pub(crate) fn representation_kind(path: &Path) -> Option<RepresentationKind> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
         "nef" | "nrw" | "cr2" | "cr3" | "arw" | "raf" | "orf" | "rw2" | "pef" | "srw" | "dng" => {

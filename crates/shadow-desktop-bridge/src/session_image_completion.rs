@@ -4,13 +4,16 @@
 //! so accepted regions can receive subsequent Grade Nodes. The candidate is
 //! previewed through that exact stage before the separate apply transaction.
 
-use std::io::{Cursor, Read};
+use std::{
+    io::{Cursor, Read},
+    path::Path,
+};
 
 use anyhow::{Context, Result as AnyResult, bail};
 use image::{DynamicImage, GrayImage, ImageFormat, imageops::FilterType};
 use shadow_ai::{MaskPointPolarity, MaskPromptPoint, RasterExtent, UnitInterval as AiUnitInterval};
 use shadow_bridge::AdjustmentImageCompletionPatch;
-use shadow_domain::{PhotoId, UnitInterval};
+use shadow_domain::{PhotoId, RepresentationKind, UnitInterval};
 
 use super::{
     DesktopSession, ffi,
@@ -19,6 +22,7 @@ use super::{
         ImageCompletionCompletion, ImageCompletionPlacement, ImageCompletionService,
     },
     recipe_v1::{decode_grade_stack_draft_recipe_v1, new_basic_grade_node, resolve_recipe_render},
+    session_pipeline::representation_kind,
     subject_mask_runtime::geometry::{map_output_prompt_to_original, output_canvas_extent},
     wall_clock::current_time_ms,
 };
@@ -258,6 +262,11 @@ impl DesktopSession {
                 coordinate_extent,
                 source_recipe_blake3,
                 mask_revision,
+                // RAW input remains scene-referred through development; SDR
+                // originals retain display-referred appearance. Only the
+                // former receives Shadow's neutral display shoulder.
+                scene_referred_input: representation_kind(Path::new(source_path))
+                    == Some(RepresentationKind::OriginalRaw),
             },
             &cancellation,
         ) {

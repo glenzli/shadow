@@ -491,7 +491,8 @@ Rectangle {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Basic Adjustments")
+                        objectName: "rawDevelopmentNodeLabel"
+                        text: qsTr("RAW Development")
                         color: pane.editor.foundationEnabled
                             ? pane.textPrimary : pane.textSecondary
                         font.pixelSize: Theme.fontSection
@@ -528,8 +529,8 @@ Rectangle {
                         ? pane.textSecondary : pane.textMuted
                     enabled: pane.editor.active && !pane.editor.stateBusy
                     toolTipText: pane.editor.foundationEnabled
-                        ? qsTr("Hide Basic Adjustments")
-                        : qsTr("Show Basic Adjustments")
+                        ? qsTr("Hide RAW Development")
+                        : qsTr("Show RAW Development")
                     accessibleName: toolTipText
                     Accessible.checked: pane.editor.foundationEnabled
                     onClicked: {

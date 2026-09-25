@@ -129,9 +129,15 @@ ApplicationWindow {
         auto* current = row(object.get(), "imageCompletionNodeRow");
         auto* grades = row(object.get(), "gradeNodeList");
         auto* foundation = row(object.get(), "foundationNodeRow");
+        auto* foundationLabel = row(object.get(), "rawDevelopmentNodeLabel");
         auto* denoise = row(object.get(), "rawDenoiseNodeRow");
         QTest::qWait(25);
         require(!legacy->isVisible() && !current->isVisible(), "no phantom completion row");
+        require(
+            foundationLabel->property("text").toString()
+                == (translated ? QStringLiteral("RAW 显影") : QStringLiteral("RAW Development")),
+            "source stage is distinguished from the editable Grade controls"
+        );
 
         editor->setProperty("selectedRecipeNodeKind", "completion");
         QTest::qWait(25);

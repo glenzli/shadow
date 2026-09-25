@@ -22,7 +22,7 @@ ColumnLayout {
             ? qsTr("%L1%").arg(denoise.editor.foundationAiDenoiseAmount)
             : qsTr("OFF")
         expanded: true
-        toolTipText: qsTr("A fixed photo-local node before Basic Adjustments.")
+        toolTipText: qsTr("A fixed photo-local node before RAW Development.")
         resetAvailable: true
         resetEnabled: denoise.editor.foundationAiDenoiseEnabled
             && !denoise.editor.foundationAiDenoiseBusy

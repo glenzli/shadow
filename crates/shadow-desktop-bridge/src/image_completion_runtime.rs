@@ -53,6 +53,7 @@ pub(crate) struct ImageCompletionInvocation {
     pub(crate) coordinate_extent: RasterExtent,
     pub(crate) source_recipe_blake3: String,
     pub(crate) mask_revision: String,
+    pub(crate) scene_referred_input: bool,
 }
 
 impl ImageCompletionRuntime {
@@ -150,7 +151,13 @@ impl ImageCompletionRuntime {
             feather_completion_alpha(&invocation.prepared_mask_gray8, evidence.raster_extent);
         let mut rgba8 = Vec::with_capacity(pixel_count * 4);
         for (rgb, alpha) in evidence.rgb8.chunks_exact(3).zip(&alpha) {
-            rgba8.extend_from_slice(rgb);
+            // Infer Runtime sees Shadow's display-referred preview. The accepted
+            // patch is applied to scene-linear working RGB before Grade Nodes,
+            // so undo the neutral display curve before storing its sRGB8 bytes.
+            // The native compositor decodes these bytes back to linear RGB.
+            let encoded =
+                encode_completion_rgb([rgb[0], rgb[1], rgb[2]], invocation.scene_referred_input);
+            rgba8.extend_from_slice(&encoded);
             rgba8.push(*alpha);
         }
         let output = self.next_scratch_path("proposal", "rgba8")?;
@@ -223,6 +230,58 @@ impl ImageCompletionRuntime {
         Ok(self
             .scratch_root
             .join(format!("image-completion-{role}-{token}.{extension}")))
+    }
+}
+
+fn encode_completion_rgb(rgb: [u8; 3], scene_referred_input: bool) -> [u8; 3] {
+    if scene_referred_input {
+        display_rgb_to_scene_encoded(rgb)
+    } else {
+        rgb
+    }
+}
+
+/// Convert model RGB from Shadow's SDR presentation space to the scene-linear
+/// sRGB8 encoding expected by the pre-grade completion compositor. This is
+/// the inverse of the neutral luminance curve in native display_output.cpp;
+/// gamut compression and 8-bit highlight clipping cannot be reversed.
+fn display_rgb_to_scene_encoded(rgb: [u8; 3]) -> [u8; 3] {
+    let display = rgb.map(|value| {
+        let encoded = f64::from(value) / 255.0;
+        if encoded <= 0.04045 {
+            encoded / 12.92
+        } else {
+            ((encoded + 0.055) / 1.055).powf(2.4)
+        }
+    });
+    let luminance = display[0] * 0.2126 + display[1] * 0.7152 + display[2] * 0.0722;
+    if luminance <= 0.0 {
+        return rgb;
+    }
+    let rec709_encoded = srgb_encode(luminance);
+    let shouldered = if rec709_encoded < 0.081 {
+        rec709_encoded / 4.5
+    } else {
+        ((rec709_encoded + 0.099) / 1.099).powf(1.0 / 0.45)
+    };
+    let scene_luminance = if shouldered <= 0.75 {
+        shouldered
+    } else {
+        let shoulder = shouldered - 0.75;
+        0.75 + 0.25 * shoulder / (0.25 - shoulder).max(1.0e-9)
+    };
+    let gain = scene_luminance / luminance;
+    display.map(|channel| {
+        let encoded = srgb_encode((channel * gain).clamp(0.0, 1.0));
+        (encoded * 255.0).round().clamp(0.0, 255.0) as u8
+    })
+}
+
+fn srgb_encode(linear: f64) -> f64 {
+    if linear <= 0.003_130_8 {
+        12.92 * linear
+    } else {
+        1.055 * linear.powf(1.0 / 2.4) - 0.055
     }
 }
 
