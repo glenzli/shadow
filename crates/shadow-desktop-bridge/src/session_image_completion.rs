@@ -1,32 +1,31 @@
 //! Desktop-session orchestration for AI image completion.
 //!
-//! Brush authoring stays transient. Generation renders a completion-free,
-//! identity-geometry source, prepares one bounded crop and exact mask, and
-//! stages a candidate. Only the separate apply transaction promotes bytes and
-//! appends one region to the fixed photo-local completion node.
+//! Brush authoring stays transient. Generation uses developed, ungraded pixels
+//! so accepted regions can receive subsequent Grade Nodes. The candidate is
+//! previewed through that exact stage before the separate apply transaction.
 
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 
 use anyhow::{Context, Result as AnyResult, bail};
 use image::{DynamicImage, GrayImage, ImageFormat, imageops::FilterType};
 use shadow_ai::{MaskPointPolarity, MaskPromptPoint, RasterExtent, UnitInterval as AiUnitInterval};
+use shadow_bridge::AdjustmentImageCompletionPatch;
 use shadow_domain::{PhotoId, UnitInterval};
 
 use super::{
     DesktopSession, ffi,
     image_completion_runtime::{ImageCompletionInvocation, ImageCompletionRuntimeError},
-    image_completion_service::{ImageCompletionCompletion, ImageCompletionPlacement},
-    recipe_v1::{decode_grade_stack_draft_recipe_v1, resolve_recipe_render},
-    subject_mask_runtime::geometry::{
-        map_output_prompt_to_original, output_canvas_extent, project_rgba8_patch_to_output,
+    image_completion_service::{
+        ImageCompletionCompletion, ImageCompletionPlacement, ImageCompletionService,
     },
+    recipe_v1::{decode_grade_stack_draft_recipe_v1, new_basic_grade_node, resolve_recipe_render},
+    subject_mask_runtime::geometry::{map_output_prompt_to_original, output_canvas_extent},
     wall_clock::current_time_ms,
 };
 
 const COMPLETION_INPUT_MAX_EDGE: u32 = 1_024;
 const COMPLETION_INPUT_JPEG_QUALITY: u8 = 95;
 const COMPLETION_MODEL_EDGE: u32 = 512;
-const COMPLETION_PREVIEW_EDGE: u32 = 512;
 const MAX_BRUSH_POINTS: usize = 8_192;
 const MIN_BRUSH_RADIUS: f64 = 0.002;
 const MAX_BRUSH_RADIUS: f64 = 0.25;
@@ -49,6 +48,25 @@ struct PreparedCompletionInput {
     placement: ImageCompletionPlacement,
 }
 
+struct CandidateProposalCleanup<'a> {
+    service: &'a ImageCompletionService,
+    token: u64,
+}
+
+impl CandidateProposalCleanup<'_> {
+    fn disarm(&mut self) {
+        self.token = 0;
+    }
+}
+
+impl Drop for CandidateProposalCleanup<'_> {
+    fn drop(&mut self) {
+        if self.token != 0 {
+            let _ = self.service.discard_proposal(self.token);
+        }
+    }
+}
+
 impl DesktopSession {
     pub(crate) fn begin_image_completion_job(&self) -> AnyResult<u64> {
         Ok(self.image_completions.begin_job()?)
@@ -67,12 +85,11 @@ impl DesktopSession {
         source_path: &str,
         request: &ffi::FfiImageCompletionRequest,
     ) -> AnyResult<ffi::FfiImageCompletionResult> {
-        match self.execute_image_completion_job_inner(photo_id, source_path, request) {
+        let result = self.execute_image_completion_job_inner(photo_id, source_path, request);
+        let _ = self.image_completions.finish_job(request.job_token);
+        match result {
             Ok(result) => Ok(result),
-            Err(error) => {
-                let _ = self.image_completions.finish_job(request.job_token);
-                Err(error)
-            }
+            Err(error) => Err(error),
         }
     }
 
@@ -93,10 +110,25 @@ impl DesktopSession {
                 String::new(),
             ));
         }
-        if request.points.is_empty() || request.points.len() > MAX_BRUSH_POINTS {
+        let refresh_index = usize::try_from(request.refresh_region_index).ok();
+        if refresh_index.is_none()
+            && (request.points.is_empty() || request.points.len() > MAX_BRUSH_POINTS)
+        {
             bail!("AI completion requires 1 through {MAX_BRUSH_POINTS} brush samples");
         }
+        if refresh_index.is_some() && !request.points.is_empty() {
+            bail!("AI completion refresh cannot also contain brush samples");
+        }
         let grade_stack = decode_grade_stack_draft_recipe_v1(&request.settings)?;
+        let refresh_region = refresh_index
+            .map(|index| {
+                grade_stack
+                    .image_completions
+                    .get(index)
+                    .cloned()
+                    .context("AI completion refresh target is unavailable")
+            })
+            .transpose()?;
         if grade_stack
             .liquify
             .as_ref()
@@ -107,9 +139,21 @@ impl DesktopSession {
         let coordinate_geometry = grade_stack.canvas.effective_geometry();
 
         let mut source_settings = request.settings.clone();
-        // Completion is evaluated after Repair and before the two structural
-        // stages. Preserve already accepted completion regions as the input
-        // to a later region, but never bake Liquify or Canvas into its pixels.
+        // A newly accepted region is composed before Grade Nodes. Keep the
+        // current source development and earlier pre-grade regions, but do not
+        // bake a historical grade, repair, paint or Canvas transform into it.
+        source_settings.grade_nodes = vec![new_basic_grade_node("Completion source")?];
+        source_settings.retouch_spots.clear();
+        source_settings.retouch_strokes.clear();
+        source_settings.paint_layers.clear();
+        source_settings.image_completions = source_settings
+            .image_completions
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, region)| {
+                (region.pre_grade && Some(index) != refresh_index).then_some(region)
+            })
+            .collect();
         source_settings.liquify_enabled = false;
         source_settings.liquify_strokes.clear();
         source_settings.geometry = identity_ffi_geometry();
@@ -134,8 +178,22 @@ impl DesktopSession {
         if render_token == 0 {
             bail!("AI completion input preview registry is full");
         }
-        self.image_completions
-            .attach_preview_render(request.job_token, render_token)?;
+        if let Err(error) = self
+            .image_completions
+            .attach_preview_render(request.job_token, render_token)
+        {
+            let _ = self.cancel_basic_edit_preview(render_token);
+            let _ = self.claim_basic_edit_preview_terminal(render_token);
+            if cancellation.is_cancelled() {
+                return Ok(image_completion_terminal(
+                    request,
+                    ffi::FfiImageCompletionTerminal::Cancelled,
+                    0,
+                    String::new(),
+                ));
+            }
+            return Err(error.into());
+        }
         let input = self.render_subject_mask_input_preview(
             photo_id,
             source_path,
@@ -168,9 +226,18 @@ impl DesktopSession {
         }
         let coordinate_extent = RasterExtent::new(input.width, input.height)
             .context("AI completion input preview dimensions are invalid")?;
-        let original_points =
-            original_brush_points(&request.points, coordinate_geometry, coordinate_extent)?;
-        let prepared = prepare_completion_input(&input.bytes, coordinate_extent, &original_points)?;
+        let prepared = if let Some(region) = &refresh_region {
+            prepare_completion_refresh_input(
+                &input.bytes,
+                coordinate_extent,
+                region.patch(),
+                self.image_completions.store(),
+            )?
+        } else {
+            let original_points =
+                original_brush_points(&request.points, coordinate_geometry, coordinate_extent)?;
+            prepare_completion_input(&input.bytes, coordinate_extent, &original_points)?
+        };
         let mask_revision = blake3::hash(&prepared.mask_gray8).to_hex().to_string();
         let receipt = match self.image_completion_runtime.stage(
             self.image_completions.store(),
@@ -214,39 +281,105 @@ impl DesktopSession {
                 generation,
                 proposal_token,
             } => {
+                let mut proposal_cleanup = CandidateProposalCleanup {
+                    service: &self.image_completions,
+                    token: proposal_token,
+                };
                 let preview = self.image_completions.proposal_preview(proposal_token)?;
                 if preview.generation != generation {
-                    let _ = self.image_completions.discard_proposal(proposal_token);
                     bail!("AI completion candidate generation changed before presentation");
                 }
-                let raster_extent = RasterExtent::new(preview.raster_width, preview.raster_height)
-                    .context("AI completion candidate extent is invalid")?;
-                let output_extent =
-                    RasterExtent::new(COMPLETION_PREVIEW_EDGE, COMPLETION_PREVIEW_EDGE)
-                        .expect("completion preview extent is valid");
-                let Some(preview_rgba8) = project_rgba8_patch_to_output(
-                    &preview.rgba8,
-                    raster_extent,
-                    coordinate_extent,
-                    preview.placement.bounds_left,
-                    preview.placement.bounds_top,
-                    preview.placement.bounds_right,
-                    preview.placement.bounds_bottom,
-                    coordinate_geometry,
-                    output_extent,
-                ) else {
-                    let _ = self.image_completions.discard_proposal(proposal_token);
-                    bail!("AI completion candidate projection failed");
-                };
+                let candidate_render_token = self.begin_basic_edit_preview();
+                if candidate_render_token == 0 {
+                    bail!("AI completion candidate preview registry is full");
+                }
+                if let Err(error) = self
+                    .image_completions
+                    .replace_preview_render(request.job_token, candidate_render_token)
+                {
+                    let _ = self.cancel_basic_edit_preview(candidate_render_token);
+                    let _ = self.claim_basic_edit_preview_terminal(candidate_render_token);
+                    if cancellation.is_cancelled() {
+                        return Ok(image_completion_terminal(
+                            request,
+                            ffi::FfiImageCompletionTerminal::Cancelled,
+                            0,
+                            String::new(),
+                        ));
+                    }
+                    return Err(error.into());
+                }
+                let mut candidate_settings = request.settings.clone();
+                if let Some(index) = refresh_index {
+                    candidate_settings.image_completions.remove(index);
+                }
+                let rendered_candidate = self.render_completion_candidate_preview(
+                    photo_id,
+                    source_path,
+                    &ffi::FfiEditPreviewRequest {
+                        base_commit_id: request.base_commit_id.clone(),
+                        settings: candidate_settings,
+                        render_token: candidate_render_token,
+                        max_edge: COMPLETION_INPUT_MAX_EDGE,
+                        jpeg_quality: COMPLETION_INPUT_JPEG_QUALITY,
+                        policy: ffi::FfiEditPreviewPolicy::Settled,
+                        use_working_recipe: true,
+                        mask_coverage_requested: false,
+                        mask_coverage_target_layer_index: 0,
+                        mask_coverage_component_requested: false,
+                        mask_coverage_target_component_index: 0,
+                        mask_selection_revision: 0,
+                    },
+                    AdjustmentImageCompletionPatch {
+                        raster_width: preview.raster_width,
+                        raster_height: preview.raster_height,
+                        coordinate_width: coordinate_extent.width,
+                        coordinate_height: coordinate_extent.height,
+                        bounds_left: preview.placement.bounds_left.get(),
+                        bounds_top: preview.placement.bounds_top.get(),
+                        bounds_right: preview.placement.bounds_right.get(),
+                        bounds_bottom: preview.placement.bounds_bottom.get(),
+                        strength: 1.0,
+                        rgba8: preview.rgba8,
+                    },
+                )?;
+                if rendered_candidate.terminal != ffi::FfiEditPreviewTerminal::Completed {
+                    if cancellation.is_cancelled()
+                        || rendered_candidate.terminal == ffi::FfiEditPreviewTerminal::Cancelled
+                    {
+                        return Ok(image_completion_terminal(
+                            request,
+                            ffi::FfiImageCompletionTerminal::Cancelled,
+                            0,
+                            String::new(),
+                        ));
+                    }
+                    bail!("AI completion candidate preview did not complete");
+                }
+                if cancellation.is_cancelled() {
+                    return Ok(image_completion_terminal(
+                        request,
+                        ffi::FfiImageCompletionTerminal::Cancelled,
+                        0,
+                        String::new(),
+                    ));
+                }
+                let candidate_image = image::load_from_memory_with_format(
+                    &rendered_candidate.bytes,
+                    ImageFormat::Jpeg,
+                )
+                .context("decode AI completion candidate preview")?
+                .into_rgba8();
+                proposal_cleanup.disarm();
                 ffi::FfiImageCompletionResult {
                     terminal: ffi::FfiImageCompletionTerminal::Staged,
                     job_token: request.job_token,
                     generation,
                     proposal_token,
                     detail: String::new(),
-                    preview_width: output_extent.width,
-                    preview_height: output_extent.height,
-                    preview_rgba8,
+                    preview_width: candidate_image.width(),
+                    preview_height: candidate_image.height(),
+                    preview_rgba8: candidate_image.into_raw(),
                 }
             }
             ImageCompletionCompletion::Unavailable { reason } => image_completion_terminal(
@@ -278,10 +411,23 @@ impl DesktopSession {
     ) -> AnyResult<ffi::FfiPhotoEditState> {
         self.validated_photo_source(photo_id, source_path)?;
         let mut grade_stack = decode_grade_stack_draft_recipe_v1(&request.settings)?;
+        let replace_index = usize::try_from(request.replace_region_index).ok();
+        if replace_index.is_some_and(|index| index >= grade_stack.image_completions.len()) {
+            bail!("AI completion replacement target is unavailable");
+        }
         let region = self
             .image_completions
             .promote_proposal(request.proposal_token, request.generation)?;
-        grade_stack.image_completions.push(region);
+        if let Some(index) = replace_index {
+            grade_stack.image_completions.remove(index);
+            grade_stack
+                .image_completions
+                .insert(index, region.with_pre_grade(true));
+        } else {
+            grade_stack
+                .image_completions
+                .push(region.with_pre_grade(true));
+        }
         grade_stack.image_completion_enabled = true;
         self.autosave_grade_stack_working_at(
             photo_id,
@@ -365,12 +511,62 @@ fn prepare_completion_input(
     coordinate_extent: RasterExtent,
     points: &[OriginalBrushPoint],
 ) -> AnyResult<PreparedCompletionInput> {
+    let placement = completion_placement(points)?;
+    let mask_gray8 = rasterize_mask(points, placement);
+    prepare_completion_input_with_mask(jpeg, coordinate_extent, placement, mask_gray8)
+}
+
+fn prepare_completion_refresh_input(
+    jpeg: &[u8],
+    coordinate_extent: RasterExtent,
+    patch: &shadow_domain::ManagedImageCompletionPatch,
+    store: &shadow_core::FilesystemDerivedRasterStore,
+) -> AnyResult<PreparedCompletionInput> {
+    let mut rgba8 = Vec::with_capacity(usize::try_from(patch.byte_len())?);
+    store
+        .open_recipe_completion_patch(patch)?
+        .take(patch.byte_len().saturating_add(1))
+        .read_to_end(&mut rgba8)?;
+    if u64::try_from(rgba8.len())? != patch.byte_len() {
+        bail!("AI completion refresh patch changed while reading");
+    }
+    let mask = rgba8
+        .chunks_exact(4)
+        .map(|pixel| if pixel[3] == 0 { 0 } else { 255 })
+        .collect();
+    let mask = GrayImage::from_raw(patch.raster_width(), patch.raster_height(), mask)
+        .context("construct AI completion refresh mask")?;
+    let mask_gray8 = image::imageops::resize(
+        &mask,
+        COMPLETION_MODEL_EDGE,
+        COMPLETION_MODEL_EDGE,
+        FilterType::Nearest,
+    )
+    .into_raw();
+    prepare_completion_input_with_mask(
+        jpeg,
+        coordinate_extent,
+        ImageCompletionPlacement {
+            bounds_left: patch.bounds_left(),
+            bounds_top: patch.bounds_top(),
+            bounds_right: patch.bounds_right(),
+            bounds_bottom: patch.bounds_bottom(),
+        },
+        mask_gray8,
+    )
+}
+
+fn prepare_completion_input_with_mask(
+    jpeg: &[u8],
+    coordinate_extent: RasterExtent,
+    placement: ImageCompletionPlacement,
+    mask_gray8: Vec<u8>,
+) -> AnyResult<PreparedCompletionInput> {
     let decoded = image::load_from_memory_with_format(jpeg, ImageFormat::Jpeg)
         .context("decode AI completion input preview")?;
     if decoded.width() != coordinate_extent.width || decoded.height() != coordinate_extent.height {
         bail!("AI completion input geometry changed during preparation");
     }
-    let placement = completion_placement(points)?;
     let left = bounded_floor_u32(
         placement.bounds_left.get() * f64::from(decoded.width()),
         decoded.width() - 1,
@@ -396,7 +592,6 @@ fn prepare_completion_input(
         FilterType::CatmullRom,
     );
     let crop_png = encode_png(&crop)?;
-    let mask_gray8 = rasterize_mask(points, placement);
     if !mask_gray8.iter().any(|sample| *sample != 0) {
         bail!("AI completion selection is empty after brush projection");
     }

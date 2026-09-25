@@ -631,6 +631,7 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
             .postprocessing_identity = region.postprocessing_identity.toStdString(),
             .api_contract_revision = region.api_contract_revision.toStdString(),
             .actual_execution_provider = region.actual_execution_provider.toStdString(),
+            .pre_grade = region.pre_grade,
             .enabled = region.enabled,
             .strength = region.strength,
         });
@@ -819,6 +820,7 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
             .postprocessing_identity = qstring(region.postprocessing_identity),
             .api_contract_revision = qstring(region.api_contract_revision),
             .actual_execution_provider = qstring(region.actual_execution_provider),
+            .pre_grade = region.pre_grade,
             .enabled = region.enabled,
             .strength = region.strength,
         });

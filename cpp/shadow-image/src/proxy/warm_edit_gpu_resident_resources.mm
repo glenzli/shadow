@@ -147,6 +147,7 @@ struct ResidentSideTable final {
 
 struct WarmGpuResidentResources::Impl final {
     std::vector<ResidentSideTable> paint_tables;
+    std::vector<ResidentSideTable> completion_tables;
     id<MTLDevice> device = nil;
     id<MTLBuffer> source = nil;
     // One byte per output pixel, copied once from source-domain physical-white evidence. This
@@ -208,6 +209,7 @@ struct WarmGpuResidentResources::Impl final {
         liquify_geometry_tables.clear();
         selective_color_tables.clear();
         paint_tables.clear();
+        completion_tables.clear();
         perceptual_range_tables.clear();
         perceptual_mixer_tables.clear();
         lut_tables.clear();
@@ -238,6 +240,7 @@ struct WarmGpuResidentResources::Impl final {
             || std::is_same_v<Element, MetalPaintPixel> || std::is_same_v<Element, std::uint32_t>
             || std::is_same_v<Element, WarmRetouchWord>
             || std::is_same_v<Element, WarmPhotoLiquifyWord>
+            || std::is_same_v<Element, std::uint8_t>
         );
         if (cancellation.stop_requested()) {
             return SideBufferAttempt{.cancelled = true};
@@ -254,6 +257,8 @@ struct WarmGpuResidentResources::Impl final {
         auto& cache = [&]() -> std::vector<ResidentSideTable>& {
             if constexpr (std::is_same_v<Element, MetalPaintPixel>) {
                 return paint_tables;
+            } else if constexpr (std::is_same_v<Element, std::uint8_t>) {
+                return completion_tables;
             } else if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
                 return curve_tables;
             } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
@@ -274,6 +279,8 @@ struct WarmGpuResidentResources::Impl final {
         }();
         constexpr std::size_t capacity = [] {
             if constexpr (std::is_same_v<Element, MetalPaintPixel>) {
+                return 2U;
+            } else if constexpr (std::is_same_v<Element, std::uint8_t>) {
                 return 2U;
             } else if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
                 return maximum_resident_curve_tables;
@@ -465,6 +472,18 @@ struct WarmGpuResidentResources::Impl final {
             return result;
         }
         result.buffers.paint = std::move(paint.buffer);
+        auto completion = acquire_side_buffer(program.completion_bytes, cancellation);
+        if (completion.cancelled) {
+            result.cancelled = true;
+            return result;
+        }
+        if (!completion.buffer) {
+            result.diagnostic = completion.diagnostic.empty()
+                                    ? "session-resident Metal has no AI completion bytes"
+                                    : std::move(completion.diagnostic);
+            return result;
+        }
+        result.buffers.completion = std::move(completion.buffer);
         return result;
     }
 
@@ -1306,6 +1325,7 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     impl->perceptual_mixer_tables.reserve(maximum_resident_perceptual_mixer_tables);
     impl->perceptual_range_tables.reserve(maximum_resident_perceptual_range_tables);
     impl->selective_color_tables.reserve(maximum_resident_selective_color_tables);
+    impl->completion_tables.reserve(2U);
     impl->brush_index_tables.reserve(maximum_resident_brush_index_tables);
     impl->retouch_geometry_tables.reserve(maximum_resident_retouch_geometry_tables);
     impl->liquify_geometry_tables.reserve(maximum_resident_liquify_geometry_tables);

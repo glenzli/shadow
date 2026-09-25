@@ -1550,6 +1550,7 @@ mod ffi {
         postprocessing_identity: String,
         api_contract_revision: String,
         actual_execution_provider: String,
+        pre_grade: bool,
         enabled: bool,
         strength: f64,
     }
@@ -1999,6 +2000,8 @@ mod ffi {
         base_commit_id: String,
         settings: FfiEditSettings,
         points: Vec<FfiImageCompletionBrushPoint>,
+        /// -1 for a painted selection; otherwise replace this accepted region.
+        refresh_region_index: i32,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2030,6 +2033,7 @@ mod ffi {
         base_commit_id: String,
         expected_working_commit_id: String,
         settings: FfiEditSettings,
+        replace_region_index: i32,
     }
 
     /// Session-local state for one model-pinned AI RAW foundation job.

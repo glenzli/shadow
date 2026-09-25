@@ -398,6 +398,7 @@ kernel void render_warm_preview_v1(
     device const MetalPerceptualRange* perceptual_range_entries [[buffer(10)]],
     device const float4* selective_color_entries [[buffer(11)]],
     device const float4* paint_entries [[buffer(12)]],
+    device const uchar* completion_bytes [[buffer(13)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= invocation.width || position.y >= invocation.height) {
@@ -425,6 +426,7 @@ kernel void render_warm_preview_v1(
             perceptual_range_entries,
             selective_color_entries,
             paint_entries,
+            completion_bytes,
             position,
             invocation,
             status
@@ -467,6 +469,7 @@ kernel void execute_warm_adjustment_v1(
     device const MetalPerceptualRange* perceptual_range_entries [[buffer(10)]],
     device const float4* selective_color_entries [[buffer(11)]],
     device const float4* paint_entries [[buffer(12)]],
+    device const uchar* completion_bytes [[buffer(13)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= invocation.width || position.y >= invocation.height) {
@@ -494,6 +497,7 @@ kernel void execute_warm_adjustment_v1(
             perceptual_range_entries,
             selective_color_entries,
             paint_entries,
+            completion_bytes,
             position,
             invocation,
             status

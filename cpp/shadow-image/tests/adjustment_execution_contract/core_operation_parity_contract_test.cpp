@@ -100,6 +100,73 @@ void every_core_order_matches_the_cpu_oracle() {
     expect(permutation_count == 24U, "all 24 core-operation permutations execute");
     std::cout << "Metal adjustment 24-order maximum absolute error: "
               << worst_error << '\n';
+
+    image::ImageCompletionPatch first{
+        .raster_width = 4U,
+        .raster_height = 4U,
+        .coordinate_width = 37U,
+        .coordinate_height = 23U,
+        .bounds_left = 0.20,
+        .bounds_top = 0.20,
+        .bounds_right = 0.70,
+        .bounds_bottom = 0.80,
+        .strength = 0.83,
+        .rgba8 = std::vector<std::uint8_t>(4U * 4U * 4U),
+    };
+    for (std::size_t pixel = 0U; pixel < 16U; ++pixel) {
+        first.rgba8[pixel * 4U] = static_cast<std::uint8_t>(40U + pixel * 9U);
+        first.rgba8[pixel * 4U + 1U] = 180U;
+        first.rgba8[pixel * 4U + 2U] = 220U;
+        first.rgba8[pixel * 4U + 3U] = pixel % 3U == 0U ? 128U : 255U;
+    }
+    auto second = first;
+    second.bounds_left = 0.40;
+    second.bounds_top = 0.35;
+    second.bounds_right = 0.85;
+    second.bounds_bottom = 0.90;
+    second.strength = 0.54;
+    std::fill(second.rgba8.begin(), second.rgba8.end(), 96U);
+    const std::array completion_nodes{
+        image::AdjustmentNode{
+            .node_id = "grade-before-completion",
+            .parameters = image::ExposureAdjustment{.stops = -0.85},
+        },
+        image::AdjustmentNode{
+            .node_id = "two-accepted-regions",
+            .parameters = image::ImageCompletionAdjustment{
+                .patches = {std::move(first), std::move(second)},
+            },
+        },
+    };
+    const auto completion_cpu = image::execute_adjustment_nodes(input, completion_nodes);
+    const auto completion_metal = image::execute_adjustment_nodes_with_backend(
+        input, completion_nodes, {}, image::AdjustmentBackendMode::metal
+    );
+    double completion_error = 0.0;
+    expect(
+        completion_metal.backend == image::AdjustmentBackend::metal
+            && !completion_metal.fell_back
+            && close_to_cpu(completion_metal.pixels, completion_cpu, completion_error, 2.0e-4),
+        "two overlapping AI completion regions follow their existing post-grade order on Metal"
+    );
+    const auto detail_input = make_image(11U, 7U);
+    const image::AdjustmentExecutionContext detail_context{
+        .origin_x = 13U,
+        .origin_y = 9U,
+        .full_dimensions = {.width = 37U, .height = 23U},
+    };
+    const auto detail_cpu =
+        image::execute_adjustment_nodes(detail_input, completion_nodes, detail_context);
+    const auto detail_metal = image::execute_adjustment_nodes_with_backend(
+        detail_input, completion_nodes, detail_context, image::AdjustmentBackendMode::metal
+    );
+    double detail_error = 0.0;
+    expect(
+        detail_metal.backend == image::AdjustmentBackend::metal
+            && !detail_metal.fell_back
+            && close_to_cpu(detail_metal.pixels, detail_cpu, detail_error, 2.0e-4),
+        "AI completion tile coordinates and clipped bounds match CPU at nonzero origin"
+    );
 }
 
 void randomized_and_endpoint_parameters_match_the_cpu_oracle() {

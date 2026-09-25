@@ -234,6 +234,10 @@ impl ManagedImageCompletionPatch {
 #[serde(deny_unknown_fields)]
 pub struct ImageCompletionRegion {
     patch: ManagedImageCompletionPatch,
+    /// Legacy regions already contain their creation-time grade. New regions
+    /// contain ungraded developed pixels and are composed before Grade Nodes.
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    pre_grade: bool,
     #[serde(default = "enabled_default", skip_serializing_if = "bool_is_true")]
     enabled: bool,
     #[serde(default = "full_strength", skip_serializing_if = "is_full_strength")]
@@ -244,6 +248,7 @@ impl ImageCompletionRegion {
     pub fn new(patch: ManagedImageCompletionPatch) -> Self {
         Self {
             patch,
+            pre_grade: false,
             enabled: true,
             strength: UnitInterval::ONE,
         }
@@ -255,12 +260,20 @@ impl ImageCompletionRegion {
     pub const fn enabled(&self) -> bool {
         self.enabled
     }
+    pub const fn pre_grade(&self) -> bool {
+        self.pre_grade
+    }
     pub const fn strength(&self) -> UnitInterval {
         self.strength
     }
     #[must_use]
     pub const fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+    #[must_use]
+    pub const fn with_pre_grade(mut self, pre_grade: bool) -> Self {
+        self.pre_grade = pre_grade;
         self
     }
     #[must_use]
@@ -302,6 +315,10 @@ fn validate_extent(
 
 const fn enabled_default() -> bool {
     true
+}
+
+const fn bool_is_false(value: &bool) -> bool {
+    !*value
 }
 #[allow(clippy::trivially_copy_pass_by_ref)]
 const fn bool_is_true(value: &bool) -> bool {

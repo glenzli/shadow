@@ -139,6 +139,28 @@ impl ImageCompletionService {
         Ok(())
     }
 
+    pub(crate) fn replace_preview_render(
+        &self,
+        job_token: u64,
+        preview_render_token: u64,
+    ) -> Result<(), ImageCompletionServiceError> {
+        if preview_render_token == 0 {
+            return Err(ImageCompletionServiceError::InvalidPreviewToken);
+        }
+        let mut jobs = self
+            .jobs
+            .lock()
+            .map_err(|_| ImageCompletionServiceError::StatePoisoned)?;
+        let job = jobs
+            .get_mut(&job_token)
+            .ok_or(ImageCompletionServiceError::UnknownJob(job_token))?;
+        if job.cancellation.is_cancelled() {
+            return Err(ImageCompletionServiceError::JobCancelled(job_token));
+        }
+        job.preview_render_token = Some(preview_render_token);
+        Ok(())
+    }
+
     pub(crate) fn cancel_job(
         &self,
         job_token: u64,
@@ -169,13 +191,15 @@ impl ImageCompletionService {
         receipt: DerivedRasterStageReceipt,
         placement: ImageCompletionPlacement,
     ) -> Result<ImageCompletionCompletion, ImageCompletionServiceError> {
-        let job = self
+        let jobs = self
             .jobs
             .lock()
-            .map_err(|_| ImageCompletionServiceError::StatePoisoned)?
-            .remove(&job_token)
+            .map_err(|_| ImageCompletionServiceError::StatePoisoned)?;
+        let job = jobs
+            .get(&job_token)
             .ok_or(ImageCompletionServiceError::UnknownJob(job_token))?;
         let cancelled = job.cancellation.is_cancelled();
+        drop(jobs);
         Ok(match receipt.outcome {
             DerivedRasterStageOutcome::Staged(staged) if cancelled => {
                 drop(staged);

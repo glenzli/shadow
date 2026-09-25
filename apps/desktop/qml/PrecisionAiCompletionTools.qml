@@ -11,6 +11,7 @@ ColumnLayout {
     required property var editor
     property bool authoring: false
     signal startRequested
+    signal refreshRequested(int index)
     signal exitRequested
 
     spacing: 10
@@ -42,7 +43,7 @@ ColumnLayout {
         contentItem: Label {
             id: localExecutionExplanation
             width: localExecutionDialog.availableWidth
-            text: qsTr("Shadow will send a bounded crop of this photo and your painted selection to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI & Models settings.")
+            text: qsTr("Shadow will send a bounded crop of this photo and the selected area to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI & Models settings.")
             color: Theme.textPrimary
             wrapMode: Text.WordWrap
         }
@@ -317,6 +318,15 @@ ColumnLayout {
                     }
 
                     ShadowIconButton {
+                        objectName: "imageCompletionRegionRefresh_" + regionCard.index
+                        source: "qrc:/icons/refresh.svg"
+                        toolTipText: qsTr("Regenerate this region with the current photo")
+                        accessibleName: toolTipText
+                        enabled: !tools.authoring && !tools.editor.stateBusy
+                        onClicked: tools.refreshRequested(regionCard.index)
+                    }
+
+                    ShadowIconButton {
                         objectName: "imageCompletionRegionRemove_" + regionCard.index
                         source: "qrc:/icons/clear.svg"
                         toolTipText: qsTr("Remove this accepted region")
@@ -325,6 +335,14 @@ ColumnLayout {
                         onClicked: tools.editor.removeImageCompletionRegion(
                             regionCard.index)
                     }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: !Boolean(regionCard.region.preGrade)
+                    text: qsTr("Older region: regenerate it to follow future adjustments")
+                    color: Theme.textMuted
+                    wrapMode: Text.Wrap
                 }
 
                 ShadowSlider {

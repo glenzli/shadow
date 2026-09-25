@@ -146,7 +146,7 @@ bool EditAiCompletionController::locksInteraction() const noexcept {
 }
 
 bool EditAiCompletionController::canGenerate() const noexcept {
-    return active_ && !busy() && hasPaintedPoint()
+    return active_ && !busy() && (hasPaintedPoint() || refresh_region_index_ >= 0)
            && (!owner_.liquifyNodeMaterialized() || !owner_.liquifyNodeEnabled());
 }
 
@@ -193,6 +193,7 @@ bool EditAiCompletionController::begin() {
     owner_.selectImageCompletionNode();
     active_ = true;
     generation_pending_ = false;
+    refresh_region_index_ = -1;
     points_.clear();
     retireCandidate();
     context_ = Context{
@@ -205,6 +206,23 @@ bool EditAiCompletionController::begin() {
         "AI Completion · paint the area to replace, then generate"
     )));
     publishStateChange();
+    return true;
+}
+
+bool EditAiCompletionController::refreshRegion(const int index) {
+    if (index < 0 || index >= owner_.grade_stack_.image_completions.size() || busy()) {
+        return false;
+    }
+    if (!active_ && !begin()) {
+        return false;
+    }
+    if (!contextIsCurrent()) {
+        return false;
+    }
+    retireCandidate();
+    points_.clear();
+    refresh_region_index_ = index;
+    generate();
     return true;
 }
 
@@ -264,7 +282,8 @@ void EditAiCompletionController::clearSelection() {
 }
 
 void EditAiCompletionController::generate() {
-    if (!active_ || busy() || !hasPaintedPoint() || !contextIsCurrent()) {
+    if (!active_ || busy() || (!hasPaintedPoint() && refresh_region_index_ < 0)
+        || !contextIsCurrent()) {
         return;
     }
     if (!owner_.imageCompletionExecutionAllowed()) {
@@ -299,7 +318,7 @@ void EditAiCompletionController::tryStartPendingGeneration() {
     if (!generation_pending_ || !active_ || execution_watcher_.isRunning() || apply_in_flight_) {
         return;
     }
-    if (!contextIsCurrent() || !hasPaintedPoint()) {
+    if (!contextIsCurrent() || (!hasPaintedPoint() && refresh_region_index_ < 0)) {
         generation_pending_ = false;
         publishStateChange();
         return;
@@ -359,6 +378,7 @@ void EditAiCompletionController::startGeneration() {
         .base_commit_id = submitted_base_commit_id_,
         .grade_stack = submitted_grade_stack_,
         .points = points_,
+        .refresh_region_index = refresh_region_index_,
     };
     generation_pending_ = false;
     owner_.setStatusMessage(completion_message(
@@ -392,6 +412,7 @@ void EditAiCompletionController::applyCandidate() {
         .base_commit_id = owner_.base_commit_id_,
         .expected_working_commit_id = owner_.durable_working_commit_id_,
         .grade_stack = owner_.grade_stack_,
+        .replace_region_index = refresh_region_index_,
     };
     apply_watcher_.setFuture(
         QtConcurrent::run(
@@ -420,6 +441,7 @@ void EditAiCompletionController::cancel() {
     }
     retireCandidate();
     points_.clear();
+    refresh_region_index_ = -1;
     active_ = false;
     context_.reset();
     owner_.setStatusMessage(
@@ -460,6 +482,7 @@ void EditAiCompletionController::resetContext() {
     }
     retireCandidate();
     points_.clear();
+    refresh_region_index_ = -1;
     active_ = false;
     context_.reset();
     publishStateChange();
@@ -555,6 +578,7 @@ void EditAiCompletionController::finishApply() {
     const BackendGradeStack before = owner_.grade_stack_;
     active_ = false;
     points_.clear();
+    refresh_region_index_ = -1;
     context_.reset();
     owner_.applyImageCompletionState(std::move(task.state), before);
     owner_.setStatusMessage(completion_message(QT_TRANSLATE_NOOP(
@@ -650,6 +674,7 @@ QVariantList EditController::imageCompletionRegions() const {
                 {QStringLiteral("provider"), region.provider},
                 {QStringLiteral("executionProvider"), region.actual_execution_provider},
                 {QStringLiteral("sourceRecipe"), region.source_recipe_blake3},
+                {QStringLiteral("preGrade"), region.pre_grade},
             }
         );
     }
@@ -666,6 +691,10 @@ bool EditController::imageCompletionNodeEnabled() const noexcept {
 
 bool EditController::beginImageCompletion() {
     return image_completion_controller_ && image_completion_controller_->begin();
+}
+
+bool EditController::refreshImageCompletionRegion(const int index) {
+    return image_completion_controller_ && image_completion_controller_->refreshRegion(index);
 }
 
 quint32 EditController::beginImageCompletionStroke() {

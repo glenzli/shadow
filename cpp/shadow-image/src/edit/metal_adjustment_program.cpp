@@ -2,6 +2,7 @@
 
 #include "creative_detail_grading.hpp"
 #include "edit_execution_validation.hpp"
+#include "image_completion.hpp"
 #include "oklab_color_warper.hpp"
 #include "perceptual_color.hpp"
 #include "perceptual_contrast.hpp"
@@ -55,6 +56,7 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
 
     std::vector<PreparedPaintOverlay> paint_overlays(nodes.size());
     std::size_t paint_entry_count = 0;
+    std::size_t completion_byte_count = 0U;
     std::size_t step_count = 0U;
     std::size_t curve_segment_count = 0U;
     std::size_t lut_entry_count = 0U;
@@ -114,6 +116,26 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         .program = std::nullopt,
                         .diagnostic = "Metal paint resource budget exceeded"
                     };
+            } else if (step.operation == AdjustmentOperation::image_completion) {
+                const auto& completion = std::get<ImageCompletionAdjustment>(node.parameters);
+                validate_image_completion(completion);
+                emitted_operation_count = completion.patches.size();
+                const Dimensions full = context.full_dimensions.width == 0U
+                                            || context.full_dimensions.height == 0U
+                                            ? input.dimensions
+                                            : context.full_dimensions;
+                const std::size_t map_bytes =
+                    2U * (static_cast<std::size_t>(full.width) + full.height);
+                for (const auto& patch : completion.patches) {
+                    if (!checked_resource_add(completion_byte_count, patch.rgba8.size())
+                        || !checked_resource_add(completion_byte_count, map_bytes)
+                        || completion_byte_count > 64U * 1024U * 1024U) {
+                        return {
+                            .program = std::nullopt,
+                            .diagnostic = "Metal AI completion resource budget exceeded",
+                        };
+                    }
+                }
             } else if (step.operation == AdjustmentOperation::rgb_tone_curves) {
                 const auto curves = prepare_rgb_tone_curves_node(
                     std::get<RgbToneCurves>(node.parameters),
@@ -246,7 +268,10 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
     prepared.invocation.perceptual_range_entry_count =
         static_cast<std::uint32_t>(perceptual_range_entry_count);
     prepared.invocation.paint_entry_count = static_cast<std::uint32_t>(paint_entry_count);
+    prepared.invocation.completion_byte_count =
+        static_cast<std::uint32_t>(completion_byte_count);
     prepared.paint_entries.reserve(paint_entry_count);
+    prepared.completion_bytes.reserve(completion_byte_count);
     prepared.invocation.selective_color_entry_count =
         static_cast<std::uint32_t>(selective_color_entry_count);
     prepared.operations.reserve(step_count);
@@ -1139,9 +1164,87 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         prepare_working_space_transform(input.working_space, node, step.node_index);
                 break;
             }
+            case AdjustmentOperation::image_completion: {
+                const auto& completion = std::get<ImageCompletionAdjustment>(node.parameters);
+                const Dimensions full = context.full_dimensions.width == 0U
+                                            || context.full_dimensions.height == 0U
+                                            ? input.dimensions
+                                            : context.full_dimensions;
+                // Original-space pixel coordinates must survive the fp32 Metal ABI exactly.
+                constexpr std::uint32_t maximum_exact_float_integer = 1U << 24U;
+                if (full.width > maximum_exact_float_integer
+                    || full.height > maximum_exact_float_integer
+                    || context.origin_x > maximum_exact_float_integer
+                    || context.origin_y > maximum_exact_float_integer) {
+                    return {
+                        .program = std::nullopt,
+                        .diagnostic = "Metal AI completion coordinates exceed exact fp32 range",
+                    };
+                }
+                for (const auto& patch : completion.patches) {
+                    MetalAdjustmentOp patch_record = operation_record;
+                    patch_record.opcode =
+                        static_cast<std::uint32_t>(MetalAdjustmentOpcode::image_completion);
+                    patch_record.resource_offset =
+                        static_cast<std::uint32_t>(prepared.completion_bytes.size());
+                    patch_record.resource_count = static_cast<std::uint32_t>(patch.rgba8.size());
+                    patch_record.parameter_0 = {
+                        static_cast<float>(patch.raster_width),
+                        static_cast<float>(patch.raster_height),
+                        static_cast<float>(patch.strength),
+                        0.0F,
+                    };
+                    patch_record.parameter_1 = {
+                        static_cast<float>(full.width),
+                        static_cast<float>(full.height),
+                        static_cast<float>(context.origin_x),
+                        static_cast<float>(context.origin_y),
+                    };
+                    prepared.completion_bytes.insert(
+                        prepared.completion_bytes.end(), patch.rgba8.begin(), patch.rgba8.end()
+                    );
+                    patch_record.secondary_resource_offset =
+                        static_cast<std::uint32_t>(prepared.completion_bytes.size());
+                    patch_record.secondary_resource_count = full.width * 2U;
+                    const auto append_axis_map = [&](const std::uint32_t extent,
+                                                     const std::uint32_t raster_extent,
+                                                     const double lower,
+                                                     const double upper) {
+                        for (std::uint32_t coordinate = 0U; coordinate < extent; ++coordinate) {
+                            const double normalized =
+                                (static_cast<double>(coordinate) + 0.5)
+                                / static_cast<double>(extent);
+                            std::uint16_t sample = std::numeric_limits<std::uint16_t>::max();
+                            if (normalized >= lower && normalized < upper) {
+                                const double patch_coordinate =
+                                    (normalized - lower) / (upper - lower);
+                                sample = static_cast<std::uint16_t>(std::min(
+                                    raster_extent - 1U,
+                                    static_cast<std::uint32_t>(
+                                        patch_coordinate * static_cast<double>(raster_extent)
+                                    )
+                                ));
+                            }
+                            prepared.completion_bytes.push_back(
+                                static_cast<std::uint8_t>(sample & 0xFFU)
+                            );
+                            prepared.completion_bytes.push_back(
+                                static_cast<std::uint8_t>(sample >> 8U)
+                            );
+                        }
+                    };
+                    append_axis_map(
+                        full.width, patch.raster_width, patch.bounds_left, patch.bounds_right
+                    );
+                    append_axis_map(
+                        full.height, patch.raster_height, patch.bounds_top, patch.bounds_bottom
+                    );
+                    prepared.operations.push_back(patch_record);
+                }
+                continue;
+            }
             case AdjustmentOperation::selective_tone:
             case AdjustmentOperation::spot_heal:
-            case AdjustmentOperation::image_completion:
                 return MetalAdjustmentPreparation{
                     .program = std::nullopt,
                     .diagnostic = "Metal adjustment received an unsupported operation",
@@ -1170,6 +1273,7 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
         };
     }
     if (prepared.paint_entries.size() != paint_entry_count
+        || prepared.completion_bytes.size() != completion_byte_count
         || prepared.operations.size() != step_count
         || prepared.curve_segments.size() != curve_segment_count
         || prepared.lut_entries.size() != lut_entry_count

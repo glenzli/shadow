@@ -113,6 +113,13 @@ fn compile_recipe_render_plan_with_resolver(
         });
     let mut compiled = Vec::new();
     let mut compiled_node_ids = HashSet::new();
+    append_pre_grade_image_completion_node(
+        snapshot,
+        completion_resolver,
+        use_layer_boundaries,
+        &mut compiled,
+        &mut compiled_node_ids,
+    )?;
     for layer in snapshot.layers() {
         if use_layer_boundaries {
             let mask = match layer.mask() {
@@ -214,6 +221,126 @@ fn compile_recipe_render_plan_with_resolver(
     Ok(plan)
 }
 
+fn append_pre_grade_image_completion_node(
+    snapshot: &RecipeSnapshot,
+    resolver: Option<&dyn ManagedImageCompletionResolver>,
+    use_layer_boundaries: bool,
+    compiled: &mut Vec<AdjustmentRenderNode>,
+    compiled_node_ids: &mut HashSet<String>,
+) -> AnyResult<()> {
+    let regions: Vec<_> = snapshot
+        .image_completions()
+        .iter()
+        .filter(|region| region.pre_grade() && region.enabled())
+        .collect();
+    if regions.is_empty() {
+        return Ok(());
+    }
+    let resolver = resolver.context(
+        "Recipe contains managed pre-grade AI completion bytes but no application-store resolver was supplied",
+    )?;
+    let patches = regions
+        .into_iter()
+        .map(|region| resolver.resolve_completion(region.patch(), region.strength().get()))
+        .collect::<AnyResult<Vec<_>>>()?;
+    let node_id = format!("{RECIPE_V1_IMAGE_COMPLETION_NODE_ID}:pre-grade");
+    if !compiled_node_ids.insert(node_id.clone()) {
+        bail!("Recipe render compiler rejects duplicate pre-grade AI-completion id");
+    }
+    if use_layer_boundaries {
+        compiled.push(AdjustmentRenderNode {
+            node_id: format!("{node_id}:start"),
+            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+            enabled: true,
+            operation: AdjustmentRenderOperation::LocalMaskLayerStart {
+                opacity: 1.0,
+                mask: None,
+            },
+        });
+    }
+    compiled.push(AdjustmentRenderNode {
+        node_id: node_id.clone(),
+        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+        enabled: snapshot.image_completion_enabled(),
+        operation: AdjustmentRenderOperation::ImageCompletion { patches },
+    });
+    if use_layer_boundaries {
+        compiled.push(AdjustmentRenderNode {
+            node_id: format!("{node_id}:end"),
+            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+            enabled: true,
+            operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
+        });
+    }
+    Ok(())
+}
+
+/// Adds one uncommitted candidate at the same frontier used after acceptance.
+/// This is only used by a transient preview and never changes the Recipe digest.
+pub(crate) fn append_transient_pre_grade_completion(
+    plan: &mut AdjustmentRenderPlan,
+    patch: AdjustmentImageCompletionPatch,
+) -> AnyResult<()> {
+    let pre_grade_id = format!("{RECIPE_V1_IMAGE_COMPLETION_NODE_ID}:pre-grade");
+    if let Some(node) = plan
+        .nodes
+        .iter_mut()
+        .find(|node| node.node_id == pre_grade_id)
+    {
+        let AdjustmentRenderOperation::ImageCompletion { patches } = &mut node.operation else {
+            bail!("pre-grade AI completion node has the wrong operation");
+        };
+        patches.push(patch);
+        node.enabled = true;
+    } else {
+        let boundaries = plan.nodes.first().is_some_and(|node| {
+            matches!(
+                &node.operation,
+                AdjustmentRenderOperation::LocalMaskLayerStart { .. }
+            )
+        });
+        let mut prefix = Vec::new();
+        if boundaries {
+            prefix.push(AdjustmentRenderNode {
+                node_id: format!("{pre_grade_id}:candidate-start"),
+                parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation: AdjustmentRenderOperation::LocalMaskLayerStart {
+                    opacity: 1.0,
+                    mask: None,
+                },
+            });
+        }
+        prefix.push(AdjustmentRenderNode {
+            node_id: format!("{pre_grade_id}:candidate"),
+            parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+            implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+            enabled: true,
+            operation: AdjustmentRenderOperation::ImageCompletion {
+                patches: vec![patch],
+            },
+        });
+        if boundaries {
+            prefix.push(AdjustmentRenderNode {
+                node_id: format!("{pre_grade_id}:candidate-end"),
+                parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
+            });
+        }
+        prefix.append(&mut plan.nodes);
+        plan.nodes = prefix;
+    }
+    plan.validate()
+        .context("validate transient AI completion candidate plan")?;
+    Ok(())
+}
+
 fn append_photo_image_completion_node(
     snapshot: &RecipeSnapshot,
     resolver: Option<&dyn ManagedImageCompletionResolver>,
@@ -230,7 +357,7 @@ fn append_photo_image_completion_node(
     let patches: Vec<AdjustmentImageCompletionPatch> = snapshot
         .image_completions()
         .iter()
-        .filter(|region| region.enabled())
+        .filter(|region| !region.pre_grade() && region.enabled())
         .map(|region| resolver.resolve_completion(region.patch(), region.strength().get()))
         .collect::<AnyResult<_>>()?;
     if patches.is_empty() {

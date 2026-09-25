@@ -7616,6 +7616,16 @@ R %2 · G %3 · B %4</translation>
         <translation>区域 %L1</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="321"/>
+        <source>Regenerate this region with the current photo</source>
+        <translation>以当前照片重新生成此区域</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="344"/>
+        <source>Older region: regenerate it to follow future adjustments</source>
+        <translation>旧版区域：重新生成后可跟随后续调整</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="318"/>
         <source>Remove this accepted region</source>
         <translation>移除此已接受区域</translation>
@@ -7627,8 +7637,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="45"/>
-        <source>Shadow will send a bounded crop of this photo and your painted selection to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI &amp; Models settings.</source>
-        <translation>Shadow 会将此照片的有限裁剪区域和你的涂抹选区发送到本机 Infer Runtime。Shadow 不会上传该请求。之后可在“AI 与模型”设置中关闭此权限。</translation>
+        <source>Shadow will send a bounded crop of this photo and the selected area to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI &amp; Models settings.</source>
+        <translation>Shadow 会将此照片的有限裁剪区域和所选区域发送到本机 Infer Runtime。Shadow 不会上传该请求。之后可在“AI 与模型”设置中关闭此权限。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="118"/>

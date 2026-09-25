@@ -339,6 +339,7 @@ struct BackendImageCompletionRegion final {
     QString postprocessing_identity;
     QString api_contract_revision;
     QString actual_execution_provider;
+    bool pre_grade = false;
     bool enabled = true;
     double strength = 1.0;
 
@@ -639,6 +640,7 @@ struct BackendImageCompletionRequest final {
     QString base_commit_id;
     BackendGradeStack grade_stack;
     QVector<BackendImageCompletionBrushPoint> points;
+    int refresh_region_index = -1;
 };
 
 struct BackendImageCompletionResult final {
@@ -658,6 +660,7 @@ struct BackendImageCompletionApplyRequest final {
     QString base_commit_id;
     QString expected_working_commit_id;
     BackendGradeStack grade_stack;
+    int replace_region_index = -1;
 };
 
 enum class BackendRawFoundationJobPhase : std::uint8_t {

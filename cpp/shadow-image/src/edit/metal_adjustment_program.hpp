@@ -14,7 +14,7 @@
 
 namespace shadow::image::detail {
 
-inline constexpr std::uint32_t metal_adjustment_parameter_abi_version = 2U;
+inline constexpr std::uint32_t metal_adjustment_parameter_abi_version = 3U;
 
 enum class MetalAdjustmentOpcode : std::uint32_t {
     rgb_white_balance = 1U,
@@ -31,6 +31,7 @@ enum class MetalAdjustmentOpcode : std::uint32_t {
     oklab_color_warper = 12U,
     paint_layer = 13U,
     rgb_tone_curve = 14U,
+    image_completion = 15U,
 };
 
 // Fixed-width transient ABI shared with the runtime-compiled Metal kernel. This is deliberately
@@ -56,7 +57,7 @@ struct alignas(16) MetalAdjustmentInvocation final {
     std::array<float, 4U> xyz_to_rgb_row_2{};
     std::array<float, 4U> working_luminance{};
     std::uint32_t paint_entry_count = 0, paint_row_origin = 0;
-    std::uint32_t paint_reserved_0 = 0, paint_reserved_1 = 0;
+    std::uint32_t completion_byte_count = 0, paint_reserved_1 = 0;
 };
 
 struct alignas(16) MetalAdjustmentOp final {
@@ -145,6 +146,7 @@ struct PreparedMetalAdjustment final {
     std::vector<MetalPerceptualRange> perceptual_range_entries;
     std::vector<MetalSelectiveColorEntry> selective_color_entries;
     std::vector<MetalPaintPixel> paint_entries;
+    std::vector<std::uint8_t> completion_bytes;
 };
 
 struct MetalAdjustmentPreparation final {

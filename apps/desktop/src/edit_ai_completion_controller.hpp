@@ -44,6 +44,7 @@ class EditAiCompletionController final {
     [[nodiscard]] bool eraseMode() const noexcept;
 
     [[nodiscard]] bool begin();
+    [[nodiscard]] bool refreshRegion(int index);
     [[nodiscard]] std::uint32_t beginStroke();
     void appendPoint(double x, double y, std::uint32_t stroke_id);
     void undoStroke();
@@ -89,6 +90,7 @@ class EditAiCompletionController final {
     std::uint64_t applying_proposal_token_ = 0;
     QString candidate_source_;
     std::uint32_t next_stroke_id_ = 0;
+    int refresh_region_index_ = -1;
     double brush_radius_ = 0.04;
     bool erase_mode_ = false;
     bool active_ = false;

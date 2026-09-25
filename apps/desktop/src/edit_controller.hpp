@@ -815,6 +815,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void applyAiMaskCandidate();
     Q_INVOKABLE void cancelAiMaskPrompt();
     Q_INVOKABLE bool beginImageCompletion();
+    Q_INVOKABLE bool refreshImageCompletionRegion(int index);
     Q_INVOKABLE quint32 beginImageCompletionStroke();
     Q_INVOKABLE void
     addImageCompletionBrushPoint(double normalized_x, double normalized_y, quint32 stroke_id);

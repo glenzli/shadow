@@ -372,6 +372,7 @@ Rectangle {
                             }
 
                             PrecisionAiCompletionTools {
+                                id: acceptedCompletionTools
                                 Layout.fillWidth: true
                                 Layout.leftMargin: 12
                                 Layout.rightMargin: 12
@@ -382,6 +383,12 @@ Rectangle {
                                 authoring: false
                                 onStartRequested:
                                     inspector.toolModeRequested(inspector.toolCompletion)
+                                onRefreshRequested: index => {
+                                    inspector.toolModeRequested(inspector.toolCompletion)
+                                    inspector.editor.refreshImageCompletionRegion(index)
+                                    if (!inspector.editor.imageCompletionExecutionAllowed)
+                                        acceptedCompletionTools.requestGeneration()
+                                }
                             }
 
                             ColumnLayout {

@@ -29,10 +29,26 @@ fn patch() -> ManagedImageCompletionPatch {
 #[test]
 fn accepted_completion_keeps_exact_managed_identity_and_original_bounds() {
     let region = ImageCompletionRegion::new(patch());
+    assert!(!region.pre_grade());
     assert!(region.enabled());
     assert_eq!(region.strength(), UnitInterval::ONE);
     assert_eq!(region.patch().coordinate_width(), 4000);
     assert!((region.patch().bounds_left().get() - 0.1).abs() < f64::EPSILON);
+}
+
+#[test]
+fn pre_grade_completion_is_explicit_and_legacy_json_stays_unchanged() {
+    let legacy = ImageCompletionRegion::new(patch());
+    let legacy_json = serde_json::to_value(&legacy).unwrap();
+    assert!(legacy_json.get("pre_grade").is_none());
+    let restored: ImageCompletionRegion = serde_json::from_value(legacy_json).unwrap();
+    assert!(!restored.pre_grade());
+
+    let new_region = legacy.with_pre_grade(true);
+    let new_json = serde_json::to_value(&new_region).unwrap();
+    assert_eq!(new_json["pre_grade"], true);
+    let restored: ImageCompletionRegion = serde_json::from_value(new_json).unwrap();
+    assert!(restored.pre_grade());
 }
 
 #[test]

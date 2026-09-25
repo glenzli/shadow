@@ -8,8 +8,9 @@ use std::time::Instant;
 
 use anyhow::{Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
-    AnalyzedEditPreview, CancellableEditPreview, EditPreviewMaskCoverageRequest,
-    OwnedInteractivePreviewFrame, RawPipelineReceipt, photo_provider_version,
+    AdjustmentImageCompletionPatch, AnalyzedEditPreview, CancellableEditPreview,
+    EditPreviewMaskCoverageRequest, OwnedInteractivePreviewFrame, RawPipelineReceipt,
+    photo_provider_version,
 };
 
 use super::{
@@ -21,7 +22,10 @@ use crate::{
     preview_cache_identity::current_source_environment_cache_identity,
     preview_render_registry::{PreviewAdmission, PreviewRenderRegistryError, PreviewTerminalClaim},
     raw_foundation_render_source::raw_foundation_ready_for_render,
-    recipe_v1::{resolve_composition_before_render, resolve_recipe_render},
+    recipe_v1::{
+        append_transient_pre_grade_completion, resolve_composition_before_render,
+        resolve_recipe_render,
+    },
     session_photo_source::catalog_native_path,
 };
 
@@ -338,6 +342,24 @@ impl DesktopSession {
         .and_then(OwnedEditedPreview::into_materialized_projection)
     }
 
+    pub(crate) fn render_completion_candidate_preview(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+        patch: AdjustmentImageCompletionPatch,
+    ) -> AnyResult<ffi::FfiEditedPreview> {
+        self.render_basic_edit_preview_owned_with_policy_and_completion(
+            photo_id,
+            source_path,
+            request,
+            EditPreviewPolicy::SubjectMaskInput,
+            &[],
+            Some(patch),
+        )
+        .and_then(OwnedEditedPreview::into_materialized_projection)
+    }
+
     pub(crate) fn render_basic_edit_preview_owned_with_policy(
         &self,
         photo_id: &str,
@@ -345,6 +367,25 @@ impl DesktopSession {
         request: &ffi::FfiEditPreviewRequest,
         policy: EditPreviewPolicy,
         candidate_masks: &[ffi::FfiAutoStartMask],
+    ) -> AnyResult<Box<OwnedEditedPreview>> {
+        self.render_basic_edit_preview_owned_with_policy_and_completion(
+            photo_id,
+            source_path,
+            request,
+            policy,
+            candidate_masks,
+            None,
+        )
+    }
+
+    fn render_basic_edit_preview_owned_with_policy_and_completion(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+        policy: EditPreviewPolicy,
+        candidate_masks: &[ffi::FfiAutoStartMask],
+        candidate_completion: Option<AdjustmentImageCompletionPatch>,
     ) -> AnyResult<Box<OwnedEditedPreview>> {
         let render = (|| -> AnyResult<Box<OwnedEditedPreview>> {
             match self
@@ -393,7 +434,7 @@ impl DesktopSession {
             )?;
             let source_environment_cache_identity =
                 current_source_environment_cache_identity(&photo_provider_version());
-            let recipe = if !candidate_masks.is_empty() {
+            let mut recipe = if !candidate_masks.is_empty() {
                 if policy != EditPreviewPolicy::SubjectMaskInput {
                     bail!("candidate masks require a transient preview");
                 }
@@ -415,6 +456,12 @@ impl DesktopSession {
                     request.use_working_recipe,
                 )?
             };
+            if let Some(patch) = candidate_completion {
+                if policy != EditPreviewPolicy::SubjectMaskInput {
+                    bail!("AI completion candidate requires a transient preview");
+                }
+                append_transient_pre_grade_completion(&mut recipe.plan, patch)?;
+            }
             let raw_development_plan = recipe.foundation.preview_plan();
             let native_path = catalog_native_path(&source)?;
             let raw_foundation = raw_foundation_ready_for_render(

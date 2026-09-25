@@ -12,7 +12,7 @@ inline constexpr std::string_view metal_adjustment_msl_common = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
 
-constant uint parameter_abi_version = 2u;
+constant uint parameter_abi_version = 3u;
 constant uint plan_identity_version = 1u;
 constant uint opcode_white_balance = 1u;
 constant uint opcode_exposure = 2u;
@@ -28,6 +28,7 @@ constant uint opcode_oklab_opponent_balance = 10u;
 constant uint opcode_oklab_opponent_tone_curves = 11u;
 constant uint opcode_oklab_color_warper = 12u;
 constant uint opcode_paint_layer = 13u;
+constant uint opcode_image_completion = 15u;
 constant uint status_non_finite = 1u;
 constant uint status_bad_abi = 2u;
 constant uint status_bad_opcode = 4u;
@@ -62,7 +63,7 @@ struct MetalAdjustmentInvocation {
     float4 xyz_to_rgb_row_1;
     float4 xyz_to_rgb_row_2;
     float4 working_luminance;
-    uint paint_entry_count, paint_row_origin, paint_reserved_0, paint_reserved_1;
+    uint paint_entry_count, paint_row_origin, completion_byte_count, paint_reserved_1;
 };
 
 struct MetalAdjustmentOp {
@@ -749,6 +750,7 @@ inline bool execute_adjustment_program(
     device const MetalPerceptualRange* range_entries,
     device const float4* selective_color_entries,
     device const float4* paint_entries,
+    device const uchar* completion_bytes,
     uint2 position,
     constant MetalAdjustmentInvocation& invocation,
     device MetalAdjustmentStatus& status
@@ -784,6 +786,55 @@ inline bool execute_adjustment_program(
                 }
                 rgb=oklab_to_working_rgb(original,invocation);
             }
+            break;
+        }
+        case opcode_image_completion: {
+            const uint width = uint(operation.parameter_0.x);
+            const uint height = uint(operation.parameter_0.y);
+            const float strength = operation.parameter_0.z;
+            const uint2 frame = uint2(operation.parameter_1.xy);
+            const uint2 global = uint2(
+                position.x + uint(operation.parameter_1.z),
+                position.y + invocation.paint_row_origin + uint(operation.parameter_1.w)
+            );
+            if (strength <= 0.0f) break;
+            const uint x_map_at = operation.secondary_resource_offset + global.x * 2u;
+            const uint y_map_at = operation.secondary_resource_offset
+                                  + operation.secondary_resource_count + global.y * 2u;
+            if (width == 0u || height == 0u || width > 2048u || height > 2048u
+                || global.x >= frame.x || global.y >= frame.y
+                || operation.secondary_resource_count != frame.x * 2u
+                || !resource_range_is_valid(operation.resource_offset, operation.resource_count,
+                                            invocation.completion_byte_count)
+                || !resource_range_is_valid(operation.secondary_resource_offset,
+                                            operation.secondary_resource_count + frame.y * 2u,
+                                            invocation.completion_byte_count)) {
+                report_adjustment_failure(status, status_bad_resource, step);
+                return false;
+            }
+            const uint sample_x = uint(completion_bytes[x_map_at])
+                                  | (uint(completion_bytes[x_map_at + 1u]) << 8u);
+            const uint sample_y = uint(completion_bytes[y_map_at])
+                                  | (uint(completion_bytes[y_map_at + 1u]) << 8u);
+            if (sample_x == 65535u || sample_y == 65535u) break;
+            if (sample_x >= width || sample_y >= height) {
+                report_adjustment_failure(status, status_bad_resource, step);
+                return false;
+            }
+            const uint byte_offset = (sample_y * width + sample_x) * 4u;
+            if (byte_offset > operation.resource_count
+                || operation.resource_count - byte_offset < 4u) {
+                report_adjustment_failure(status, status_bad_resource, step);
+                return false;
+            }
+            const uint offset = operation.resource_offset + byte_offset;
+            const float alpha = float(completion_bytes[offset + 3u]) / 255.0f * strength;
+            if (alpha <= 0.0f) break;
+            const float3 encoded = float3(completion_bytes[offset], completion_bytes[offset + 1u],
+                                          completion_bytes[offset + 2u]) / 255.0f;
+            const float3 replacement = select(pow((encoded + 0.055f) / 1.055f, float3(2.4f)),
+                                              encoded / 12.92f, encoded <= 0.04045f);
+            rgb = mix(rgb, replacement, alpha);
             break;
         }
         case opcode_white_balance:

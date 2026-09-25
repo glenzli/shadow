@@ -969,6 +969,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                 )
                 .with_context(|| format!("AI completion region {index} is invalid"))?;
                 Ok(ImageCompletionRegion::new(patch)
+                    .with_pre_grade(region.pre_grade)
                     .with_enabled(region.enabled)
                     .with_strength(UnitInterval::new(region.strength)?))
             })
@@ -1534,6 +1535,7 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                     postprocessing_identity: patch.postprocessing_identity().to_owned(),
                     api_contract_revision: patch.api_contract_revision().to_owned(),
                     actual_execution_provider: patch.actual_execution_provider().to_owned(),
+                    pre_grade: region.pre_grade(),
                     enabled: region.enabled(),
                     strength: region.strength().get(),
                 }

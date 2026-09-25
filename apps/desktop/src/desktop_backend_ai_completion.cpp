@@ -49,6 +49,7 @@ BackendImageCompletionResult DesktopBackend::executeImageCompletionJob(
     ffi_request.generation = request.generation;
     ffi_request.base_commit_id = request.base_commit_id.toStdString();
     ffi_request.settings = ffi_grade_stack(request.grade_stack);
+    ffi_request.refresh_region_index = request.refresh_region_index;
     ffi_request.points.reserve(static_cast<std::size_t>(request.points.size()));
     for (const auto& point : request.points) {
         ffi_request.points.push_back({
@@ -87,6 +88,7 @@ BackendPhotoEditState DesktopBackend::applyImageCompletionProposal(
     ffi_request.base_commit_id = request.base_commit_id.toStdString();
     ffi_request.expected_working_commit_id = request.expected_working_commit_id.toStdString();
     ffi_request.settings = ffi_grade_stack(request.grade_stack);
+    ffi_request.replace_region_index = request.replace_region_index;
     return edit_state(impl_->session->apply_image_completion_proposal(
         photo_id.toStdString(),
         source_path.toStdString(),

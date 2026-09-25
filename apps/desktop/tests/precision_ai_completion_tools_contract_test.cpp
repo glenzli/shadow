@@ -168,9 +168,11 @@ ApplicationWindow {
         auto* panel = item(object.get(), "completionTools");
         QSignalSpy exit(panel, SIGNAL(exitRequested()));
         QSignalSpy start(panel, SIGNAL(startRequested()));
+        QSignalSpy refresh(panel, SIGNAL(refreshRequested(int)));
         const QVariantList regions{QVariantMap{
             {"enabled", true},
             {"strength", 1.0},
+            {"preGrade", false},
             {"provider", "local-provider-with-a-long-identity"},
             {"modelBuild", "local-model-build-with-a-long-identity"}
         }};
@@ -273,6 +275,11 @@ ApplicationWindow {
         require(
             !editor->property("imageCompletionRegions").toList()[0].toMap()["enabled"].toBool(),
             "accepted region can be bypassed"
+        );
+        click(window, object.get(), "imageCompletionRegionRefresh_0");
+        require(
+            refresh.count() == 1 && refresh.at(0).at(0).toInt() == 0,
+            "accepted region can request regeneration of its original selection"
         );
         editor->setProperty("stateBusy", true);
         require(!strength->isEnabled(), "busy editor still protects accepted regions");
