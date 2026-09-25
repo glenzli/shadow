@@ -182,10 +182,13 @@ impl DesktopSession {
                     .context("AI completion refresh target is unavailable")
             })
             .transpose()?;
-        if grade_stack
-            .liquify
-            .as_ref()
-            .is_some_and(shadow_domain::PhotoLiquifyNode::enabled)
+        // A refresh uses the accepted patch's original-space mask. Only new
+        // display-space brush selections need Liquify bypassed for alignment.
+        if refresh_region.is_none()
+            && grade_stack
+                .liquify
+                .as_ref()
+                .is_some_and(shadow_domain::PhotoLiquifyNode::enabled)
         {
             bail!("AI completion is authored before Liquify; bypass Liquify before generating");
         }

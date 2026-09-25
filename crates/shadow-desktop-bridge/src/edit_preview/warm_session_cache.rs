@@ -38,7 +38,10 @@ use crate::{
 #[cfg(test)]
 use crate::recipe_v1::ensure_foundation_allows_rgb_fallback;
 
-const MAX_WARM_EDIT_PREVIEW_SESSIONS: usize = 2;
+// Edit navigation retains the previous photo, current photo, and the next
+// photo prepared in the background. Two slots made the next preheat evict the
+// previous RAW and forced a fresh provider decode on a simple back navigation.
+const MAX_WARM_EDIT_PREVIEW_SESSIONS: usize = 3;
 const CACHE_LOCK_POISONED: &str = "edit preview session cache lock is poisoned";
 
 #[derive(Debug, Clone)]
@@ -107,7 +110,7 @@ struct WarmEditPreviewSessionEntry {
     session: Arc<PhotoEditPreviewSession>,
 }
 
-/// Two-entry MRU of prepared edit-preview sources.
+/// Three-entry MRU of prepared edit-preview sources.
 ///
 /// Preparation deliberately runs without the container mutex. A second exact
 /// lookup after preparation makes concurrent cold misses converge on the one

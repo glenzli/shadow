@@ -7553,8 +7553,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="156"/>
-        <source>AI Completion is evaluated before Liquify. Bypass the Liquify node while painting and generating, then turn it back on.</source>
-        <translation>AI 补全在液化之前执行。涂抹和生成时请先旁路液化节点，完成后再重新启用。</translation>
+        <source>Bypass Liquify while painting and generating a new AI Completion region. Accepted regions can be regenerated with Liquify enabled.</source>
+        <translation>涂抹并生成新的 AI 补全区域时，请先旁路液化。重新生成已接受区域时，可保持液化启用。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="66"/>

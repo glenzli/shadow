@@ -180,7 +180,7 @@ ColumnLayout {
             Layout.minimumWidth: 0
             visible: tools.editor.liquifyNodeMaterialized
                 && tools.editor.liquifyNodeEnabled
-            text: qsTr("AI Completion is evaluated before Liquify. Bypass the Liquify node while painting and generating, then turn it back on.")
+            text: qsTr("Bypass Liquify while painting and generating a new AI Completion region. Accepted regions can be regenerated with Liquify enabled.")
             color: Theme.warningText
             font.pixelSize: Theme.fontMeta
             wrapMode: Text.Wrap

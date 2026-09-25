@@ -304,7 +304,11 @@ void EditAiCompletionController::generate() {
         publishStateChange();
         return;
     }
-    if (owner_.liquifyNodeMaterialized() && owner_.liquifyNodeEnabled()) {
+    // A new brush is mapped from the displayed image, so authored Liquify
+    // would shift its coordinates. Refresh reuses the accepted region's
+    // original-space mask and does not depend on display coordinates.
+    if (refresh_region_index_ < 0 && owner_.liquifyNodeMaterialized()
+        && owner_.liquifyNodeEnabled()) {
         owner_.setStatusMessage(completion_message(QT_TRANSLATE_NOOP(
             "EditController",
             "AI Completion is before Liquify · bypass Liquify before generating"
