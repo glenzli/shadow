@@ -30,6 +30,9 @@ use super::{
 const COMPLETION_INPUT_MAX_EDGE: u32 = 1_024;
 const COMPLETION_INPUT_JPEG_QUALITY: u8 = 95;
 const COMPLETION_MODEL_EDGE: u32 = 512;
+// A tiny source crop leaves the model with little surrounding evidence even
+// after it is enlarged to 512 pixels. Keep a bounded amount of real context.
+const COMPLETION_MIN_CROP_EDGE: u32 = 256;
 const MAX_BRUSH_POINTS: usize = 8_192;
 const MIN_BRUSH_RADIUS: f64 = 0.002;
 const MAX_BRUSH_RADIUS: f64 = 0.25;
@@ -520,7 +523,7 @@ fn prepare_completion_input(
     coordinate_extent: RasterExtent,
     points: &[OriginalBrushPoint],
 ) -> AnyResult<PreparedCompletionInput> {
-    let placement = completion_placement(points)?;
+    let placement = completion_placement(points, coordinate_extent)?;
     let mask_gray8 = rasterize_mask(points, placement);
     prepare_completion_input_with_mask(jpeg, coordinate_extent, placement, mask_gray8)
 }
@@ -576,20 +579,20 @@ fn prepare_completion_input_with_mask(
     if decoded.width() != coordinate_extent.width || decoded.height() != coordinate_extent.height {
         bail!("AI completion input geometry changed during preparation");
     }
-    let left = bounded_floor_u32(
+    let left = bounded_round_u32(
         placement.bounds_left.get() * f64::from(decoded.width()),
         decoded.width() - 1,
     );
-    let top = bounded_floor_u32(
+    let top = bounded_round_u32(
         placement.bounds_top.get() * f64::from(decoded.height()),
         decoded.height() - 1,
     );
-    let right = bounded_ceil_u32(
+    let right = bounded_round_u32(
         placement.bounds_right.get() * f64::from(decoded.width()),
         decoded.width(),
     )
     .max(left + 1);
-    let bottom = bounded_ceil_u32(
+    let bottom = bounded_round_u32(
         placement.bounds_bottom.get() * f64::from(decoded.height()),
         decoded.height(),
     )
@@ -620,7 +623,10 @@ fn prepare_completion_input_with_mask(
     })
 }
 
-fn completion_placement(points: &[OriginalBrushPoint]) -> AnyResult<ImageCompletionPlacement> {
+fn completion_placement(
+    points: &[OriginalBrushPoint],
+    extent: RasterExtent,
+) -> AnyResult<ImageCompletionPlacement> {
     let mut left = 1.0_f64;
     let mut top = 1.0_f64;
     let mut right = 0.0_f64;
@@ -634,17 +640,38 @@ fn completion_placement(points: &[OriginalBrushPoint]) -> AnyResult<ImageComplet
     if left >= right || top >= bottom {
         bail!("AI completion selection contains no painted area");
     }
-    let padding = ((right - left).max(bottom - top) * 0.75).max(0.06);
-    left = (left - padding).clamp(0.0, 1.0);
-    top = (top - padding).clamp(0.0, 1.0);
-    right = (right + padding).clamp(0.0, 1.0);
-    bottom = (bottom + padding).clamp(0.0, 1.0);
+    let width = f64::from(extent.width);
+    let height = f64::from(extent.height);
+    let selected_width = (right - left) * width;
+    let selected_height = (bottom - top) * height;
+    let selected_edge = selected_width.max(selected_height);
+    let padding = (selected_edge * 0.75).max(f64::from(extent.width.min(extent.height)) * 0.06);
+    let desired_edge = bounded_ceil_u32(
+        (selected_edge + 2.0 * padding).max(f64::from(COMPLETION_MIN_CROP_EDGE)),
+        extent.width.max(extent.height),
+    );
+    // For ordinary selections this is a square in source pixels, not a
+    // rectangle stretched into the model's square input. A selection larger
+    // than the short image edge still remains fully included.
+    let crop_width = desired_edge.min(extent.width);
+    let crop_height = desired_edge.min(extent.height);
+    let crop_left = square_crop_origin(left * width, right * width, crop_width, extent.width);
+    let crop_top = square_crop_origin(top * height, bottom * height, crop_height, extent.height);
+    left = f64::from(crop_left) / width;
+    top = f64::from(crop_top) / height;
+    right = f64::from(crop_left + crop_width) / width;
+    bottom = f64::from(crop_top + crop_height) / height;
     Ok(ImageCompletionPlacement {
         bounds_left: UnitInterval::new(left)?,
         bounds_top: UnitInterval::new(top)?,
         bounds_right: UnitInterval::new(right)?,
         bounds_bottom: UnitInterval::new(bottom)?,
     })
+}
+
+fn square_crop_origin(selection_start: f64, selection_end: f64, crop: u32, image: u32) -> u32 {
+    let centered = ((selection_start + selection_end - f64::from(crop)) * 0.5).round();
+    bounded_round_u32(centered, image - crop)
 }
 
 fn rasterize_mask(points: &[OriginalBrushPoint], placement: ImageCompletionPlacement) -> Vec<u8> {
@@ -722,6 +749,14 @@ fn bounded_floor_u32(value: f64, maximum: u32) -> u32 {
 
 fn bounded_ceil_u32(value: f64, maximum: u32) -> u32 {
     let bounded = value.ceil().clamp(0.0, f64::from(maximum));
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    {
+        bounded as u32
+    }
+}
+
+fn bounded_round_u32(value: f64, maximum: u32) -> u32 {
+    let bounded = value.round().clamp(0.0, f64::from(maximum));
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     {
         bounded as u32

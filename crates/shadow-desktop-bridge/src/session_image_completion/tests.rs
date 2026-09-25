@@ -50,9 +50,98 @@ fn placement_adds_context_and_remains_bounded() {
         erase: false,
         stroke_id: 1,
     }];
-    let placement = completion_placement(&points).unwrap();
+    let placement = completion_placement(&points, RasterExtent::new(1200, 800).unwrap()).unwrap();
     assert!(placement.bounds_left.get() < 0.48);
     assert!(placement.bounds_right.get() > 0.52);
+    let pixel_width = (placement.bounds_right.get() - placement.bounds_left.get()) * 1200.0;
+    let pixel_height = (placement.bounds_bottom.get() - placement.bounds_top.get()) * 800.0;
+    assert!((pixel_width - pixel_height).abs() < 1.0e-9);
+    assert!(pixel_width >= f64::from(COMPLETION_MIN_CROP_EDGE));
+}
+
+#[test]
+fn narrow_subject_near_frame_edge_keeps_square_context_and_registered_mask() {
+    let extent = RasterExtent::new(1200, 800).unwrap();
+    let point = OriginalBrushPoint {
+        x: 0.02,
+        y: 0.45,
+        radius_x: 0.012,
+        radius_y: 0.018,
+        erase: false,
+        stroke_id: 1,
+    };
+    let placement = completion_placement(&[point], extent).unwrap();
+    assert_eq!(placement.bounds_left.get(), 0.0);
+    let crop_width = (placement.bounds_right.get() - placement.bounds_left.get()) * 1200.0;
+    let crop_height = (placement.bounds_bottom.get() - placement.bounds_top.get()) * 800.0;
+    assert!((crop_width - crop_height).abs() < 1.0e-9);
+    assert!(crop_width >= 256.0);
+    let mask = rasterize_mask(&[point], placement);
+    let model_x = ((point.x - placement.bounds_left.get())
+        / (placement.bounds_right.get() - placement.bounds_left.get())
+        * f64::from(COMPLETION_MODEL_EDGE)) as usize;
+    let model_y = ((point.y - placement.bounds_top.get())
+        / (placement.bounds_bottom.get() - placement.bounds_top.get())
+        * f64::from(COMPLETION_MODEL_EDGE)) as usize;
+    assert_eq!(
+        mask[model_y * COMPLETION_MODEL_EDGE as usize + model_x],
+        255
+    );
+    assert_eq!(mask[256 * COMPLETION_MODEL_EDGE as usize + 400], 0);
+}
+
+#[test]
+fn model_input_keeps_source_colours_and_selection_registered_after_square_crop() {
+    let extent = RasterExtent::new(1200, 800).unwrap();
+    let image = image::RgbImage::from_fn(extent.width, extent.height, |x, y| {
+        image::Rgb([((x / 5) % 256) as u8, ((y / 4) % 256) as u8, 96])
+    });
+    let mut jpeg = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(image)
+        .write_to(&mut jpeg, ImageFormat::Jpeg)
+        .unwrap();
+    let point = OriginalBrushPoint {
+        x: 0.35,
+        y: 0.7,
+        radius_x: 0.012,
+        radius_y: 0.018,
+        erase: false,
+        stroke_id: 1,
+    };
+    let prepared = prepare_completion_input(&jpeg.into_inner(), extent, &[point]).unwrap();
+    let crop = image::load_from_memory_with_format(&prepared.crop_png, ImageFormat::Png)
+        .unwrap()
+        .to_rgb8();
+    assert_eq!(crop.dimensions(), (512, 512));
+    let mask = GrayImage::from_raw(512, 512, prepared.mask_gray8).unwrap();
+    let model_x = ((point.x - prepared.placement.bounds_left.get())
+        / (prepared.placement.bounds_right.get() - prepared.placement.bounds_left.get())
+        * 512.0) as u32;
+    let model_y = ((point.y - prepared.placement.bounds_top.get())
+        / (prepared.placement.bounds_bottom.get() - prepared.placement.bounds_top.get())
+        * 512.0) as u32;
+    assert_eq!(mask.get_pixel(model_x, model_y)[0], 255);
+    let sampled = crop.get_pixel(model_x, model_y);
+    assert!((i16::from(sampled[0]) - i16::from(((point.x * 1200.0) / 5.0) as u8)).abs() <= 3);
+    assert!((i16::from(sampled[1]) - i16::from(((point.y * 800.0) / 4.0) as u8)).abs() <= 3);
+}
+
+#[test]
+fn broad_selection_stays_inside_source_when_square_crop_would_exceed_short_edge() {
+    let extent = RasterExtent::new(1200, 800).unwrap();
+    let point = OriginalBrushPoint {
+        x: 0.5,
+        y: 0.5,
+        radius_x: 0.45,
+        radius_y: 0.04,
+        erase: false,
+        stroke_id: 1,
+    };
+    let placement = completion_placement(&[point], extent).unwrap();
+    assert!(placement.bounds_left.get() <= point.x - point.radius_x);
+    assert!(placement.bounds_right.get() >= point.x + point.radius_x);
+    assert_eq!(placement.bounds_top.get(), 0.0);
+    assert_eq!(placement.bounds_bottom.get(), 1.0);
 }
 
 #[test]
