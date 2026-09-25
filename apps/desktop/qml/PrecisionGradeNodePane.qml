@@ -21,6 +21,18 @@ Rectangle {
     required property color textMuted
     required property color accent
 
+    readonly property int preGradeCompletionCount: {
+        const regions = pane.editor.imageCompletionRegions
+        let count = 0
+        for (let index = 0; index < regions.length; ++index) {
+            if (Boolean(regions[index].preGrade))
+                ++count
+        }
+        return count
+    }
+    readonly property int legacyCompletionCount:
+        pane.editor.imageCompletionRegions.length - pane.preGradeCompletionCount
+
     signal maskToolRequested
     signal cropToolRequested
     signal repairToolRequested
@@ -240,20 +252,16 @@ Rectangle {
         }
 
         StructuralNodeRow {
-            objectName: "imageCompletionNodeRow"
-            visible: pane.editor.imageCompletionNodeMaterialized
-                || pane.editor.selectedRecipeNodeKind === "completion"
-            nodeLabel: qsTr("AI Completion")
-            nodeStatus: pane.editor.imageCompletionNodeMaterialized
-                ? (pane.editor.imageCompletionNodeEnabled
-                    ? qsTr("%n REGION(S) · ENABLED", "",
-                        pane.editor.imageCompletionRegions.length)
-                    : qsTr("%n REGION(S) · BYPASSED", "",
-                        pane.editor.imageCompletionRegions.length))
-                : qsTr("EMPTY · PAINT TO CREATE")
+            objectName: "legacyImageCompletionNodeRow"
+            visible: pane.legacyCompletionCount > 0
+            nodeLabel: qsTr("AI Completion (older)")
+            nodeStatus: pane.editor.imageCompletionNodeEnabled
+                ? qsTr("%n REGION(S) · AFTER GRADES", "", pane.legacyCompletionCount)
+                : qsTr("%n REGION(S) · AFTER GRADES · BYPASSED", "",
+                    pane.legacyCompletionCount)
             nodeGlyph: "AI"
             nodeSelected: pane.editor.selectedRecipeNodeKind === "completion"
-            bypassAvailable: pane.editor.imageCompletionNodeMaterialized
+            bypassAvailable: pane.preGradeCompletionCount === 0
             nodeEnabled: pane.editor.imageCompletionNodeEnabled
             onEnabledToggled: enabled =>
                 pane.editor.imageCompletionNodeEnabled = enabled
@@ -417,6 +425,28 @@ Rectangle {
             ScrollBar.vertical: ScrollBar {
                 policy: ScrollBar.AsNeeded
             }
+        }
+
+        StructuralNodeRow {
+            objectName: "imageCompletionNodeRow"
+            visible: pane.preGradeCompletionCount > 0
+                || (pane.legacyCompletionCount === 0
+                    && pane.editor.selectedRecipeNodeKind === "completion")
+            nodeLabel: qsTr("AI Completion")
+            nodeStatus: pane.preGradeCompletionCount > 0
+                ? (pane.editor.imageCompletionNodeEnabled
+                    ? qsTr("%n REGION(S) · BEFORE GRADES", "",
+                        pane.preGradeCompletionCount)
+                    : qsTr("%n REGION(S) · BEFORE GRADES · BYPASSED", "",
+                        pane.preGradeCompletionCount))
+                : qsTr("EMPTY · PAINT TO CREATE")
+            nodeGlyph: "AI"
+            nodeSelected: pane.editor.selectedRecipeNodeKind === "completion"
+            bypassAvailable: pane.editor.imageCompletionNodeMaterialized
+            nodeEnabled: pane.editor.imageCompletionNodeEnabled
+            onEnabledToggled: enabled =>
+                pane.editor.imageCompletionNodeEnabled = enabled
+            onActivated: pane.editor.selectImageCompletionNode()
         }
 
         Rectangle {

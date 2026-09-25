@@ -7504,16 +7504,30 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message numerus="yes">
         <location filename="../qml/PrecisionGradeNodePane.qml" line="252"/>
-        <source>%n REGION(S) · BYPASSED</source>
+        <source>%n REGION(S) · AFTER GRADES · BYPASSED</source>
         <translation>
-            <numerusform>%n 个区域 · 已旁路</numerusform>
+            <numerusform>%n 个区域 · 调色后 · 已旁路</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location filename="../qml/PrecisionGradeNodePane.qml" line="250"/>
-        <source>%n REGION(S) · ENABLED</source>
+        <source>%n REGION(S) · AFTER GRADES</source>
         <translation>
-            <numerusform>%n 个区域 · 已启用</numerusform>
+            <numerusform>%n 个区域 · 调色后</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="435"/>
+        <source>%n REGION(S) · BEFORE GRADES</source>
+        <translation>
+            <numerusform>%n 个区域 · 调色前</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="437"/>
+        <source>%n REGION(S) · BEFORE GRADES · BYPASSED</source>
+        <translation>
+            <numerusform>%n 个区域 · 调色前 · 已旁路</numerusform>
         </translation>
     </message>
     <message>
@@ -7531,6 +7545,11 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionInspector.qml" line="187"/>
         <source>AI Completion</source>
         <translation>AI 补全</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="258"/>
+        <source>AI Completion (older)</source>
+        <translation>AI 补全（旧版）</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="156"/>
