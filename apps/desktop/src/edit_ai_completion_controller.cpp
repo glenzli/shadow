@@ -1,6 +1,7 @@
 #include "edit_ai_completion_controller.hpp"
 
 #include "ai_preferences.hpp"
+#include "backend/edit_settings_projection.hpp"
 #include "edit_ai_mask_controller.hpp"
 #include "edit_controller.hpp"
 
@@ -204,6 +205,7 @@ bool EditAiCompletionController::begin() {
     active_ = true;
     generation_pending_ = false;
     refresh_region_index_ = -1;
+    force_regenerate_ = false;
     points_.clear();
     selection_expansion_ = 0.0;
     retireCandidate();
@@ -325,6 +327,7 @@ void EditAiCompletionController::retry() {
     if (!active_ || busy()) {
         return;
     }
+    force_regenerate_ = true;
     retireCandidate();
     generate();
 }
@@ -395,8 +398,10 @@ void EditAiCompletionController::startGeneration() {
         .points = points_,
         .selection_expansion = selection_expansion_,
         .refresh_region_index = refresh_region_index_,
+        .force_regenerate = force_regenerate_,
     };
     generation_pending_ = false;
+    force_regenerate_ = false;
     owner_.setStatusMessage(completion_message(
         QT_TRANSLATE_NOOP("EditController", "AI Completion · generating a local candidate…")
     ));
@@ -458,6 +463,7 @@ void EditAiCompletionController::cancel() {
     retireCandidate();
     points_.clear();
     refresh_region_index_ = -1;
+    force_regenerate_ = false;
     active_ = false;
     context_.reset();
     owner_.setStatusMessage(
@@ -512,6 +518,7 @@ void EditAiCompletionController::resetContext() {
     retireCandidate();
     points_.clear();
     refresh_region_index_ = -1;
+    force_regenerate_ = false;
     active_ = false;
     context_.reset();
     publishStateChange();
@@ -608,6 +615,7 @@ void EditAiCompletionController::finishApply() {
     active_ = false;
     points_.clear();
     refresh_region_index_ = -1;
+    force_regenerate_ = false;
     context_.reset();
     owner_.applyImageCompletionState(std::move(task.state), before);
     owner_.setStatusMessage(completion_message(QT_TRANSLATE_NOOP(
@@ -696,6 +704,15 @@ bool EditController::imageCompletionEraseMode() const noexcept {
 QVariantList EditController::imageCompletionRegions() const {
     QVariantList result;
     result.reserve(grade_stack_.image_completions.size());
+    if (grade_stack_.image_completions.isEmpty())
+        return result;
+    rust::Vec<rust::String> source_contexts;
+    for (const auto& region : grade_stack_.image_completions)
+        source_contexts.push_back(region.source_context_json.toStdString());
+    const auto source_states = shadow::desktop::image_completion_source_states(
+        desktop_backend_projection::ffi_foundation(grade_stack_),
+        source_contexts
+    );
     for (qsizetype index = 0; index < grade_stack_.image_completions.size(); ++index) {
         const auto& region = grade_stack_.image_completions.at(index);
         result.push_back(
@@ -707,6 +724,10 @@ QVariantList EditController::imageCompletionRegions() const {
                 {QStringLiteral("provider"), region.provider},
                 {QStringLiteral("executionProvider"), region.actual_execution_provider},
                 {QStringLiteral("sourceRecipe"), region.source_recipe_blake3},
+                {QStringLiteral("sourceState"),
+                 index < static_cast<qsizetype>(source_states.size())
+                     ? static_cast<int>(source_states[static_cast<std::size_t>(index)])
+                     : 3},
                 {QStringLiteral("preGrade"), region.pre_grade},
             }
         );

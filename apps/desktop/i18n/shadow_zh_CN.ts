@@ -7365,6 +7365,8 @@ R %2 · G %3 · B %4</translation>
 </context>
 <context>
     <name>PrecisionWorkspace</name>
+    <message><source>Regenerate to enable automatic RAW color matching</source><translation>重新生成以启用自动 RAW 颜色匹配</translation></message>
+    <message><source>Source settings have changed. Check this region or regenerate it.</source><translation>源图调整已变化，请检查此区域或重新生成。</translation></message>
     <message>
         <source>Previous photo</source>
         <translation>上一张照片</translation>

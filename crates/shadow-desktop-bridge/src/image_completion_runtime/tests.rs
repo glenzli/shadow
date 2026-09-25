@@ -34,41 +34,10 @@ fn input_admission_requires_exact_digest_identities() {
         prepared_mask_gray8: vec![255],
         coordinate_extent: RasterExtent::new(1, 1).unwrap(),
         source_recipe_blake3: "a".repeat(64),
+        source_context: None,
         mask_revision: "b".repeat(64),
         scene_referred_input: true,
+        force_regenerate: false,
     };
     assert!(validate_input(&invocation).is_ok());
-}
-
-#[test]
-fn scene_referred_patch_reverses_display_curve_across_contrast_and_colour() {
-    // Native display_output.cpp's scene-linear reference values, quantized to
-    // display RGB8. These include deep shadow, the highlight shoulder, and
-    // coloured midtones beside a strong light/dark boundary.
-    let cases = [
-        ([11, 11, 11], [0.01, 0.01, 0.01]),
-        ([41, 41, 41], [0.04, 0.04, 0.04]),
-        ([94, 94, 94], [0.15, 0.15, 0.15]),
-        ([160, 160, 160], [0.4, 0.4, 0.4]),
-        ([221, 221, 221], [0.75, 0.75, 0.75]),
-        ([234, 234, 234], [0.9, 0.9, 0.9]),
-        ([31, 73, 103], [0.02, 0.1, 0.2]),
-        ([115, 149, 175], [0.2, 0.35, 0.5]),
-    ];
-    for (display, scene) in cases {
-        let encoded = encode_completion_rgb(display, true);
-        for (channel, expected) in encoded.into_iter().zip(scene) {
-            let channel = f64::from(channel) / 255.0;
-            let linear = if channel <= 0.04045 {
-                channel / 12.92
-            } else {
-                ((channel + 0.055) / 1.055).powf(2.4)
-            };
-            assert!(
-                (linear - expected).abs() < 0.01,
-                "display {display:?} should recover {scene:?}, got {linear}"
-            );
-        }
-        assert_eq!(encode_completion_rgb(display, false), display);
-    }
 }

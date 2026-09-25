@@ -10,6 +10,7 @@
 //! Rust behavior to share this source file.
 
 mod adjustment;
+mod completion_color_adaptation;
 mod decoder;
 mod detail_session;
 mod display_luma;
@@ -295,6 +296,7 @@ mod ffi {
         camera_profile_name: String,
         camera_profile_diagnostic: String,
         camera_profile_developer_version: u32,
+        completion_camera_to_working: Vec<f64>,
     }
 
     // Rust owns this complete buffer for one synchronous C++ preparation call. Native code

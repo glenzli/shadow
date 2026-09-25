@@ -61,3 +61,22 @@ fn completion_rejects_non_rgba_byte_length() {
         Err(RecipeValidationError::ImageCompletionByteLengthMismatch { .. })
     ));
 }
+
+#[test]
+fn linear_completion_is_explicit_and_round_trips_without_changing_legacy_json() {
+    let original = serde_json::to_value(patch()).unwrap();
+    assert!(original.get("linear_rgba_f32").is_none());
+    let mut linear = original.clone();
+    linear["linear_rgba_f32"] = true.into();
+    linear["byte_len"] = 64.into();
+    let decoded: ManagedImageCompletionPatch = serde_json::from_value(linear.clone()).unwrap();
+    decoded.validate().unwrap();
+    assert!(decoded.linear_rgba_f32());
+    assert_eq!(serde_json::to_value(decoded).unwrap(), linear);
+    linear["byte_len"] = 16.into();
+    let invalid: ManagedImageCompletionPatch = serde_json::from_value(linear).unwrap();
+    assert!(invalid.validate().is_err());
+    let legacy: ManagedImageCompletionPatch = serde_json::from_value(original.clone()).unwrap();
+    assert!(!legacy.linear_rgba_f32());
+    assert_eq!(serde_json::to_value(legacy).unwrap(), original);
+}

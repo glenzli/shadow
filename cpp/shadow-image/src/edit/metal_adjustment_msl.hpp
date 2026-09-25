@@ -12,6 +12,18 @@ inline constexpr std::string_view metal_adjustment_msl_common = R"METAL(
 #include <metal_stdlib>
 using namespace metal;
 
+inline uint completion_u32_sample(device const uchar* data, uint offset) {
+    return uint(data[offset]) | (uint(data[offset + 1u]) << 8u)
+        | (uint(data[offset + 2u]) << 16u) | (uint(data[offset + 3u]) << 24u);
+}
+inline float completion_linear_sample(device const uchar* data, uint offset) {
+    return as_type<float>(completion_u32_sample(data, offset));
+}
+inline float4 completion_linear_pixel(device const uchar* data, uint offset) {
+    return float4(completion_linear_sample(data, offset), completion_linear_sample(data, offset+4u),
+        completion_linear_sample(data, offset+8u), completion_linear_sample(data, offset+12u));
+}
+
 constant uint parameter_abi_version = 3u;
 constant uint plan_identity_version = 1u;
 constant uint opcode_white_balance = 1u;
@@ -798,6 +810,45 @@ inline bool execute_adjustment_program(
                 position.y + invocation.paint_row_origin + uint(operation.parameter_1.w)
             );
             if (strength <= 0.0f) break;
+            if (operation.parameter_0.w == 1.0f) {
+                if (width == 0u || height == 0u || width > 2048u || height > 2048u
+                    || global.x >= frame.x || global.y >= frame.y
+                    || operation.resource_count != width * height * 16u
+                    || operation.secondary_resource_count != frame.x * 8u
+                    || !resource_range_is_valid(operation.resource_offset, operation.resource_count, invocation.completion_byte_count)
+                    || !resource_range_is_valid(operation.secondary_resource_offset,
+                        operation.secondary_resource_count + frame.y * 8u, invocation.completion_byte_count)) {
+                    report_adjustment_failure(status, status_bad_resource, step); return false;
+                }
+                const float x = completion_linear_sample(completion_bytes, operation.secondary_resource_offset + global.x * 8u);
+                const float y = completion_linear_sample(completion_bytes, operation.secondary_resource_offset + operation.secondary_resource_count + global.y * 8u);
+                if (x < 0.0f || y < 0.0f) break;
+                const uint nx = completion_u32_sample(completion_bytes, operation.secondary_resource_offset + global.x * 8u + 4u);
+                const uint ny = completion_u32_sample(completion_bytes, operation.secondary_resource_offset + operation.secondary_resource_count + global.y * 8u + 4u);
+                if (completion_linear_sample(completion_bytes, operation.resource_offset + (ny*width+nx)*16u + 12u) == 0.0f) break;
+                const uint x0 = uint(x), y0 = uint(y), x1 = min(x0+1u,width-1u), y1 = min(y0+1u,height-1u);
+                const float fx=x-float(x0), fy=y-float(y0);
+                float4 blended = float4(0.0f);
+                for (uint i=0u; i<4u; ++i) {
+                    uint px=(i&1u)?x1:x0, py=(i&2u)?y1:y0;
+                    float weight=((i&1u)?fx:1.0f-fx)*((i&2u)?fy:1.0f-fy);
+                    float4 pixel=completion_linear_pixel(completion_bytes, operation.resource_offset+(py*width+px)*16u);
+                    blended += float4(pixel.rgb*pixel.a,pixel.a)*weight;
+                }
+                if (blended.a > 0.0f) {
+                    if (!resource_range_is_valid(operation.reserved_0,36u,invocation.completion_byte_count)) {
+                        report_adjustment_failure(status,status_bad_resource,step); return false;
+                    }
+                    const float3 original=blended.rgb/blended.a;
+                    float3 corrected;
+                    for (uint c=0u;c<3u;++c) {
+                        const uint offset=operation.reserved_0+c*12u;
+                        corrected[c]=dot(original,float3(completion_linear_sample(completion_bytes,offset),completion_linear_sample(completion_bytes,offset+4u),completion_linear_sample(completion_bytes,offset+8u)));
+                    }
+                    rgb=mix(rgb,corrected,blended.a*strength);
+                }
+                break;
+            }
             const uint x_map_at = operation.secondary_resource_offset + global.x * 2u;
             const uint y_map_at = operation.secondary_resource_offset
                                   + operation.secondary_resource_count + global.y * 2u;

@@ -587,8 +587,9 @@ impl LibRawEditDetailSession {
         let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
         request.validate(output_dimensions)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let rendered =
-            handle.render_adjustment_plan_tile(&ffi_detail_tile_request(plan, request))?;
+        let mut wire = ffi_detail_tile_request(plan, request);
+        crate::completion_color_adaptation::bind(&mut wire.nodes, plan, &self.raw_pipeline_receipt);
+        let rendered = handle.render_adjustment_plan_tile(&wire)?;
         let rect = detail_tile_rect(rendered.rect);
         let full_dimensions = dimensions(&rendered.full_dimensions);
         if rect != request.rect || full_dimensions != output_dimensions {
@@ -660,8 +661,9 @@ impl LibRawEditDetailSession {
             ));
         }
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let rendered =
-            handle.render_adjustment_plan_tile16(&ffi_detail_tile_request(plan, request))?;
+        let mut wire = ffi_detail_tile_request(plan, request);
+        crate::completion_color_adaptation::bind(&mut wire.nodes, plan, &self.raw_pipeline_receipt);
+        let rendered = handle.render_adjustment_plan_tile16(&wire)?;
         let rect = detail_tile_rect(rendered.rect);
         let full_dimensions = dimensions(&rendered.full_dimensions);
         if rect != request.rect || full_dimensions != output_dimensions {

@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -120,15 +121,16 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                 const auto& completion = std::get<ImageCompletionAdjustment>(node.parameters);
                 validate_image_completion(completion);
                 emitted_operation_count = completion.patches.size();
-                const Dimensions full = context.full_dimensions.width == 0U
-                                            || context.full_dimensions.height == 0U
-                                            ? input.dimensions
-                                            : context.full_dimensions;
-                const std::size_t map_bytes =
-                    2U * (static_cast<std::size_t>(full.width) + full.height);
+                const Dimensions full =
+                    context.full_dimensions.width == 0U || context.full_dimensions.height == 0U
+                        ? input.dimensions
+                        : context.full_dimensions;
                 for (const auto& patch : completion.patches) {
+                    const std::size_t map_bytes =
+                        (patch.linear_rgba_f32 ? 8U : 2U)
+                        * (static_cast<std::size_t>(full.width) + full.height);
                     if (!checked_resource_add(completion_byte_count, patch.rgba8.size())
-                        || !checked_resource_add(completion_byte_count, map_bytes)
+                        || !checked_resource_add(completion_byte_count, map_bytes + 36U)
                         || completion_byte_count > 64U * 1024U * 1024U) {
                         return {
                             .program = std::nullopt,
@@ -268,8 +270,7 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
     prepared.invocation.perceptual_range_entry_count =
         static_cast<std::uint32_t>(perceptual_range_entry_count);
     prepared.invocation.paint_entry_count = static_cast<std::uint32_t>(paint_entry_count);
-    prepared.invocation.completion_byte_count =
-        static_cast<std::uint32_t>(completion_byte_count);
+    prepared.invocation.completion_byte_count = static_cast<std::uint32_t>(completion_byte_count);
     prepared.paint_entries.reserve(paint_entry_count);
     prepared.completion_bytes.reserve(completion_byte_count);
     prepared.invocation.selective_color_entry_count =
@@ -1166,10 +1167,10 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
             }
             case AdjustmentOperation::image_completion: {
                 const auto& completion = std::get<ImageCompletionAdjustment>(node.parameters);
-                const Dimensions full = context.full_dimensions.width == 0U
-                                            || context.full_dimensions.height == 0U
-                                            ? input.dimensions
-                                            : context.full_dimensions;
+                const Dimensions full =
+                    context.full_dimensions.width == 0U || context.full_dimensions.height == 0U
+                        ? input.dimensions
+                        : context.full_dimensions;
                 // Original-space pixel coordinates must survive the fp32 Metal ABI exactly.
                 constexpr std::uint32_t maximum_exact_float_integer = 1U << 24U;
                 if (full.width > maximum_exact_float_integer
@@ -1192,7 +1193,7 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         static_cast<float>(patch.raster_width),
                         static_cast<float>(patch.raster_height),
                         static_cast<float>(patch.strength),
-                        0.0F,
+                        patch.linear_rgba_f32 ? 1.0F : 0.0F,
                     };
                     patch_record.parameter_1 = {
                         static_cast<float>(full.width),
@@ -1201,19 +1202,59 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         static_cast<float>(context.origin_y),
                     };
                     prepared.completion_bytes.insert(
-                        prepared.completion_bytes.end(), patch.rgba8.begin(), patch.rgba8.end()
+                        prepared.completion_bytes.end(),
+                        patch.rgba8.begin(),
+                        patch.rgba8.end()
                     );
+                    patch_record.reserved_0 =
+                        static_cast<std::uint32_t>(prepared.completion_bytes.size());
+                    for (const double value : patch.color_response) {
+                        const auto bits = std::bit_cast<std::uint32_t>(static_cast<float>(value));
+                        for (unsigned shift = 0U; shift < 32U; shift += 8U)
+                            prepared.completion_bytes.push_back(
+                                static_cast<std::uint8_t>(bits >> shift)
+                            );
+                    }
                     patch_record.secondary_resource_offset =
                         static_cast<std::uint32_t>(prepared.completion_bytes.size());
-                    patch_record.secondary_resource_count = full.width * 2U;
+                    patch_record.secondary_resource_count =
+                        full.width * (patch.linear_rgba_f32 ? 8U : 2U);
                     const auto append_axis_map = [&](const std::uint32_t extent,
                                                      const std::uint32_t raster_extent,
                                                      const double lower,
                                                      const double upper) {
                         for (std::uint32_t coordinate = 0U; coordinate < extent; ++coordinate) {
-                            const double normalized =
-                                (static_cast<double>(coordinate) + 0.5)
-                                / static_cast<double>(extent);
+                            const double normalized = (static_cast<double>(coordinate) + 0.5)
+                                                      / static_cast<double>(extent);
+                            if (patch.linear_rgba_f32) {
+                                float coordinate_value = -1.0F;
+                                if (normalized >= lower && normalized < upper)
+                                    coordinate_value = static_cast<float>(std::clamp(
+                                        (normalized - lower) / (upper - lower) * raster_extent
+                                            - 0.5,
+                                        0.0,
+                                        double(raster_extent - 1U)
+                                    ));
+                                const auto bits = std::bit_cast<std::uint32_t>(coordinate_value);
+                                for (unsigned shift = 0U; shift < 32U; shift += 8U)
+                                    prepared.completion_bytes.push_back(
+                                        static_cast<std::uint8_t>(bits >> shift)
+                                    );
+                                const auto nearest = coordinate_value < 0.0F
+                                                         ? 0U
+                                                         : std::min(
+                                                               raster_extent - 1U,
+                                                               static_cast<std::uint32_t>(
+                                                                   (normalized - lower)
+                                                                   / (upper - lower) * raster_extent
+                                                               )
+                                                           );
+                                for (unsigned shift = 0U; shift < 32U; shift += 8U)
+                                    prepared.completion_bytes.push_back(
+                                        static_cast<std::uint8_t>(nearest >> shift)
+                                    );
+                                continue;
+                            }
                             std::uint16_t sample = std::numeric_limits<std::uint16_t>::max();
                             if (normalized >= lower && normalized < upper) {
                                 const double patch_coordinate =
@@ -1234,10 +1275,16 @@ MetalAdjustmentPreparation prepare_metal_adjustment(
                         }
                     };
                     append_axis_map(
-                        full.width, patch.raster_width, patch.bounds_left, patch.bounds_right
+                        full.width,
+                        patch.raster_width,
+                        patch.bounds_left,
+                        patch.bounds_right
                     );
                     append_axis_map(
-                        full.height, patch.raster_height, patch.bounds_top, patch.bounds_bottom
+                        full.height,
+                        patch.raster_height,
+                        patch.bounds_top,
+                        patch.bounds_bottom
                     );
                     prepared.operations.push_back(patch_record);
                 }

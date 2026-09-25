@@ -21,7 +21,7 @@ use thiserror::Error;
 
 const MAX_ACTIVE_JOBS: usize = 8;
 const MAX_STAGED_PROPOSALS: usize = 16;
-const MAX_PREVIEW_BYTES: usize = 16 * 1_024 * 1_024;
+const MAX_PREVIEW_BYTES: usize = 64 * 1_024 * 1_024;
 
 #[derive(Debug)]
 pub(crate) struct ImageCompletionService {
@@ -60,6 +60,8 @@ pub(crate) struct ImageCompletionProposalPreview {
     pub(crate) generation: u64,
     pub(crate) raster_width: u32,
     pub(crate) raster_height: u32,
+    pub(crate) linear_rgba_f32: bool,
+    pub(crate) source_color_basis: Option<shadow_domain::ImageCompletionColorBasis>,
     pub(crate) rgba8: Vec<u8>,
     pub(crate) placement: ImageCompletionPlacement,
 }
@@ -259,7 +261,7 @@ impl ImageCompletionService {
         };
         let expected = u64::from(patch.raster_extent.width)
             .checked_mul(u64::from(patch.raster_extent.height))
-            .and_then(|pixels| pixels.checked_mul(4))
+            .and_then(|pixels| pixels.checked_mul(if patch.linear_rgba_f32() { 16 } else { 4 }))
             .ok_or(ImageCompletionServiceError::ProposalPreviewTooLarge)?;
         if expected != patch.artifact.byte_len() || expected > MAX_PREVIEW_BYTES as u64 {
             return Err(ImageCompletionServiceError::ProposalPreviewTooLarge);
@@ -279,6 +281,11 @@ impl ImageCompletionService {
             generation,
             raster_width: patch.raster_extent.width,
             raster_height: patch.raster_extent.height,
+            linear_rgba_f32: patch.linear_rgba_f32(),
+            source_color_basis: patch
+                .source_context
+                .as_ref()
+                .and_then(|s| s.color_basis.clone()),
             rgba8,
             placement,
         })

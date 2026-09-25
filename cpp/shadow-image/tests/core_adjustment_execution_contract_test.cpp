@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -312,6 +313,83 @@ void image_completion_is_bounded_and_detail_tile_equivalent() {
     }
 }
 
+void linear_completion_preserves_hdr_and_interpolates_without_erased_pixel_bleed() {
+    std::vector<std::uint8_t> bytes;
+    for (const float sample :
+         std::array{2.0F, -0.2F, 0.5F, 1.0F, 4.0F, 0.2F, 1.5F, 1.0F, 99.0F, 99.0F, 99.0F, 0.0F}) {
+        const auto bits = std::bit_cast<std::uint32_t>(sample);
+        for (unsigned shift = 0U; shift < 32U; shift += 8U)
+            bytes.push_back(static_cast<std::uint8_t>(bits >> shift));
+    }
+    const std::array nodes{image::AdjustmentNode{
+        .node_id = "linear-completion",
+        .parameters = image::ImageCompletionAdjustment{
+            .patches = {{
+                .raster_width = 3U,
+                .raster_height = 1U,
+                .coordinate_width = 6U,
+                .coordinate_height = 1U,
+                .bounds_left = 0.0,
+                .bounds_top = 0.0,
+                .bounds_right = 1.0,
+                .bounds_bottom = 1.0,
+                .strength = 1.0,
+                .linear_rgba_f32 = true,
+                .rgba8 = bytes,
+            }}
+        },
+    }};
+    auto input = rgb_raster(6U, 1U, std::vector<float>(18U, 0.2F));
+    input.working_space = linear_srgb();
+    const auto full = image::execute_adjustment_nodes(input, nodes);
+    expect_close(full.samples[0], 2.0F, "linear patch retains highlights above one");
+    expect_close(full.samples[1], -0.2F, "linear patch retains negative working channels");
+    expect_close(full.samples[3], 2.5F, "linear patch uses bilinear reconstruction");
+    expect_close(
+        full.samples[9],
+        3.05F,
+        "transparent pixels cannot contaminate interpolated colour"
+    );
+    expect_close(full.samples[12], 0.2F, "erased texel gate leaves destination unchanged");
+    auto tile = rgb_raster(3U, 1U, std::vector<float>(9U, 0.2F));
+    tile.working_space = linear_srgb();
+    const auto detail = image::execute_adjustment_nodes(
+        tile,
+        nodes,
+        {
+            .origin_x = 2U,
+            .origin_y = 0U,
+            .full_dimensions = {6U, 1U},
+        }
+    );
+    for (std::size_t i = 0U; i < 9U; ++i)
+        expect_close(
+            detail.samples[i],
+            full.samples[i + 6U],
+            "linear patch detail equals full render"
+        );
+    auto adapted_nodes = nodes;
+    auto& adapted_patch =
+        std::get<image::ImageCompletionAdjustment>(adapted_nodes[0].parameters).patches[0];
+    adapted_patch.color_response = {1.2, 0.1, -0.05, -0.1, 0.9, 0.02, 0.05, 0.1, 0.8};
+    const auto adapted = image::execute_adjustment_nodes(input, adapted_nodes);
+    expect_close(adapted.samples[0], 2.355F, "source response mixes channels without clipping HDR");
+    expect_close(adapted.samples[1], -0.37F, "source response preserves negative channels");
+    expect_close(adapted.samples[12], 0.2F, "source response never fills an erased texel");
+    const auto adapted_tile = image::execute_adjustment_nodes(
+        tile,
+        adapted_nodes,
+        {.origin_x = 2U, .origin_y = 0U, .full_dimensions = {6U, 1U}}
+    );
+    for (std::size_t i = 0U; i < 9U; ++i)
+        expect_close(
+            adapted_tile.samples[i],
+            adapted.samples[i + 6U],
+            "adapted detail equals full render"
+        );
+    expect(adapted_patch.rgba8 == bytes, "source response never rewrites accepted bytes");
+}
+
 } // namespace
 
 int main() {
@@ -320,5 +398,6 @@ int main() {
     new_adjustments_respect_node_order();
     node_order_is_observable_and_disabled_nodes_are_skipped();
     image_completion_is_bounded_and_detail_tile_equivalent();
+    linear_completion_preserves_hdr_and_interpolates_without_erased_pixel_bleed();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

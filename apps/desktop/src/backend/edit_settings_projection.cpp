@@ -491,44 +491,44 @@ BackendSharedGradeNode shared_grade_node(const shadow::desktop::FfiSharedGradeNo
     };
 }
 
+shadow::desktop::FfiPhotoFoundationSettings ffi_foundation(const BackendGradeStack& source) {
+    shadow::desktop::FfiPhotoFoundationSettings settings;
+    settings.enabled = source.foundation.enabled;
+    settings.optics.enabled = source.foundation.optics.enabled;
+    settings.optics.correct_distortion = source.foundation.optics.correct_distortion;
+    settings.optics.correct_tca = source.foundation.optics.correct_tca;
+    settings.optics.correct_vignetting = source.foundation.optics.correct_vignetting;
+    settings.optics.automatic_scale = source.foundation.optics.automatic_scale;
+    settings.optics.manual_distortion = source.foundation.optics.manual_distortion;
+    settings.optics.manual_tca_red_cyan = source.foundation.optics.manual_tca_red_cyan;
+    settings.optics.manual_tca_blue_yellow = source.foundation.optics.manual_tca_blue_yellow;
+    settings.optics.manual_vignetting_amount = source.foundation.optics.manual_vignetting_amount;
+    settings.optics.manual_vignetting_midpoint =
+        source.foundation.optics.manual_vignetting_midpoint;
+    settings.optics.camera_profile_maker =
+        source.foundation.optics.camera_profile_maker.toStdString();
+    settings.optics.camera_profile_model =
+        source.foundation.optics.camera_profile_model.toStdString();
+    settings.optics.lens_profile_maker = source.foundation.optics.lens_profile_maker.toStdString();
+    settings.optics.lens_profile_model = source.foundation.optics.lens_profile_model.toStdString();
+    settings.raw_ai_denoise_present = source.raw_ai_denoise.present;
+    settings.raw_ai_denoise_enabled = source.raw_ai_denoise.enabled;
+    settings.raw_ai_denoise_bypassed = source.raw_ai_denoise.bypassed;
+    settings.raw_ai_denoise_model = source.raw_ai_denoise.model;
+    settings.raw_ai_denoise_amount_percent = source.raw_ai_denoise.amount_percent;
+    settings.raw_highlight_repair_enabled = source.foundation.raw_highlight_repair_enabled;
+    settings.raw_white_balance_mode = source.foundation.raw_white_balance_mode;
+    settings.temperature_kelvin = source.foundation.temperature_kelvin;
+    settings.tint = source.foundation.tint;
+    settings.as_shot_white_balance_available = source.foundation.as_shot_white_balance_available;
+    settings.as_shot_temperature_kelvin = source.foundation.as_shot_temperature_kelvin;
+    settings.as_shot_tint = source.foundation.as_shot_tint;
+    return settings;
+}
+
 shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source) {
     shadow::desktop::FfiEditSettings settings;
-    settings.foundation.enabled = source.foundation.enabled;
-    settings.foundation.optics.enabled = source.foundation.optics.enabled;
-    settings.foundation.optics.correct_distortion = source.foundation.optics.correct_distortion;
-    settings.foundation.optics.correct_tca = source.foundation.optics.correct_tca;
-    settings.foundation.optics.correct_vignetting = source.foundation.optics.correct_vignetting;
-    settings.foundation.optics.automatic_scale = source.foundation.optics.automatic_scale;
-    settings.foundation.optics.manual_distortion = source.foundation.optics.manual_distortion;
-    settings.foundation.optics.manual_tca_red_cyan = source.foundation.optics.manual_tca_red_cyan;
-    settings.foundation.optics.manual_tca_blue_yellow =
-        source.foundation.optics.manual_tca_blue_yellow;
-    settings.foundation.optics.manual_vignetting_amount =
-        source.foundation.optics.manual_vignetting_amount;
-    settings.foundation.optics.manual_vignetting_midpoint =
-        source.foundation.optics.manual_vignetting_midpoint;
-    settings.foundation.optics.camera_profile_maker =
-        source.foundation.optics.camera_profile_maker.toStdString();
-    settings.foundation.optics.camera_profile_model =
-        source.foundation.optics.camera_profile_model.toStdString();
-    settings.foundation.optics.lens_profile_maker =
-        source.foundation.optics.lens_profile_maker.toStdString();
-    settings.foundation.optics.lens_profile_model =
-        source.foundation.optics.lens_profile_model.toStdString();
-    settings.foundation.raw_ai_denoise_present = source.raw_ai_denoise.present;
-    settings.foundation.raw_ai_denoise_enabled = source.raw_ai_denoise.enabled;
-    settings.foundation.raw_ai_denoise_bypassed = source.raw_ai_denoise.bypassed;
-    settings.foundation.raw_ai_denoise_model = source.raw_ai_denoise.model;
-    settings.foundation.raw_ai_denoise_amount_percent = source.raw_ai_denoise.amount_percent;
-    settings.foundation.raw_highlight_repair_enabled =
-        source.foundation.raw_highlight_repair_enabled;
-    settings.foundation.raw_white_balance_mode = source.foundation.raw_white_balance_mode;
-    settings.foundation.temperature_kelvin = source.foundation.temperature_kelvin;
-    settings.foundation.tint = source.foundation.tint;
-    settings.foundation.as_shot_white_balance_available =
-        source.foundation.as_shot_white_balance_available;
-    settings.foundation.as_shot_temperature_kelvin = source.foundation.as_shot_temperature_kelvin;
-    settings.foundation.as_shot_tint = source.foundation.as_shot_tint;
+    settings.foundation = ffi_foundation(source);
     settings.grade_nodes.reserve(static_cast<std::size_t>(source.grade_nodes.size()));
     for (const auto& node : source.grade_nodes) {
         settings.grade_nodes.push_back(ffi_grade_node(node));
@@ -612,6 +612,7 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
     settings.image_completions.reserve(static_cast<std::size_t>(source.image_completions.size()));
     for (const auto& region : source.image_completions) {
         settings.image_completions.push_back({
+            .linear_rgba_f32 = region.linear_rgba_f32,
             .store_object_id = region.store_object_id.toStdString(),
             .storage_revision = region.storage_revision,
             .content_blake3 = region.content_blake3.toStdString(),
@@ -625,6 +626,7 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
             .bounds_right = region.bounds_right,
             .bounds_bottom = region.bounds_bottom,
             .source_recipe_blake3 = region.source_recipe_blake3.toStdString(),
+            .source_context_json = region.source_context_json.toStdString(),
             .provider = region.provider.toStdString(),
             .deployment = region.deployment.toStdString(),
             .model_build = region.model_build.toStdString(),
@@ -801,6 +803,7 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
     );
     for (const auto& region : source.image_completions) {
         result.image_completions.push_back({
+            .linear_rgba_f32 = region.linear_rgba_f32,
             .store_object_id = qstring(region.store_object_id),
             .storage_revision = region.storage_revision,
             .content_blake3 = qstring(region.content_blake3),
@@ -814,6 +817,7 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
             .bounds_right = region.bounds_right,
             .bounds_bottom = region.bounds_bottom,
             .source_recipe_blake3 = qstring(region.source_recipe_blake3),
+            .source_context_json = qstring(region.source_context_json),
             .provider = qstring(region.provider),
             .deployment = qstring(region.deployment),
             .model_build = qstring(region.model_build),

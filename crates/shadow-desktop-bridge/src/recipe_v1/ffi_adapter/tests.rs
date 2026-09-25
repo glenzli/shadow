@@ -570,3 +570,51 @@ fn malformed_liquify_strokes_fail_closed_at_the_desktop_boundary() {
             .contains("Liquify stroke 0 is invalid")
     );
 }
+
+#[test]
+fn linear_completion_survives_desktop_projection_and_strength_change() {
+    let digest = "a".repeat(64);
+    let patch = shadow_domain::ManagedImageCompletionPatch::new_with_encoding(
+        true,
+        format!("objects/v1/b3/{}/{}", &digest[..2], &digest[2..]),
+        1,
+        digest,
+        16,
+        1,
+        1,
+        512,
+        512,
+        unit(0.1),
+        unit(0.1),
+        unit(0.8),
+        unit(0.8),
+        "b".repeat(64),
+        "local".into(),
+        "lama".into(),
+        "build".into(),
+        "linear-v2".into(),
+        "contract".into(),
+        "cpu".into(),
+    )
+    .unwrap();
+    let patch = patch
+        .with_source_context(Some(shadow_domain::ImageCompletionSourceContext {
+            color_basis: None,
+            foundation: Default::default(),
+            raw_ai_denoise: Default::default(),
+        }))
+        .unwrap();
+    let mut draft = GradeStackDraft::default();
+    draft
+        .image_completions
+        .push(shadow_domain::ImageCompletionRegion::new(patch.clone()).with_pre_grade(true));
+    let mut dto = encode_grade_stack_draft_recipe_v1(draft).unwrap();
+    assert!(dto.image_completions[0].linear_rgba_f32);
+    dto.image_completions[0].strength = 0.35;
+    let restored = decode_grade_stack_draft_recipe_v1(&dto).unwrap();
+    assert_eq!(restored.image_completions[0].patch(), &patch);
+    assert_eq!(restored.image_completions[0].strength(), unit(0.35));
+    let json = serde_json::to_vec(&restored.image_completions[0]).unwrap();
+    let reopened: shadow_domain::ImageCompletionRegion = serde_json::from_slice(&json).unwrap();
+    assert_eq!(reopened, restored.image_completions[0]);
+}

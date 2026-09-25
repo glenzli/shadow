@@ -37,6 +37,8 @@ impl crate::recipe_v1::managed_raster_resolution::ManagedImageCompletionResolver
             bounds_right: patch.bounds_right().get(),
             bounds_bottom: patch.bounds_bottom().get(),
             strength,
+            linear_rgba_f32: false,
+            source_color_basis: None,
             rgba8: vec![255; 16],
         })
     }
@@ -178,6 +180,22 @@ fn new_completion_precedes_grade_while_legacy_completion_keeps_its_position() {
     assert_eq!(positions.len(), 2);
     assert_eq!(positions[0], 0);
     assert_eq!(positions[1], plan.nodes.len() - 1);
+    let mut plan = plan;
+    let AdjustmentRenderOperation::ImageCompletion { patches } = &plan.nodes[0].operation else {
+        panic!("completion");
+    };
+    let mut candidate = patches[0].clone();
+    candidate.strength = 0.42;
+    super::append_transient_pre_grade_completion(&mut plan, candidate, Some(0)).unwrap();
+    let AdjustmentRenderOperation::ImageCompletion { patches } = &plan.nodes[0].operation else {
+        panic!("completion");
+    };
+    assert_eq!(patches.len(), 2);
+    assert_eq!(
+        patches[0].strength, 0.42,
+        "refresh preview keeps the replaced region's order"
+    );
+    assert_eq!(patches[1].strength, 1.0);
 }
 
 struct FixtureManagedRasterResolver;

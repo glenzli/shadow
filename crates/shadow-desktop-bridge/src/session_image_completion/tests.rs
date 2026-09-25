@@ -83,9 +83,15 @@ fn expansion_uses_original_context_while_growing_the_model_mask() {
         ..base[0]
     }];
     let jpeg = jpeg.into_inner();
-    let original = prepare_completion_input(&jpeg, extent, &base).unwrap();
-    let enlarged =
-        prepare_completion_input_with_crop_points(&jpeg, extent, &expanded, &base).unwrap();
+    let original =
+        prepare_completion_input(&image::load_from_memory(&jpeg).unwrap(), extent, &base).unwrap();
+    let enlarged = prepare_completion_input_with_crop_points(
+        &image::load_from_memory(&jpeg).unwrap(),
+        extent,
+        &expanded,
+        &base,
+    )
+    .unwrap();
     assert_eq!(original.placement, enlarged.placement);
     assert_eq!(original.crop_png, enlarged.crop_png);
     let selected_pixels = |mask: &[u8]| mask.iter().filter(|pixel| **pixel != 0).count();
@@ -118,9 +124,13 @@ fn expansion_outside_original_crop_recomputes_placement_without_clipping() {
     ))
     .write_to(&mut jpeg, ImageFormat::Jpeg)
     .unwrap();
-    let prepared =
-        prepare_completion_input_with_crop_points(&jpeg.into_inner(), extent, &[expanded], &[base])
-            .unwrap();
+    let prepared = prepare_completion_input_with_crop_points(
+        &image::load_from_memory(&jpeg.into_inner()).unwrap(),
+        extent,
+        &[expanded],
+        &[base],
+    )
+    .unwrap();
     assert_ne!(prepared.placement, original_placement);
     assert!(selection_fits_placement(&[expanded], prepared.placement));
     assert!(prepared.mask_gray8.contains(&255));
@@ -198,7 +208,12 @@ fn model_input_keeps_source_colours_and_selection_registered_after_square_crop()
         erase: false,
         stroke_id: 1,
     };
-    let prepared = prepare_completion_input(&jpeg.into_inner(), extent, &[point]).unwrap();
+    let prepared = prepare_completion_input(
+        &image::load_from_memory(&jpeg.into_inner()).unwrap(),
+        extent,
+        &[point],
+    )
+    .unwrap();
     let crop = image::load_from_memory_with_format(&prepared.crop_png, ImageFormat::Png)
         .unwrap()
         .to_rgb8();
@@ -263,4 +278,41 @@ fn ordered_erase_samples_remove_painted_pixels() {
     let mask = rasterize_mask(&points, placement);
     assert_eq!(mask[(256 * 512 + 256) as usize], 0);
     assert!(mask.contains(&255));
+}
+
+#[test]
+fn completion_source_identity_is_stable_between_requests() {
+    let a = completion_source_node().unwrap();
+    let b = completion_source_node().unwrap();
+    assert_eq!(a.grade_node_id, b.grade_node_id);
+    assert_eq!(a.exposure_render_op_id, b.exposure_render_op_id);
+    assert_ne!(a.grade_node_id, a.exposure_render_op_id);
+}
+
+#[test]
+fn lossless_completion_crop_preserves_exact_saturated_colour_bytes() {
+    let mut image = image::RgbImage::new(512, 512);
+    for (x, y, p) in image.enumerate_pixels_mut() {
+        *p = image::Rgb([
+            (x % 256) as u8,
+            (y % 256) as u8,
+            if x % 2 == 0 { 255 } else { 0 },
+        ]);
+    }
+    let prepared = prepare_completion_input_with_mask(
+        &DynamicImage::ImageRgb8(image.clone()),
+        RasterExtent::new(512, 512).unwrap(),
+        ImageCompletionPlacement {
+            bounds_left: UnitInterval::ZERO,
+            bounds_top: UnitInterval::ZERO,
+            bounds_right: UnitInterval::ONE,
+            bounds_bottom: UnitInterval::ONE,
+        },
+        vec![255; 512 * 512],
+    )
+    .unwrap();
+    let decoded = image::load_from_memory(&prepared.crop_png)
+        .unwrap()
+        .to_rgb8();
+    assert_eq!(decoded, image);
 }

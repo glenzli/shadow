@@ -41,6 +41,7 @@ that same private wire representation:
   cancellation, and generation-matched render outcomes.
 - [`src/detail_session.rs`](src/detail_session.rs) owns the retained full-resolution source,
   bounded tile requests, and tightly packed RGB8 output validation.
+- [`src/completion_color_adaptation.rs`](src/completion_color_adaptation.rs) binds immutable accepted repair colour to the prepared RAW source response for preview, detail, export and stateless rendering. It never executes a model or rewrites stored patch pixels.
 - [`src/render_wire.rs`](src/render_wire.rs) is the single auditable adapter from typed
   adjustment, geometry, and tile contracts to the flat private CXX wire.
 - [`src/provider.rs`](src/provider.rs) owns provider identities, supported source declarations,

@@ -320,6 +320,7 @@ struct BackendPhotoGeometry final {
 // Pixel bytes stay in the managed derived-raster store; the desktop transports
 // only verified identity, placement, provenance, and editable presentation.
 struct BackendImageCompletionRegion final {
+    bool linear_rgba_f32 = false;
     QString store_object_id;
     std::uint32_t storage_revision = 0;
     QString content_blake3;
@@ -333,6 +334,7 @@ struct BackendImageCompletionRegion final {
     double bounds_right = 1.0;
     double bounds_bottom = 1.0;
     QString source_recipe_blake3;
+    QString source_context_json;
     QString provider;
     QString deployment;
     QString model_build;
@@ -642,6 +644,7 @@ struct BackendImageCompletionRequest final {
     QVector<BackendImageCompletionBrushPoint> points;
     double selection_expansion = 0.0;
     int refresh_region_index = -1;
+    bool force_regenerate = false;
 };
 
 struct BackendImageCompletionResult final {

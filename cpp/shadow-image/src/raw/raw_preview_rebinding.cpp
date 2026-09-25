@@ -102,6 +102,10 @@ same_plan_except_white_balance(RawDevelopmentPlan left, RawDevelopmentPlan right
     RawPipelineReceipt pipeline = original;
     pipeline.requested_plan = requested;
     pipeline.effective_plan = effective;
+    pipeline.completion_camera_to_working.reset();
+    if (!binding.dcp || !binding.dcp->has_post_matrix_stages())
+        pipeline.completion_camera_to_working =
+            binding.linear_transform.camera_rgb_to_linear_srgb_d65;
     pipeline.camera_profile_status = binding.camera_profile_status;
     pipeline.camera_profile_diagnostic = binding.camera_profile_diagnostic;
     pipeline.source_scene_luminance_percentile = source_scene_luminance_percentile;

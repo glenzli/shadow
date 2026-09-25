@@ -153,6 +153,7 @@ fn publication_preserves_recipe_preview_storage_and_reader_identity_contract() {
 
 fn raw_pipeline_receipt(cache_identity: &str, plan: RawDevelopmentPlan) -> RawPipelineReceipt {
     RawPipelineReceipt {
+        completion_color_basis: None,
         schema_version: RawPipelineReceipt::CURRENT_SCHEMA_VERSION,
         path: RawPipelinePath::ShadowRawFrame,
         cache_identity: cache_identity.to_owned(),

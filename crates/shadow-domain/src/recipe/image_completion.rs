@@ -1,5 +1,8 @@
 //! Photo-local, immutable AI completion patches.
 
+mod source_context;
+pub use source_context::{ImageCompletionColorBasis, ImageCompletionSourceContext};
+
 use serde::{Deserialize, Serialize};
 
 use super::{RecipeValidationError, UnitInterval};
@@ -8,7 +11,7 @@ pub const MANAGED_IMAGE_COMPLETION_REFERENCE_VERSION: u32 = 1;
 pub const MAX_IMAGE_COMPLETION_PATCH_DIMENSION: u32 = 2_048;
 pub const MAX_IMAGE_COMPLETION_REGIONS_PER_RECIPE: usize = 32;
 
-/// Exact application-managed RGBA8 bytes accepted from one completion proposal.
+/// Exact application-managed completion bytes accepted from one proposal.
 ///
 /// RGB stores the generated candidate and alpha stores the user's selection.
 /// `bounds_*` places the patch in original-image coordinates, so crop/rotate
@@ -17,6 +20,8 @@ pub const MAX_IMAGE_COMPLETION_REGIONS_PER_RECIPE: usize = 32;
 #[serde(deny_unknown_fields)]
 pub struct ManagedImageCompletionPatch {
     contract_version: u32,
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    linear_rgba_f32: bool,
     store_object_id: String,
     storage_revision: u32,
     content_blake3: String,
@@ -30,6 +35,8 @@ pub struct ManagedImageCompletionPatch {
     bounds_right: UnitInterval,
     bounds_bottom: UnitInterval,
     source_recipe_blake3: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_context: Option<ImageCompletionSourceContext>,
     provider: String,
     deployment: String,
     model_build: String,
@@ -68,8 +75,61 @@ impl ManagedImageCompletionPatch {
         api_contract_revision: String,
         actual_execution_provider: String,
     ) -> Result<Self, RecipeValidationError> {
+        Self::new_with_encoding(
+            false,
+            store_object_id,
+            storage_revision,
+            content_blake3,
+            byte_len,
+            raster_width,
+            raster_height,
+            coordinate_width,
+            coordinate_height,
+            bounds_left,
+            bounds_top,
+            bounds_right,
+            bounds_bottom,
+            source_recipe_blake3,
+            provider,
+            deployment,
+            model_build,
+            postprocessing_identity,
+            api_contract_revision,
+            actual_execution_provider,
+        )
+    }
+
+    /// Creates a patch with an explicit little-endian linear RGBA32F encoding.
+    ///
+    /// # Errors
+    /// Returns an error for invalid managed identity, geometry, length or provenance.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_encoding(
+        linear_rgba_f32: bool,
+        store_object_id: String,
+        storage_revision: u32,
+        content_blake3: String,
+        byte_len: u64,
+        raster_width: u32,
+        raster_height: u32,
+        coordinate_width: u32,
+        coordinate_height: u32,
+        bounds_left: UnitInterval,
+        bounds_top: UnitInterval,
+        bounds_right: UnitInterval,
+        bounds_bottom: UnitInterval,
+        source_recipe_blake3: String,
+        provider: String,
+        deployment: String,
+        model_build: String,
+        postprocessing_identity: String,
+        api_contract_revision: String,
+        actual_execution_provider: String,
+    ) -> Result<Self, RecipeValidationError> {
         let patch = Self {
             contract_version: MANAGED_IMAGE_COMPLETION_REFERENCE_VERSION,
+            source_context: None,
+            linear_rgba_f32,
             store_object_id,
             storage_revision,
             content_blake3,
@@ -92,6 +152,23 @@ impl ManagedImageCompletionPatch {
         };
         patch.validate()?;
         Ok(patch)
+    }
+
+    pub fn source_context(&self) -> Option<&ImageCompletionSourceContext> {
+        self.source_context.as_ref()
+    }
+
+    pub fn with_source_context(
+        mut self,
+        context: Option<ImageCompletionSourceContext>,
+    ) -> Result<Self, RecipeValidationError> {
+        self.source_context = context;
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub const fn linear_rgba_f32(&self) -> bool {
+        self.linear_rgba_f32
     }
 
     pub fn store_object_id(&self) -> &str {
@@ -170,6 +247,12 @@ impl ManagedImageCompletionPatch {
         if self.storage_revision == 0 {
             return Err(RecipeValidationError::ZeroImageCompletionStorageRevision);
         }
+        if let Some(context) = &self.source_context {
+            if !self.linear_rgba_f32 {
+                return Err(RecipeValidationError::InvalidImageCompletionSourceIdentity);
+            }
+            context.validate()?;
+        }
         validate_digest(&self.content_blake3)?;
         let expected_object_id = format!(
             "objects/v{}/b3/{}/{}",
@@ -194,7 +277,7 @@ impl ManagedImageCompletionPatch {
         )?;
         let expected_byte_len = u64::from(self.raster_width)
             .checked_mul(u64::from(self.raster_height))
-            .and_then(|pixels| pixels.checked_mul(4))
+            .and_then(|pixels| pixels.checked_mul(if self.linear_rgba_f32 { 16 } else { 4 }))
             .ok_or(RecipeValidationError::ImageCompletionByteLengthMismatch {
                 expected: u64::MAX,
                 actual: self.byte_len,

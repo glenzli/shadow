@@ -730,6 +730,20 @@ pub(crate) fn ffi_optics_settings(settings: &RecipeOpticsSettings) -> ffi::FfiOp
     }
 }
 
+pub(crate) fn decode_foundation_settings(
+    foundation: &ffi::FfiPhotoFoundationSettings,
+) -> AnyResult<(PhotoFoundationNode, RawFoundationDenoise)> {
+    Ok((
+        PhotoFoundationNode::new(
+            RecipeInputSettings::new(recipe_optics_settings(&foundation.optics))
+                .with_enabled(foundation.enabled)
+                .with_raw_highlight_repair_enabled(foundation.raw_highlight_repair_enabled)
+                .with_raw_white_balance(raw_white_balance_from_ffi(foundation)?),
+        ),
+        raw_ai_denoise_from_ffi(foundation)?,
+    ))
+}
+
 fn raw_white_balance_from_ffi(
     foundation: &ffi::FfiPhotoFoundationSettings,
 ) -> AnyResult<RawWhiteBalance> {
@@ -826,12 +840,7 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
     }
     let grade_stack = GradeStackDraft {
         raw_ai_denoise: raw_ai_denoise_from_ffi(&settings.foundation)?,
-        foundation: PhotoFoundationNode::new(
-            RecipeInputSettings::new(recipe_optics_settings(&settings.foundation.optics))
-                .with_enabled(settings.foundation.enabled)
-                .with_raw_highlight_repair_enabled(settings.foundation.raw_highlight_repair_enabled)
-                .with_raw_white_balance(raw_white_balance_from_ffi(&settings.foundation)?),
-        ),
+        foundation: decode_foundation_settings(&settings.foundation)?.0,
         grade_nodes: settings
             .grade_nodes
             .iter()
@@ -946,7 +955,8 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
             .iter()
             .enumerate()
             .map(|(index, region)| {
-                let patch = ManagedImageCompletionPatch::new(
+                let patch = ManagedImageCompletionPatch::new_with_encoding(
+                    region.linear_rgba_f32,
                     region.store_object_id.clone(),
                     region.storage_revision,
                     region.content_blake3.clone(),
@@ -968,6 +978,15 @@ pub(crate) fn decode_grade_stack_draft_recipe_v1(
                     region.actual_execution_provider.clone(),
                 )
                 .with_context(|| format!("AI completion region {index} is invalid"))?;
+                let context = if region.source_context_json.is_empty() {
+                    None
+                } else {
+                    Some(
+                        serde_json::from_str(&region.source_context_json)
+                            .context("invalid completion source context")?,
+                    )
+                };
+                let patch = patch.with_source_context(context)?;
                 Ok(ImageCompletionRegion::new(patch)
                     .with_pre_grade(region.pre_grade)
                     .with_enabled(region.enabled)
@@ -1516,6 +1535,7 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
             .map(|region| {
                 let patch = region.patch();
                 ffi::FfiImageCompletionRegion {
+                    linear_rgba_f32: patch.linear_rgba_f32(),
                     store_object_id: patch.store_object_id().to_owned(),
                     storage_revision: patch.storage_revision(),
                     content_blake3: patch.content_blake3().to_owned(),
@@ -1529,6 +1549,12 @@ pub(crate) fn encode_grade_stack_draft_recipe_v1(
                     bounds_right: patch.bounds_right().get(),
                     bounds_bottom: patch.bounds_bottom().get(),
                     source_recipe_blake3: patch.source_recipe_blake3().to_owned(),
+                    source_context_json: patch
+                        .source_context()
+                        .map(|c| {
+                            serde_json::to_string(c).expect("validated completion source context")
+                        })
+                        .unwrap_or_default(),
                     provider: patch.provider().to_owned(),
                     deployment: patch.deployment().to_owned(),
                     model_build: patch.model_build().to_owned(),

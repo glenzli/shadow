@@ -953,3 +953,18 @@ Liquify/Canvas geometry, and performs one explicit host readback on tool prepara
 has at most a 512-pixel edge; pointer updates read it without decode, GPU dispatch or readback.
 The L channel uses working-space Oklab L; RGB channels use the curve's signed sRGB encoding
 in the declared working primaries. It does not clamp HDR samples into the editable SDR range.
+
+Accepted AI repair sampling is owned by [`src/edit/image_completion.cpp`](src/edit/image_completion.cpp)
+and the matching Metal program/MSL. Explicit linear RGBA32F patches keep scene values above one and
+use premultiplied bilinear reconstruction with a nearest-alpha gate; legacy RGBA8 keeps its original
+nearest/sRGB interpretation. Full-frame and detail-tile paths use the same global pixel centers.
+The wire accepts the legacy nine-scalar descriptor and the ten-scalar explicit-encoding descriptor.
+
+## Completion source colour response
+
+Accepted linear completion samples carry a render-only 3x3 response, evaluated after premultiplied
+interpolation and before alpha composition on CPU and Metal. The original patch and erased-texel
+support remain unchanged. The RAW source receipt exposes its compiled unwhite-balanced Camera RGB
+to working-RGB basis only for matrix-only DCP routes; it never substitutes for CFA-domain white
+balance. The Rust source-response owner binds preview/detail/export consistently. GPU side resources
+include the bounded 36-byte matrix, with no source-image readback for matching.

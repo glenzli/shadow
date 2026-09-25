@@ -95,6 +95,7 @@ class EditAiCompletionController final {
     QString candidate_source_;
     std::uint32_t next_stroke_id_ = 0;
     int refresh_region_index_ = -1;
+    bool force_regenerate_ = false;
     double brush_radius_ = 0.04;
     double selection_expansion_ = 0.0;
     bool erase_mode_ = false;

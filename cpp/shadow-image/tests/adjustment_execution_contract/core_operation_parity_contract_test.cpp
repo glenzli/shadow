@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -40,10 +41,11 @@ void expect(const bool condition, const std::string_view message) {
     return {
         image::AdjustmentNode{
             .node_id = "white-balance",
-            .parameters = image::RgbWhiteBalanceAdjustment{
-                .temperature = 0.24,
-                .tint = -0.13,
-            },
+            .parameters =
+                image::RgbWhiteBalanceAdjustment{
+                    .temperature = 0.24,
+                    .tint = -0.13,
+                },
         },
         image::AdjustmentNode{
             .node_id = "exposure",
@@ -51,10 +53,11 @@ void expect(const bool condition, const std::string_view message) {
         },
         image::AdjustmentNode{
             .node_id = "contrast",
-            .parameters = image::ContrastAdjustment{
-                .factor = 1.42,
-                .pivot = 0.18,
-            },
+            .parameters =
+                image::ContrastAdjustment{
+                    .factor = 1.42,
+                    .pivot = 0.18,
+                },
         },
         image::AdjustmentNode{
             .node_id = "saturation",
@@ -88,9 +91,7 @@ void every_core_order_matches_the_cpu_oracle() {
         );
         double error = 0.0;
         expect(
-            metal.valid()
-                && metal.backend == image::AdjustmentBackend::metal
-                && !metal.fell_back
+            metal.valid() && metal.backend == image::AdjustmentBackend::metal && !metal.fell_back
                 && close_to_cpu(metal.pixels, cpu, error),
             "Metal preserves one of the 24 core-operation orders"
         );
@@ -98,8 +99,7 @@ void every_core_order_matches_the_cpu_oracle() {
         ++permutation_count;
     } while (std::next_permutation(order.begin(), order.end()));
     expect(permutation_count == 24U, "all 24 core-operation permutations execute");
-    std::cout << "Metal adjustment 24-order maximum absolute error: "
-              << worst_error << '\n';
+    std::cout << "Metal adjustment 24-order maximum absolute error: " << worst_error << '\n';
 
     image::ImageCompletionPatch first{
         .raster_width = 4U,
@@ -140,14 +140,46 @@ void every_core_order_matches_the_cpu_oracle() {
     };
     const auto completion_cpu = image::execute_adjustment_nodes(input, completion_nodes);
     const auto completion_metal = image::execute_adjustment_nodes_with_backend(
-        input, completion_nodes, {}, image::AdjustmentBackendMode::metal
+        input,
+        completion_nodes,
+        {},
+        image::AdjustmentBackendMode::metal
     );
     double completion_error = 0.0;
     expect(
-        completion_metal.backend == image::AdjustmentBackend::metal
-            && !completion_metal.fell_back
+        completion_metal.backend == image::AdjustmentBackend::metal && !completion_metal.fell_back
             && close_to_cpu(completion_metal.pixels, completion_cpu, completion_error, 2.0e-4),
         "two overlapping AI completion regions follow their existing post-grade order on Metal"
+    );
+
+    auto linear_nodes = completion_nodes;
+    auto& regions = std::get<image::ImageCompletionAdjustment>(linear_nodes[1].parameters).patches;
+    for (auto& region : regions) {
+        region.linear_rgba_f32 = true;
+        region.color_response = {1.2, 0.1, -0.05, -0.1, 0.9, 0.02, 0.05, 0.1, 0.8};
+        region.rgba8.clear();
+        for (std::size_t pixel = 0U; pixel < 16U; ++pixel) {
+            const float alpha = pixel % 3U == 0U ? 0.0F : 0.7F;
+            for (const float sample : std::array{2.0F + float(pixel) * 0.3F, -0.03F, 0.4F, alpha}) {
+                const auto bits = std::bit_cast<std::uint32_t>(sample);
+                for (unsigned shift = 0U; shift < 32U; shift += 8U)
+                    region.rgba8.push_back(static_cast<std::uint8_t>(bits >> shift));
+            }
+        }
+    }
+    std::swap(linear_nodes[0], linear_nodes[1]);
+    const auto linear_cpu = image::execute_adjustment_nodes(input, linear_nodes);
+    const auto linear_metal = image::execute_adjustment_nodes_with_backend(
+        input,
+        linear_nodes,
+        {},
+        image::AdjustmentBackendMode::metal
+    );
+    double linear_error = 0.0;
+    expect(
+        linear_metal.backend == image::AdjustmentBackend::metal && !linear_metal.fell_back
+            && close_to_cpu(linear_metal.pixels, linear_cpu, linear_error, 2.0e-4),
+        "linear HDR completion with erased texels and downstream exposure matches CPU on Metal"
     );
     const auto detail_input = make_image(11U, 7U);
     const image::AdjustmentExecutionContext detail_context{
@@ -158,12 +190,35 @@ void every_core_order_matches_the_cpu_oracle() {
     const auto detail_cpu =
         image::execute_adjustment_nodes(detail_input, completion_nodes, detail_context);
     const auto detail_metal = image::execute_adjustment_nodes_with_backend(
-        detail_input, completion_nodes, detail_context, image::AdjustmentBackendMode::metal
+        detail_input,
+        completion_nodes,
+        detail_context,
+        image::AdjustmentBackendMode::metal
+    );
+
+    const auto linear_detail_cpu =
+        image::execute_adjustment_nodes(detail_input, linear_nodes, detail_context);
+    const auto linear_detail_metal = image::execute_adjustment_nodes_with_backend(
+        detail_input,
+        linear_nodes,
+        detail_context,
+        image::AdjustmentBackendMode::metal
+    );
+    double linear_detail_error = 0.0;
+    expect(
+        linear_detail_metal.backend == image::AdjustmentBackend::metal
+            && !linear_detail_metal.fell_back
+            && close_to_cpu(
+                linear_detail_metal.pixels,
+                linear_detail_cpu,
+                linear_detail_error,
+                2.0e-4
+            ),
+        "linear completion subpixel maps preserve detail origin on Metal"
     );
     double detail_error = 0.0;
     expect(
-        detail_metal.backend == image::AdjustmentBackend::metal
-            && !detail_metal.fell_back
+        detail_metal.backend == image::AdjustmentBackend::metal && !detail_metal.fell_back
             && close_to_cpu(detail_metal.pixels, detail_cpu, detail_error, 2.0e-4),
         "AI completion tile coordinates and clipped bounds match CPU at nonzero origin"
     );
@@ -188,23 +243,26 @@ void randomized_and_endpoint_parameters_match_the_cpu_oracle() {
         std::array nodes{
             image::AdjustmentNode{
                 .node_id = "random-wb",
-                .parameters = image::RgbWhiteBalanceAdjustment{
-                    .temperature = iteration == 0U ? 1.0 : white_balance(generator),
-                    .tint = iteration == 1U ? -1.0 : white_balance(generator),
-                },
+                .parameters =
+                    image::RgbWhiteBalanceAdjustment{
+                        .temperature = iteration == 0U ? 1.0 : white_balance(generator),
+                        .tint = iteration == 1U ? -1.0 : white_balance(generator),
+                    },
             },
             image::AdjustmentNode{
                 .node_id = "random-exposure",
-                .parameters = image::ExposureAdjustment{
-                    .stops = exposure(generator),
-                },
+                .parameters =
+                    image::ExposureAdjustment{
+                        .stops = exposure(generator),
+                    },
             },
             image::AdjustmentNode{
                 .node_id = "random-contrast",
-                .parameters = image::ContrastAdjustment{
-                    .factor = iteration == 0U ? 0.0 : contrast(generator),
-                    .pivot = iteration == 1U ? 0.0 : 0.18,
-                },
+                .parameters =
+                    image::ContrastAdjustment{
+                        .factor = iteration == 0U ? 0.0 : contrast(generator),
+                        .pivot = iteration == 1U ? 0.0 : 0.18,
+                    },
             },
             image::AdjustmentNode{
                 .node_id = "random-saturation",
@@ -234,63 +292,64 @@ void randomized_and_endpoint_parameters_match_the_cpu_oracle() {
                 if (const auto* value =
                         std::get_if<image::RgbWhiteBalanceAdjustment>(&node.parameters)) {
                     std::cerr << '(' << value->temperature << ',' << value->tint << ')';
-                } else if (const auto* value =
-                               std::get_if<image::ExposureAdjustment>(&node.parameters)) {
+                } else if (
+                    const auto* value = std::get_if<image::ExposureAdjustment>(&node.parameters)
+                ) {
                     std::cerr << '(' << value->stops << ')';
-                } else if (const auto* value =
-                               std::get_if<image::ContrastAdjustment>(&node.parameters)) {
+                } else if (
+                    const auto* value = std::get_if<image::ContrastAdjustment>(&node.parameters)
+                ) {
                     std::cerr << '(' << value->factor << ',' << value->pivot << ')';
-                } else if (const auto* value =
-                               std::get_if<image::SaturationAdjustment>(&node.parameters)) {
+                } else if (
+                    const auto* value = std::get_if<image::SaturationAdjustment>(&node.parameters)
+                ) {
                     std::cerr << '(' << value->factor << ')';
                 }
             }
             std::cerr << '\n';
         }
         expect(
-            metal.backend == image::AdjustmentBackend::metal
-                && parity,
+            metal.backend == image::AdjustmentBackend::metal && parity,
             "random, endpoint, factor-zero and super-white parameters match CPU"
         );
         worst_error = std::max(worst_error, error);
-        const auto cpu_display =
-            image::render_linear_srgb_to_display_srgb8_cpu_reference(
-                cpu,
-                image::DisplayOutputRequest{.target_dimensions = cpu.dimensions}
-            );
-        const auto metal_display =
-            image::render_linear_srgb_to_display_srgb8_cpu_reference(
-                metal.pixels,
-                image::DisplayOutputRequest{
-                    .target_dimensions = metal.pixels.dimensions,
-                }
-            );
+        const auto cpu_display = image::render_linear_srgb_to_display_srgb8_cpu_reference(
+            cpu,
+            image::DisplayOutputRequest{.target_dimensions = cpu.dimensions}
+        );
+        const auto metal_display = image::render_linear_srgb_to_display_srgb8_cpu_reference(
+            metal.pixels,
+            image::DisplayOutputRequest{
+                .target_dimensions = metal.pixels.dimensions,
+            }
+        );
         for (std::size_t index = 0U; index < cpu_display.bytes.size(); ++index) {
-            display_code_errors.push_back(static_cast<unsigned int>(std::abs(
-                static_cast<int>(cpu_display.bytes[index])
-                - static_cast<int>(metal_display.bytes[index])
-            )));
+            display_code_errors.push_back(
+                static_cast<unsigned int>(std::abs(
+                    static_cast<int>(cpu_display.bytes[index])
+                    - static_cast<int>(metal_display.bytes[index])
+                ))
+            );
         }
     }
     std::sort(display_code_errors.begin(), display_code_errors.end());
     const unsigned int maximum_code_error = display_code_errors.back();
-    const std::size_t p99_index = static_cast<std::size_t>(
-        static_cast<double>(display_code_errors.size() - 1U) * 0.99
-    );
+    const std::size_t p99_index =
+        static_cast<std::size_t>(static_cast<double>(display_code_errors.size() - 1U) * 0.99);
     const unsigned int p99_code_error = display_code_errors[p99_index];
-    const double mean_code_error =
-        static_cast<double>(std::accumulate(
-            display_code_errors.begin(),
-            display_code_errors.end(),
-            std::uint64_t{0U}
-        )) / static_cast<double>(display_code_errors.size());
+    const double mean_code_error = static_cast<double>(std::accumulate(
+                                       display_code_errors.begin(),
+                                       display_code_errors.end(),
+                                       std::uint64_t{0U}
+                                   ))
+                                   / static_cast<double>(display_code_errors.size());
     expect(
         maximum_code_error <= 1U && p99_code_error <= 1U && mean_code_error <= 0.02,
         "extreme fp32 adjustment differences stay below one display code"
     );
-    std::cout << "Metal adjustment randomized maximum absolute error: "
-              << worst_error << "; display RGB8 max=" << maximum_code_error
-              << ", p99=" << p99_code_error << ", mean=" << mean_code_error << '\n';
+    std::cout << "Metal adjustment randomized maximum absolute error: " << worst_error
+              << "; display RGB8 max=" << maximum_code_error << ", p99=" << p99_code_error
+              << ", mean=" << mean_code_error << '\n';
 }
 
 void repeated_nodes_and_concurrent_renders_are_deterministic() {
@@ -351,12 +410,9 @@ void optional_true_machine_benchmark() {
             std::array<double, iterations> milliseconds{};
             for (std::size_t iteration = 0U; iteration < iterations; ++iteration) {
                 const auto start = std::chrono::steady_clock::now();
-                static_cast<void>(image::execute_adjustment_nodes_with_backend(
-                    input,
-                    nodes,
-                    {},
-                    backend
-                ));
+                static_cast<void>(
+                    image::execute_adjustment_nodes_with_backend(input, nodes, {}, backend)
+                );
                 const auto end = std::chrono::steady_clock::now();
                 milliseconds[iteration] =
                     std::chrono::duration<double, std::milli>(end - start).count();
@@ -369,10 +425,9 @@ void optional_true_machine_benchmark() {
         };
         const auto [cpu_p50, cpu_p95] = measure(image::AdjustmentBackendMode::cpu);
         const auto [metal_p50, metal_p95] = measure(image::AdjustmentBackendMode::metal);
-        std::cout << "Adjustment benchmark " << dimensions.width << 'x'
-                  << dimensions.height << ": CPU p50=" << cpu_p50
-                  << " ms/p95=" << cpu_p95 << " ms, Metal p50=" << metal_p50
-                  << " ms/p95=" << metal_p95
+        std::cout << "Adjustment benchmark " << dimensions.width << 'x' << dimensions.height
+                  << ": CPU p50=" << cpu_p50 << " ms/p95=" << cpu_p95
+                  << " ms, Metal p50=" << metal_p50 << " ms/p95=" << metal_p95
                   << " ms, p50 speedup=" << cpu_p50 / metal_p50 << "x\n";
     }
 }

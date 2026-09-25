@@ -323,3 +323,56 @@ impl Drop for StoreFixture {
         }
     }
 }
+
+#[test]
+fn accepted_linear_patch_reopens_exact_hdr_bytes_after_proposals_are_removed() {
+    let fixture = StoreFixture::new("linear-completion");
+    let store = FilesystemDerivedRasterStore::open(&fixture.store_root).unwrap();
+    let bytes: Vec<u8> = [2.0_f32, -0.02, 0.5, 1.0]
+        .into_iter()
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    fs::write(&fixture.provider_output, &bytes).unwrap();
+    let digest = blake3::hash(&bytes).to_hex().to_string();
+    let artifact = GeneratedArtifactReference::new(
+        ArtifactHashAlgorithm::Blake3_256,
+        digest.clone(),
+        16,
+        super::SHADOW_LINEAR_RGBA_F32_MEDIA_TYPE.into(),
+        1,
+    )
+    .unwrap();
+    store
+        .stage_proposal_file(&artifact, &fixture.provider_output)
+        .unwrap();
+    store.promote_artifact(&artifact).unwrap();
+    let patch = shadow_domain::ManagedImageCompletionPatch::new_with_encoding(
+        true,
+        format!("objects/v1/b3/{}/{}", &digest[..2], &digest[2..]),
+        1,
+        digest,
+        16,
+        1,
+        1,
+        512,
+        512,
+        shadow_domain::UnitInterval::ZERO,
+        shadow_domain::UnitInterval::ZERO,
+        shadow_domain::UnitInterval::ONE,
+        shadow_domain::UnitInterval::ONE,
+        "b".repeat(64),
+        "local".into(),
+        "lama".into(),
+        "build".into(),
+        "linear-v2".into(),
+        "contract".into(),
+        "cpu".into(),
+    )
+    .unwrap();
+    fs::remove_file(store.proposal_path(&artifact).unwrap()).unwrap();
+    let reopened = FilesystemDerivedRasterStore::open(&fixture.store_root).unwrap();
+    let mut file = reopened.open_recipe_completion_patch(&patch).unwrap();
+    let mut actual = Vec::new();
+    file.read_to_end(&mut actual).unwrap();
+    assert_eq!(actual, bytes);
+}

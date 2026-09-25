@@ -51,6 +51,7 @@ BackendImageCompletionResult DesktopBackend::executeImageCompletionJob(
     ffi_request.settings = ffi_grade_stack(request.grade_stack);
     ffi_request.selection_expansion = request.selection_expansion;
     ffi_request.refresh_region_index = request.refresh_region_index;
+    ffi_request.force_regenerate = request.force_regenerate;
     ffi_request.points.reserve(static_cast<std::size_t>(request.points.size()));
     for (const auto& point : request.points) {
         ffi_request.points.push_back({

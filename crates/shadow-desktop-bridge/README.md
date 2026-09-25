@@ -35,6 +35,9 @@ presentation, SQLite schema details, or native image algorithms.
 | Desktop-session bounded SigLIP text-to-image ranking, smart-category batching, and vector-free CXX projection; explicit endpoint input remains the diagnostic override | [`src/session_semantic_search.rs`](src/session_semantic_search.rs), [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
 | Desktop-session resumable Qwen image-understanding batches, rebuildable description/keyword proposals, and closed-set classification review with explicit acceptance or dismissal | [`src/session_image_understanding.rs`](src/session_image_understanding.rs) |
 | Canonical wall-clock conversion and digest encoding | [`src/wall_clock.rs`](src/wall_clock.rs), [`src/digest_hex.rs`](src/digest_hex.rs) |
+| Lossless crop/mask preparation and accepted repair orchestration; transient candidate order equals acceptance order | [`src/session_image_completion.rs`](src/session_image_completion.rs), [`src/image_completion_service.rs`](src/image_completion_service.rs) |
+| Automatic completion source matching and quiet review of non-color changes | [`src/image_completion_source.rs`](src/image_completion_source.rs) |
+| Local Infer completion admission, bounded RGB-to-linear reconstruction, and eight-entry / 8 MiB session candidate reuse with explicit refresh bypass | [`src/image_completion_runtime.rs`](src/image_completion_runtime.rs), [`src/image_completion_runtime/color_encoding.rs`](src/image_completion_runtime/color_encoding.rs), [`src/image_completion_runtime/request_cache.rs`](src/image_completion_runtime/request_cache.rs) |
 | Shared default Infer Runtime credential location across RAW denoise, subject masks, and image completion | [`src/infer_runtime_credentials.rs`](src/infer_runtime_credentials.rs) |
 | Folder import lifecycle | [`src/scan_service.rs`](src/scan_service.rs) |
 | Folder-owned source relinking from scan evidence, an unavailable Library card, or a configured source: verified attachment, replacement-root adoption, unresolved counts, and safe obsolete-source retirement | [`src/relink_service.rs`](src/relink_service.rs) |
@@ -184,3 +187,36 @@ recoverable in storage; named and manually organized people remain visible. The 
 [`people_analysis/quality.rs`](../shadow-core/src/people_analysis/quality.rs) screens tiny or
 clearly detail-poor faces before identity inference. Its revision participates in incremental scan
 identity so older results are reevaluated without clearing user organization.
+
+## AI completion reconstruction boundary
+
+New accepted repairs retain little-endian linear RGBA32F, with an explicit Recipe encoding flag;
+legacy RGBA8 recipes preserve their original rendering. This recovers the known neutral display
+transform approximately, not sensor RAW or clipped colour. Unmasked context bounds the ambiguous
+white inverse; removed-object brightness is never copied into its replacement.
+
+An explicit generation reuses the prepared RAW source, renders the neutral upstream repair prefix,
+materializes display RGB once for the model consumer, and encodes only the selected crop as PNG.
+There is no JPEG intermediate, analysis, or durable gallery-preview write at this boundary.
+Candidates retain exact input/source and original provider provenance in a bounded session cache;
+Refresh bypasses reuse. Accepted content-addressed bytes are independent durable Recipe resources.
+Ordinary grading reuses the accepted patch and existing warm source: the recomputation frontier is
+the changed grade suffix, with no model call. Patch admission/upload is a side-resource boundary;
+new source development changes the generation input but never automatically regenerates accepted
+content. New repairs persist their generation-time camera colour basis and Foundation settings.
+For matrix-only RAW colour routes, the bridge binds `current_basis * inverse(accepted_basis)` as
+nine render-only scalars; neither accepted bytes nor model output are rewritten. Returning to the
+same source basis is exact identity. CFA white balance, DCP and Foundation source preparation keep
+their existing algorithms and reuse/cancellation rules. This is approximate transport of generated
+RGB, not sensor highlight/texture reconstruction. Nonlinear DCP has no admitted matrix basis;
+changes to that source or to effective denoise/optics surface a quiet region review message.
+
+The recomputation frontier remains RAW rebinding and its suffix; ordinary Grade edits reuse the
+same source and accepted side resources. No extra source render, decoder open, inference or
+GPU-to-host readback is added. Native CPU/Metal sampling applies the same 3x3 response; the GPU
+adds 36 bytes per patch within the existing 64 MiB side-resource limit (a changed shared buffer
+still follows the existing upload policy). Preview, full-resolution detail, export and curve input
+sampling use the immutable source receipt for the binding. Pending work retains existing
+latest-revision publication and cancellation. Legacy repairs preserve their original rendering and
+can opt into automatic matching by explicitly regenerating once. Latest-generation cancellation still owns publication. CPU, Metal, detail and export share
+the same linear patch, premultiplied interpolation and strict erased-texel gate.

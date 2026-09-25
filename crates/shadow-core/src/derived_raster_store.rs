@@ -30,6 +30,7 @@ pub const SHADOW_SOFT_MASK_MEDIA_TYPE: &str = "application/x-shadow-soft-mask";
 pub const SHADOW_SOFT_MASK_ENCODING_VERSION: u32 = 1;
 pub const SHADOW_RGBA8_MEDIA_TYPE: &str = "application/x-shadow-rgba8";
 pub const SHADOW_RGBA8_ENCODING_VERSION: u32 = 1;
+pub const SHADOW_LINEAR_RGBA_F32_MEDIA_TYPE: &str = "application/x-shadow-linear-rgba-f32";
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Filesystem authority for immutable, content-addressed generated rasters.
@@ -171,7 +172,12 @@ impl FilesystemDerivedRasterStore {
             ArtifactHashAlgorithm::Blake3_256,
             patch.content_blake3().to_owned(),
             patch.byte_len(),
-            SHADOW_RGBA8_MEDIA_TYPE.into(),
+            if patch.linear_rgba_f32() {
+                SHADOW_LINEAR_RGBA_F32_MEDIA_TYPE
+            } else {
+                SHADOW_RGBA8_MEDIA_TYPE
+            }
+            .into(),
             SHADOW_RGBA8_ENCODING_VERSION,
         )?;
         self.open_verified_identity(&artifact, patch.store_object_id(), patch.storage_revision())
@@ -330,7 +336,7 @@ pub fn managed_image_completion_region(
             artifact.hash_algorithm(),
         ));
     }
-    if artifact.media_type() != SHADOW_RGBA8_MEDIA_TYPE {
+    if artifact.media_type() != SHADOW_RGBA8_MEDIA_TYPE && !patch.linear_rgba_f32() {
         return Err(DerivedRasterStoreError::UnsupportedCompletionMediaType(
             artifact.media_type().to_owned(),
         ));
@@ -342,7 +348,8 @@ pub fn managed_image_completion_region(
             ),
         );
     }
-    let reference = ManagedImageCompletionPatch::new(
+    let reference = ManagedImageCompletionPatch::new_with_encoding(
+        patch.linear_rgba_f32(),
         managed.managed_artifact().store_object_id().to_owned(),
         managed.managed_artifact().storage_revision(),
         artifact.content_hash().to_owned(),
@@ -363,6 +370,7 @@ pub fn managed_image_completion_region(
         patch.api_contract_revision.clone(),
         patch.actual_execution_provider.clone(),
     )?;
+    let reference = reference.with_source_context(patch.source_context.clone())?;
     Ok(ImageCompletionRegion::new(reference))
 }
 

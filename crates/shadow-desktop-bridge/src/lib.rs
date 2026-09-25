@@ -51,6 +51,8 @@ mod session_preview_store;
 mod edit_version_diff;
 mod image_completion_runtime;
 mod image_completion_service;
+mod image_completion_source;
+use image_completion_source::image_completion_source_states;
 mod infer_runtime_credentials;
 mod lut_export;
 mod raw_foundation_noise_assessment;
@@ -1531,6 +1533,7 @@ mod ffi {
     /// authority and editable placement/strength state.
     #[derive(Debug, Clone)]
     struct FfiImageCompletionRegion {
+        linear_rgba_f32: bool,
         store_object_id: String,
         storage_revision: u32,
         content_blake3: String,
@@ -1544,6 +1547,7 @@ mod ffi {
         bounds_right: f64,
         bounds_bottom: f64,
         source_recipe_blake3: String,
+        source_context_json: String,
         provider: String,
         deployment: String,
         model_build: String,
@@ -2003,6 +2007,7 @@ mod ffi {
         selection_expansion: f64,
         /// -1 for a painted selection; otherwise replace this accepted region.
         refresh_region_index: i32,
+        force_regenerate: bool,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2458,6 +2463,10 @@ mod ffi {
     }
 
     extern "Rust" {
+        fn image_completion_source_states(
+            foundation: &FfiPhotoFoundationSettings,
+            contexts: &Vec<String>,
+        ) -> Vec<u8>;
         type DesktopSession;
         type LibraryServerHost;
         type OwnedEditedPreview;

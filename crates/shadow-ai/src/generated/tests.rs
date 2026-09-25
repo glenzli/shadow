@@ -112,3 +112,47 @@ fn raw_foundation_requires_its_explicit_parameter_marker() {
         Err(AiArtifactContractError::TaskParameterMismatch { .. })
     ));
 }
+
+#[test]
+fn completion_patch_encoding_binds_float_byte_extent_and_version() {
+    let mut patch = ImageCompletionPatchArtifact {
+        artifact: GeneratedArtifactReference::new(
+            ArtifactHashAlgorithm::Blake3_256,
+            "a".repeat(64),
+            16,
+            "application/x-shadow-linear-rgba-f32".into(),
+            1,
+        )
+        .unwrap(),
+        raster_extent: RasterExtent::new(1, 1).unwrap(),
+        coordinate_extent: RasterExtent::new(100, 100).unwrap(),
+        source_recipe_blake3: "b".repeat(64),
+        source_context: None,
+        provider: "local".into(),
+        deployment: "lama".into(),
+        model_build: "v1".into(),
+        postprocessing_identity: "linear-v2".into(),
+        api_contract_revision: "v1".into(),
+        actual_execution_provider: "cpu".into(),
+    };
+    assert!(patch.linear_rgba_f32());
+    assert!(patch.validate().is_ok());
+    patch.artifact = GeneratedArtifactReference::new(
+        ArtifactHashAlgorithm::Blake3_256,
+        "a".repeat(64),
+        4,
+        "application/x-shadow-linear-rgba-f32".into(),
+        1,
+    )
+    .unwrap();
+    assert!(patch.validate().is_err());
+    patch.artifact = GeneratedArtifactReference::new(
+        ArtifactHashAlgorithm::Blake3_256,
+        "a".repeat(64),
+        16,
+        "application/x-shadow-linear-rgba-f32".into(),
+        2,
+    )
+    .unwrap();
+    assert!(patch.validate().is_err());
+}

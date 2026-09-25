@@ -149,6 +149,8 @@ impl ManagedImageCompletionResolver for FilesystemManagedRasterMaskResolver {
             bounds_right: patch.bounds_right().get(),
             bounds_bottom: patch.bounds_bottom().get(),
             strength,
+            linear_rgba_f32: patch.linear_rgba_f32(),
+            source_color_basis: patch.source_context().and_then(|s| s.color_basis.clone()),
             rgba8,
         })
     }

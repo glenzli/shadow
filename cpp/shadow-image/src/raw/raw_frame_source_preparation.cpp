@@ -168,6 +168,10 @@ PreparedRawFrameSource prepare_raw_frame_source(
         std::move(dcp_transform),
         metadata.iso_speed
     );
+    if (development.camera_profile() == nullptr
+        || !development.camera_profile()->has_post_matrix_stages())
+        pipeline.completion_camera_to_working =
+            development.linear_transform().camera_rgb_to_linear_srgb_d65;
     pipeline.source_scene_luminance_percentile = development.source_scene_luminance_percentile();
     return PreparedRawFrameSource(
         std::move(frame),

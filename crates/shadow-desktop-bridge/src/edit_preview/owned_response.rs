@@ -20,6 +20,7 @@ const APPLE_METAL_RGBA8_SRGB_PIXEL_FORMAT: u8 = 1;
 /// One terminal edit-preview result with an optional zero-copy interactive frame.
 pub struct OwnedEditedPreview {
     projection: ffi::FfiEditedPreview,
+    pub(crate) completion_color_basis: Option<shadow_domain::ImageCompletionColorBasis>,
     interactive_frame: Option<OwnedInteractivePreviewFrame>,
 }
 
@@ -40,9 +41,18 @@ impl std::fmt::Debug for OwnedEditedPreview {
 }
 
 impl OwnedEditedPreview {
+    pub(crate) fn with_completion_basis(
+        mut self: Box<Self>,
+        basis: Option<shadow_domain::ImageCompletionColorBasis>,
+    ) -> Box<Self> {
+        self.completion_color_basis = basis;
+        self
+    }
+
     pub(crate) fn materialized(projection: ffi::FfiEditedPreview) -> Box<Self> {
         Box::new(Self {
             projection,
+            completion_color_basis: None,
             interactive_frame: None,
         })
     }
@@ -55,6 +65,7 @@ impl OwnedEditedPreview {
         let projection = interactive_projection(&frame, level_zero_dimensions, optics);
         Box::new(Self {
             projection,
+            completion_color_basis: None,
             interactive_frame: Some(frame),
         })
     }

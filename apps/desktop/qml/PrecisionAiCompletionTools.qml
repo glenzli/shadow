@@ -9,6 +9,7 @@ ColumnLayout {
     id: tools
 
     required property var editor
+    readonly property var acceptedRegions: editor.imageCompletionRegions
     property bool authoring: false
     signal startRequested
     signal refreshRequested(int index)
@@ -291,16 +292,16 @@ ColumnLayout {
     Rectangle {
         Layout.fillWidth: true
         height: 1
-        visible: tools.editor.imageCompletionRegions.length > 0
+        visible: tools.acceptedRegions.length > 0
         color: Theme.border
     }
 
     Label {
         Layout.fillWidth: true
         Layout.minimumWidth: 0
-        visible: tools.editor.imageCompletionRegions.length > 0
+        visible: tools.acceptedRegions.length > 0
         text: qsTr("ACCEPTED REGIONS · %L1")
-            .arg(tools.editor.imageCompletionRegions.length)
+            .arg(tools.acceptedRegions.length)
         color: Theme.textSecondary
         font.pixelSize: Theme.fontMeta
         font.weight: Font.DemiBold
@@ -310,12 +311,12 @@ ColumnLayout {
     Repeater {
         // Keep delegates stable when a strength edit republishes the region
         // list. Replacing the model by value would destroy an active slider.
-        model: tools.authoring ? 0 : tools.editor.imageCompletionRegions.length
+        model: tools.authoring ? 0 : tools.acceptedRegions.length
 
         delegate: Rectangle {
             id: regionCard
             required property int index
-            readonly property var region: tools.editor.imageCompletionRegions[index] || ({})
+            readonly property var region: tools.acceptedRegions[index] || ({})
 
             Layout.fillWidth: true
             implicitHeight: regionContent.implicitHeight + 20
@@ -346,7 +347,9 @@ ColumnLayout {
                     ShadowIconButton {
                         objectName: "imageCompletionRegionRefresh_" + regionCard.index
                         source: "qrc:/icons/refresh.svg"
-                        toolTipText: qsTr("Regenerate this region with the current photo")
+                        toolTipText: Number(regionCard.region.sourceState || 0) === 0
+                            ? qsTr("Regenerate to enable automatic RAW color matching")
+                            : qsTr("Regenerate this region with the current photo")
                         accessibleName: toolTipText
                         enabled: !tools.authoring && !tools.editor.stateBusy
                         onClicked: tools.refreshRequested(regionCard.index)
@@ -368,6 +371,15 @@ ColumnLayout {
                     visible: !Boolean(regionCard.region.preGrade)
                     text: qsTr("Older region: regenerate it to follow future adjustments")
                     color: Theme.textMuted
+                    wrapMode: Text.Wrap
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: Number(regionCard.region.sourceState) === 3
+                    text: qsTr("Source settings have changed. Check this region or regenerate it.")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontMeta
                     wrapMode: Text.Wrap
                 }
 
@@ -410,7 +422,7 @@ ColumnLayout {
     Label {
         Layout.fillWidth: true
         Layout.minimumWidth: 0
-        visible: tools.authoring && tools.editor.imageCompletionRegions.length > 0
+        visible: tools.authoring && tools.acceptedRegions.length > 0
         text: qsTr("Finish painting to adjust the accepted regions.")
         color: Theme.textMuted
         font.pixelSize: Theme.fontMeta

@@ -283,6 +283,7 @@ fn append_pre_grade_image_completion_node(
 pub(crate) fn append_transient_pre_grade_completion(
     plan: &mut AdjustmentRenderPlan,
     patch: AdjustmentImageCompletionPatch,
+    position: Option<usize>,
 ) -> AnyResult<()> {
     let pre_grade_id = format!("{RECIPE_V1_IMAGE_COMPLETION_NODE_ID}:pre-grade");
     if let Some(node) = plan
@@ -293,9 +294,16 @@ pub(crate) fn append_transient_pre_grade_completion(
         let AdjustmentRenderOperation::ImageCompletion { patches } = &mut node.operation else {
             bail!("pre-grade AI completion node has the wrong operation");
         };
-        patches.push(patch);
+        let index = position.unwrap_or(patches.len());
+        if index > patches.len() {
+            bail!("AI completion candidate position is outside the pre-grade stack");
+        }
+        patches.insert(index, patch);
         node.enabled = true;
     } else {
+        if position.is_some_and(|index| index != 0) {
+            bail!("AI completion candidate position has no preceding regions");
+        }
         let boundaries = plan.nodes.first().is_some_and(|node| {
             matches!(
                 &node.operation,

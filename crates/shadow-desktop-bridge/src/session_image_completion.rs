@@ -198,7 +198,7 @@ impl DesktopSession {
         // A newly accepted region is composed before Grade Nodes. Keep the
         // current source development and earlier pre-grade regions, but do not
         // bake a historical grade, repair, paint or Canvas transform into it.
-        source_settings.grade_nodes = vec![new_basic_grade_node("Completion source")?];
+        source_settings.grade_nodes = vec![completion_source_node()?];
         source_settings.retouch_spots.clear();
         source_settings.retouch_strokes.clear();
         source_settings.paint_layers.clear();
@@ -207,7 +207,8 @@ impl DesktopSession {
             .into_iter()
             .enumerate()
             .filter_map(|(index, region)| {
-                (region.pre_grade && Some(index) != refresh_index).then_some(region)
+                (region.pre_grade && refresh_index.is_none_or(|refresh| index < refresh))
+                    .then_some(region)
             })
             .collect();
         source_settings.liquify_enabled = false;
@@ -251,7 +252,7 @@ impl DesktopSession {
             }
             return Err(error.into());
         }
-        let input = self.render_subject_mask_input_preview(
+        let (input, color_basis) = self.render_completion_input_preview(
             photo_id,
             source_path,
             &ffi::FfiEditPreviewRequest {
@@ -278,15 +279,21 @@ impl DesktopSession {
                 String::new(),
             ));
         }
-        if input.terminal != ffi::FfiEditPreviewTerminal::Completed || input.row_stride_bytes != 0 {
+        if input.terminal != ffi::FfiEditPreviewTerminal::Completed
+            || input.row_stride_bytes != input.width * 3
+        {
             bail!("AI completion input preview returned an invalid terminal payload");
         }
         timing.checkpoint("source-preview-ready");
         let coordinate_extent = RasterExtent::new(input.width, input.height)
             .context("AI completion input preview dimensions are invalid")?;
+        // One bounded, lossless handoff. No JPEG is decoded and re-encoded for inference.
+        let input_rgb = image::RgbImage::from_raw(input.width, input.height, input.bytes)
+            .context("AI completion RGB input length is invalid")?;
+        let input_image = DynamicImage::ImageRgb8(input_rgb);
         let prepared = if let Some(region) = &refresh_region {
             prepare_completion_refresh_input(
-                &input.bytes,
+                &input_image,
                 coordinate_extent,
                 region.patch(),
                 self.image_completions.store(),
@@ -295,13 +302,13 @@ impl DesktopSession {
             let crop_points =
                 original_brush_points(&request.points, coordinate_geometry, coordinate_extent)?;
             if request.selection_expansion == 0.0 {
-                prepare_completion_input(&input.bytes, coordinate_extent, &crop_points)?
+                prepare_completion_input(&input_image, coordinate_extent, &crop_points)?
             } else {
                 let expanded = expanded_brush_points(&request.points, request.selection_expansion);
                 let mask_points =
                     original_brush_points(&expanded, coordinate_geometry, coordinate_extent)?;
                 prepare_completion_input_with_crop_points(
-                    &input.bytes,
+                    &input_image,
                     coordinate_extent,
                     &mask_points,
                     &crop_points,
@@ -328,10 +335,16 @@ impl DesktopSession {
                 prepared_mask_gray8: prepared.mask_gray8,
                 coordinate_extent,
                 source_recipe_blake3,
+                source_context: Some(shadow_domain::ImageCompletionSourceContext {
+                    color_basis,
+                    foundation: grade_stack.foundation.clone(),
+                    raw_ai_denoise: grade_stack.raw_ai_denoise,
+                }),
                 mask_revision,
                 // RAW input remains scene-referred through development; SDR
                 // originals retain display-referred appearance. Only the
                 // former receives Shadow's neutral display shoulder.
+                force_regenerate: request.force_regenerate || refresh_index.is_some(),
                 scene_referred_input: representation_kind(Path::new(source_path))
                     == Some(RepresentationKind::OriginalRaw),
             },
@@ -388,6 +401,12 @@ impl DesktopSession {
                     }
                     return Err(error.into());
                 }
+                let candidate_position = refresh_index.map(|index| {
+                    request.settings.image_completions[..index]
+                        .iter()
+                        .filter(|region| region.pre_grade && region.enabled)
+                        .count()
+                });
                 let mut candidate_settings = request.settings.clone();
                 if let Some(index) = refresh_index {
                     candidate_settings.image_completions.remove(index);
@@ -419,8 +438,11 @@ impl DesktopSession {
                         bounds_right: preview.placement.bounds_right.get(),
                         bounds_bottom: preview.placement.bounds_bottom.get(),
                         strength: 1.0,
+                        linear_rgba_f32: preview.linear_rgba_f32,
+                        source_color_basis: preview.source_color_basis,
                         rgba8: preview.rgba8,
                     },
+                    candidate_position,
                 )?;
                 timing.checkpoint("candidate-render-ready");
                 if rendered_candidate.terminal != ffi::FfiEditPreviewTerminal::Completed {
@@ -607,16 +629,40 @@ fn expanded_brush_points(
         .collect()
 }
 
+// Reserved, transient identities keep identical source snapshots/cache keys stable.
+fn completion_source_node() -> AnyResult<ffi::FfiGradeNode> {
+    let mut node = new_basic_grade_node("Completion source")?;
+    for (name, slot) in [
+        ("grade", &mut node.grade_node_id),
+        ("exposure", &mut node.exposure_render_op_id),
+        ("contrast", &mut node.contrast_render_op_id),
+        ("tone", &mut node.selective_tone_render_op_id),
+        ("wb", &mut node.white_balance_render_op_id),
+        ("saturation", &mut node.saturation_render_op_id),
+        ("color", &mut node.perceptual_color_render_op_id),
+        ("lut", &mut node.lut_render_op_id),
+        ("detail", &mut node.sharpen_render_op_id),
+    ] {
+        let digest = blake3::hash(format!("shadow.completion.source-node.v1:{name}").as_bytes());
+        let mut bytes = [0_u8; 16];
+        bytes.copy_from_slice(&digest.as_bytes()[..16]);
+        bytes[6] = (bytes[6] & 0x0f) | 0x80;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        *slot = uuid::Uuid::from_bytes(bytes).to_string();
+    }
+    Ok(node)
+}
+
 fn prepare_completion_input(
-    jpeg: &[u8],
+    decoded: &DynamicImage,
     coordinate_extent: RasterExtent,
     points: &[OriginalBrushPoint],
 ) -> AnyResult<PreparedCompletionInput> {
-    prepare_completion_input_with_crop_points(jpeg, coordinate_extent, points, points)
+    prepare_completion_input_with_crop_points(decoded, coordinate_extent, points, points)
 }
 
 fn prepare_completion_input_with_crop_points(
-    jpeg: &[u8],
+    decoded: &DynamicImage,
     coordinate_extent: RasterExtent,
     mask_points: &[OriginalBrushPoint],
     crop_points: &[OriginalBrushPoint],
@@ -628,7 +674,7 @@ fn prepare_completion_input_with_crop_points(
         completion_placement(mask_points, coordinate_extent)?
     };
     let mask_gray8 = rasterize_mask(mask_points, placement);
-    prepare_completion_input_with_mask(jpeg, coordinate_extent, placement, mask_gray8)
+    prepare_completion_input_with_mask(decoded, coordinate_extent, placement, mask_gray8)
 }
 
 fn selection_fits_placement(
@@ -644,7 +690,7 @@ fn selection_fits_placement(
 }
 
 fn prepare_completion_refresh_input(
-    jpeg: &[u8],
+    decoded: &DynamicImage,
     coordinate_extent: RasterExtent,
     patch: &shadow_domain::ManagedImageCompletionPatch,
     store: &shadow_core::FilesystemDerivedRasterStore,
@@ -657,10 +703,20 @@ fn prepare_completion_refresh_input(
     if u64::try_from(rgba8.len())? != patch.byte_len() {
         bail!("AI completion refresh patch changed while reading");
     }
-    let mask = rgba8
-        .chunks_exact(4)
-        .map(|pixel| if pixel[3] == 0 { 0 } else { 255 })
-        .collect();
+    let mask = if patch.linear_rgba_f32() {
+        rgba8
+            .chunks_exact(16)
+            .map(|pixel| {
+                let alpha = f32::from_le_bytes(pixel[12..16].try_into().expect("alpha sample"));
+                if alpha > 0.0 { 255 } else { 0 }
+            })
+            .collect()
+    } else {
+        rgba8
+            .chunks_exact(4)
+            .map(|pixel| if pixel[3] == 0 { 0 } else { 255 })
+            .collect()
+    };
     let mask = GrayImage::from_raw(patch.raster_width(), patch.raster_height(), mask)
         .context("construct AI completion refresh mask")?;
     let mask_gray8 = image::imageops::resize(
@@ -671,7 +727,7 @@ fn prepare_completion_refresh_input(
     )
     .into_raw();
     prepare_completion_input_with_mask(
-        jpeg,
+        decoded,
         coordinate_extent,
         ImageCompletionPlacement {
             bounds_left: patch.bounds_left(),
@@ -684,13 +740,11 @@ fn prepare_completion_refresh_input(
 }
 
 fn prepare_completion_input_with_mask(
-    jpeg: &[u8],
+    decoded: &DynamicImage,
     coordinate_extent: RasterExtent,
     placement: ImageCompletionPlacement,
     mask_gray8: Vec<u8>,
 ) -> AnyResult<PreparedCompletionInput> {
-    let decoded = image::load_from_memory_with_format(jpeg, ImageFormat::Jpeg)
-        .context("decode AI completion input preview")?;
     if decoded.width() != coordinate_extent.width || decoded.height() != coordinate_extent.height {
         bail!("AI completion input geometry changed during preparation");
     }

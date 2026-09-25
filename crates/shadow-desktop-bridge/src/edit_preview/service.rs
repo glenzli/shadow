@@ -33,6 +33,7 @@ use crate::{
 pub(crate) enum EditPreviewPolicy {
     Interactive,
     SubjectMaskInput,
+    CompletionInput,
     Settled,
     PresentationCommit,
     NeutralBefore,
@@ -54,7 +55,10 @@ impl EditPreviewPolicy {
     }
 
     pub(super) const fn requires_analysis(self) -> bool {
-        !matches!(self, Self::Interactive | Self::SubjectMaskInput)
+        !matches!(
+            self,
+            Self::Interactive | Self::SubjectMaskInput | Self::CompletionInput
+        )
     }
 
     const fn admits_durable_cache(self) -> bool {
@@ -62,7 +66,10 @@ impl EditPreviewPolicy {
     }
 
     pub(super) const fn returns_sensor_diagnostics(self) -> bool {
-        !matches!(self, Self::Interactive | Self::SubjectMaskInput)
+        !matches!(
+            self,
+            Self::Interactive | Self::SubjectMaskInput | Self::CompletionInput
+        )
     }
 }
 
@@ -363,12 +370,35 @@ impl DesktopSession {
         .and_then(OwnedEditedPreview::into_materialized_projection)
     }
 
+    /// Materializes lossless display RGB once for the external model consumer.
+    /// Reuses the exact warm source; never admits a durable gallery preview.
+    pub(crate) fn render_completion_input_preview(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+    ) -> AnyResult<(
+        ffi::FfiEditedPreview,
+        Option<shadow_domain::ImageCompletionColorBasis>,
+    )> {
+        let owned = self.render_basic_edit_preview_owned_with_policy(
+            photo_id,
+            source_path,
+            request,
+            EditPreviewPolicy::CompletionInput,
+            &[],
+        )?;
+        let basis = owned.completion_color_basis.clone();
+        Ok((owned.into_materialized_projection()?, basis))
+    }
+
     pub(crate) fn render_completion_candidate_preview(
         &self,
         photo_id: &str,
         source_path: &str,
         request: &ffi::FfiEditPreviewRequest,
         patch: AdjustmentImageCompletionPatch,
+        position: Option<usize>,
     ) -> AnyResult<ffi::FfiEditedPreview> {
         self.render_basic_edit_preview_owned_with_policy_and_completion(
             photo_id,
@@ -376,7 +406,7 @@ impl DesktopSession {
             request,
             EditPreviewPolicy::SubjectMaskInput,
             &[],
-            Some(patch),
+            Some((patch, position)),
         )
         .and_then(OwnedEditedPreview::into_materialized_projection)
     }
@@ -406,7 +436,7 @@ impl DesktopSession {
         request: &ffi::FfiEditPreviewRequest,
         policy: EditPreviewPolicy,
         candidate_masks: &[ffi::FfiAutoStartMask],
-        candidate_completion: Option<AdjustmentImageCompletionPatch>,
+        candidate_completion: Option<(AdjustmentImageCompletionPatch, Option<usize>)>,
     ) -> AnyResult<Box<OwnedEditedPreview>> {
         let render = (|| -> AnyResult<Box<OwnedEditedPreview>> {
             match self
@@ -457,7 +487,10 @@ impl DesktopSession {
             let source_environment_cache_identity =
                 current_source_environment_cache_identity(&photo_provider_version());
             let mut recipe = if !candidate_masks.is_empty() {
-                if policy != EditPreviewPolicy::SubjectMaskInput {
+                if !matches!(
+                    policy,
+                    EditPreviewPolicy::SubjectMaskInput | EditPreviewPolicy::CompletionInput
+                ) {
                     bail!("candidate masks require a transient preview");
                 }
                 self.resolve_auto_start_render(photo_id, request, candidate_masks)?
@@ -478,11 +511,14 @@ impl DesktopSession {
                     request.use_working_recipe,
                 )?
             };
-            if let Some(patch) = candidate_completion {
-                if policy != EditPreviewPolicy::SubjectMaskInput {
+            if let Some((patch, position)) = candidate_completion {
+                if !matches!(
+                    policy,
+                    EditPreviewPolicy::SubjectMaskInput | EditPreviewPolicy::CompletionInput
+                ) {
                     bail!("AI completion candidate requires a transient preview");
                 }
-                append_transient_pre_grade_completion(&mut recipe.plan, patch)?;
+                append_transient_pre_grade_completion(&mut recipe.plan, patch, position)?;
             }
             if let Some(trace) = interactive_trace.as_mut() {
                 trace.checkpoint("recipe-ready");
@@ -571,6 +607,16 @@ impl DesktopSession {
                             CancellableEditPreview::Completed(CompletedEditPreview::Interactive(
                                 frame,
                             ))
+                        }
+                        CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
+                    }
+                }
+                EditPreviewPolicy::CompletionInput => {
+                    match session
+                        .render_plan_rgb8_cancellable(&recipe.plan, &native_cancellation)?
+                    {
+                        CancellableEditPreview::Completed(proxy) => {
+                            CancellableEditPreview::Completed(CompletedEditPreview::Encoded(proxy))
                         }
                         CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
                     }
@@ -692,7 +738,13 @@ impl DesktopSession {
                         session.optics_receipt(),
                         session.sensor_clipping_mask(),
                         policy,
-                    )))
+                    ))
+                    .with_completion_basis(
+                        session
+                            .raw_pipeline_receipt()
+                            .completion_color_basis
+                            .clone(),
+                    ))
                 }
                 CompletedEditPreview::Materialized(rendered) => {
                     let rendered = *rendered;

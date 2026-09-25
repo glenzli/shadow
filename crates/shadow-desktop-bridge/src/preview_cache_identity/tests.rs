@@ -16,6 +16,7 @@ fn receipt(canonical_identity: &str) -> RawPipelineReceipt {
         white_balance: shadow_domain::RawWhiteBalance::AsShot,
     };
     RawPipelineReceipt {
+        completion_color_basis: None,
         schema_version: RawPipelineReceipt::CURRENT_SCHEMA_VERSION,
         path: RawPipelinePath::ShadowRawFrame,
         cache_identity: canonical_identity.to_owned(),
