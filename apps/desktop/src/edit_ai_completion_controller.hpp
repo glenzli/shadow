@@ -41,6 +41,7 @@ class EditAiCompletionController final {
     [[nodiscard]] QString candidateSource() const;
     [[nodiscard]] QVariantList brushPoints() const;
     [[nodiscard]] double brushRadius() const noexcept;
+    [[nodiscard]] double selectionExpansion() const noexcept;
     [[nodiscard]] bool eraseMode() const noexcept;
 
     [[nodiscard]] bool begin();
@@ -54,6 +55,7 @@ class EditAiCompletionController final {
     void applyCandidate();
     void cancel();
     void setBrushRadius(double radius);
+    void setSelectionExpansion(double expansion);
     void setEraseMode(bool erase);
     void resetContext();
 
@@ -73,6 +75,9 @@ class EditAiCompletionController final {
     void publishStateChange();
     [[nodiscard]] bool contextIsCurrent() const noexcept;
     [[nodiscard]] bool hasPaintedPoint() const noexcept;
+    [[nodiscard]] double
+    effectiveRadius(const BackendImageCompletionBrushPoint& point) const noexcept;
+    [[nodiscard]] QVector<BackendImageCompletionBrushPoint> effectivePoints() const;
 
     EditController& owner_;
     std::shared_ptr<DesktopBackend> backend_;
@@ -92,6 +97,7 @@ class EditAiCompletionController final {
     std::uint32_t next_stroke_id_ = 0;
     int refresh_region_index_ = -1;
     double brush_radius_ = 0.04;
+    double selection_expansion_ = 0.0;
     bool erase_mode_ = false;
     bool active_ = false;
     bool generation_pending_ = false;

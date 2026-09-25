@@ -166,7 +166,7 @@ QVariantList EditAiCompletionController::brushPoints() const {
             QVariantMap{
                 {QStringLiteral("x"), point.x},
                 {QStringLiteral("y"), point.y},
-                {QStringLiteral("radius"), point.radius},
+                {QStringLiteral("radius"), effectiveRadius(point)},
                 {QStringLiteral("erase"), point.erase},
                 {QStringLiteral("strokeId"), point.stroke_id},
             }
@@ -177,6 +177,24 @@ QVariantList EditAiCompletionController::brushPoints() const {
 
 double EditAiCompletionController::brushRadius() const noexcept {
     return brush_radius_;
+}
+
+double EditAiCompletionController::selectionExpansion() const noexcept {
+    return selection_expansion_;
+}
+
+double EditAiCompletionController::effectiveRadius(
+    const BackendImageCompletionBrushPoint& point
+) const noexcept {
+    return point.erase ? point.radius : std::min(0.25, point.radius + selection_expansion_);
+}
+
+QVector<BackendImageCompletionBrushPoint> EditAiCompletionController::effectivePoints() const {
+    auto result = points_;
+    for (auto& point : result) {
+        point.radius = effectiveRadius(point);
+    }
+    return result;
 }
 
 bool EditAiCompletionController::eraseMode() const noexcept {
@@ -195,6 +213,7 @@ bool EditAiCompletionController::begin() {
     generation_pending_ = false;
     refresh_region_index_ = -1;
     points_.clear();
+    selection_expansion_ = 0.0;
     retireCandidate();
     context_ = Context{
         .photo_id = owner_.photo_id_,
@@ -377,7 +396,7 @@ void EditAiCompletionController::startGeneration() {
         .generation = generation_,
         .base_commit_id = submitted_base_commit_id_,
         .grade_stack = submitted_grade_stack_,
-        .points = points_,
+        .points = effectivePoints(),
         .refresh_region_index = refresh_region_index_,
     };
     generation_pending_ = false;
@@ -459,6 +478,19 @@ void EditAiCompletionController::setBrushRadius(const double radius) {
         return;
     }
     brush_radius_ = bounded;
+    publishStateChange();
+}
+
+void EditAiCompletionController::setSelectionExpansion(const double expansion) {
+    if (!active_ || busy() || !std::isfinite(expansion)) {
+        return;
+    }
+    const double bounded = std::clamp(expansion, 0.0, 0.06);
+    if (selection_expansion_ == bounded) {
+        return;
+    }
+    selection_expansion_ = bounded;
+    retireCandidate();
     publishStateChange();
 }
 
@@ -656,6 +688,10 @@ double EditController::imageCompletionBrushRadius() const noexcept {
     return image_completion_controller_ ? image_completion_controller_->brushRadius() : 0.04;
 }
 
+double EditController::imageCompletionSelectionExpansion() const noexcept {
+    return image_completion_controller_ ? image_completion_controller_->selectionExpansion() : 0.0;
+}
+
 bool EditController::imageCompletionEraseMode() const noexcept {
     return image_completion_controller_ && image_completion_controller_->eraseMode();
 }
@@ -750,6 +786,12 @@ void EditController::cancelImageCompletion() {
 void EditController::setImageCompletionBrushRadius(const double radius) {
     if (image_completion_controller_) {
         image_completion_controller_->setBrushRadius(radius);
+    }
+}
+
+void EditController::setImageCompletionSelectionExpansion(const double expansion) {
+    if (image_completion_controller_) {
+        image_completion_controller_->setSelectionExpansion(expansion);
     }
 }
 

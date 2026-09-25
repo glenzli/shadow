@@ -309,6 +309,10 @@ class EditController final : public QObject {
             setImageCompletionBrushRadius NOTIFY imageCompletionChanged
     )
     Q_PROPERTY(
+        double imageCompletionSelectionExpansion READ imageCompletionSelectionExpansion WRITE
+            setImageCompletionSelectionExpansion NOTIFY imageCompletionChanged
+    )
+    Q_PROPERTY(
         bool imageCompletionEraseMode READ imageCompletionEraseMode WRITE
             setImageCompletionEraseMode NOTIFY imageCompletionChanged
     )
@@ -647,6 +651,7 @@ class EditController final : public QObject {
     [[nodiscard]] QString imageCompletionCandidateSource() const;
     [[nodiscard]] QVariantList imageCompletionBrushPoints() const;
     [[nodiscard]] double imageCompletionBrushRadius() const noexcept;
+    [[nodiscard]] double imageCompletionSelectionExpansion() const noexcept;
     [[nodiscard]] bool imageCompletionEraseMode() const noexcept;
     [[nodiscard]] QVariantList imageCompletionRegions() const;
     [[nodiscard]] bool imageCompletionNodeMaterialized() const noexcept;
@@ -826,6 +831,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void applyImageCompletionCandidate();
     Q_INVOKABLE void cancelImageCompletion();
     Q_INVOKABLE void setImageCompletionBrushRadius(double radius);
+    Q_INVOKABLE void setImageCompletionSelectionExpansion(double expansion);
     Q_INVOKABLE void setImageCompletionEraseMode(bool erase);
     Q_INVOKABLE void setImageCompletionExecutionAllowed(bool allowed);
     Q_INVOKABLE void setImageCompletionNodeEnabled(bool enabled);

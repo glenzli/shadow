@@ -149,6 +149,32 @@ ColumnLayout {
             onEdited: value => tools.editor.imageCompletionBrushRadius = value
         }
 
+        ShadowSlider {
+            objectName: "imageCompletionSelectionExpansion"
+            Layout.fillWidth: true
+            label: qsTr("Selection expansion")
+            from: 0
+            to: 0.06
+            stepSize: 0.002
+            neutralValue: 0
+            decimals: 1
+            displayMultiplier: 100
+            suffix: "%"
+            value: tools.editor.imageCompletionSelectionExpansion
+            enabled: tools.editor.imageCompletionBrushPoints.length > 0
+                && !tools.editor.imageCompletionBusy
+            onEdited: value => tools.editor.imageCompletionSelectionExpansion = value
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            text: qsTr("Expand a painted selection around soft edges, then generate again. Changing this discards the current candidate.")
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontMeta
+            wrapMode: Text.Wrap
+        }
+
         Label {
             Layout.fillWidth: true
             Layout.minimumWidth: 0

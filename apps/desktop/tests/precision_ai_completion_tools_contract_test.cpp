@@ -86,6 +86,7 @@ QtObject {
     property bool imageCompletionHasCandidate: false
     property bool imageCompletionCanGenerate: true
     property real imageCompletionBrushRadius: 0.04
+    property real imageCompletionSelectionExpansion: 0
     property var imageCompletionBrushPoints: [1, 2]
     property var imageCompletionRegions: []
     property bool liquifyNodeMaterialized: false
@@ -218,11 +219,28 @@ ApplicationWindow {
         );
         click(window, object.get(), "imageCompletionGenerateButton");
         require(editor->property("generateCount").toInt() == 1, "generate remains explicit");
+        auto* expansion = item(object.get(), "imageCompletionSelectionExpansion");
+        require(expansion->isEnabled(), "painted selection can be expanded");
+        auto* expansionInput = item(expansion, "shadowSliderAccessibleInput");
+        QTest::mouseClick(
+            window,
+            Qt::LeftButton,
+            Qt::NoModifier,
+            expansionInput
+                ->mapToScene({expansionInput->width() * 0.5, expansionInput->height() / 2})
+                .toPoint()
+        );
+        QTest::qWait(25);
+        require(
+            editor->property("imageCompletionSelectionExpansion").toDouble() > 0.0,
+            "expansion slider edits the controller property"
+        );
         editor->setProperty("imageCompletionBusy", true);
         QTest::qWait(25);
         require(
             !item(object.get(), "imageCompletionPaintButton")->isEnabled()
-                && !item(object.get(), "imageCompletionBrushSize")->isEnabled(),
+                && !item(object.get(), "imageCompletionBrushSize")->isEnabled()
+                && !expansion->isEnabled(),
             "generation keeps its submitted selection stable"
         );
         click(window, object.get(), "imageCompletionGenerateButton");

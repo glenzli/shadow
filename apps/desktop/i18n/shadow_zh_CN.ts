@@ -7573,6 +7573,16 @@ R %2 · G %3 · B %4</translation>
         <translation>画笔大小</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="153"/>
+        <source>Selection expansion</source>
+        <translation>选区外扩</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="171"/>
+        <source>Expand a painted selection around soft edges, then generate again. Changing this discards the current candidate.</source>
+        <translation>柔和边缘未被完整覆盖时，可外扩已涂抹的选区并重新生成。调整后当前候选会失效。</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="212"/>
         <source>Cancel generation</source>
         <translation>取消生成</translation>
