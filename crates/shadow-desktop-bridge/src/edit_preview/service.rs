@@ -9,8 +9,8 @@ use std::time::Instant;
 use anyhow::{Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
     AdjustmentImageCompletionPatch, AnalyzedEditPreview, CancellableEditPreview,
-    EditPreviewMaskCoverageRequest, OwnedInteractivePreviewFrame, RawPipelineReceipt,
-    photo_provider_version,
+    EditPreviewMaskCoverageRequest, InteractiveEditPreviewStorage, OwnedInteractivePreviewFrame,
+    RawPipelineReceipt, photo_provider_version,
 };
 
 use super::{
@@ -81,11 +81,32 @@ fn interactive_timing_enabled() -> bool {
     std::env::var("SHADOW_INTERACTIVE_TIMING").is_ok_and(|value| value == "1")
 }
 
-fn log_interactive_bridge_timing(token: u64, started: &Instant, stage: &str) {
-    eprintln!(
-        "shadow.interactive-timing token={token} component=bridge stage={stage} elapsed_ms={}",
-        started.elapsed().as_millis()
-    );
+struct InteractiveBridgeTiming {
+    token: u64,
+    started: Instant,
+    previous: Instant,
+}
+
+impl InteractiveBridgeTiming {
+    fn new(token: u64) -> Self {
+        let now = Instant::now();
+        Self {
+            token,
+            started: now,
+            previous: now,
+        }
+    }
+
+    fn checkpoint(&mut self, stage: &str) {
+        let now = Instant::now();
+        eprintln!(
+            "shadow.interactive-timing token={} component=bridge stage={stage} phase_ms={} elapsed_ms={}",
+            self.token,
+            now.duration_since(self.previous).as_millis(),
+            now.duration_since(self.started).as_millis()
+        );
+        self.previous = now;
+    }
 }
 
 /// Records only route provenance while the explicitly enabled interactive timing trace is active.
@@ -413,7 +434,8 @@ impl DesktopSession {
             let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
             let interactive_timing =
                 matches!(policy, EditPreviewPolicy::Interactive) && interactive_timing_enabled();
-            let interactive_started = interactive_timing.then(Instant::now);
+            let mut interactive_trace =
+                interactive_timing.then(|| InteractiveBridgeTiming::new(request.render_token));
             if request.use_working_recipe != policy.uses_working_recipe() {
                 bail!(
                     "edit-preview policy and Recipe source disagree: policy={policy:?}, use_working_recipe={}",
@@ -462,6 +484,9 @@ impl DesktopSession {
                 }
                 append_transient_pre_grade_completion(&mut recipe.plan, patch)?;
             }
+            if let Some(trace) = interactive_trace.as_mut() {
+                trace.checkpoint("recipe-ready");
+            }
             let raw_development_plan = recipe.foundation.preview_plan();
             let native_path = catalog_native_path(&source)?;
             let raw_foundation = raw_foundation_ready_for_render(
@@ -472,8 +497,8 @@ impl DesktopSession {
                 recipe.foundation.raw_ai_denoise(),
                 &foundation_cancellation,
             )?;
-            if let Some(started) = interactive_started.as_ref() {
-                log_interactive_bridge_timing(request.render_token, started, "source-ready");
+            if let Some(trace) = interactive_trace.as_mut() {
+                trace.checkpoint("source-ready");
             }
             // A superseded RAW-white-balance gesture must not begin a new
             // rebind/session build after its upstream admission work is done.
@@ -507,8 +532,8 @@ impl DesktopSession {
                 .plan
                 .geometry
                 .output_dimensions(session.level_zero_dimensions())?;
-            if let Some(started) = interactive_started.as_ref() {
-                log_interactive_bridge_timing(request.render_token, started, "session-ready");
+            if let Some(trace) = interactive_trace.as_mut() {
+                trace.checkpoint("session-ready");
                 log_interactive_raw_route(request.render_token, session.raw_pipeline_receipt());
             }
             if self
@@ -530,6 +555,19 @@ impl DesktopSession {
                         &native_cancellation,
                     )? {
                         CancellableEditPreview::Completed(frame) => {
+                            if interactive_trace.is_some() {
+                                let route = match frame.storage() {
+                                    InteractiveEditPreviewStorage::HostRgb8 => "host-rgb8",
+                                    InteractiveEditPreviewStorage::AppleMetalRgba8Srgb(_) => {
+                                        "metal-surface"
+                                    }
+                                };
+                                eprintln!(
+                                    "shadow.interactive-timing token={} component=bridge stage=native-storage route={route} fallback_diagnostic_present={}",
+                                    request.render_token,
+                                    !frame.presentation_fallback_diagnostic().is_empty()
+                                );
+                            }
                             CancellableEditPreview::Completed(CompletedEditPreview::Interactive(
                                 frame,
                             ))
@@ -590,8 +628,8 @@ impl DesktopSession {
                     }
                 }
             };
-            if let Some(started) = interactive_started.as_ref() {
-                log_interactive_bridge_timing(request.render_token, started, "native-frame-ready");
+            if let Some(trace) = interactive_trace.as_mut() {
+                trace.checkpoint("native-frame-ready");
             }
 
             // This remains the publication linearization point. Native

@@ -7,6 +7,7 @@
 use std::{
     io::{Cursor, Read},
     path::Path,
+    time::Instant,
 };
 
 use anyhow::{Context, Result as AnyResult, bail};
@@ -27,7 +28,10 @@ use super::{
     wall_clock::current_time_ms,
 };
 
-const COMPLETION_INPUT_MAX_EDGE: u32 = 1_024;
+// Match the editor's warm FIT source. A second edge makes a completed RAW
+// preview decode again before AI generation and gives the 512px crop less
+// original detail. The input and candidate must use the same retained edge.
+const COMPLETION_INPUT_MAX_EDGE: u32 = 1_536;
 const COMPLETION_INPUT_JPEG_QUALITY: u8 = 95;
 const COMPLETION_MODEL_EDGE: u32 = 512;
 // A tiny source crop leaves the model with little surrounding evidence even
@@ -53,6 +57,40 @@ struct PreparedCompletionInput {
     mask_png: Vec<u8>,
     mask_gray8: Vec<u8>,
     placement: ImageCompletionPlacement,
+}
+
+/// Opt-in, payload-free timing for one background completion request.
+struct CompletionPhaseTiming {
+    job_token: u64,
+    started: Option<Instant>,
+    previous: Instant,
+}
+
+impl CompletionPhaseTiming {
+    fn new(job_token: u64) -> Self {
+        let now = Instant::now();
+        Self {
+            job_token,
+            started: std::env::var("SHADOW_INTERACTIVE_TIMING")
+                .is_ok_and(|value| value == "1")
+                .then_some(now),
+            previous: now,
+        }
+    }
+
+    fn checkpoint(&mut self, stage: &str) {
+        let Some(started) = self.started else {
+            return;
+        };
+        let now = Instant::now();
+        eprintln!(
+            "shadow.completion-timing token={} stage={stage} phase_ms={} elapsed_ms={}",
+            self.job_token,
+            now.duration_since(self.previous).as_millis(),
+            now.duration_since(started).as_millis(),
+        );
+        self.previous = now;
+    }
 }
 
 struct CandidateProposalCleanup<'a> {
@@ -106,6 +144,7 @@ impl DesktopSession {
         source_path: &str,
         request: &ffi::FfiImageCompletionRequest,
     ) -> AnyResult<ffi::FfiImageCompletionResult> {
+        let mut timing = CompletionPhaseTiming::new(request.job_token);
         self.validated_photo_source(photo_id, source_path)?;
         let cancellation = self.image_completions.cancellation(request.job_token)?;
         if cancellation.is_cancelled() {
@@ -180,6 +219,7 @@ impl DesktopSession {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
+        timing.checkpoint("source-recipe-ready");
 
         let render_token = self.begin_basic_edit_preview();
         if render_token == 0 {
@@ -231,6 +271,7 @@ impl DesktopSession {
         if input.terminal != ffi::FfiEditPreviewTerminal::Completed || input.row_stride_bytes != 0 {
             bail!("AI completion input preview returned an invalid terminal payload");
         }
+        timing.checkpoint("source-preview-ready");
         let coordinate_extent = RasterExtent::new(input.width, input.height)
             .context("AI completion input preview dimensions are invalid")?;
         let prepared = if let Some(region) = &refresh_region {
@@ -246,6 +287,7 @@ impl DesktopSession {
             prepare_completion_input(&input.bytes, coordinate_extent, &original_points)?
         };
         let mask_revision = blake3::hash(&prepared.mask_gray8).to_hex().to_string();
+        timing.checkpoint("model-input-ready");
         let receipt = match self.image_completion_runtime.stage(
             self.image_completions.store(),
             ImageCompletionInvocation {
@@ -275,6 +317,7 @@ impl DesktopSession {
         ) {
             Ok(receipt) => receipt,
             Err(ImageCompletionRuntimeError::Infer(error)) => {
+                timing.checkpoint("model-unavailable");
                 self.image_completions.finish_job(request.job_token)?;
                 return Ok(image_completion_terminal(
                     request,
@@ -285,9 +328,11 @@ impl DesktopSession {
             }
             Err(error) => return Err(error.into()),
         };
+        timing.checkpoint("model-result-staged");
         let completion =
             self.image_completions
                 .complete_job(request.job_token, receipt, prepared.placement)?;
+        timing.checkpoint("proposal-ready");
         Ok(match completion {
             ImageCompletionCompletion::Staged {
                 generation,
@@ -355,6 +400,7 @@ impl DesktopSession {
                         rgba8: preview.rgba8,
                     },
                 )?;
+                timing.checkpoint("candidate-render-ready");
                 if rendered_candidate.terminal != ffi::FfiEditPreviewTerminal::Completed {
                     if cancellation.is_cancelled()
                         || rendered_candidate.terminal == ffi::FfiEditPreviewTerminal::Cancelled
@@ -382,6 +428,7 @@ impl DesktopSession {
                 )
                 .context("decode AI completion candidate preview")?
                 .into_rgba8();
+                timing.checkpoint("candidate-decode-ready");
                 proposal_cleanup.disarm();
                 ffi::FfiImageCompletionResult {
                     terminal: ffi::FfiImageCompletionTerminal::Staged,
