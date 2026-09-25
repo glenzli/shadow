@@ -40,6 +40,7 @@ const COMPLETION_MIN_CROP_EDGE: u32 = 256;
 const MAX_BRUSH_POINTS: usize = 8_192;
 const MIN_BRUSH_RADIUS: f64 = 0.002;
 const MAX_BRUSH_RADIUS: f64 = 0.25;
+const MAX_SELECTION_EXPANSION: f64 = 0.06;
 
 #[derive(Debug, Clone, Copy)]
 struct OriginalBrushPoint {
@@ -165,6 +166,12 @@ impl DesktopSession {
         if refresh_index.is_some() && !request.points.is_empty() {
             bail!("AI completion refresh cannot also contain brush samples");
         }
+        if !request.selection_expansion.is_finite()
+            || !(0.0..=MAX_SELECTION_EXPANSION).contains(&request.selection_expansion)
+            || (refresh_index.is_some() && request.selection_expansion != 0.0)
+        {
+            bail!("AI completion selection expansion is invalid");
+        }
         let grade_stack = decode_grade_stack_draft_recipe_v1(&request.settings)?;
         let refresh_region = refresh_index
             .map(|index| {
@@ -282,9 +289,21 @@ impl DesktopSession {
                 self.image_completions.store(),
             )?
         } else {
-            let original_points =
+            let crop_points =
                 original_brush_points(&request.points, coordinate_geometry, coordinate_extent)?;
-            prepare_completion_input(&input.bytes, coordinate_extent, &original_points)?
+            if request.selection_expansion == 0.0 {
+                prepare_completion_input(&input.bytes, coordinate_extent, &crop_points)?
+            } else {
+                let expanded = expanded_brush_points(&request.points, request.selection_expansion);
+                let mask_points =
+                    original_brush_points(&expanded, coordinate_geometry, coordinate_extent)?;
+                prepare_completion_input_with_crop_points(
+                    &input.bytes,
+                    coordinate_extent,
+                    &mask_points,
+                    &crop_points,
+                )?
+            }
         };
         let mask_revision = blake3::hash(&prepared.mask_gray8).to_hex().to_string();
         timing.checkpoint("model-input-ready");
@@ -565,14 +584,60 @@ fn original_brush_points(
         .collect()
 }
 
+fn expanded_brush_points(
+    points: &[ffi::FfiImageCompletionBrushPoint],
+    expansion: f64,
+) -> Vec<ffi::FfiImageCompletionBrushPoint> {
+    points
+        .iter()
+        .map(|point| ffi::FfiImageCompletionBrushPoint {
+            x: point.x,
+            y: point.y,
+            radius: if point.erase {
+                point.radius
+            } else {
+                (point.radius + expansion).min(MAX_BRUSH_RADIUS)
+            },
+            erase: point.erase,
+            stroke_id: point.stroke_id,
+        })
+        .collect()
+}
+
 fn prepare_completion_input(
     jpeg: &[u8],
     coordinate_extent: RasterExtent,
     points: &[OriginalBrushPoint],
 ) -> AnyResult<PreparedCompletionInput> {
-    let placement = completion_placement(points, coordinate_extent)?;
-    let mask_gray8 = rasterize_mask(points, placement);
+    prepare_completion_input_with_crop_points(jpeg, coordinate_extent, points, points)
+}
+
+fn prepare_completion_input_with_crop_points(
+    jpeg: &[u8],
+    coordinate_extent: RasterExtent,
+    mask_points: &[OriginalBrushPoint],
+    crop_points: &[OriginalBrushPoint],
+) -> AnyResult<PreparedCompletionInput> {
+    let base_placement = completion_placement(crop_points, coordinate_extent)?;
+    let placement = if selection_fits_placement(mask_points, base_placement) {
+        base_placement
+    } else {
+        completion_placement(mask_points, coordinate_extent)?
+    };
+    let mask_gray8 = rasterize_mask(mask_points, placement);
     prepare_completion_input_with_mask(jpeg, coordinate_extent, placement, mask_gray8)
+}
+
+fn selection_fits_placement(
+    points: &[OriginalBrushPoint],
+    placement: ImageCompletionPlacement,
+) -> bool {
+    points.iter().filter(|point| !point.erase).all(|point| {
+        (point.x - point.radius_x).max(0.0) >= placement.bounds_left.get()
+            && (point.y - point.radius_y).max(0.0) >= placement.bounds_top.get()
+            && (point.x + point.radius_x).min(1.0) <= placement.bounds_right.get()
+            && (point.y + point.radius_y).min(1.0) <= placement.bounds_bottom.get()
+    })
 }
 
 fn prepare_completion_refresh_input(

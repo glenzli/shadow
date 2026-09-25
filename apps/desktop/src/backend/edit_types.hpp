@@ -640,6 +640,7 @@ struct BackendImageCompletionRequest final {
     QString base_commit_id;
     BackendGradeStack grade_stack;
     QVector<BackendImageCompletionBrushPoint> points;
+    double selection_expansion = 0.0;
     int refresh_region_index = -1;
 };
 

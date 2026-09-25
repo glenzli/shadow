@@ -60,6 +60,96 @@ fn placement_adds_context_and_remains_bounded() {
 }
 
 #[test]
+fn expansion_uses_original_context_while_growing_the_model_mask() {
+    let extent = RasterExtent::new(1200, 800).unwrap();
+    let image = DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        extent.width,
+        extent.height,
+        image::Rgb([80, 100, 120]),
+    ));
+    let mut jpeg = Cursor::new(Vec::new());
+    image.write_to(&mut jpeg, ImageFormat::Jpeg).unwrap();
+    let base = [OriginalBrushPoint {
+        x: 0.5,
+        y: 0.5,
+        radius_x: 0.05,
+        radius_y: 0.075,
+        erase: false,
+        stroke_id: 1,
+    }];
+    let expanded = [OriginalBrushPoint {
+        radius_x: 0.075,
+        radius_y: 0.1125,
+        ..base[0]
+    }];
+    let jpeg = jpeg.into_inner();
+    let original = prepare_completion_input(&jpeg, extent, &base).unwrap();
+    let enlarged =
+        prepare_completion_input_with_crop_points(&jpeg, extent, &expanded, &base).unwrap();
+    assert_eq!(original.placement, enlarged.placement);
+    assert_eq!(original.crop_png, enlarged.crop_png);
+    let selected_pixels = |mask: &[u8]| mask.iter().filter(|pixel| **pixel != 0).count();
+    assert!(selected_pixels(&enlarged.mask_gray8) > selected_pixels(&original.mask_gray8));
+}
+
+#[test]
+fn expansion_outside_original_crop_recomputes_placement_without_clipping() {
+    let extent = RasterExtent::new(1200, 800).unwrap();
+    let base = OriginalBrushPoint {
+        x: 0.5,
+        y: 0.5,
+        radius_x: 0.01,
+        radius_y: 0.01,
+        erase: false,
+        stroke_id: 1,
+    };
+    let expanded = OriginalBrushPoint {
+        radius_x: 0.2,
+        radius_y: 0.2,
+        ..base
+    };
+    let original_placement = completion_placement(&[base], extent).unwrap();
+    assert!(!selection_fits_placement(&[expanded], original_placement));
+    let mut jpeg = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        extent.width,
+        extent.height,
+        image::Rgb([80, 100, 120]),
+    ))
+    .write_to(&mut jpeg, ImageFormat::Jpeg)
+    .unwrap();
+    let prepared =
+        prepare_completion_input_with_crop_points(&jpeg.into_inner(), extent, &[expanded], &[base])
+            .unwrap();
+    assert_ne!(prepared.placement, original_placement);
+    assert!(selection_fits_placement(&[expanded], prepared.placement));
+    assert!(prepared.mask_gray8.contains(&255));
+}
+
+#[test]
+fn selection_expansion_preserves_erase_and_caps_painted_radius() {
+    let points = [
+        ffi::FfiImageCompletionBrushPoint {
+            x: 0.5,
+            y: 0.5,
+            radius: 0.22,
+            erase: false,
+            stroke_id: 1,
+        },
+        ffi::FfiImageCompletionBrushPoint {
+            x: 0.5,
+            y: 0.5,
+            radius: 0.03,
+            erase: true,
+            stroke_id: 2,
+        },
+    ];
+    let expanded = expanded_brush_points(&points, 0.06);
+    assert_eq!(expanded[0].radius, MAX_BRUSH_RADIUS);
+    assert_eq!(expanded[1].radius, points[1].radius);
+}
+
+#[test]
 fn narrow_subject_near_frame_edge_keeps_square_context_and_registered_mask() {
     let extent = RasterExtent::new(1200, 800).unwrap();
     let point = OriginalBrushPoint {

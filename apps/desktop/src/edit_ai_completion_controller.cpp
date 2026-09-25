@@ -189,14 +189,6 @@ double EditAiCompletionController::effectiveRadius(
     return point.erase ? point.radius : std::min(0.25, point.radius + selection_expansion_);
 }
 
-QVector<BackendImageCompletionBrushPoint> EditAiCompletionController::effectivePoints() const {
-    auto result = points_;
-    for (auto& point : result) {
-        point.radius = effectiveRadius(point);
-    }
-    return result;
-}
-
 bool EditAiCompletionController::eraseMode() const noexcept {
     return erase_mode_;
 }
@@ -396,7 +388,8 @@ void EditAiCompletionController::startGeneration() {
         .generation = generation_,
         .base_commit_id = submitted_base_commit_id_,
         .grade_stack = submitted_grade_stack_,
-        .points = effectivePoints(),
+        .points = points_,
+        .selection_expansion = selection_expansion_,
         .refresh_region_index = refresh_region_index_,
     };
     generation_pending_ = false;

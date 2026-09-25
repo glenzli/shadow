@@ -77,7 +77,6 @@ class EditAiCompletionController final {
     [[nodiscard]] bool hasPaintedPoint() const noexcept;
     [[nodiscard]] double
     effectiveRadius(const BackendImageCompletionBrushPoint& point) const noexcept;
-    [[nodiscard]] QVector<BackendImageCompletionBrushPoint> effectivePoints() const;
 
     EditController& owner_;
     std::shared_ptr<DesktopBackend> backend_;

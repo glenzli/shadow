@@ -2000,6 +2000,7 @@ mod ffi {
         base_commit_id: String,
         settings: FfiEditSettings,
         points: Vec<FfiImageCompletionBrushPoint>,
+        selection_expansion: f64,
         /// -1 for a painted selection; otherwise replace this accepted region.
         refresh_region_index: i32,
     }
