@@ -20,6 +20,9 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
+#include <atomic>
+#include <chrono>
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -94,6 +97,17 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
     if (force_test_failure()) {
         return failed("test-injected session-resident Metal warm-preview failure");
     }
+
+    using TimingClock = std::chrono::steady_clock;
+    const char* timing_setting = std::getenv("SHADOW_INTERACTIVE_TIMING");
+    const bool timing_enabled = timing_setting != nullptr
+                                && std::string_view(timing_setting) == "1"
+                                && render_context.output_intent
+                                       == WarmEditGpuOutputIntent::metal_presentation_surface;
+    static std::atomic<std::uint64_t> timing_sequence{0U};
+    const std::uint64_t timing_id =
+        timing_enabled ? timing_sequence.fetch_add(1U, std::memory_order_relaxed) + 1U : 0U;
+    const auto timing_started = TimingClock::now();
 
     const WarmGpuResidentLayout& layout = resident.layout();
     WarmGpuLayerPlan layer_plan = prepare_warm_gpu_layer_plan(
@@ -262,6 +276,7 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         }
     }
     const WarmGpuSlotBuffers slot = slot_lease->buffers();
+    const auto timing_prepared = TimingClock::now();
 
     @autoreleasepool {
         for (const PreparedWarmLayer& layer : prepared_layers) {
@@ -506,8 +521,10 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         if (cancellation.stop_requested()) {
             return cancelled();
         }
+        const auto timing_encoded = TimingClock::now();
         [command_buffer commit];
         [command_buffer waitUntilCompleted];
+        const auto timing_gpu_ready = TimingClock::now();
         if (cancellation.stop_requested()) {
             return cancelled();
         }
@@ -576,6 +593,27 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu_layers(
         }
         if (cancellation.stop_requested()) {
             return cancelled();
+        }
+        if (timing_enabled) {
+            const auto timing_finished = TimingClock::now();
+            const auto milliseconds = [](const auto from, const auto to) {
+                return static_cast<long long>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(to - from).count()
+                );
+            };
+            std::fprintf(
+                stderr,
+                "shadow.interactive-gpu-timing native_seq=%llu layers=%zu width=%u height=%u prepare_ms=%lld encode_ms=%lld wait_ms=%lld readback_ms=%lld elapsed_ms=%lld\n",
+                static_cast<unsigned long long>(timing_id),
+                prepared_layers.size(),
+                output_dimensions.width,
+                output_dimensions.height,
+                milliseconds(timing_started, timing_prepared),
+                milliseconds(timing_prepared, timing_encoded),
+                milliseconds(timing_encoded, timing_gpu_ready),
+                milliseconds(timing_gpu_ready, timing_finished),
+                milliseconds(timing_started, timing_finished)
+            );
         }
         slot_lease->mark_completed();
         return RenderAttempt{
