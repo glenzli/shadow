@@ -576,6 +576,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowDialog.qml
             qml/ShadowTextField.qml
             qml/ApplicationSettingsDialog.qml
             qml/SettingsGeneralPane.qml
@@ -851,6 +852,8 @@ qt_add_qml_module(shadow-form-controls-contract-test
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+        qml/ShadowDialog.qml
+        qml/ShadowButton.qml
         qml/ShadowTextField.qml
         qml/ShadowComboBox.qml
         qml/ShadowIcon.qml

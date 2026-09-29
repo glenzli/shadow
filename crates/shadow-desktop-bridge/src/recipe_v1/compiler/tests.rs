@@ -37,6 +37,8 @@ impl crate::recipe_v1::managed_raster_resolution::ManagedImageCompletionResolver
             bounds_right: patch.bounds_right().get(),
             bounds_bottom: patch.bounds_bottom().get(),
             strength,
+            linear_rgba_f32: false,
+            source_color_basis: None,
             rgba8: vec![255; 16],
         })
     }
@@ -122,6 +124,78 @@ fn completion_and_repair_remain_inside_a_complete_unmasked_layer() {
             assert_eq!(layer_count, 17);
         }
     }
+}
+
+#[test]
+fn new_completion_precedes_grade_while_legacy_completion_keeps_its_position() {
+    use shadow_domain::{ImageCompletionRegion, ManagedImageCompletionPatch};
+    let unit = |value| UnitInterval::new(value).unwrap();
+    let digest = "c".repeat(64);
+    let patch = ManagedImageCompletionPatch::new(
+        format!("objects/v1/b3/{}/{}", &digest[..2], &digest[2..]),
+        1,
+        digest,
+        16,
+        2,
+        2,
+        4000,
+        3000,
+        unit(0.1),
+        unit(0.2),
+        unit(0.4),
+        unit(0.6),
+        "d".repeat(64),
+        "infer-runtime".into(),
+        "local".into(),
+        "lama-v1".into(),
+        "rgba-mask-v1".into(),
+        "infer.vision.image-completion@20260830.1".into(),
+        "CPUExecutionProvider".into(),
+    )
+    .unwrap();
+    let mut draft = GradeStackDraft::default();
+    draft.image_completions = vec![
+        ImageCompletionRegion::new(patch.clone()).with_pre_grade(true),
+        ImageCompletionRegion::new(patch),
+    ];
+    let snapshot = grade_stack_recipe_v1_snapshot(&draft, None).unwrap();
+    let plan = super::compile_recipe_render_plan_with_resolver(
+        &snapshot,
+        None,
+        Some(&FixtureCompletionResolver),
+    )
+    .unwrap();
+    let positions: Vec<_> = plan
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| {
+            matches!(
+                &node.operation,
+                AdjustmentRenderOperation::ImageCompletion { .. }
+            )
+            .then_some(index)
+        })
+        .collect();
+    assert_eq!(positions.len(), 2);
+    assert_eq!(positions[0], 0);
+    assert_eq!(positions[1], plan.nodes.len() - 1);
+    let mut plan = plan;
+    let AdjustmentRenderOperation::ImageCompletion { patches } = &plan.nodes[0].operation else {
+        panic!("completion");
+    };
+    let mut candidate = patches[0].clone();
+    candidate.strength = 0.42;
+    super::append_transient_pre_grade_completion(&mut plan, candidate, Some(0)).unwrap();
+    let AdjustmentRenderOperation::ImageCompletion { patches } = &plan.nodes[0].operation else {
+        panic!("completion");
+    };
+    assert_eq!(patches.len(), 2);
+    assert_eq!(
+        patches[0].strength, 0.42,
+        "refresh preview keeps the replaced region's order"
+    );
+    assert_eq!(patches[1].strength, 1.0);
 }
 
 struct FixtureManagedRasterResolver;

@@ -2,6 +2,7 @@
 
 #include "desktop_backend.hpp"
 #include "localized_ui_message.hpp"
+#include "people_scope_controller.hpp"
 #include "review_comparison_coordinator.hpp"
 #include "review_decision_coordinator.hpp"
 #include "review_filter_model.hpp"
@@ -82,6 +83,10 @@ class ReviewController final : public QObject {
         QString filterEditState READ filterEditState WRITE setFilterEditState NOTIFY filtersChanged
     )
     Q_PROPERTY(QString filterLiked READ filterLiked WRITE setFilterLiked NOTIFY filtersChanged)
+    Q_PROPERTY(
+        bool filterRecentImports READ filterRecentImports WRITE setFilterRecentImports NOTIFY
+            filtersChanged
+    )
     Q_PROPERTY(
         bool filterHideOfflineUncached READ filterHideOfflineUncached WRITE
             setFilterHideOfflineUncached NOTIFY filtersChanged
@@ -383,6 +388,7 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString filterColorLabel() const;
     [[nodiscard]] QString filterEditState() const;
     [[nodiscard]] QString filterLiked() const;
+    [[nodiscard]] bool filterRecentImports() const noexcept;
     [[nodiscard]] bool filterHideOfflineUncached() const;
     [[nodiscard]] bool filterOnlyEditable() const;
     [[nodiscard]] QString librarySortKey() const;
@@ -479,6 +485,7 @@ class ReviewController final : public QObject {
     void setFilterColorLabel(const QString& color_label);
     void setFilterEditState(const QString& edit_state);
     void setFilterLiked(const QString& liked);
+    void setFilterRecentImports(bool enabled);
     void setFilterHideOfflineUncached(bool enabled);
     void setFilterOnlyEditable(bool enabled);
     void setLibrarySortKey(const QString& sort_key);
@@ -501,6 +508,7 @@ class ReviewController final : public QObject {
     void setSemanticRepresentationOrder(const QStringList& ranked_keys);
     void setSmartCategoryRepresentationKeys(const QStringList& member_keys);
     void setLibraryAlbumId(const QString& album_id);
+    [[nodiscard]] PeopleScopeSnapshot peopleScopeSnapshot() const;
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
     Q_INVOKABLE void refreshSelectedPreviews(const QVariantList& targets);
@@ -559,6 +567,8 @@ class ReviewController final : public QObject {
     Q_INVOKABLE bool prepareRemoteExport(const QVariantList& targets);
     Q_INVOKABLE void clearFilters();
     Q_INVOKABLE void openPerson(const QString& id, const QString& name, const QStringList& photos);
+    Q_INVOKABLE void
+    openPersonAllLibrary(const QString& id, const QString& name, const QStringList& photos);
     QString personFilterId() const {
         return person_filter_id_;
     }
@@ -691,6 +701,7 @@ class ReviewController final : public QObject {
     void comparisonForgotten();
     void decisionStateChanged();
     void decisionStatusTextChanged();
+    void decisionCommitted(const QString& photoId);
     void decisionChanged(
         const QString& photoId,
         qulonglong headSequence,
@@ -783,6 +794,7 @@ class ReviewController final : public QObject {
     QString person_filter_id_;
     QString person_filter_name_;
     QStringList person_photo_ids_;
+    bool recent_imports_filter_ = false;
     ReviewLibraryOrganizationCoordinator organization_coordinator_;
     ReviewSharedGradeCoordinator shared_grade_coordinator_;
     ReviewComparisonCoordinator comparison_coordinator_;

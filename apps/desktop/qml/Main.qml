@@ -12,6 +12,7 @@ ApplicationWindow {
     required property var justifiedReviewLayout
     required property var reviewGalleryGrouping
     required property var editor
+    required property var editNeighborPreheater
     required property var editInterchangeController
     property var lutExportController: null
     required property var editPreviewPresentation
@@ -19,7 +20,10 @@ ApplicationWindow {
     required property var exportController
     required property var cacheMaintenanceController
     required property var peopleAnalysisController
+    required property var peopleScopeController
     required property var semanticSearchController
+    required property var similarReviewController
+    required property var reviewClusteringController
     required property var smartCategoryController
     required property var imageUnderstandingController
     required property var aiPreferences
@@ -40,6 +44,8 @@ ApplicationWindow {
     readonly property int peopleWorkspacePage: 3
     readonly property int mapWorkspacePage: 4
     property int workspaceIndex: reviewWorkspacePage
+    onWorkspaceIndexChanged:
+        editNeighborPreheater.enabled = workspaceIndex === precisionWorkspacePage
     // Precision keeps an edit-scoped snapshot. Review selection may move while
     // the editor remains open, especially after a remote photo is materialized
     // into a distinct local Catalog identity.
@@ -124,6 +130,7 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        editNeighborPreheater.enabled = workspaceIndex === precisionWorkspacePage
         synchronizeTheme()
         if (initialSettingsSection.length > 0) {
             Qt.callLater(function() {
@@ -231,7 +238,10 @@ ApplicationWindow {
     Connections {
         target: window.peopleAnalysisController
         function onGroupOpened(groupId, name, photoIds) {
-            window.controller.openPerson(groupId, name, photoIds)
+            if (peopleWorkspace.useCurrentScope || !window.peopleScopeController.active)
+                window.controller.openPerson(groupId, name, photoIds)
+            else
+                window.controller.openPersonAllLibrary(groupId, name, photoIds)
             window.showReview()
         }
         function onResultsChanged() {
@@ -298,6 +308,47 @@ ApplicationWindow {
             workspaceIndex = precisionWorkspacePage
         } else {
             reviewWorkspace.reportPrecisionOpenFailure(editor.statusText)
+        }
+    }
+
+    function openAdjacentEdit(direction) {
+        const target = direction > 0
+            ? editNeighborPreheater.nextTarget
+            : editNeighborPreheater.previousTarget
+        if (!target || String(target.photoId || "").length === 0)
+            return
+        reviewWorkspace.selectPhoto(target, Qt.NoModifier)
+        reviewWorkspace.openSelectedPhoto()
+    }
+
+    function maybeLoadMoreForAdjacentEdit() {
+        if (editNeighborPreheater.enabled && editNeighborPreheater.atLoadedEnd
+                && controller.hasMore && !controller.loadingMore
+                && !controller.refreshing && !controller.scanning
+                && !controller.comparisonBusy && !controller.decisionBusy)
+            controller.loadMore()
+    }
+
+    Connections {
+        target: window.editNeighborPreheater
+        function onTargetsChanged() {
+            Qt.callLater(window.maybeLoadMoreForAdjacentEdit)
+        }
+    }
+
+    Connections {
+        target: window.controller
+        function onScanningChanged() {
+            Qt.callLater(window.maybeLoadMoreForAdjacentEdit)
+        }
+        function onRefreshingChanged() {
+            Qt.callLater(window.maybeLoadMoreForAdjacentEdit)
+        }
+        function onComparisonStateChanged() {
+            Qt.callLater(window.maybeLoadMoreForAdjacentEdit)
+        }
+        function onDecisionStateChanged() {
+            Qt.callLater(window.maybeLoadMoreForAdjacentEdit)
         }
     }
 
@@ -370,6 +421,8 @@ ApplicationWindow {
             amapPlaceSearchService: window.amapPlaceSearchService
             personalProfile: window.personalProfile
             semanticSearchController: window.semanticSearchController
+            similarReviewController: window.similarReviewController
+            reviewClusteringController: window.reviewClusteringController
             smartCategoryController: window.smartCategoryController
             imageUnderstandingController: window.imageUnderstandingController
             // Qt WebView is a native child view on macOS rather than a scene-
@@ -398,6 +451,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             editor: window.editor
+            editNeighborPreheater: window.editNeighborPreheater
             interchangeController: window.editInterchangeController
             lutExportController: window.lutExportController
             editPreviewPresentation: window.editPreviewPresentation
@@ -406,6 +460,7 @@ ApplicationWindow {
             onOpenLutLibraryRequested: window.openLutManager()
             onOpenOpticsProfileLibraryRequested: window.openOpticsProfileManager()
             onReturnToReviewRequested: window.showReview()
+            onAdjacentEditRequested: direction => window.openAdjacentEdit(direction)
         }
 
         LibraryWorkspace {
@@ -416,9 +471,11 @@ ApplicationWindow {
         }
 
         PeopleWorkspace {
+            id: peopleWorkspace
             Layout.fillWidth: true
             Layout.fillHeight: true
             controller: window.peopleAnalysisController
+            scope: window.peopleScopeController
             aiPreferences: window.aiPreferences
         }
 

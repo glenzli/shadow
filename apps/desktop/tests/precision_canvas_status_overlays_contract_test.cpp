@@ -204,6 +204,37 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    overlays->setProperty("detailImageReady", true);
+    editor.detail_rendering = true;
+    emit editor.stateChanged();
+    drainBindings();
+    if (!require(
+            detail_wait_hint->property("visible").toBool()
+                && detail_wait_spinner->property("visible").toBool(),
+            "center detail keeps a progress indicator while the full viewport renders"
+        )) {
+        return EXIT_FAILURE;
+    }
+    overlays->setProperty("detailImageLoadFailed", true);
+    drainBindings();
+    if (!require(
+            detail_wait_spinner->property("visible").toBool()
+                && !detail_wait_hint->property("failed").toBool(),
+            "a transient center-image load failure does not hide ongoing refinement"
+        )) {
+        return EXIT_FAILURE;
+    }
+    overlays->setProperty("detailImageLoadFailed", false);
+    editor.detail_rendering = false;
+    emit editor.stateChanged();
+    drainBindings();
+    if (!require(
+            !detail_wait_hint->property("visible").toBool(),
+            "the detail indicator clears after the complete viewport settles"
+        )) {
+        return EXIT_FAILURE;
+    }
+
     overlays->setProperty("fitView", true);
     editor.detail_mode = false;
     editor.full_resolution_preparing = false;

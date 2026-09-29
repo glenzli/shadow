@@ -377,6 +377,9 @@ struct ImageCompletionPatch final {
     double bounds_right = 1.0;
     double bounds_bottom = 1.0;
     double strength = 1.0;
+    // Legacy sRGB8 RGBA or explicitly tagged little-endian linear RGBA32F.
+    bool linear_rgba_f32 = false;
+    std::array<double, 9U> color_response{1, 0, 0, 0, 1, 0, 0, 0, 1};
     std::vector<std::uint8_t> rgba8;
 };
 

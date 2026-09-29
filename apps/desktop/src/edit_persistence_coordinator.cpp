@@ -2,6 +2,7 @@
 #include "edit_paint_controller.hpp"
 #include "edit_persistence_task_coordinator.hpp"
 #include "edit_source_admission.hpp"
+#include "edit_performance_diagnostics.hpp"
 
 #include <QtConcurrent>
 
@@ -153,6 +154,7 @@ bool EditController::openPhoto(
     representation_id_ = representation_id;
     source_path_ = source_path;
     title_ = title;
+    log_edit_performance_checkpoint("photo-open", photo_generation_, render_revision_);
     if (provisional_preview_source_ != provisional_preview_source) {
         provisional_preview_source_ = provisional_preview_source;
         emit provisionalPreviewSourceChanged();
@@ -526,6 +528,11 @@ bool EditController::prepareToClose() {
 
 void EditController::finishStateTask() {
     EditStateTaskResult result = completeStateTask();
+    if (result.kind == EditStateTaskKind::Open) {
+        log_edit_performance_checkpoint(
+            "edit-state-task-finished", result.photo_generation, render_revision_
+        );
+    }
     if (result.photo_generation != photo_generation_) {
         if (persistence_state_.clearPendingVersionActions()) {
             emit stateBusyChanged();
@@ -641,6 +648,9 @@ void EditController::finishStateTask() {
         }
     } else {
         applyState(std::move(result.state));
+    }
+    if (result.kind == EditStateTaskKind::Open) {
+        log_edit_performance_checkpoint("edit-state-applied", photo_generation_, render_revision_);
     }
     if (result.kind == EditStateTaskKind::ResetIncompatibleRecipe) {
         if (!recipe_recovery_message_.isEmpty()) {

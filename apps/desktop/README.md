@@ -69,6 +69,9 @@ Initial preparation may use the existing RAW Metal route, but registration/fusio
 After import, interactive adjustments reuse the normal warm editor source; only a new composition
 reruns multi-photo registration. No new host/device transfer is added to ordinary RAW editing.
 
+Shared confirmation surfaces use [`qml/ShadowDialog.qml`](qml/ShadowDialog.qml) for theme-aware
+titles, spacing and standard action buttons; acceptance policy remains with each feature.
+
 ## Desktop source index
 
 Application startup is split from environment-driven automation:
@@ -121,12 +124,18 @@ Application startup is split from environment-driven automation:
   stable local naming, durable correction undo, incremental scan continuation, localization, and explicit clear. It delegates model execution and
   the independently clearable People Store through `DesktopBackend`; only logical photo ids needed
   to browse and split a person or reject co-occurring-face merges enter Qt, while embeddings and face geometry remain in Rust.
+- [`src/people_scope_controller.*`](src/people_scope_controller.hpp) projects global People groups
+  into the current Review album and filters. It counts all matching Catalog photos on a worker,
+  invalidates stale counts, and keeps person identity independent of the browsing scope.
 - [`src/semantic_search_controller.*`](src/semantic_search_controller.hpp) owns manual,
   session-only natural-language search admission, safe failure presentation, and the bounded
-  high/possible relevance projection; weak relative matches stay hidden.
+  relative similarity projection. It also owns the selected-photo comparison request.
   [`src/review_filter_model.*`](src/review_filter_model.hpp) composes that ranking with existing
   Review filters and restores source order when it is cleared; vectors, prompts, paths, and model
   provenance never enter the Qt model.
+- [`src/review_clustering_controller.*`](src/review_clustering_controller.hpp) owns the bounded
+  scope snapshot, background candidate grouping, progress, pause/resume, cancellation, and
+  session-only group projection.
 - [`src/smart_category_controller.*`](src/smart_category_controller.hpp) owns configurable,
   overlapping smart-category definitions, checkpointed background classification, atomic
   membership publication, and category selection. It consumes the rebuildable SigLIP sidecar
@@ -146,6 +155,23 @@ Application startup is split from environment-driven automation:
   locality label with country/display-name fallback. The dimension registry is
   presentation-generic so separate country/locality choices and People can be added as providers
   without moving grouping policy into layout or QML.
+- [`src/review_diagnostics.hpp`](src/review_diagnostics.hpp) owns bounded Review timing and failure
+  summaries across Library paging, layout, and thumbnail loading. Set
+  `SHADOW_REVIEW_DIAGNOSTICS=1` before launch to collect phase counts, p95 bucket bounds, maxima,
+  cache hits, stale pages, and failures. The existing `SHADOW_INTERACTIVE_TIMING` setting also
+  enables these bounded Review summaries. It emits after the first 16 events, then at most once per
+  2,048 events or 30 seconds of observed work, plus an orderly-exit remainder. Without the setting,
+  timing collection is disabled while failures still receive rate-limited warnings. Summaries contain
+  no photo identity, path, ticket, exception text, or image bytes. The first completed Library page
+  is checkpointed so its measurements survive a later abnormal exit.
+  [`src/review_diagnostic_log.hpp`](src/review_diagnostic_log.hpp) writes completed summaries and a
+  session marker to `diagnostics/review.log` inside the application data directory. The prior file
+  is retained as `review.previous.log`; each is capped at 256 KiB. Writes are flushed before the
+  summary returns. Failure to write leaves console diagnostics available.
+  [`tests/review_large_library_scale_test.cpp`](tests/review_large_library_scale_test.cpp)
+  exercises model projection, ungrouped page append, month/place grouping, and grouped page append
+  with synthetic metadata. CTest uses 10,000 rows; set `SHADOW_REVIEW_SCALE_PHOTOS=100000` for the
+  explicit scale run. It reports elapsed phases and peak process RSS without photo payloads.
 - [`qml/Main.qml`](qml/Main.qml) owns application-window composition, named workspace routing,
   theme projection, and the stable application-shell entry points used by child workspaces. Map
   is an application-level workspace beside Review, Precision, and People; Library Management
@@ -160,6 +186,8 @@ Application startup is split from environment-driven automation:
   [`qml/SemanticSearchControl.qml`](qml/SemanticSearchControl.qml) owns the integrated
   natural-language field, its asynchronous waiting/error state, and the responsive handoff from a
   wide toolbar field to an anchored compact popup.
+  [`qml/ReviewClusteringControl.qml`](qml/ReviewClusteringControl.qml) owns the selected/view/Manual
+  Album grouping entry and its visible task controls.
   [`qml/ReviewGalleryGroupingControl.qml`](qml/ReviewGalleryGroupingControl.qml) renders the
   grouping controller's open dimension registry as one anchored menu and communicates active
   composite grouping without owning any photo-membership rules.
@@ -639,7 +667,33 @@ Its implementation follows the same navigation:
   memory/readiness state, and Recipe-change invalidation.
 - [`src/edit_analysis_controller.cpp`](src/edit_analysis_controller.cpp) owns histogram and
   display-scope validation/projection, Point Color reference freezing, analysis refresh,
-  publication, failure, and clearing.
+  publication, failure, and clearing. [`src/edit_display_scope_task.*`](src/edit_display_scope_task.hpp)
+  decodes settled JPEG and computes display scopes off the GUI thread, with generation-checked
+  publication by the controller.
+- [`src/edit_performance_diagnostics.*`](src/edit_performance_diagnostics.hpp) emits bounded,
+  opt-in edit-phase memory checkpoints without photo identities or image data.
+- [`src/edit_work_scheduler.*`](src/edit_work_scheduler.hpp) admits display-scope analysis after
+  foreground preview and detail work, runs it on one low-priority thread, and defers idle detail
+  warmup until pending scope work finishes. The controller retains generation and cancellation
+  authority.
+- [`src/edit_neighbor_preheater.*`](src/edit_neighbor_preheater.hpp) reads the adjacent identities
+  from the filtered Review layout while Precision is open. At the loaded-page boundary it requests
+  the next filtered Catalog page. Its pending target defers the current photo's idle full-detail
+  warmup; explicit zoom/detail work remains foreground. After the current preview and save
+  work settle, one low-priority worker loads the next local photo's edit state and runs an
+  invisible interactive preview through the existing exact-source cache. The two-entry warm
+  session cache can retain the current and next sources; a previously opened source remains
+  available until normal cache eviction. Foreground work or navigation cancels the worker's
+  preview token, and no prefetched frame is published. Decode preparation still has the native
+  cancellation boundary of the ordinary preview path, so an in-flight decode can finish before
+  the worker releases its slot. `SHADOW_EDIT_PREFETCH_DIAGNOSTICS=1` records one terminal timing
+  line per attempt without photo IDs or paths.
+
+Set `SHADOW_INTERACTIVE_TIMING=1` to include `shadow.edit-checkpoint` records for photo open,
+state loading, settled preview, display scopes, and detail. Each record carries only the stage,
+photo/Recipe generations, retained detail-source bytes, and macOS physical footprint (or
+`unavailable` on other platforms). These checkpoints are emitted at phase boundaries, not per
+pixel or per frame; compare adjacent stages to locate a memory rise before profiling that owner.
 - [`src/edit_stroke_input.*`](src/edit_stroke_input.hpp) validates the bounded normalized-point
   transport shared by direct brush gestures. QML owns transient sampling, while Local Mask and
   Retouch controllers each commit one complete gesture to their own recipe domain.
@@ -800,7 +854,9 @@ Review presentation keeps the workspace focused on selection and orchestration:
   [`qml/ReviewSinglePreview.qml`](qml/ReviewSinglePreview.qml) own grid-card and filmstrip
   geometry. Filmstrip selection resolves against `ReviewFilterModel` identities, independently of
   delegate residency, and restores visibility after view, filter, or ordering changes while keeping
-  pointer-selected cards stationary. [`qml/ReviewPreviewViewport.qml`](qml/ReviewPreviewViewport.qml) owns the filmstrip
+  pointer-selected cards stationary. Near the loaded end it requests one more Catalog page;
+  a forward arrow pressed at the boundary advances when that page appears, while a scope change
+  or different selection drops the pending move. [`qml/ReviewPreviewViewport.qml`](qml/ReviewPreviewViewport.qml) owns the filmstrip
   and ordinary comparison's display-only zoom, pan, and selection reset, reusing the Precision
   view transform and gesture components. Comparison optionally links magnification and normalized
   image centers; a loading peer retains only the latest transform. Gestures reuse the same bounded
@@ -966,6 +1022,10 @@ Review presentation keeps the workspace as the composition and compatibility sur
   and the primary presentation snapshot. Detailed EXIF and
   technical facts come from an independent exact `{photo, representation}` request, so delegate
   recycling and Library pagination cannot replace the selected representation.
+- [`qml/ReviewDecisionFlow.qml`](qml/ReviewDecisionFlow.qml) owns optional next-photo navigation
+  after a confirmed rating or flag. It freezes an adjacent target before the write and cancels
+  on selection, scope, ordering, or workspace changes. Failure refreshes and undo never advance.
+  Review exposes causal decision undo independently of whether a photo remains selected.
 - [`qml/ReviewComparisonState.qml`](qml/ReviewComparisonState.qml) and
   [`qml/ReviewComparisonView.qml`](qml/ReviewComparisonView.qml) own ordinary non-mutating 1:1
   comparison. Entry either freezes the selected photo and one adjacent visible result, or starts
@@ -1274,6 +1334,22 @@ visuals side by side, initially the selected photo and its adjacent visible resu
 navigate independently within the current Library order. There is intentionally no 1/2/4 layout,
 no winner action, and no metadata or learning write coupled to this view.
 
+The selected-photo similarity action uses Infer Runtime image embeddings to suggest a temporary
+group from nearby Review photos. Capture timestamps, when both are available, exclude photos more
+than two minutes apart; otherwise a bounded path-order neighborhood supplies candidates. Up to
+twelve neighbors are ranked by relative image similarity, with the anchor first. The group appears
+as a collapsed gallery section that can be expanded and opens directly in ordinary two-pane
+comparison; pane arrows then stay within that group. Clearing releases the session result.
+Similarity is not calibrated duplicate
+confidence or an aesthetic judgment, and no rating, flag, or photo metadata is written.
+The separate candidate-grouping task can snapshot selected photos or the loaded, filtered view,
+or page the current Manual Album. It checks at most 240 photos per run and links reciprocal nearby
+similarity candidates into temporary stacks of up to twelve. A Qt worker reports completed/total
+progress; pause waits for the current inference request, resume uses the same in-memory scope,
+and cancel invalidates the current provider token. The result is session-only. Album members not
+yet loaded in the gallery need to be loaded before they can enter the comparison view. The Recent
+Imports collection remains unavailable because import-session filtering is not implemented.
+
 Culling is a separate temporary workflow. A user explicitly gathers candidates, enters a focused
 1:1 duel, and repeatedly chooses the better photo, declares a tie, skips a pair, or undoes the last
 choice. One linear winner-stays pass identifies the top choice and retains only its direct losses as
@@ -1448,6 +1524,13 @@ Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, 
 colour-neutral baseline with the current composition and its independent analysis sidecar.
 This exercises warm decoded-session reuse without treating the baseline as unprocessed sensor data.
 
+With two local photos in an isolated scanned folder, `SHADOW_DESKTOP_EDIT_NEIGHBOR_SMOKE=1`
+alongside `SHADOW_DESKTOP_SMOKE_TEST=1` and `SHADOW_DESKTOP_OPEN_FIRST_EDIT=1` waits for the
+adjacent source to be prepared, clicks the packaged Precision next-photo control, then returns
+through the previous-photo control. Both settled frames must belong to their selected photos.
+The background worker remains read-only;
+use a task-private `SHADOW_DESKTOP_DATA_ROOT` for the Catalog created by the smoke.
+
 `SHADOW_DESKTOP_BEFORE_COMPOSITION_SMOKE=1` additionally crops and rotates the selected photo,
 reads both frames back through the provider to verify matching dimensions, then changes
 exposure and requires the same Before generation to remain cached. Use an isolated
@@ -1603,6 +1686,9 @@ one active search and one replaceable pending query. Clear and replacement cance
 the active Rust request and reject late results. The core caches exact-source image
 vectors across queries; QML displays relative ranking and scan coverage without
 inventing strong-match confidence. Model files remain managed by Infer Runtime.
+The separate similar-review controller shares this UI owner but has its own Rust cancellation
+token and transient result. Its anchor and candidates are checked against current Review visual
+identities before entering a group-scoped comparison.
 
 ## Independent photo editor
 

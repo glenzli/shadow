@@ -651,7 +651,7 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
             )
         }
         AdjustmentRenderOperation::ImageCompletion { patches } => {
-            let mut parameters = Vec::with_capacity(patches.len() * 9);
+            let mut parameters = Vec::with_capacity(patches.len() * 19);
             let mut group_lengths = Vec::with_capacity(patches.len() + 1);
             let payload_len = patches.iter().map(|patch| patch.rgba8.len()).sum();
             let mut payload = Vec::with_capacity(payload_len);
@@ -669,6 +669,16 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                     patch.bounds_right,
                     patch.bounds_bottom,
                     patch.strength,
+                    f64::from(u8::from(patch.linear_rgba_f32)),
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
                 ]);
                 group_lengths.push(
                     u32::try_from(patch.rgba8.len())

@@ -6,6 +6,7 @@
 #include <QString>
 #include <QStringList>
 #include <QUrl>
+#include <QVariantList>
 #include <QVariantMap>
 
 #include <cstdlib>
@@ -99,12 +100,8 @@ namespace {
     return QMetaObject::invokeMethod(target, method);
 }
 
-[[nodiscard]] bool invoke(
-    QObject* target,
-    const char* method,
-    const QVariant& first,
-    const QVariant& second
-) {
+[[nodiscard]] bool
+invoke(QObject* target, const char* method, const QVariant& first, const QVariant& second) {
     return QMetaObject::invokeMethod(
         target,
         method,
@@ -114,10 +111,7 @@ namespace {
 }
 
 [[nodiscard]] QString snapshot_id(QObject* comparison, const char* property) {
-    return comparison->property(property)
-        .toMap()
-        .value(QStringLiteral("photoId"))
-        .toString();
+    return comparison->property(property).toMap().value(QStringLiteral("photoId")).toString();
 }
 
 } // namespace
@@ -151,16 +145,16 @@ int main(int argc, char* argv[]) {
         || !require(
             comparison->property("compareMode").toBool()
                 && snapshot_id(comparison.get(), "leftComparisonSnapshot")
-                    == QStringLiteral("photo-a")
+                       == QStringLiteral("photo-a")
                 && snapshot_id(comparison.get(), "rightComparisonSnapshot")
-                    == QStringLiteral("photo-b"),
+                       == QStringLiteral("photo-b"),
             "the selected photo and next visible photo open a 1:1 workspace"
         )
         || !require(
             comparison->property("leftComparisonSource").toString()
                     == QStringLiteral("image://grid/photo-a")
                 && comparison->property("rightComparisonSource").toString()
-                    == QStringLiteral("image://grid/photo-b"),
+                       == QStringLiteral("image://grid/photo-b"),
             "ordinary comparison reuses repeatable Library visual sources"
         )) {
         return EXIT_FAILURE;
@@ -171,10 +165,9 @@ int main(int argc, char* argv[]) {
             "right pane navigation is invokable"
         )
         || !require(
-            snapshot_id(comparison.get(), "leftComparisonSnapshot")
-                    == QStringLiteral("photo-a")
+            snapshot_id(comparison.get(), "leftComparisonSnapshot") == QStringLiteral("photo-a")
                 && snapshot_id(comparison.get(), "rightComparisonSnapshot")
-                    == QStringLiteral("photo-c"),
+                       == QStringLiteral("photo-c"),
             "right pane navigation leaves the left pane unchanged"
         )
         || !require(
@@ -182,18 +175,17 @@ int main(int argc, char* argv[]) {
             "left pane navigation is invokable"
         )
         || !require(
-            snapshot_id(comparison.get(), "leftComparisonSnapshot")
-                    == QStringLiteral("photo-b")
+            snapshot_id(comparison.get(), "leftComparisonSnapshot") == QStringLiteral("photo-b")
                 && snapshot_id(comparison.get(), "rightComparisonSnapshot")
-                    == QStringLiteral("photo-c"),
+                       == QStringLiteral("photo-c"),
             "left pane navigation owns an independent cursor"
         )
         || !require(
             invoke(comparison.get(), "swapPanes")
                 && snapshot_id(comparison.get(), "leftComparisonSnapshot")
-                    == QStringLiteral("photo-c")
+                       == QStringLiteral("photo-c")
                 && snapshot_id(comparison.get(), "rightComparisonSnapshot")
-                    == QStringLiteral("photo-b"),
+                       == QStringLiteral("photo-b"),
             "pane swapping changes presentation only"
         )) {
         return EXIT_FAILURE;
@@ -203,7 +195,7 @@ int main(int argc, char* argv[]) {
             invoke(comparison.get(), "exitComparison")
                 && !comparison->property("compareMode").toBool()
                 && snapshot_id(comparison.get(), "leftComparisonSnapshot")
-                    == QStringLiteral("photo-c"),
+                       == QStringLiteral("photo-c"),
             "leaving comparison preserves the two pane choices for reopening"
         )
         || !require(
@@ -217,16 +209,54 @@ int main(int argc, char* argv[]) {
 
     if (!require(
             invoke(
-                comparison.get(), "startSelectedComparison",
+                comparison.get(),
+                "startSelectedComparison",
                 FakeReviewSelection::snapshot(QStringLiteral("photo-d")),
                 FakeReviewSelection::snapshot(QStringLiteral("photo-b"))
-            )
-                && comparison->property("compareMode").toBool()
+            ) && comparison->property("compareMode").toBool()
                 && snapshot_id(comparison.get(), "leftComparisonSnapshot")
-                    == QStringLiteral("photo-d")
+                       == QStringLiteral("photo-d")
                 && snapshot_id(comparison.get(), "rightComparisonSnapshot")
-                    == QStringLiteral("photo-b"),
+                       == QStringLiteral("photo-b"),
             "an explicit two-photo selection opens those exact photos"
+        )) {
+        return EXIT_FAILURE;
+    }
+
+    const QVariantList group = {
+        FakeReviewSelection::snapshot(QStringLiteral("photo-a")),
+        FakeReviewSelection::snapshot(QStringLiteral("photo-c")),
+        FakeReviewSelection::snapshot(QStringLiteral("photo-d")),
+    };
+    if (!require(
+            QMetaObject::invokeMethod(
+                comparison.get(),
+                "startGroupComparison",
+                Q_ARG(QVariant, QVariant(group))
+            ),
+            "similar group opens from exact snapshots"
+        )
+        || !require(
+            comparison->property("groupMode").toBool()
+                && comparison->property("groupCount").toInt() == 3,
+            "group mode retains the bounded candidate set"
+        )
+        || !require(
+            invoke(comparison.get(), "navigatePane", 1, 1)
+                && snapshot_id(comparison.get(), "rightComparisonSnapshot")
+                       == QStringLiteral("photo-d"),
+            "group navigation follows similarity order"
+        )
+        || !require(
+            invoke(comparison.get(), "navigatePane", 1, 1)
+                && snapshot_id(comparison.get(), "rightComparisonSnapshot")
+                       == QStringLiteral("photo-c"),
+            "group navigation never enters an unrelated Library photo"
+        )
+        || !require(
+            invoke(comparison.get(), "exitComparison")
+                && !comparison->property("groupMode").toBool(),
+            "leaving comparison releases temporary group navigation"
         )) {
         return EXIT_FAILURE;
     }

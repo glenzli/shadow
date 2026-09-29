@@ -36,9 +36,9 @@ pub use decode_inspection::{
     recommended_decode_inspection_worker_count,
 };
 pub use derived_raster_store::{
-    DerivedRasterStoreError, FilesystemDerivedRasterStore, SHADOW_RGBA8_ENCODING_VERSION,
-    SHADOW_RGBA8_MEDIA_TYPE, SHADOW_SOFT_MASK_ENCODING_VERSION, SHADOW_SOFT_MASK_MEDIA_TYPE,
-    managed_image_completion_region, managed_soft_mask_definition,
+    DerivedRasterStoreError, FilesystemDerivedRasterStore, SHADOW_LINEAR_RGBA_F32_MEDIA_TYPE,
+    SHADOW_RGBA8_ENCODING_VERSION, SHADOW_RGBA8_MEDIA_TYPE, SHADOW_SOFT_MASK_ENCODING_VERSION,
+    SHADOW_SOFT_MASK_MEDIA_TYPE, managed_image_completion_region, managed_soft_mask_definition,
 };
 pub use derived_raster_workflow::{
     CurrentDerivedRasterPromotionFailure, DerivedRasterStageError, DerivedRasterStageOutcome,
@@ -94,6 +94,7 @@ pub use semantic_search::{
     DEFAULT_SEMANTIC_SEARCH_MAXIMUM_PHOTOS, MAX_SEMANTIC_SEARCH_PHOTOS, SemanticSearchError,
     SemanticSearchMatch, SemanticSearchPolicy, SemanticSearchReport, SemanticSearchSkipped,
     search_review_semantics, search_review_semantics_with_control,
+    suggest_similar_review_photos_with_control,
 };
 pub use smart_classification::{
     SmartCategoryCount, SmartCategoryDefinition, SmartCategoryFeedbackDecision, SmartCategoryMatch,

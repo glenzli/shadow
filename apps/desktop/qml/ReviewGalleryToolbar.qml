@@ -38,6 +38,8 @@ Rectangle {
         id: actionsMenu
         workspace: toolbar.workspace
         thumbnailScaleVisible: toolbar.showThumbnailScale
+        thumbnailScaleAvailable: toolbar.workspace.galleryPresentation
+            === ReviewWorkspace.JustifiedGrid
         onOpenLibraryManagementRequested: toolbar.openLibraryManagementRequested()
         onOpenMetadataRequested: toolbar.openMetadataRequested()
         onSharedGradeRequested: toolbar.sharedGradeRequested(moreButton)
@@ -140,6 +142,12 @@ Rectangle {
             Layout.preferredWidth: implicitWidth
             Layout.preferredHeight: implicitHeight
             grouping: toolbar.workspace.reviewGalleryGrouping
+        }
+
+        ReviewClusteringControl {
+            Layout.preferredWidth: implicitWidth
+            Layout.preferredHeight: implicitHeight
+            workspace: toolbar.workspace
         }
 
         Item { Layout.fillWidth: true }
@@ -264,6 +272,69 @@ Rectangle {
                 else
                     toolbar.workspace.comparison.startQuickComparison()
             }
+        }
+
+        ShadowIconButton {
+            objectName: "findSimilarReviewButton"
+            source: toolbar.workspace.similarReviewController.busy
+                ? "" : "qrc:/icons/source-stack.svg"
+            selected: toolbar.workspace.similarReviewForSelection
+            toolTipText: toolbar.workspace.similarReviewController.busy
+                ? qsTr("Finding similar review candidates…")
+                : toolbar.workspace.similarReviewForSelection
+                    ? qsTr("Open similar photo comparison (%L1 candidates)")
+                        .arg(Math.max(0,
+                            toolbar.workspace.similarReviewController.shownResultCount - 1))
+                    : qsTr("Find similar photos near the selected photo")
+            accessibleName: toolTipText
+            enabled: toolbar.workspace.similarReviewForSelection
+                ? toolbar.workspace.similarReviewController.shownResultCount > 1
+                : toolbar.workspace.canFindSimilarReview
+            onClicked: {
+                if (toolbar.workspace.similarReviewForSelection)
+                    toolbar.workspace.openSimilarComparison()
+                else
+                    toolbar.workspace.findSimilarReview()
+            }
+            BusyIndicator {
+                anchors.centerIn: parent
+                width: 18
+                height: 18
+                visible: toolbar.workspace.similarReviewController.busy
+                running: visible
+            }
+        }
+
+        ShadowIconButton {
+            objectName: "clearSimilarReviewButton"
+            visible: toolbar.workspace.similarReviewController.hasResults
+                || toolbar.workspace.similarReviewController.busy
+                || toolbar.workspace.similarReviewController.errorText.length > 0
+            source: "qrc:/icons/clear.svg"
+            toolTipText: toolbar.workspace.similarReviewController.busy
+                ? qsTr("Cancel similar photo review")
+                : qsTr("Clear similar review candidates")
+            accessibleName: toolTipText
+            onClicked: toolbar.workspace.clearSimilarReview()
+        }
+
+        ShadowIconButton {
+            objectName: "reviewUndoDecisionButton"
+            source: "qrc:/icons/undo.svg"
+            toolTipText: qsTr("Undo last rating or flag (⌘Z / Ctrl+Z)")
+            accessibleName: toolTipText
+            enabled: toolbar.workspace.canUndoDecision
+            onClicked: toolbar.workspace.undoDecision()
+        }
+
+        ShadowIconButton {
+            objectName: "reviewAutoAdvanceIndicator"
+            visible: toolbar.workspace.autoAdvanceDecisions
+            source: "qrc:/icons/skip.svg"
+            selected: true
+            toolTipText: qsTr("Auto advance is on · click to turn off")
+            accessibleName: toolTipText
+            onClicked: toolbar.workspace.autoAdvanceDecisions = false
         }
 
         ShadowButton {

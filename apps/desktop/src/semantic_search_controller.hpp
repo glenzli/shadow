@@ -13,6 +13,7 @@
 struct SemanticSearchTaskResult final {
     BackendSemanticSearchReport report;
     QString query;
+    QString representation_id;
     QString diagnostic;
 };
 
@@ -24,6 +25,8 @@ class SemanticSearchController final : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
     Q_PROPERTY(bool hasResults READ hasResults NOTIFY resultsChanged)
     Q_PROPERTY(QString activeQuery READ activeQuery NOTIFY resultsChanged)
+    Q_PROPERTY(QString anchorPhotoId READ anchorPhotoId NOTIFY resultsChanged)
+    Q_PROPERTY(QString anchorRepresentationId READ anchorRepresentationId NOTIFY resultsChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
     Q_PROPERTY(QString errorText READ errorText NOTIFY stateChanged)
     Q_PROPERTY(QVariantList matches READ matches NOTIFY resultsChanged)
@@ -46,6 +49,8 @@ class SemanticSearchController final : public QObject {
   public:
     using Runner = std::function<
         BackendSemanticSearchReport(const QString&, const QString&, const QString&, std::uint64_t)>;
+    using ImageRunner =
+        std::function<BackendSemanticSearchReport(const QString&, const QString&, std::uint64_t)>;
     using Begin = std::function<std::uint64_t()>;
     using Cancel = std::function<void(std::uint64_t)>;
 
@@ -55,11 +60,19 @@ class SemanticSearchController final : public QObject {
         Cancel cancel = {},
         QObject* parent = nullptr
     );
+    explicit SemanticSearchController(
+        ImageRunner image_runner,
+        Begin begin,
+        Cancel cancel,
+        QObject* parent = nullptr
+    );
     ~SemanticSearchController() override;
 
     [[nodiscard]] bool busy() const noexcept;
     [[nodiscard]] bool hasResults() const noexcept;
     [[nodiscard]] QString activeQuery() const;
+    [[nodiscard]] QString anchorPhotoId() const;
+    [[nodiscard]] QString anchorRepresentationId() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QString errorText() const;
     [[nodiscard]] QVariantList matches() const;
@@ -76,6 +89,7 @@ class SemanticSearchController final : public QObject {
     [[nodiscard]] bool truncated() const noexcept;
 
     Q_INVOKABLE void search(const QString& query);
+    Q_INVOKABLE void findSimilar(const QString& photo_id, const QString& representation_id);
     Q_INVOKABLE void clearSessionResults();
     Q_INVOKABLE void retranslateUi();
 
@@ -87,6 +101,7 @@ class SemanticSearchController final : public QObject {
     enum class State {
         Idle,
         Running,
+        Cancelling,
         Ready,
         Failed,
     };
@@ -94,6 +109,7 @@ class SemanticSearchController final : public QObject {
     void finishSearch();
 
     Runner runner_;
+    ImageRunner image_runner_;
     Begin begin_;
     Cancel cancel_;
     std::uint64_t active_token_ = 0;
@@ -103,6 +119,9 @@ class SemanticSearchController final : public QObject {
     QFutureWatcher<SemanticSearchTaskResult> watcher_;
     BackendSemanticSearchReport report_;
     QString active_query_;
+    QString active_photo_id_;
+    QString active_representation_id_;
+    bool image_mode_ = false;
     State state_ = State::Idle;
     bool has_results_ = false;
 };

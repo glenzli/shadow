@@ -8,6 +8,7 @@
 #include "desktop_smoke_harness.hpp"
 #include "edit_controller.hpp"
 #include "edit_interchange_controller.hpp"
+#include "edit_neighbor_preheater.hpp"
 #include "edit_preview_presentation_context.hpp"
 #include "edit_preview_presentation_registry.hpp"
 #include "edit_preview_provider.hpp"
@@ -24,11 +25,14 @@
 #include "map_provider_preferences.hpp"
 #include "optics_profile_library.hpp"
 #include "people_analysis_controller.hpp"
+#include "people_scope_controller.hpp"
 #include "personal_location_search.hpp"
 #include "personal_profile.hpp"
 #include "pipeline_launch.hpp"
 #include "pipeline_run_controller.hpp"
 #include "review_controller.hpp"
+#include "review_clustering_controller.hpp"
+#include "review_diagnostics.hpp"
 #include "review_focus_detail_provider.hpp"
 #include "review_gallery_grouping_controller.hpp"
 #include "semantic_search_controller.hpp"
@@ -133,6 +137,9 @@ int main(int argc, char* argv[]) {
         application_data = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     }
     QDir().mkpath(application_data);
+    if (!ReviewDiagnostics::instance().configureLogDirectory(application_data)) {
+        qWarning() << "Review diagnostic log is unavailable; summaries remain on the console";
+    }
     const QString catalog_path = QDir(application_data).filePath(QStringLiteral("catalog.sqlite"));
     const QString cache_root = QDir(application_data).filePath(QStringLiteral("cache"));
     const bool headless_startup_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST");
@@ -279,6 +286,73 @@ int main(int argc, char* argv[]) {
         },
         &ai_preferences
     );
+    PeopleScopeController people_scope_controller(
+        [backend](const BackendLibraryPhotoFilter& filter) {
+            return backend->libraryPhotoCount(filter);
+        },
+        [backend](
+            const BackendLibraryPhotoFilter& filter,
+            const BackendLibraryPhotoCursor& cursor,
+            std::uint32_t limit
+        ) {
+            return backend->libraryPhotoPage(
+                filter,
+                BackendLibraryPhotoOrder::CaptureTimeDescending,
+                cursor,
+                limit
+            );
+        },
+        [&controller]() { return controller.peopleScopeSnapshot(); },
+        &people_analysis_controller
+    );
+    QObject::connect(
+        &controller,
+        &ReviewController::filtersChanged,
+        &people_scope_controller,
+        &PeopleScopeController::invalidate
+    );
+    QObject::connect(
+        &controller,
+        &ReviewController::libraryAlbumChanged,
+        &people_scope_controller,
+        &PeopleScopeController::invalidate
+    );
+    QObject::connect(
+        &controller,
+        &ReviewController::libraryAlbumsChanged,
+        &people_scope_controller,
+        &PeopleScopeController::invalidate
+    );
+    QObject::connect(
+        &controller,
+        &ReviewController::decisionCommitted,
+        &people_scope_controller,
+        &PeopleScopeController::invalidate
+    );
+    QObject::connect(
+        &controller,
+        &ReviewController::decisionUndone,
+        &people_scope_controller,
+        &PeopleScopeController::invalidate
+    );
+    QObject::connect(
+        &controller,
+        &ReviewController::colorLabelChanged,
+        &people_scope_controller,
+        &PeopleScopeController::invalidate
+    );
+    QObject::connect(
+        &controller,
+        &ReviewController::likedChanged,
+        &people_scope_controller,
+        &PeopleScopeController::invalidate
+    );
+    QObject::connect(
+        &controller,
+        &ReviewController::sourceAvailabilityChanged,
+        &people_scope_controller,
+        &PeopleScopeController::invalidate
+    );
     SemanticSearchController semantic_search_controller(
         [backend, infer_base_url, infer_credential_file](
             const QString& query,
@@ -297,6 +371,43 @@ int main(int argc, char* argv[]) {
         },
         [backend]() { return backend->beginSemanticSearch(); },
         [backend](std::uint64_t token) { backend->cancelSemanticSearch(token); }
+    );
+    SemanticSearchController similar_review_controller(
+        SemanticSearchController::ImageRunner{[backend, infer_base_url, infer_credential_file](
+                                                  const QString& photo_id,
+                                                  const QString& representation_id,
+                                                  std::uint64_t token
+                                              ) {
+            return backend->suggestSimilarReview(
+                infer_base_url,
+                infer_credential_file,
+                photo_id,
+                representation_id,
+                token
+            );
+        }},
+        [backend]() { return backend->beginSimilarReview(); },
+        [backend](std::uint64_t token) { backend->cancelSimilarReview(token); }
+    );
+    ReviewClusteringController review_clustering_controller(
+        [backend, infer_base_url, infer_credential_file](
+            const QString& photo_id, const QString& representation_id, std::uint64_t token
+        ) {
+            return backend->suggestSimilarReview(
+                infer_base_url, infer_credential_file, photo_id, representation_id, token
+            );
+        },
+        [backend]() { return backend->beginSimilarReview(); },
+        [backend](std::uint64_t token) { backend->cancelSimilarReview(token); },
+        [backend](
+            const QString& album_id, const BackendLibraryPhotoCursor& cursor, std::uint32_t limit
+        ) {
+            BackendLibraryPhotoFilter filter;
+            filter.album_id = album_id;
+            return backend->libraryPhotoPage(
+                filter, BackendLibraryPhotoOrder::CaptureTimeDescending, cursor, limit
+            );
+        }
     );
     SmartCategoryController smart_category_controller(
         [backend, infer_base_url, infer_credential_file](
@@ -430,6 +541,12 @@ int main(int argc, char* argv[]) {
         &SemanticSearchController::clearSessionResults
     );
     QObject::connect(
+        &controller,
+        &ReviewController::allFiltersCleared,
+        &similar_review_controller,
+        &SemanticSearchController::clearSessionResults
+    );
+    QObject::connect(
         &smart_category_controller,
         &SmartCategoryController::selectionChanged,
         &controller,
@@ -493,6 +610,7 @@ int main(int argc, char* argv[]) {
     );
     EditController
         editor(backend, edit_preview_store, edit_preview_presentation_context, &ai_preferences);
+    EditNeighborPreheater edit_neighbor_preheater(backend, editor, justified_review_layout);
     EditInterchangeController edit_interchange_controller(*backend, editor);
     LutExportController lut_export_controller([&](bool selected_only) {
         if (!editor.active() || editor.stateBusy()
@@ -557,6 +675,18 @@ int main(int argc, char* argv[]) {
     QObject::connect(
         &preferences,
         &UiPreferences::effectiveLanguageChanged,
+        &similar_review_controller,
+        &SemanticSearchController::retranslateUi
+    );
+    QObject::connect(
+        &preferences,
+        &UiPreferences::effectiveLanguageChanged,
+        &review_clustering_controller,
+        &ReviewClusteringController::retranslateUi
+    );
+    QObject::connect(
+        &preferences,
+        &UiPreferences::effectiveLanguageChanged,
         &image_understanding_controller,
         &ImageUnderstandingController::retranslateUi
     );
@@ -598,6 +728,7 @@ int main(int argc, char* argv[]) {
             QVariant::fromValue(&review_gallery_grouping),
         },
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
+        {QStringLiteral("editNeighborPreheater"), QVariant::fromValue(&edit_neighbor_preheater)},
         {
             QStringLiteral("editInterchangeController"),
             QVariant::fromValue(&edit_interchange_controller),
@@ -619,8 +750,20 @@ int main(int argc, char* argv[]) {
             QVariant::fromValue(&people_analysis_controller),
         },
         {
+            QStringLiteral("peopleScopeController"),
+            QVariant::fromValue(&people_scope_controller),
+        },
+        {
             QStringLiteral("semanticSearchController"),
             QVariant::fromValue(&semantic_search_controller),
+        },
+        {
+            QStringLiteral("similarReviewController"),
+            QVariant::fromValue(&similar_review_controller),
+        },
+        {
+            QStringLiteral("reviewClusteringController"),
+            QVariant::fromValue(&review_clustering_controller),
         },
         {
             QStringLiteral("smartCategoryController"),
@@ -685,6 +828,7 @@ int main(int argc, char* argv[]) {
         engine,
         controller,
         editor,
+        edit_neighbor_preheater,
         thumbnail_provider,
         edit_preview_provider,
         preferences,

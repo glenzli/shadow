@@ -2,6 +2,7 @@
 
 #include "desktop_backend.hpp"
 #include "edit_before_preview_state.hpp"
+#include "edit_display_scope_task.hpp"
 #include "edit_history.hpp"
 #include "edit_history_snapshot.hpp"
 #include "edit_persistence_state.hpp"
@@ -9,6 +10,7 @@
 #include "edit_preview_provider.hpp"
 #include "edit_task_runner.hpp"
 #include "edit_version_model.hpp"
+#include "edit_work_scheduler.hpp"
 #include "localized_ui_message.hpp"
 #include "preview_diagnostics.hpp"
 #include "tone_curve_point_model.hpp"
@@ -305,6 +307,10 @@ class EditController final : public QObject {
     Q_PROPERTY(
         double imageCompletionBrushRadius READ imageCompletionBrushRadius WRITE
             setImageCompletionBrushRadius NOTIFY imageCompletionChanged
+    )
+    Q_PROPERTY(
+        double imageCompletionSelectionExpansion READ imageCompletionSelectionExpansion WRITE
+            setImageCompletionSelectionExpansion NOTIFY imageCompletionChanged
     )
     Q_PROPERTY(
         bool imageCompletionEraseMode READ imageCompletionEraseMode WRITE
@@ -645,6 +651,7 @@ class EditController final : public QObject {
     [[nodiscard]] QString imageCompletionCandidateSource() const;
     [[nodiscard]] QVariantList imageCompletionBrushPoints() const;
     [[nodiscard]] double imageCompletionBrushRadius() const noexcept;
+    [[nodiscard]] double imageCompletionSelectionExpansion() const noexcept;
     [[nodiscard]] bool imageCompletionEraseMode() const noexcept;
     [[nodiscard]] QVariantList imageCompletionRegions() const;
     [[nodiscard]] bool imageCompletionNodeMaterialized() const noexcept;
@@ -813,6 +820,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void applyAiMaskCandidate();
     Q_INVOKABLE void cancelAiMaskPrompt();
     Q_INVOKABLE bool beginImageCompletion();
+    Q_INVOKABLE bool refreshImageCompletionRegion(int index);
     Q_INVOKABLE quint32 beginImageCompletionStroke();
     Q_INVOKABLE void
     addImageCompletionBrushPoint(double normalized_x, double normalized_y, quint32 stroke_id);
@@ -823,6 +831,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void applyImageCompletionCandidate();
     Q_INVOKABLE void cancelImageCompletion();
     Q_INVOKABLE void setImageCompletionBrushRadius(double radius);
+    Q_INVOKABLE void setImageCompletionSelectionExpansion(double expansion);
     Q_INVOKABLE void setImageCompletionEraseMode(bool erase);
     Q_INVOKABLE void setImageCompletionExecutionAllowed(bool allowed);
     Q_INVOKABLE void setImageCompletionNodeEnabled(bool enabled);
@@ -1012,6 +1021,9 @@ class EditController final : public QObject {
     // required it queues the durable working snapshot and emits closeReady.
     Q_INVOKABLE bool prepareToClose();
     Q_INVOKABLE void retranslateUi();
+    // Adjacent-photo preparation outranks idle full-detail warmup. Explicit
+    // zoom/detail requests retain their normal foreground admission.
+    void setNeighborPreviewPreparationPending(bool pending);
 
   signals:
     void activeChanged();
@@ -1089,6 +1101,7 @@ class EditController final : public QObject {
     void finishDetailWarmupTask();
     void startPreviewRender();
     void startDetailRender();
+    void dispatchDetailRender(bool center_first);
     void startDetailWarmup();
 
   private:
@@ -1156,12 +1169,12 @@ class EditController final : public QObject {
     void maybeFinishDeferredApplicationClose();
     void setPreviewRunning(EditPreviewKind kind, bool running);
     [[nodiscard]] std::optional<PreviewScopeHueQualifier> selectedPointColorScopeQualifier() const;
-    [[nodiscard]] PreviewDisplayScopeAnalysis analyzeCurrentDisplayScope(
-        const QByteArray& encoded_preview,
-        const std::optional<PreviewScopeHueQualifier>& point_color_qualifier
-    );
     void clearPointColorScopeReference() noexcept;
     void refreshCurrentDisplayScope();
+    void queueDisplayScope(EditPreviewKind kind, QByteArray encoded_preview, quint64 generation);
+    void startDisplayScopeTask();
+    void finishDisplayScopeTask();
+    [[nodiscard]] EditWorkAdmissionState workAdmissionState() const noexcept;
     void markHistogramUpdating(EditPreviewKind kind);
     void publishHistogram(
         EditPreviewKind kind,
@@ -1232,6 +1245,7 @@ class EditController final : public QObject {
     QTimer preview_debounce_;
     QTimer detail_debounce_;
     QTimer detail_warmup_debounce_;
+    bool neighbor_preview_preparation_pending_ = false;
     SessionEditHistory<EditHistorySnapshot> history_;
     // Slider/curve gestures render a deliberately smaller proxy so the first
     // useful frame wins over pixel-perfect fidelity. Once every gesture ends,
@@ -1275,6 +1289,16 @@ class EditController final : public QObject {
     quint64 detail_render_token_ = 0;
     quint64 detail_warmup_token_ = 0;
     quint64 preview_render_token_ = 0;
+    EditWorkScheduler work_scheduler_;
+    QFutureWatcher<EditDisplayScopeTaskResult> display_scope_watcher_;
+    std::optional<EditDisplayScopeTaskInput> pending_current_scope_;
+    std::optional<EditDisplayScopeTaskInput> pending_before_scope_;
+    QImage current_scope_image_;
+    quint64 current_scope_image_generation_ = 0;
+    quint64 current_scope_request_revision_ = 0;
+    quint64 before_scope_request_revision_ = 0;
+    quint64 point_color_reference_epoch_ = 0;
+    bool display_scope_task_active_ = false;
     QElapsedTimer interactive_preview_timing_;
     quint64 interactive_preview_timing_token_ = 0;
     quint64 mask_selection_revision_ = 0;
@@ -1298,6 +1322,7 @@ class EditController final : public QObject {
     bool before_rendering_ = false;
     bool detail_mode_ = false;
     bool detail_rendering_ = false;
+    bool detail_center_phase_ = false;
     bool full_resolution_preparing_ = false;
     bool full_resolution_ready_ = false;
     bool preview_queued_ = false;

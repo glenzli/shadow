@@ -24,6 +24,12 @@ constexpr std::uint32_t LIBRARY_FACET_PAGE_SIZE = 24;
     return filter;
 }
 
+[[nodiscard]] BackendLibraryPhotoFilter recent_import_filter() {
+    BackendLibraryPhotoFilter filter;
+    filter.recent_imports = true;
+    return filter;
+}
+
 [[nodiscard]] LocalizedUiMessage facet_message(
     const char* const source,
     const std::initializer_list<LocalizedUiArgument> arguments = {}
@@ -92,6 +98,10 @@ QVariantMap ReviewLibraryFacetCoordinator::systemCollectionCounts() const {
         {
             QStringLiteral("fiveStar"),
             QVariant::fromValue(static_cast<qulonglong>(five_star_photo_count_)),
+        },
+        {
+            QStringLiteral("recentImports"),
+            QVariant::fromValue(static_cast<qulonglong>(recent_import_photo_count_)),
         },
     };
 }
@@ -165,6 +175,7 @@ ReviewLibraryFacetCoordinator::TaskResult ReviewLibraryFacetCoordinator::runTask
         result.all_photo_count = operations.count({});
         result.liked_photo_count = operations.count(liked_filter());
         result.five_star_photo_count = operations.count(five_star_filter());
+        result.recent_import_photo_count = operations.count(recent_import_filter());
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -200,6 +211,7 @@ void ReviewLibraryFacetCoordinator::finishTask() {
         all_photo_count_ = result.all_photo_count;
         liked_photo_count_ = result.liked_photo_count;
         five_star_photo_count_ = result.five_star_photo_count;
+        recent_import_photo_count_ = result.recent_import_photo_count;
         system_collection_counts_available_ = true;
     } else if (accepted) {
         publishGlobalStatus(facet_message(

@@ -301,6 +301,7 @@ fn library_page_is_photo_first_keyset_paginated_and_filterable() {
 
 fn ffi_library_neutral_filter() -> ffi::FfiLibraryPhotoFilter {
     ffi::FfiLibraryPhotoFilter {
+        recent_imports: false,
         has_capture_start: false,
         capture_start_unix_seconds: 0,
         has_capture_end: false,

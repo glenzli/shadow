@@ -71,6 +71,22 @@ SemanticSearchController::SemanticSearchController(
     );
 }
 
+SemanticSearchController::SemanticSearchController(
+    ImageRunner image_runner,
+    Begin begin,
+    Cancel cancel,
+    QObject* const parent
+) :
+    QObject(parent), image_runner_(std::move(image_runner)), begin_(std::move(begin)),
+    cancel_(std::move(cancel)), image_mode_(true) {
+    connect(
+        &watcher_,
+        &QFutureWatcher<SemanticSearchTaskResult>::finished,
+        this,
+        &SemanticSearchController::finishSearch
+    );
+}
+
 SemanticSearchController::~SemanticSearchController() {
     if (request_in_flight_ && cancel_) {
         cancel_(active_token_);
@@ -90,12 +106,37 @@ QString SemanticSearchController::activeQuery() const {
     return active_query_;
 }
 
+QString SemanticSearchController::anchorPhotoId() const {
+    return active_photo_id_;
+}
+
+QString SemanticSearchController::anchorRepresentationId() const {
+    return active_representation_id_;
+}
+
 QString SemanticSearchController::statusText() const {
+    if (image_mode_) {
+        switch (state_) {
+        case State::Idle:
+            return tr("Select a photo to find similar review candidates.");
+        case State::Running:
+            return tr("Comparing nearby photo previews…");
+        case State::Cancelling:
+            return tr("Cancelling similar photo review…");
+        case State::Ready:
+            return report_.matches.size() > 1 ? tr("Similar review candidates are ready.")
+                                              : tr("No comparable nearby photos were found.");
+        case State::Failed:
+            return tr("Similar photo review could not finish.");
+        }
+    }
     switch (state_) {
     case State::Idle:
         return tr("Describe a photo to search the current Library preview.");
     case State::Running:
         return tr("Comparing your description with local photos…");
+    case State::Cancelling:
+        return tr("Cancelling semantic search…");
     case State::Ready:
         return tr("Semantic search finished.");
     case State::Failed:
@@ -181,6 +222,8 @@ bool SemanticSearchController::truncated() const noexcept {
 }
 
 void SemanticSearchController::search(const QString& query) {
+    if (image_mode_)
+        return;
     const QString normalized_query = query.trimmed();
     if (normalized_query.isEmpty()) {
         return;
@@ -237,6 +280,45 @@ void SemanticSearchController::search(const QString& query) {
     emit stateChanged();
 }
 
+void SemanticSearchController::findSimilar(
+    const QString& photo_id,
+    const QString& representation_id
+) {
+    if (!image_mode_ || request_in_flight_ || photo_id.isEmpty() || representation_id.isEmpty())
+        return;
+    discard_result_ = false;
+    try {
+        active_token_ = begin_ ? begin_() : active_token_ + 1;
+    } catch (const std::exception&) {
+        state_ = State::Failed;
+        emit stateChanged();
+        return;
+    }
+    report_ = {};
+    active_photo_id_.clear();
+    active_representation_id_.clear();
+    has_results_ = false;
+    state_ = State::Running;
+    request_in_flight_ = true;
+    watcher_.setFuture(
+        QtConcurrent::run(
+            [runner = image_runner_, photo_id, representation_id, token = active_token_]() {
+                SemanticSearchTaskResult result;
+                result.query = photo_id;
+                result.representation_id = representation_id;
+                try {
+                    result.report = runner(photo_id, representation_id, token);
+                } catch (const std::exception& error) {
+                    result.diagnostic = QString::fromUtf8(error.what());
+                }
+                return result;
+            }
+        )
+    );
+    emit resultsChanged();
+    emit stateChanged();
+}
+
 void SemanticSearchController::clearSessionResults() {
     pending_query_.clear();
     discard_result_ = true;
@@ -244,8 +326,10 @@ void SemanticSearchController::clearSessionResults() {
         cancel_(active_token_);
     report_ = {};
     active_query_.clear();
+    active_photo_id_.clear();
+    active_representation_id_.clear();
     has_results_ = false;
-    state_ = State::Idle;
+    state_ = request_in_flight_ ? State::Cancelling : State::Idle;
     emit resultsChanged();
     emit stateChanged();
 }
@@ -272,7 +356,12 @@ void SemanticSearchController::finishSearch() {
         return;
     }
     report_ = result.report;
-    active_query_ = result.query;
+    if (image_mode_) {
+        active_photo_id_ = result.query;
+        active_representation_id_ = result.representation_id;
+    } else {
+        active_query_ = result.query;
+    }
     has_results_ = true;
     state_ = State::Ready;
     emit resultsChanged();

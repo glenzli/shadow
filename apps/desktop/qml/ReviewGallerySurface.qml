@@ -11,6 +11,8 @@ Rectangle {
     id: gallery
 
     required property var workspace
+    property bool similarStackCollapsed: true
+    property bool clusterHadResults: false
     signal openLibraryManagementRequested()
     signal openMetadataRequested()
     signal sharedGradeRequested(var anchorItem)
@@ -27,16 +29,87 @@ Rectangle {
     }
 
     function navigateGrid(horizontalDelta, verticalDelta, modifiers) {
-        const target = gallery.workspace.justifiedReviewLayout.navigationTarget(
-            gallery.workspace.selectedPhotoId,
-            gallery.workspace.selectedRepresentationId,
-            horizontalDelta,
-            verticalDelta)
-        if (!target || String(target.photoId || "").length === 0)
+        let currentPhotoId = gallery.workspace.selectedPhotoId
+        let currentRepresentationId = gallery.workspace.selectedRepresentationId
+        for (let attempt = 0; attempt < 64; ++attempt) {
+            const target = gallery.workspace.justifiedReviewLayout.navigationTarget(
+                currentPhotoId, currentRepresentationId,
+                horizontalDelta, verticalDelta)
+            if (!target || String(target.photoId || "").length === 0)
+                return
+            const hidden = gallery.similarStackCollapsed
+                && String(target.sectionKey || "").indexOf("similar-review") >= 0
+                && !Boolean(target.sectionLeadRow)
+            if (hidden) {
+                currentPhotoId = String(target.photoId)
+                currentRepresentationId = String(target.representationId)
+                continue
+            }
+            gallery.workspace.selectPhoto(target, Number(modifiers || 0))
+            justifiedGrid.positionViewAtIndex(
+                Number(target.layoutRow), ListView.Contain)
             return
-        gallery.workspace.selectPhoto(target, Number(modifiers || 0))
-        justifiedGrid.positionViewAtIndex(
-            Number(target.layoutRow), ListView.Contain)
+        }
+    }
+
+    function setSimilarStackCollapsed(collapsed) {
+        if (collapsed) {
+            const current = gallery.workspace.justifiedReviewLayout.navigationTarget(
+                gallery.workspace.selectedPhotoId,
+                gallery.workspace.selectedRepresentationId, 0, 0)
+            if (current && String(current.sectionKey || "")
+                    .indexOf("similar-review") >= 0
+                    && !Boolean(current.sectionLeadRow)) {
+                let anchor = null
+                if (String(current.sectionKey) === "similar-review") {
+                    const matches = gallery.workspace.similarReviewController.matches
+                    if (matches.length > 0)
+                        anchor = matches[0]
+                } else if (String(current.sectionKey).indexOf(
+                        "similar-review-cluster-") === 0) {
+                    const index = Number(String(current.sectionKey).replace(
+                        "similar-review-cluster-", ""))
+                    const groups = gallery.workspace.reviewClusteringController.groups
+                    if (index >= 0 && index < groups.length) {
+                        const keys = groups[index].representationKeys
+                        if (keys.length > 0) {
+                            const parts = String(keys[0]).split("\u001f")
+                            if (parts.length === 2)
+                                anchor = { photoId: parts[0], representationId: parts[1] }
+                        }
+                    }
+                }
+                if (anchor !== null) {
+                    const lead = gallery.workspace.justifiedReviewLayout.navigationTarget(
+                        String(anchor.photoId), String(anchor.representationId), 0, 0)
+                    if (lead && String(lead.photoId) === String(anchor.photoId)
+                            && Boolean(lead.sectionLeadRow))
+                        gallery.workspace.selectPhoto(lead, Qt.NoModifier)
+                }
+            }
+        }
+        similarStackCollapsed = collapsed
+    }
+
+    Connections {
+        target: gallery.workspace.similarReviewController
+        function onResultsChanged() {
+            if (!gallery.workspace.similarReviewController.hasResults) {
+                gallery.similarStackCollapsed = true
+            } else {
+                Qt.callLater(() => justifiedGrid.positionViewAtBeginning())
+            }
+        }
+    }
+
+    Connections {
+        target: gallery.workspace.reviewClusteringController
+        function onStateChanged() {
+            const ready = gallery.workspace.reviewClusteringController.hasResults
+            if (ready && !gallery.clusterHadResults)
+                Qt.callLater(() => justifiedGrid.positionViewAtBeginning())
+            gallery.clusterHadResults = ready
+        }
     }
 
     ReviewGalleryToolbar {
@@ -53,10 +126,68 @@ Rectangle {
         onExportRequested: targets => gallery.exportRequested(targets)
     }
 
+    Rectangle {
+        anchors.top: reviewToolBar.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.max(0, Math.min(parent.width - 36,
+            statusLabel.implicitWidth + 28))
+        height: 32
+        radius: Theme.controlRadius
+        color: Theme.menuSurface
+        border.width: 1
+        border.color: Theme.borderStrong
+        z: 4
+        visible: gallery.workspace.reviewClusteringController.hasStatus
+            || gallery.workspace.similarReviewController.busy
+            || gallery.workspace.similarReviewStatus.length > 0
+            || gallery.workspace.similarReviewController.errorText.length > 0
+            || gallery.workspace.similarReviewController.hasResults
+                && gallery.workspace.similarReviewController.shownResultCount <= 1
+
+        Label {
+            id: statusLabel
+            anchors.centerIn: parent
+            width: parent.width - 20
+            text: gallery.workspace.reviewClusteringController.hasStatus
+                ? gallery.workspace.reviewClusteringController.statusText
+                : gallery.workspace.similarReviewStatus.length > 0
+                ? gallery.workspace.similarReviewStatus
+                : gallery.workspace.similarReviewController.errorText.length > 0
+                    ? gallery.workspace.similarReviewController.errorText
+                    : gallery.workspace.similarReviewController.statusText
+            color: gallery.workspace.textPrimary
+            elide: Text.ElideRight
+            font.pixelSize: Theme.fontMeta
+        }
+    }
+
     Binding {
         target: gallery.workspace.reviewGalleryGrouping
         property: "baseSections"
         value: {
+            const similar = gallery.workspace.similarReviewController
+            if (similar.hasResults && similar.rankedRepresentationKeys.length > 1) {
+                return [{
+                    key: "similar-review",
+                    title: qsTr("Similar review candidates"),
+                    subtitle: qsTr("Image similarity near the selected photo · review each candidate"),
+                    representationKeys: similar.rankedRepresentationKeys
+                }]
+            }
+            const clusters = gallery.workspace.reviewClusteringController
+            if (clusters.hasResults) {
+                const sections = []
+                const groups = clusters.groups
+                for (let index = 0; index < groups.length; ++index) {
+                    sections.push({
+                        key: "similar-review-cluster-" + index,
+                        title: qsTr("Candidate stack %L1").arg(index + 1),
+                        subtitle: qsTr("Suggested by reciprocal nearby similarity · compare to confirm"),
+                        representationKeys: groups[index].representationKeys
+                    })
+                }
+                return sections
+            }
             const semantic = gallery.workspace.semanticSearchController
             if (!semantic.hasResults)
                 return []
@@ -160,13 +291,19 @@ Rectangle {
             required property string sectionSubtitle
             required property int sectionItemCount
             required property int sectionOrdinal
+            readonly property bool similarGroupRow:
+                sectionKey.indexOf("similar-review") >= 0
+            readonly property bool collapsedSimilarPhotoRow:
+                rowKind === "photos" && similarGroupRow
+                && !Boolean(items.length > 0 && items[0].sectionLeadRow)
+                && gallery.similarStackCollapsed
 
             width: justifiedGrid.width
             // `rowHeight` is the image height. Captions are outside the
             // image geometry so every visible image retains its ratio.
             height: rowKind === "section"
                 ? (sectionOrdinal === 0 ? 38 : 66)
-                : rowHeight + 48
+                : collapsedSimilarPhotoRow ? 0 : rowHeight + 48
 
             Rectangle {
                 visible: justifiedRow.rowKind === "section"
@@ -208,10 +345,33 @@ Rectangle {
                     font.pixelSize: Theme.fontMeta
                     elide: Text.ElideRight
                 }
+
+                ShadowButton {
+                    visible: justifiedRow.similarGroupRow
+                    compact: true
+                    text: qsTr("Compare group")
+                    onClicked: {
+                        if (justifiedRow.sectionKey === "similar-review")
+                            gallery.workspace.openSimilarComparison()
+                        else
+                            gallery.workspace.openReviewClusterComparison(
+                                justifiedRow.sectionKey)
+                    }
+                }
+
+                ShadowButton {
+                    visible: justifiedRow.similarGroupRow
+                    compact: true
+                    text: gallery.similarStackCollapsed
+                        ? qsTr("Show photos") : qsTr("Collapse stack")
+                    onClicked: gallery.setSimilarStackCollapsed(
+                        !gallery.similarStackCollapsed)
+                }
             }
 
             Repeater {
                 model: justifiedRow.rowKind === "photos"
+                    && !justifiedRow.collapsedSimilarPhotoRow
                     ? justifiedRow.items : []
 
                 delegate: ReviewPhotoCard {

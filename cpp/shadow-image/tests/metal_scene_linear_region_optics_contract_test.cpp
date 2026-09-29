@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -43,11 +44,12 @@ oriented_dimensions(const image::Dimensions dimensions, const std::int32_t orien
                : dimensions;
 }
 
-[[nodiscard]] image::RawFrame resident_fixture(const std::int32_t orientation) {
+[[nodiscard]] image::RawFrame
+resident_fixture(const std::int32_t orientation, const image::Dimensions dimensions = {128U, 96U}) {
     image::RawFrame frame = synthetic_bayer_frame();
     frame.descriptor.provider_id = "generic-open-raw-provider";
     frame.descriptor.provider_version = "provider-v1";
-    frame.descriptor.storage_dimensions = {128U, 96U};
+    frame.descriptor.storage_dimensions = dimensions;
     frame.descriptor.active_dimensions = frame.descriptor.storage_dimensions;
     frame.descriptor.orientation = orientation;
     frame.descriptor.bits_per_sample = 12U;
@@ -434,10 +436,25 @@ void irregular_tiles_match_and_nominal_path_has_zero_readback(
 }
 
 void rebindable_preview_full_frame_stays_resident_through_optics(
-    const std::filesystem::path& database
+    const std::filesystem::path& database,
+    const bool strict_source_subset = false,
+    const bool profile_vignetting = true
 ) {
-    image::RawFrame frame = resident_fixture(0);
-    const image::AssetMetadata metadata = nikon_d850_metadata();
+    image::RawFrame frame = resident_fixture(
+        0,
+        strict_source_subset ? image::Dimensions{1536U, 1024U} : image::Dimensions{128U, 96U}
+    );
+    image::AssetMetadata metadata = nikon_d850_metadata();
+    if (strict_source_subset) {
+        metadata.make = metadata.normalized_make = "Canon";
+        metadata.model = metadata.normalized_model =
+            profile_vignetting ? "EOS 5D Mark II" : "EOS R";
+        metadata.lens_make = "Canon";
+        metadata.lens_model =
+            profile_vignetting ? "Canon EF 24-105mm f/4L IS USM" : "Canon RF 24-105mm F4L IS USM";
+        metadata.focal_length_mm = metadata.focal_length_35mm = 105.0;
+        metadata.aperture_f_number = 5.6;
+    }
     ResidentOpticsRawSession session(std::move(frame), metadata);
     auto prepared = image::raw_pipeline_detail::prepare_raw_frame_source(
         session,
@@ -464,11 +481,13 @@ void rebindable_preview_full_frame_stays_resident_through_optics(
         return;
     }
     auto provider = image::make_lensfun_optics_provider(database);
+    auto settings = optics_settings();
+    settings.correct_vignetting = profile_vignetting;
     auto optics = image::detail::prepare_scene_linear_region_optics(
         provider.get(),
         resident->output.dimensions(),
         metadata,
-        optics_settings()
+        settings
     );
     const image::GeometryPixelRect full_region{
         0U,
@@ -478,14 +497,20 @@ void rebindable_preview_full_frame_stays_resident_through_optics(
     };
     auto region = optics.prepare_region(full_region);
     expect(
-        optics.device_resident_eligible() && region.source_preimage().has_value()
-            && *region.source_preimage() == full_region,
-        "the full preview carries directly-adoptable optics evidence"
+        optics.device_resident_eligible() && region.source_preimage().has_value(),
+        "the full preview carries owned optics evidence"
     );
-    if (!optics.device_resident_eligible() || !region.source_preimage().has_value()
-        || *region.source_preimage() != full_region) {
+    if (!optics.device_resident_eligible() || !region.source_preimage().has_value()) {
         return;
     }
+    expect(
+        (*region.source_preimage() != full_region) == strict_source_subset,
+        "telephoto correction samples a strict subset of the resident full image"
+    );
+    expect(
+        region.profile_vignetting() == profile_vignetting,
+        "the fixture exercises both compact source-aligned gains and geometry-only sampling"
+    );
     const auto expected_result = optics.lensfun_plan()->correct_scene_linear_reference(*full);
     expect(
         expected_result.corrected_scene_linear_rgb.has_value(),
@@ -510,6 +535,98 @@ void rebindable_preview_full_frame_stays_resident_through_optics(
         corrected.debug_readback(),
         *expected_result.corrected_scene_linear_rgb,
         "resident rebind optics matches the same full-preview Lensfun oracle"
+    );
+
+    std::shared_ptr<const image::OpticsProvider> retained_provider = std::move(provider);
+    image::detail::MetalPreviewOpticsCache
+        cache(retained_provider, resident->output.dimensions(), metadata, settings);
+    auto first = cache.apply(resident->output);
+    auto next = cache.apply(resident->output);
+    expect(
+        !first.reused_resources && next.reused_resources,
+        "the same source lineage prepares mapping resources only once"
+    );
+    expect(
+        first.retained_resource_bytes > 0U
+            && first.retained_resource_bytes <= image::detail::maximum_preview_optics_cache_bytes
+            && next.retained_resource_bytes == first.retained_resource_bytes,
+        "mapping retention is charged once within the bounded side-resource budget"
+    );
+    expect(
+        first.output.telemetry().coordinate_upload_count == (region.coordinate_remap() ? 1U : 0U)
+            && first.output.telemetry().profile_gain_upload_count == (profile_vignetting ? 1U : 0U)
+            && next.output.telemetry().coordinate_upload_count == 0U
+            && next.output.telemetry().profile_gain_upload_count == 0U,
+        "a warm rebind performs no repeated coordinate or gain upload"
+    );
+    expect_near(
+        next.output.debug_readback(),
+        *expected_result.corrected_scene_linear_rgb,
+        "cached side resources preserve the complete CPU optics oracle"
+    );
+    auto concurrent = std::async(std::launch::async, [&] { return cache.apply(resident->output); });
+    auto independent = cache.apply(resident->output);
+    auto parallel = concurrent.get();
+    expect(
+        independent.reused_resources && parallel.reused_resources,
+        "concurrent renders share immutable optics inputs"
+    );
+    expect_near(
+        parallel.output.debug_readback(),
+        independent.output.debug_readback(),
+        "concurrent cached renders keep independent output state"
+    );
+    {
+        ScopedEnvironment failure("SHADOW_TEST_METAL_SCENE_LINEAR_OPTICS_FAIL", "1");
+        bool rejected = false;
+        try {
+            (void)cache.apply(resident->output);
+        } catch (const image::DecodeError&) {
+            rejected = true;
+        }
+        expect(
+            rejected && cache.retained_bytes() == 0U,
+            "device failure releases cached side resources for a clean retry"
+        );
+    }
+    auto recovered = cache.apply(resident->output);
+    expect(
+        !recovered.reused_resources && recovered.output.valid(),
+        "a failed cached execution can prepare fresh resources on retry"
+    );
+    expect_near(
+        first.output.debug_readback(),
+        *expected_result.corrected_scene_linear_rgb,
+        "an earlier completed output survives cache failure and replacement"
+    );
+
+    image::detail::MetalPreviewOpticsCache
+        transient(retained_provider, resident->output.dimensions(), metadata, settings, 0U);
+    auto uncached = transient.apply(resident->output);
+    auto again = transient.apply(resident->output);
+    expect(
+        !uncached.reused_resources && !again.reused_resources && transient.retained_bytes() == 0U,
+        "resources above the retention budget execute without being pinned"
+    );
+    expect_near(
+        again.output.debug_readback(),
+        *expected_result.corrected_scene_linear_rgb,
+        "budget refusal preserves the exact optical result"
+    );
+
+    auto mismatched_dimensions = resident->output.dimensions();
+    --mismatched_dimensions.width;
+    image::detail::MetalPreviewOpticsCache
+        mismatched(retained_provider, mismatched_dimensions, metadata, settings);
+    bool refused_extent = false;
+    try {
+        (void)mismatched.apply(resident->output);
+    } catch (const image::DecodeError&) {
+        refused_extent = true;
+    }
+    expect(
+        refused_extent && mismatched.retained_bytes() == 0U,
+        "a different preview extent cannot borrow cached mapping evidence"
     );
 }
 
@@ -760,6 +877,8 @@ int main() {
     const std::filesystem::path database_path(database);
     irregular_tiles_match_and_nominal_path_has_zero_readback(database_path);
     rebindable_preview_full_frame_stays_resident_through_optics(database_path);
+    rebindable_preview_full_frame_stays_resident_through_optics(database_path, true, true);
+    rebindable_preview_full_frame_stays_resident_through_optics(database_path, true, false);
     every_orientation_matches_the_complete_oracle(database_path);
     output_survives_source_plan_and_provider_destruction(database_path);
     concurrent_regions_preserve_independent_outputs(database_path);

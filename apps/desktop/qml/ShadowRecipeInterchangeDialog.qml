@@ -6,7 +6,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-Dialog {
+ShadowDialog {
     id: dialog
 
     required property var editor
@@ -522,7 +522,7 @@ Dialog {
         }
     }
 
-    Dialog {
+    ShadowDialog {
         id: exportProgressDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -538,7 +538,7 @@ Dialog {
         }
     }
 
-    Dialog {
+    ShadowDialog {
         id: exportErrorDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -546,8 +546,7 @@ Dialog {
         modal: true
         title: qsTr("Shadow Recipe was not exported")
         standardButtons: Dialog.Ok
-        Label {
-            width: parent.width
+        contentItem: Label {
             text: dialog.interchangeController.recipeExportErrorText
             color: Theme.errorText
             font.pixelSize: Theme.fontSection

@@ -103,6 +103,7 @@ void admitted_mutation_owns_arguments_projection_and_presentation() {
     std::uint8_t received_rating = 0;
     std::vector<BackendReviewDecisionState> projected;
     int applied_signals = 0;
+    int committed_signals = 0;
     int state_signals = 0;
 
     ReviewDecisionCoordinator coordinator(
@@ -129,6 +130,11 @@ void admitted_mutation_owns_arguments_projection_and_presentation() {
             projected.push_back(accepted);
         }
     );
+    QObject::connect(&coordinator, &ReviewDecisionCoordinator::decisionCommitted,
+                     [&](const QString& id) {
+        require(id == QStringLiteral("photo-a") && !coordinator.busy(), "completion identity and settled state");
+        ++committed_signals;
+    });
     QObject::connect(
         &coordinator,
         &ReviewDecisionCoordinator::decisionApplied,
@@ -175,7 +181,8 @@ void admitted_mutation_owns_arguments_projection_and_presentation() {
         "accepted authoritative state is projected once"
     );
     require(
-        coordinator.canUndo() && applied_signals == 1 && state_signals >= 2,
+        coordinator.canUndo() && applied_signals == 1 && state_signals >= 2
+            && committed_signals == 1,
         "successful mutation exposes undo and state changes"
     );
     require(

@@ -8,8 +8,9 @@ use std::time::Instant;
 
 use anyhow::{Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
-    AnalyzedEditPreview, CancellableEditPreview, EditPreviewMaskCoverageRequest,
-    OwnedInteractivePreviewFrame, RawPipelineReceipt, photo_provider_version,
+    AdjustmentImageCompletionPatch, AnalyzedEditPreview, CancellableEditPreview,
+    EditPreviewMaskCoverageRequest, InteractiveEditPreviewStorage, OwnedInteractivePreviewFrame,
+    RawPipelineReceipt, photo_provider_version,
 };
 
 use super::{
@@ -21,7 +22,10 @@ use crate::{
     preview_cache_identity::current_source_environment_cache_identity,
     preview_render_registry::{PreviewAdmission, PreviewRenderRegistryError, PreviewTerminalClaim},
     raw_foundation_render_source::raw_foundation_ready_for_render,
-    recipe_v1::{resolve_composition_before_render, resolve_recipe_render},
+    recipe_v1::{
+        append_transient_pre_grade_completion, resolve_composition_before_render,
+        resolve_recipe_render,
+    },
     session_photo_source::catalog_native_path,
 };
 
@@ -29,6 +33,7 @@ use crate::{
 pub(crate) enum EditPreviewPolicy {
     Interactive,
     SubjectMaskInput,
+    CompletionInput,
     Settled,
     PresentationCommit,
     NeutralBefore,
@@ -50,7 +55,10 @@ impl EditPreviewPolicy {
     }
 
     pub(super) const fn requires_analysis(self) -> bool {
-        !matches!(self, Self::Interactive | Self::SubjectMaskInput)
+        !matches!(
+            self,
+            Self::Interactive | Self::SubjectMaskInput | Self::CompletionInput
+        )
     }
 
     const fn admits_durable_cache(self) -> bool {
@@ -58,7 +66,10 @@ impl EditPreviewPolicy {
     }
 
     pub(super) const fn returns_sensor_diagnostics(self) -> bool {
-        !matches!(self, Self::Interactive | Self::SubjectMaskInput)
+        !matches!(
+            self,
+            Self::Interactive | Self::SubjectMaskInput | Self::CompletionInput
+        )
     }
 }
 
@@ -77,11 +88,32 @@ fn interactive_timing_enabled() -> bool {
     std::env::var("SHADOW_INTERACTIVE_TIMING").is_ok_and(|value| value == "1")
 }
 
-fn log_interactive_bridge_timing(token: u64, started: &Instant, stage: &str) {
-    eprintln!(
-        "shadow.interactive-timing token={token} component=bridge stage={stage} elapsed_ms={}",
-        started.elapsed().as_millis()
-    );
+struct InteractiveBridgeTiming {
+    token: u64,
+    started: Instant,
+    previous: Instant,
+}
+
+impl InteractiveBridgeTiming {
+    fn new(token: u64) -> Self {
+        let now = Instant::now();
+        Self {
+            token,
+            started: now,
+            previous: now,
+        }
+    }
+
+    fn checkpoint(&mut self, stage: &str) {
+        let now = Instant::now();
+        eprintln!(
+            "shadow.interactive-timing token={} component=bridge stage={stage} phase_ms={} elapsed_ms={}",
+            self.token,
+            now.duration_since(self.previous).as_millis(),
+            now.duration_since(self.started).as_millis()
+        );
+        self.previous = now;
+    }
 }
 
 /// Records only route provenance while the explicitly enabled interactive timing trace is active.
@@ -338,6 +370,47 @@ impl DesktopSession {
         .and_then(OwnedEditedPreview::into_materialized_projection)
     }
 
+    /// Materializes lossless display RGB once for the external model consumer.
+    /// Reuses the exact warm source; never admits a durable gallery preview.
+    pub(crate) fn render_completion_input_preview(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+    ) -> AnyResult<(
+        ffi::FfiEditedPreview,
+        Option<shadow_domain::ImageCompletionColorBasis>,
+    )> {
+        let owned = self.render_basic_edit_preview_owned_with_policy(
+            photo_id,
+            source_path,
+            request,
+            EditPreviewPolicy::CompletionInput,
+            &[],
+        )?;
+        let basis = owned.completion_color_basis.clone();
+        Ok((owned.into_materialized_projection()?, basis))
+    }
+
+    pub(crate) fn render_completion_candidate_preview(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+        patch: AdjustmentImageCompletionPatch,
+        position: Option<usize>,
+    ) -> AnyResult<ffi::FfiEditedPreview> {
+        self.render_basic_edit_preview_owned_with_policy_and_completion(
+            photo_id,
+            source_path,
+            request,
+            EditPreviewPolicy::SubjectMaskInput,
+            &[],
+            Some((patch, position)),
+        )
+        .and_then(OwnedEditedPreview::into_materialized_projection)
+    }
+
     pub(crate) fn render_basic_edit_preview_owned_with_policy(
         &self,
         photo_id: &str,
@@ -345,6 +418,25 @@ impl DesktopSession {
         request: &ffi::FfiEditPreviewRequest,
         policy: EditPreviewPolicy,
         candidate_masks: &[ffi::FfiAutoStartMask],
+    ) -> AnyResult<Box<OwnedEditedPreview>> {
+        self.render_basic_edit_preview_owned_with_policy_and_completion(
+            photo_id,
+            source_path,
+            request,
+            policy,
+            candidate_masks,
+            None,
+        )
+    }
+
+    fn render_basic_edit_preview_owned_with_policy_and_completion(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditPreviewRequest,
+        policy: EditPreviewPolicy,
+        candidate_masks: &[ffi::FfiAutoStartMask],
+        candidate_completion: Option<(AdjustmentImageCompletionPatch, Option<usize>)>,
     ) -> AnyResult<Box<OwnedEditedPreview>> {
         let render = (|| -> AnyResult<Box<OwnedEditedPreview>> {
             match self
@@ -372,7 +464,8 @@ impl DesktopSession {
             let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
             let interactive_timing =
                 matches!(policy, EditPreviewPolicy::Interactive) && interactive_timing_enabled();
-            let interactive_started = interactive_timing.then(Instant::now);
+            let mut interactive_trace =
+                interactive_timing.then(|| InteractiveBridgeTiming::new(request.render_token));
             if request.use_working_recipe != policy.uses_working_recipe() {
                 bail!(
                     "edit-preview policy and Recipe source disagree: policy={policy:?}, use_working_recipe={}",
@@ -393,8 +486,11 @@ impl DesktopSession {
             )?;
             let source_environment_cache_identity =
                 current_source_environment_cache_identity(&photo_provider_version());
-            let recipe = if !candidate_masks.is_empty() {
-                if policy != EditPreviewPolicy::SubjectMaskInput {
+            let mut recipe = if !candidate_masks.is_empty() {
+                if !matches!(
+                    policy,
+                    EditPreviewPolicy::SubjectMaskInput | EditPreviewPolicy::CompletionInput
+                ) {
                     bail!("candidate masks require a transient preview");
                 }
                 self.resolve_auto_start_render(photo_id, request, candidate_masks)?
@@ -415,6 +511,18 @@ impl DesktopSession {
                     request.use_working_recipe,
                 )?
             };
+            if let Some((patch, position)) = candidate_completion {
+                if !matches!(
+                    policy,
+                    EditPreviewPolicy::SubjectMaskInput | EditPreviewPolicy::CompletionInput
+                ) {
+                    bail!("AI completion candidate requires a transient preview");
+                }
+                append_transient_pre_grade_completion(&mut recipe.plan, patch, position)?;
+            }
+            if let Some(trace) = interactive_trace.as_mut() {
+                trace.checkpoint("recipe-ready");
+            }
             let raw_development_plan = recipe.foundation.preview_plan();
             let native_path = catalog_native_path(&source)?;
             let raw_foundation = raw_foundation_ready_for_render(
@@ -425,8 +533,8 @@ impl DesktopSession {
                 recipe.foundation.raw_ai_denoise(),
                 &foundation_cancellation,
             )?;
-            if let Some(started) = interactive_started.as_ref() {
-                log_interactive_bridge_timing(request.render_token, started, "source-ready");
+            if let Some(trace) = interactive_trace.as_mut() {
+                trace.checkpoint("source-ready");
             }
             // A superseded RAW-white-balance gesture must not begin a new
             // rebind/session build after its upstream admission work is done.
@@ -460,8 +568,8 @@ impl DesktopSession {
                 .plan
                 .geometry
                 .output_dimensions(session.level_zero_dimensions())?;
-            if let Some(started) = interactive_started.as_ref() {
-                log_interactive_bridge_timing(request.render_token, started, "session-ready");
+            if let Some(trace) = interactive_trace.as_mut() {
+                trace.checkpoint("session-ready");
                 log_interactive_raw_route(request.render_token, session.raw_pipeline_receipt());
             }
             if self
@@ -483,9 +591,32 @@ impl DesktopSession {
                         &native_cancellation,
                     )? {
                         CancellableEditPreview::Completed(frame) => {
+                            if interactive_trace.is_some() {
+                                let route = match frame.storage() {
+                                    InteractiveEditPreviewStorage::HostRgb8 => "host-rgb8",
+                                    InteractiveEditPreviewStorage::AppleMetalRgba8Srgb(_) => {
+                                        "metal-surface"
+                                    }
+                                };
+                                eprintln!(
+                                    "shadow.interactive-timing token={} component=bridge stage=native-storage route={route} fallback_diagnostic_present={}",
+                                    request.render_token,
+                                    !frame.presentation_fallback_diagnostic().is_empty()
+                                );
+                            }
                             CancellableEditPreview::Completed(CompletedEditPreview::Interactive(
                                 frame,
                             ))
+                        }
+                        CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
+                    }
+                }
+                EditPreviewPolicy::CompletionInput => {
+                    match session
+                        .render_plan_rgb8_cancellable(&recipe.plan, &native_cancellation)?
+                    {
+                        CancellableEditPreview::Completed(proxy) => {
+                            CancellableEditPreview::Completed(CompletedEditPreview::Encoded(proxy))
                         }
                         CancellableEditPreview::Cancelled => CancellableEditPreview::Cancelled,
                     }
@@ -543,8 +674,8 @@ impl DesktopSession {
                     }
                 }
             };
-            if let Some(started) = interactive_started.as_ref() {
-                log_interactive_bridge_timing(request.render_token, started, "native-frame-ready");
+            if let Some(trace) = interactive_trace.as_mut() {
+                trace.checkpoint("native-frame-ready");
             }
 
             // This remains the publication linearization point. Native
@@ -607,7 +738,13 @@ impl DesktopSession {
                         session.optics_receipt(),
                         session.sensor_clipping_mask(),
                         policy,
-                    )))
+                    ))
+                    .with_completion_basis(
+                        session
+                            .raw_pipeline_receipt()
+                            .completion_color_basis
+                            .clone(),
+                    ))
                 }
                 CompletedEditPreview::Materialized(rendered) => {
                     let rendered = *rendered;

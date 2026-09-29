@@ -19,6 +19,8 @@ Item {
     required property var amapPlaceSearchService
     required property var personalProfile
     required property var semanticSearchController
+    required property var similarReviewController
+    required property var reviewClusteringController
     required property var smartCategoryController
     required property var imageUnderstandingController
     property bool nativeWebMapAllowed: true
@@ -44,7 +46,42 @@ Item {
         selection: selectionState
     }
 
+    ReviewDecisionFlow {
+        id: decisionFlow
+        controller: review.controller
+        selection: selectionState
+        navigationModel: review.justifiedReviewLayout
+        onAdvanceRequested: target => review.selectPhoto(target, Qt.NoModifier)
+    }
+    property alias autoAdvanceDecisions: decisionFlow.autoAdvance
+    onVisibleChanged: decisionFlow.cancel()
+
+    readonly property bool textInputActive: {
+        const item = review.Window.window ? review.Window.window.activeFocusItem : null
+        return item !== null && typeof item.cursorPosition === "number"
+    }
+    readonly property bool canUndoDecision: controller.canUndoDecision
+        && !locationCompletionActive && !comparison.compareMode && !culling.arenaActive
+        && !controller.scanning && !controller.refreshing && !controller.busy
+        && !controller.loadingMore && !controller.comparisonBusy && !controller.decisionBusy
+
     readonly property alias comparison: comparisonState
+    property var similarReviewAnchor: null
+    property string similarReviewStatus: ""
+    readonly property bool canFindSimilarReview:
+        selectedPhotoCount === 1 && selectedPhotoId.length > 0
+        && selectedRepresentationId.length > 0
+        && selectedVisualSource.length > 0
+        && !similarReviewController.busy
+        && !reviewClusteringController.busy
+        && !controller.scanning && !controller.refreshing
+        && !controller.busy && !controller.loadingMore
+    readonly property bool similarReviewForSelection:
+        similarReviewController.hasResults
+        && selectedPhotoCount === 1
+        && similarReviewController.anchorPhotoId === selectedPhotoId
+        && similarReviewController.anchorRepresentationId
+            === selectedRepresentationId
     readonly property alias culling: cullingState
     readonly property bool locationBatchDialogVisible:
         locationBatchDialog.visible
@@ -217,6 +254,7 @@ Item {
         || controller.filterExcludedKeywordIdsAny.length > 0
     readonly property bool hasActiveLibraryFilter:
         String(controller.personFilterId || "").length > 0 ||
+        controller.filterRecentImports === true ||
         controller.filterHideOfflineUncached === true
         || controller.filterOnlyEditable === true
         || controller.filterFlag !== "all"
@@ -271,6 +309,8 @@ Item {
         }
         if (isSystemCollectionActive("liked"))
             return qsTr("Liked")
+        if (isSystemCollectionActive("recent-imports"))
+            return qsTr("Recent Imports")
         if (isSystemCollectionActive("five-star"))
             return qsTr("5 Stars")
         if (semanticSearchController.hasResults)
@@ -393,6 +433,103 @@ Item {
         if (snapshots.length !== 2)
             return false
         return comparison.startSelectedComparison(snapshots[0], snapshots[1])
+    }
+
+    function findSimilarReview() {
+        if (!canFindSimilarReview)
+            return
+        similarReviewStatus = ""
+        reviewClusteringController.clear()
+        similarReviewAnchor = comparison.normalizedSnapshot(
+            selectionState.selectedSnapshot())
+        similarReviewController.findSimilar(
+            selectedPhotoId, selectedRepresentationId)
+    }
+
+    function openSimilarComparison() {
+        if (!similarReviewController.hasResults)
+            return false
+        const matches = similarReviewController.matches
+        const snapshots = []
+        for (let index = 0; index < matches.length; ++index) {
+            const match = matches[index]
+            const photoId = String(match.photoId || "")
+            const representationId = String(match.representationId || "")
+            let snapshot = justifiedReviewLayout.navigationTarget(
+                photoId, representationId, 0, 0)
+            if (!snapshot || String(snapshot.photoId || "") !== photoId
+                    || String(snapshot.representationId || "") !== representationId) {
+                if (similarReviewAnchor !== null
+                        && String(similarReviewAnchor.photoId) === photoId
+                        && String(similarReviewAnchor.representationId)
+                            === representationId)
+                    snapshot = similarReviewAnchor
+                else
+                    continue
+            }
+            snapshots.push(snapshot)
+        }
+        const opened = comparison.startGroupComparison(snapshots)
+        similarReviewStatus = opened ? ""
+            : qsTr("Similar candidates are not loaded in this view. Adjust filters or load more photos.")
+        return opened
+    }
+
+    function clearSimilarReview() {
+        similarReviewController.clearSessionResults()
+        similarReviewAnchor = null
+        similarReviewStatus = ""
+    }
+
+    function startReviewClustering(scope) {
+        if (similarReviewController.busy || reviewClusteringController.busy)
+            return false
+        clearSimilarReview()
+        if (scope === "selection")
+            return reviewClusteringController.startSelected(batchSelectionTargets())
+        if (scope === "album" && currentLibraryAlbumIsManual)
+            return reviewClusteringController.startAlbum(String(controller.libraryAlbumId))
+        if (scope === "album")
+            return false
+        return reviewClusteringController.startView(controller.model)
+    }
+
+    function openReviewClusterComparison(sectionKey) {
+        const index = Number(String(sectionKey).replace("similar-review-cluster-", ""))
+        const groups = reviewClusteringController.groups
+        if (!Number.isInteger(index) || index < 0 || index >= groups.length)
+            return false
+        const keys = groups[index].representationKeys
+        const snapshots = []
+        for (let keyIndex = 0; keyIndex < keys.length; ++keyIndex) {
+            const parts = String(keys[keyIndex]).split("\u001f")
+            if (parts.length !== 2)
+                continue
+            const snapshot = justifiedReviewLayout.navigationTarget(
+                parts[0], parts[1], 0, 0)
+            if (snapshot && String(snapshot.photoId) === parts[0]
+                    && String(snapshot.representationId) === parts[1])
+                snapshots.push(snapshot)
+        }
+        const opened = comparison.startGroupComparison(snapshots)
+        similarReviewStatus = opened ? ""
+            : qsTr("Load the rest of this album to compare its candidate group.")
+        return opened
+    }
+
+    Connections {
+        target: review.similarReviewController
+        function onResultsChanged() {
+            if (!review.similarReviewController.hasResults
+                    && !review.similarReviewController.busy) {
+                review.similarReviewAnchor = null
+                review.similarReviewStatus = ""
+                return
+            }
+            if (review.similarReviewController.hasResults
+                    && review.similarReviewController.shownResultCount > 1)
+                Qt.callLater(() => review.openSimilarComparison())
+        }
     }
 
     function toggleSelectedCandidate() {
@@ -552,7 +689,9 @@ Item {
 
     function applySystemCollection(kind) {
         controller.clearFilters()
-        if (kind === "liked")
+        if (kind === "recent-imports")
+            controller.filterRecentImports = true
+        else if (kind === "liked")
             controller.filterLiked = "liked"
         else if (kind === "five-star")
             controller.filterMinimumRating = 5
@@ -564,6 +703,24 @@ Item {
             return false
         if (kind === "all")
             return !hasActiveLibraryFilter
+        if (kind === "recent-imports")
+            return controller.filterRecentImports
+                && String(controller.personFilterId || "").length === 0
+                && !controller.filterHideOfflineUncached
+                && !controller.filterOnlyEditable
+                && controller.filterLiked === "all"
+                && controller.filterMinimumRating === 0
+                && controller.filterFlag === "all"
+                && controller.filterColorLabel === "all"
+                && controller.filterEditState === "all"
+                && controller.filterExcludedFlag === "all"
+                && controller.filterExcludedColorLabel === "all"
+                && !hasLibraryFacetFilter
+                && !hasLibraryKeywordFilter
+                && !semanticSearchController.hasResults
+                && smartCategoryController.selectedCategoryId.length === 0
+        if (controller.filterRecentImports)
+            return false
         if (kind === "liked")
             return controller.filterLiked === "liked"
                 && controller.filterMinimumRating === 0
@@ -725,12 +882,18 @@ Item {
 
     function setSelectedFlag(flag) {
         if (canMutateDecision)
-            controller.setPhotoFlag(selectedPhotoId, flag)
+            decisionFlow.setFlag(flag)
     }
 
     function setSelectedRating(rating) {
         if (canMutateDecision)
-            controller.setPhotoRating(selectedPhotoId, rating)
+            decisionFlow.setRating(rating)
+    }
+
+    function undoDecision() {
+        decisionFlow.cancel()
+        if (canUndoDecision)
+            controller.undoLastDecision()
     }
 
     Connections {
@@ -790,6 +953,12 @@ Item {
     }
 
     Shortcut {
+        sequences: [StandardKey.Undo]
+        enabled: review.visible && review.canUndoDecision && !review.textInputActive
+        onActivated: review.undoDecision()
+    }
+
+    Shortcut {
         sequence: "Escape"
         enabled: review.visible && review.comparison.compareMode
             && !review.controller.comparisonBusy
@@ -798,62 +967,62 @@ Item {
 
     Shortcut {
         sequence: "C"
-        enabled: review.visible && review.selectedPhotoCount === 1
+        enabled: review.visible && !review.textInputActive && review.selectedPhotoCount === 1
             && !review.comparison.compareMode && !review.culling.arenaActive
         onActivated: review.toggleSelectedCandidate()
     }
 
     Shortcut {
         sequence: "P"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedFlag("picked")
     }
 
     Shortcut {
         sequence: "U"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedFlag("unflagged")
     }
 
     Shortcut {
         sequence: "X"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedFlag("rejected")
     }
 
     Shortcut {
         sequence: "0"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(0)
     }
 
     Shortcut {
         sequence: "1"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(1)
     }
 
     Shortcut {
         sequence: "2"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(2)
     }
 
     Shortcut {
         sequence: "3"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(3)
     }
 
     Shortcut {
         sequence: "4"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(4)
     }
 
     Shortcut {
         sequence: "5"
-        enabled: review.visible && review.canMutateDecision
+        enabled: review.visible && review.canMutateDecision && !review.textInputActive
         onActivated: review.setSelectedRating(5)
     }
 

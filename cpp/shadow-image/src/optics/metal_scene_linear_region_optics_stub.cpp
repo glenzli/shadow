@@ -88,6 +88,27 @@ MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
     );
 }
 
+struct MetalPreviewOpticsCache::Impl final {};
+MetalPreviewOpticsCache::MetalPreviewOpticsCache(
+    std::shared_ptr<const OpticsProvider>,
+    Dimensions,
+    AssetMetadata,
+    OpticsSettings,
+    std::uint64_t
+) : implementation_(std::make_unique<Impl>()) {}
+MetalPreviewOpticsCache::~MetalPreviewOpticsCache() = default;
+std::uint64_t MetalPreviewOpticsCache::retained_bytes() const noexcept {
+    return 0U;
+}
+MetalPreviewOpticsResult
+MetalPreviewOpticsCache::apply(const MetalRawPreviewResidentOutput&) const {
+    throw DecodeError(
+        DecodeErrorCode::unsupported,
+        0,
+        "Metal preview optics is unavailable on this platform"
+    );
+}
+
 bool metal_scene_linear_region_optics_available() noexcept {
     return false;
 }

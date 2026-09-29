@@ -10,6 +10,7 @@ ShadowMenu {
     id: menu
     required property var workspace
     property bool thumbnailScaleVisible: false
+    property bool thumbnailScaleAvailable: true
     signal openLibraryManagementRequested()
     signal openMetadataRequested()
     signal sharedGradeRequested()
@@ -17,11 +18,20 @@ ShadowMenu {
     width: 380
 
     ShadowMenuItem {
-        visible: !menu.thumbnailScaleVisible
+        visible: menu.thumbnailScaleAvailable && !menu.thumbnailScaleVisible
         height: visible ? implicitHeight : 0
         text: qsTr("Thumbnail scale")
         onTriggered: menu.thumbnailScaleRequested()
     }
+
+    ShadowMenuItem {
+        objectName: "reviewAutoAdvanceAction"
+        text: qsTr("Auto advance after rating or flagging")
+        checkable: true
+        checked: menu.workspace.autoAdvanceDecisions
+        onTriggered: menu.workspace.autoAdvanceDecisions = !menu.workspace.autoAdvanceDecisions
+    }
+    MenuSeparator { }
 
     ShadowMenuItem {
         text: qsTr("Assign and filter Library keywords")

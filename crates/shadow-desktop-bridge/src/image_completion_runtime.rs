@@ -2,8 +2,11 @@
 //!
 //! Shadow prepares the crop and exact Gray8 selection. Infer Runtime owns
 //! model execution. This owner admits the returned RGB raster, restores the
-//! user mask as alpha, and stages immutable RGBA8 bytes without Recipe write
+//! user mask as alpha, and stages immutable linear RGBA32F bytes without Recipe write
 //! authority.
+
+mod color_encoding;
+mod request_cache;
 
 use std::{
     collections::BTreeSet,
@@ -26,7 +29,8 @@ use shadow_ai::{
 };
 use shadow_core::{
     DerivedRasterStageError, DerivedRasterStageReceipt, FilesystemDerivedRasterStore,
-    SHADOW_RGBA8_ENCODING_VERSION, SHADOW_RGBA8_MEDIA_TYPE, execute_and_stage_derived_raster,
+    SHADOW_LINEAR_RGBA_F32_MEDIA_TYPE, SHADOW_RGBA8_ENCODING_VERSION,
+    execute_and_stage_derived_raster,
 };
 use shadow_domain::PhotoId;
 use thiserror::Error;
@@ -39,6 +43,7 @@ pub(crate) struct ImageCompletionRuntime {
     infer_base_url_override: Option<String>,
     infer_credential_file: PathBuf,
     scratch_sequence: AtomicU64,
+    request_cache: request_cache::CompletionRequestCache,
 }
 
 #[derive(Debug)]
@@ -52,7 +57,10 @@ pub(crate) struct ImageCompletionInvocation {
     pub(crate) prepared_mask_gray8: Vec<u8>,
     pub(crate) coordinate_extent: RasterExtent,
     pub(crate) source_recipe_blake3: String,
+    pub(crate) source_context: Option<shadow_domain::ImageCompletionSourceContext>,
     pub(crate) mask_revision: String,
+    pub(crate) scene_referred_input: bool,
+    pub(crate) force_regenerate: bool,
 }
 
 impl ImageCompletionRuntime {
@@ -68,6 +76,7 @@ impl ImageCompletionRuntime {
             infer_base_url_override,
             infer_credential_file: infer_credential_file.into(),
             scratch_sequence: AtomicU64::new(0),
+            request_cache: request_cache::CompletionRequestCache::default(),
         })
     }
 
@@ -120,19 +129,30 @@ impl ImageCompletionRuntime {
             "shadow:image-completion/source:{}",
             blake3::hash(&invocation.prepared_crop_png).to_hex()
         );
-        let client = InferRuntimeClient::from_credential_file_with_discovery(
-            self.infer_base_url_override.as_deref(),
-            &self.infer_credential_file,
-        )?;
-        let Some(evidence) = client.complete_image_cancellable(
-            &invocation.prepared_crop_png,
-            &invocation.prepared_mask_png,
-            &source_revision,
-            &invocation.mask_revision,
-            cancellation,
-        )?
-        else {
-            return Ok(cancelled_stage_receipt(&invocation));
+        let cache_key = request_cache::CompletionRequestCache::key(&invocation);
+        let cached = if invocation.force_regenerate {
+            None
+        } else {
+            self.request_cache.get(&cache_key)
+        };
+        let evidence = if let Some(evidence) = cached {
+            evidence
+        } else {
+            let client = InferRuntimeClient::from_credential_file_with_discovery(
+                self.infer_base_url_override.as_deref(),
+                &self.infer_credential_file,
+            )?;
+            let Some(evidence) = client.complete_image_cancellable(
+                &invocation.prepared_crop_png,
+                &invocation.prepared_mask_png,
+                &source_revision,
+                &invocation.mask_revision,
+                cancellation,
+            )?
+            else {
+                return Ok(cancelled_stage_receipt(&invocation));
+            };
+            evidence
         };
         if cancellation.is_cancelled() {
             return Ok(cancelled_stage_receipt(&invocation));
@@ -148,18 +168,27 @@ impl ImageCompletionRuntime {
         }
         let alpha =
             feather_completion_alpha(&invocation.prepared_mask_gray8, evidence.raster_extent);
-        let mut rgba8 = Vec::with_capacity(pixel_count * 4);
-        for (rgb, alpha) in evidence.rgb8.chunks_exact(3).zip(&alpha) {
-            rgba8.extend_from_slice(rgb);
-            rgba8.push(*alpha);
+        let reference = image::load_from_memory(&invocation.prepared_crop_png)
+            .map_err(|_| ImageCompletionRuntimeError::MalformedRuntimeRaster)?
+            .to_rgb8();
+        if reference.dimensions() != (evidence.raster_extent.width, evidence.raster_extent.height) {
+            return Err(ImageCompletionRuntimeError::MalformedRuntimeRaster);
         }
-        let output = self.next_scratch_path("proposal", "rgba8")?;
+        let rgba8 = color_encoding::encode_linear_patch(
+            &evidence.rgb8,
+            &alpha,
+            reference.as_raw(),
+            &invocation.prepared_mask_gray8,
+            invocation.scene_referred_input,
+        );
+        let output = self.next_scratch_path("proposal", "rgba32f")?;
+        let _scratch_cleanup = ScratchPatchCleanup(output.clone());
         write_verified_patch(&output, &rgba8)?;
         let artifact = GeneratedArtifactReference::new(
             ArtifactHashAlgorithm::Blake3_256,
             blake3::hash(&rgba8).to_hex().to_string(),
             rgba8.len() as u64,
-            SHADOW_RGBA8_MEDIA_TYPE.into(),
+            SHADOW_LINEAR_RGBA_F32_MEDIA_TYPE.into(),
             SHADOW_RGBA8_ENCODING_VERSION,
         )?;
         let payload = AiGeneratedPayload::ImageCompletionPatch(ImageCompletionPatchArtifact {
@@ -167,15 +196,23 @@ impl ImageCompletionRuntime {
             raster_extent: evidence.raster_extent,
             coordinate_extent: invocation.coordinate_extent,
             source_recipe_blake3: invocation.source_recipe_blake3,
+            source_context: invocation.source_context,
             provider: evidence.provenance.provider.clone(),
             deployment: evidence.provenance.deployment.clone(),
             model_build: evidence.provenance.model_build.clone(),
-            postprocessing_identity: evidence.provenance.postprocessing_identity.clone(),
+            postprocessing_identity: format!(
+                "{};{}",
+                evidence.provenance.postprocessing_identity,
+                color_encoding::IDENTITY
+            ),
             api_contract_revision: shadow_ai::INFER_IMAGE_COMPLETION_CAPABILITY.into(),
             actual_execution_provider: evidence.provenance.actual_execution_provider.clone(),
         });
         payload.validate_for(AiTaskKind::GenerateInpaintPatch)?;
         let (route, plan) = infer_route_and_plan(&evidence.provenance)?;
+        if !cancellation.is_cancelled() {
+            self.request_cache.insert(cache_key, evidence.clone());
+        }
         let execution = bind_local_service_execution(
             format!("infer-image-completion-execution-{}", invocation.request_id),
             request,
@@ -223,6 +260,14 @@ impl ImageCompletionRuntime {
         Ok(self
             .scratch_root
             .join(format!("image-completion-{role}-{token}.{extension}")))
+    }
+}
+
+// The store copies verified bytes before stage() returns; proposal scratch is never durable.
+struct ScratchPatchCleanup(PathBuf);
+impl Drop for ScratchPatchCleanup {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
     }
 }
 

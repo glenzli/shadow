@@ -312,6 +312,8 @@ pub struct RawPipelineReceipt {
     pub camera_profile_name: String,
     pub camera_profile_diagnostic: Option<String>,
     pub camera_profile_developer_version: u32,
+    #[serde(default)]
+    pub completion_color_basis: Option<shadow_domain::ImageCompletionColorBasis>,
 }
 
 impl Default for RawPipelineReceipt {
@@ -334,6 +336,7 @@ impl Default for RawPipelineReceipt {
             camera_profile_name: String::new(),
             camera_profile_diagnostic: None,
             camera_profile_developer_version: 0,
+            completion_color_basis: None,
         }
     }
 }
@@ -866,7 +869,33 @@ pub(super) fn raw_pipeline_receipt(
         }
     }
 
+    let completion_color_basis = if receipt.completion_camera_to_working.len() == 9 {
+        let basis = shadow_domain::ImageCompletionColorBasis {
+            matrix_bits: std::array::from_fn(|i| receipt.completion_camera_to_working[i].to_bits()),
+            calibration_id: format!(
+                "{}:{}:{}:{}:{}",
+                receipt.source_provider_id,
+                receipt.source_provider_version,
+                receipt.raw_developer_version,
+                receipt.camera_profile_identity,
+                receipt.camera_profile_developer_version
+            ),
+        };
+        if !basis.valid() {
+            return Err(BridgeError::InvalidRawPipelineReceipt(
+                "invalid completion color basis",
+            ));
+        }
+        Some(basis)
+    } else if receipt.completion_camera_to_working.is_empty() {
+        None
+    } else {
+        return Err(BridgeError::InvalidRawPipelineReceipt(
+            "invalid completion color basis extent",
+        ));
+    };
     Ok(RawPipelineReceipt {
+        completion_color_basis,
         schema_version: receipt.schema_version,
         path,
         cache_identity: receipt.cache_identity,

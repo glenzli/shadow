@@ -1,6 +1,7 @@
 #include "desktop_smoke/edit_preview_session.hpp"
 
 #include "edit_controller.hpp"
+#include "edit_neighbor_preheater.hpp"
 #include "edit_preview_provider.hpp"
 #include "platform/edit_preview_texture_factory.hpp"
 #include "review_controller.hpp"
@@ -9,12 +10,14 @@
 #include <QColorSpace>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QModelIndex>
 #include <QObject>
 #include <QPointer>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
+#include <QRect>
 #include <QSize>
 #include <QString>
 #include <QTimer>
@@ -28,6 +31,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <optional>
 
@@ -198,6 +202,9 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
         AwaitDualReturnPresentation,
         AwaitSettledAfterDualRoundtrip,
         AwaitFullDetail,
+        AwaitNextPrepared,
+        AwaitNextPreview,
+        AwaitPreviousPreview,
         Finished,
         Failed,
     };
@@ -224,6 +231,10 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             fail(QStringLiteral("the full-detail image provider is unavailable"));
             return;
         }
+        if (options_.verify_adjacent_edit && options_.edit_neighbor_preheater == nullptr) {
+            fail(QStringLiteral("adjacent edit preheater is unavailable"));
+            return;
+        }
 
         const auto self = shared_from_this();
         const auto evaluate = [self]() { self->evaluate(); };
@@ -243,6 +254,12 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
         QObject::connect(&editor_, &EditController::activeChanged, &application_, evaluate);
         QObject::connect(&editor_, &EditController::stateBusyChanged, &application_, evaluate);
         QObject::connect(&editor_, &EditController::previewSourceChanged, &application_, evaluate);
+        if (options_.verify_adjacent_edit) {
+            QObject::connect(options_.edit_neighbor_preheater,
+                             &EditNeighborPreheater::stateChanged, &application_, evaluate);
+            QObject::connect(options_.edit_neighbor_preheater,
+                             &EditNeighborPreheater::targetsChanged, &application_, evaluate);
+        }
         QObject::connect(&editor_, &EditController::histogramChanged, &application_, evaluate);
         QObject::connect(
             &editor_,
@@ -344,6 +361,15 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
         case Stage::AwaitFullDetail:
             acceptFullDetailIfReady();
             break;
+        case Stage::AwaitNextPrepared:
+            acceptNextPreparedIfReady();
+            break;
+        case Stage::AwaitNextPreview:
+            acceptNextPreviewIfReady();
+            break;
+        case Stage::AwaitPreviousPreview:
+            acceptPreviousPreviewIfReady();
+            break;
         case Stage::Finished:
         case Stage::Failed:
             break;
@@ -352,7 +378,8 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
 
     void openFirstPhotoIfReady() {
         auto* const model = review_.reviewModel();
-        if (model == nullptr || model->rowCount() == 0) {
+        if (model == nullptr || model->rowCount() == 0
+            || (options_.verify_adjacent_edit && model->rowCount() < 2)) {
             return;
         }
         QModelIndex first = model->index(0, 0);
@@ -666,7 +693,10 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
     }
 
     void continueAfterCurrentAccepted() {
-        if (options_.request_before) {
+        if (options_.verify_adjacent_edit) {
+            stage_ = Stage::AwaitNextPrepared;
+            evaluate();
+        } else if (options_.request_before) {
             stage_ = Stage::AwaitBeforePreview;
             editor_.requestBeforePreview();
             evaluate();
@@ -675,6 +705,67 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
         } else {
             succeed();
         }
+    }
+
+    void acceptNextPreparedIfReady() {
+        const auto* const preheater = options_.edit_neighbor_preheater;
+        if (preheater->state() == EditNeighborPreheater::State::Failed) {
+            fail(QStringLiteral("background preparation of the next edit source failed"));
+            return;
+        }
+        if (!preheater->prepared())
+            return;
+        const QVariantMap next = preheater->nextTarget();
+        next_photo_id_ = next.value(QStringLiteral("photoId")).toString();
+        if (next_photo_id_.isEmpty() || next_photo_id_ == editor_.photoId()) {
+            fail(QStringLiteral("the prepared target is not the next Review photo"));
+            return;
+        }
+        QObject* const button = engine_.rootObjects().front()->findChild<QObject*>(
+            QStringLiteral("nextEditPhoto"));
+        stage_ = Stage::AwaitNextPreview;
+        adjacent_switch_timing_.start();
+        if (button == nullptr || !button->property("visible").toBool()
+            || !button->property("enabled").toBool()
+            || !QMetaObject::invokeMethod(button, "clicked", Qt::DirectConnection)) {
+            fail(QStringLiteral("the next-photo control did not accept the prepared target"));
+            return;
+        }
+        evaluate();
+    }
+
+    void acceptNextPreviewIfReady() {
+        const QString source = editor_.previewSource();
+        if (editor_.photoId() != next_photo_id_ || source.isEmpty()
+            || source == current_source_ || !validEditHistogram(editor_.histogram(), source)
+            || !qmlPreviewIsReady(engine_, source))
+            return;
+        next_source_ = source;
+        qInfo().noquote() << "Adjacent edit smoke: prepared next source opened in"
+                          << adjacent_switch_timing_.elapsed() << "ms";
+        QObject* const button = engine_.rootObjects().front()->findChild<QObject*>(
+            QStringLiteral("previousEditPhoto"));
+        stage_ = Stage::AwaitPreviousPreview;
+        adjacent_switch_timing_.start();
+        if (button == nullptr || !button->property("visible").toBool()
+            || !button->property("enabled").toBool()
+            || !QMetaObject::invokeMethod(button, "clicked", Qt::DirectConnection)) {
+            fail(QStringLiteral("the previous-photo control did not accept the retained target"));
+            return;
+        }
+        evaluate();
+    }
+
+    void acceptPreviousPreviewIfReady() {
+        const QString source = editor_.previewSource();
+        if (editor_.photoId() != opened_photo_id_ || source.isEmpty()
+            || source == next_source_ || !validEditHistogram(editor_.histogram(), source)
+            || !qmlPreviewIsReady(engine_, source))
+            return;
+        qInfo().noquote() << "Adjacent edit smoke passed: packaged forward and back controls,"
+                          << "previous photo reopened in" << adjacent_switch_timing_.elapsed()
+                          << "ms";
+        succeed();
     }
 
     void acceptBeforePreviewIfReady() {
@@ -871,6 +962,7 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
 
     void requestFullDetail() {
         stage_ = Stage::AwaitFullDetail;
+        detail_timing_.start();
         editor_.requestDetailViewport(
             DETAIL_CENTER,
             DETAIL_CENTER,
@@ -888,6 +980,37 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             return;
         }
         const QVariantList tiles = editor_.detailTiles();
+        if (!center_detail_seen_ && tiles.size() == 1 && editor_.detailRendering()) {
+            const QVariantMap center = tiles.front().toMap();
+            const QString center_source = center.value(QStringLiteral("source")).toString();
+            if (QUrl(center_source).path().startsWith(
+                    QStringLiteral("/detail/viewport-center-"))) {
+                const int width = center.value(QStringLiteral("width")).toInt();
+                const int height = center.value(QStringLiteral("height")).toInt();
+                QSize decoded_size;
+                QImage image = edit_preview_provider_->requestImage(
+                    imageProviderRequestId(center_source), &decoded_size, {}
+                );
+                if (width <= 0 || height <= 0 || width > 512 || height > 512
+                    || image.isNull() || image.size() != QSize(width, height)
+                    || decoded_size != image.size()
+                    || image.format() != QImage::Format_RGB888
+                    || image.colorSpace() != QColorSpace(QColorSpace::SRgb)) {
+                    fail(QStringLiteral("the first exact center region is not readable RGB8"));
+                    return;
+                }
+                center_detail_rect_ = QRect(
+                    center.value(QStringLiteral("x")).toInt(),
+                    center.value(QStringLiteral("y")).toInt(),
+                    width,
+                    height
+                );
+                center_detail_source_ = center_source;
+                center_detail_image_ = std::move(image);
+                center_detail_seen_ = true;
+                center_detail_elapsed_ms_ = detail_timing_.elapsed();
+            }
+        }
         if (tiles.isEmpty() || editor_.detailRendering() || editor_.fullResolutionPreparing()
             || !editor_.fullResolutionReady()) {
             return;
@@ -951,6 +1074,35 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             ));
             return;
         }
+        if (!center_detail_seen_
+            || QUrlQuery(QUrl(center_detail_source_)).queryItemValue(QStringLiteral("photo"))
+                != source_query.queryItemValue(QStringLiteral("photo"))
+            || QUrlQuery(QUrl(center_detail_source_)).queryItemValue(QStringLiteral("recipe"))
+                != source_query.queryItemValue(QStringLiteral("recipe"))
+            || QUrlQuery(QUrl(center_detail_source_)).queryItemValue(QStringLiteral("viewport"))
+                != source_query.queryItemValue(QStringLiteral("viewport"))
+            || center_detail_rect_.x() < static_cast<int>(x)
+            || center_detail_rect_.y() < static_cast<int>(y)
+            || center_detail_rect_.right() >= static_cast<int>(x + width)
+            || center_detail_rect_.bottom() >= static_cast<int>(y + height)) {
+            fail(QStringLiteral("the first center region is not part of this exact viewport"));
+            return;
+        }
+        for (int row = 0; row < center_detail_rect_.height(); ++row) {
+            const auto* const full_row = image.constScanLine(
+                row + center_detail_rect_.y() - static_cast<int>(y)
+            ) + (center_detail_rect_.x() - static_cast<int>(x)) * 3;
+            if (std::memcmp(
+                    full_row,
+                    center_detail_image_.constScanLine(row),
+                    static_cast<std::size_t>(center_detail_rect_.width()) * 3U
+                ) != 0) {
+                fail(QStringLiteral("the center and complete viewport disagree on exact pixels"));
+                return;
+            }
+        }
+        qInfo() << "Progressive detail timing: center" << center_detail_elapsed_ms_
+                << "ms complete" << detail_timing_.elapsed() << "ms";
         detail_source_ = source;
         succeed();
     }
@@ -1049,6 +1201,12 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
             return QStringLiteral("await-settled-after-dual-roundtrip");
         case Stage::AwaitFullDetail:
             return QStringLiteral("await-full-detail");
+        case Stage::AwaitNextPrepared:
+            return QStringLiteral("await-next-prepared");
+        case Stage::AwaitNextPreview:
+            return QStringLiteral("await-next-preview");
+        case Stage::AwaitPreviousPreview:
+            return QStringLiteral("await-previous-preview");
         case Stage::Finished:
             return QStringLiteral("finished");
         case Stage::Failed:
@@ -1112,6 +1270,9 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
     QString opened_representation_id_;
     QString opened_source_path_;
     QString current_source_;
+    QString next_photo_id_;
+    QString next_source_;
+    QElapsedTimer adjacent_switch_timing_;
     QString initial_settled_source_;
     QVariantList initial_luma_histogram_;
     QString recreated_settled_source_;
@@ -1124,6 +1285,12 @@ class EditPreviewSession final : public std::enable_shared_from_this<EditPreview
     QString roundtrip_fallback_source_;
     QString roundtrip_interactive_source_;
     QString detail_source_;
+    QString center_detail_source_;
+    QRect center_detail_rect_;
+    QImage center_detail_image_;
+    bool center_detail_seen_ = false;
+    QElapsedTimer detail_timing_;
+    qint64 center_detail_elapsed_ms_ = -1;
     QPointer<QQuickWindow> scene_graph_window_;
     std::optional<EditPreviewTextureTelemetrySnapshot> first_transport_evidence_;
     std::optional<EditPreviewTextureTelemetrySnapshot> recreated_transport_evidence_;

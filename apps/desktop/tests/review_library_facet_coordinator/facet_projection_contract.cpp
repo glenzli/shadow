@@ -10,10 +10,7 @@ void run_facet_projection_contracts() {
     filter.album_id = QStringLiteral("favorites");
 
     coordinator.refresh(filter, 41);
-    wait_until(
-        [&coordinator]() { return !coordinator.busy(); },
-        "five-facet projection completes"
-    );
+    wait_until([&coordinator]() { return !coordinator.busy(); }, "five-facet projection completes");
     const auto months = coordinator.captureMonths();
     const auto cameras = coordinator.cameras();
     const auto lenses = coordinator.lenses();
@@ -42,7 +39,8 @@ void run_facet_projection_contracts() {
         system_counts.value(QStringLiteral("available")).toBool()
             && system_counts.value(QStringLiteral("all")).toULongLong() == 41
             && system_counts.value(QStringLiteral("liked")).toULongLong() == 7
-            && system_counts.value(QStringLiteral("fiveStar")).toULongLong() == 3,
+            && system_counts.value(QStringLiteral("fiveStar")).toULongLong() == 3
+            && system_counts.value(QStringLiteral("recentImports")).toULongLong() == 11,
         "projection publishes global built-in collection counts"
     );
     {
@@ -65,13 +63,15 @@ void run_facet_projection_contracts() {
             );
         }
         require(
-            state->count_calls.size() == 3 && !state->count_calls.at(0).has_liked
+            state->count_calls.size() == 4 && !state->count_calls.at(0).has_liked
                 && !state->count_calls.at(0).has_minimum_rating
                 && state->count_calls.at(0).album_id.isEmpty() && state->count_calls.at(1).has_liked
                 && state->count_calls.at(1).liked && state->count_calls.at(1).album_id.isEmpty()
                 && state->count_calls.at(2).has_minimum_rating
                 && state->count_calls.at(2).minimum_rating == 5
-                && state->count_calls.at(2).album_id.isEmpty(),
+                && state->count_calls.at(2).album_id.isEmpty()
+                && state->count_calls.at(3).recent_imports
+                && state->count_calls.at(3).album_id.isEmpty(),
             "built-in collection counts stay global and use exact filters"
         );
     }

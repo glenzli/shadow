@@ -368,6 +368,8 @@ qt_add_executable(
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
+    src/edit_neighbor_preheater.cpp
+    src/edit_neighbor_preheater.hpp
     src/edit_interchange_controller.cpp
     src/edit_interchange_controller.hpp
     src/edit_interchange_application.cpp
@@ -407,6 +409,12 @@ qt_add_executable(
     src/edit_ai_mask_prompt_state.cpp
     src/edit_ai_mask_prompt_state.hpp
     src/edit_analysis_controller.cpp
+    src/edit_display_scope_task.cpp
+    src/edit_display_scope_task.hpp
+    src/edit_work_scheduler.cpp
+    src/edit_work_scheduler.hpp
+    src/edit_performance_diagnostics.cpp
+    src/edit_performance_diagnostics.hpp
     src/edit_raw_foundation_controller.cpp
     src/edit_raw_foundation_controller.hpp
     src/edit_processing_stack_controller.cpp
@@ -548,8 +556,12 @@ qt_add_executable(
     src/personal_location_search.hpp
     src/people_analysis_controller.cpp
     src/people_analysis_controller.hpp
+    src/people_scope_controller.cpp
+    src/people_scope_controller.hpp
     src/semantic_search_controller.cpp
     src/semantic_search_controller.hpp
+    src/review_clustering_controller.cpp
+    src/review_clustering_controller.hpp
     src/smart_category_controller.cpp
     src/smart_category_controller.hpp
     src/lut_library.cpp
@@ -734,6 +746,7 @@ qt_add_resources(
         icons/refresh.svg
         icons/reset-all.svg
         icons/retouch.svg
+        icons/review-cluster.svg
         icons/review-grid.svg
         icons/scopes.svg
         icons/settings.svg
@@ -796,6 +809,7 @@ qt_add_qml_module(
     URI Shadow.ServerManager
     VERSION 1.0
     QML_FILES
+        qml/ShadowDialog.qml
         qml/ShadowTextField.qml
         qml/ServerManagerMain.qml
         qml/SettingsLibraryServerPane.qml
@@ -884,6 +898,7 @@ qt_add_qml_module(
     URI Shadow.App
     VERSION 1.0
     QML_FILES
+        qml/ShadowDialog.qml
         qml/ReviewGalleryActionsMenu.qml
         qml/ShadowComboBox.qml
         qml/ShadowMenu.qml
@@ -1021,6 +1036,7 @@ qt_add_qml_module(
         qml/ReviewWorkspace.qml
         qml/ReviewPersonBar.qml
         qml/ReviewSelectionState.qml
+        qml/ReviewDecisionFlow.qml
         qml/ReviewComparisonState.qml
         qml/ReviewComparisonView.qml
         qml/ReviewCullingState.qml
@@ -1028,6 +1044,7 @@ qt_add_qml_module(
         qml/ReviewDecisionToolbar.qml
         qml/ReviewGallerySurface.qml
         qml/ReviewGalleryToolbar.qml
+        qml/ReviewClusteringControl.qml
         qml/ReviewGalleryGroupingControl.qml
         qml/ReviewGallerySectionNavigator.qml
         qml/SemanticSearchControl.qml

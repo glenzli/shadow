@@ -443,6 +443,10 @@ pub struct LibraryPhotoFilter {
     /// This is independent of preview-cache readiness: a photo remains edited
     /// while a fresh rendered thumbnail is pending.
     pub has_development_edits: Option<bool>,
+    /// Photos newly catalogued by the latest completed, nonempty import session.
+    /// This is a dynamic system collection; a later import moves its membership.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub recent_imports: bool,
     /// Restricts the page to one manual album membership.
     pub album_id: Option<CollectionId>,
     /// Every selected keyword subtree must contain at least one assignment for
@@ -453,6 +457,10 @@ pub struct LibraryPhotoFilter {
     /// keyword subtree.
     #[serde(default)]
     pub excluded_keyword_ids_any: Vec<KeywordId>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// The first persisted smart-album contract.

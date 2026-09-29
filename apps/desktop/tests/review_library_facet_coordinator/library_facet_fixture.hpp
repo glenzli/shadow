@@ -42,6 +42,7 @@ struct FacetCall final {
 };
 
 struct CountCall final {
+    bool recent_imports = false;
     bool has_liked = false;
     bool liked = false;
     bool has_minimum_rating = false;
@@ -117,6 +118,7 @@ operations(const std::shared_ptr<FacetBackendState>& state) {
             [state](const BackendLibraryPhotoFilter& filter) {
                 std::lock_guard lock(state->mutex);
                 state->count_calls.push_back({
+                    .recent_imports = filter.recent_imports,
                     .has_liked = filter.has_liked,
                     .liked = filter.liked,
                     .has_minimum_rating = filter.has_minimum_rating,
@@ -128,6 +130,9 @@ operations(const std::shared_ptr<FacetBackendState>& state) {
                 }
                 if (filter.has_liked && filter.liked) {
                     return std::uint64_t{7};
+                }
+                if (filter.recent_imports) {
+                    return std::uint64_t{11};
                 }
                 if (filter.has_minimum_rating && filter.minimum_rating == 5) {
                     return std::uint64_t{3};

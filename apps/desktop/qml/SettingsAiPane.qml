@@ -15,7 +15,7 @@ ScrollView {
     clip: true
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-    Dialog {
+    ShadowDialog {
         id: clearPeopleDataDialog
         objectName: "settingsClearPeopleDataDialog"
         anchors.centerIn: parent
@@ -25,8 +25,7 @@ ScrollView {
         standardButtons: Dialog.Cancel | Dialog.Ok
         onAccepted: root.peopleAnalysisController.clearPeopleData()
 
-        Label {
-            width: 420
+        contentItem: Label {
             text: qsTr("Stored face references, people groups, thumbnails, and your merges will be removed. Original photos and edits are not changed.")
             color: Theme.textPrimary
             wrapMode: Text.WordWrap

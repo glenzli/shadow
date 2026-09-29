@@ -54,9 +54,9 @@ pub use edit_graph::{
 };
 pub use history::{NamedVersion, RecipeBranch, RecipeCommit, RecipeHistory};
 pub use image_completion::{
-    ImageCompletionRegion, MANAGED_IMAGE_COMPLETION_REFERENCE_VERSION,
-    MAX_IMAGE_COMPLETION_PATCH_DIMENSION, MAX_IMAGE_COMPLETION_REGIONS_PER_RECIPE,
-    ManagedImageCompletionPatch,
+    ImageCompletionColorBasis, ImageCompletionRegion, ImageCompletionSourceContext,
+    MANAGED_IMAGE_COMPLETION_REFERENCE_VERSION, MAX_IMAGE_COMPLETION_PATCH_DIMENSION,
+    MAX_IMAGE_COMPLETION_REGIONS_PER_RECIPE, ManagedImageCompletionPatch,
 };
 pub use input_settings::{RecipeInputSettings, RecipeOpticsSettings};
 pub use layer::{

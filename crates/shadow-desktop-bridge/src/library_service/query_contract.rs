@@ -48,6 +48,7 @@ pub(super) fn library_filter_from_ffi(
         .transpose()?;
 
     Ok(LibraryPhotoFilter {
+        recent_imports: filter.recent_imports,
         capture_time,
         capture_month: optional_filter_text(&filter.capture_month),
         chinese_lunar_month: filter
@@ -167,6 +168,7 @@ pub(super) fn ffi_library_filter(filter: LibraryPhotoFilter) -> ffi::FfiLibraryP
         Some(PhotoFlag::Rejected) => ffi::FfiLibraryFlagFilter::Rejected,
     };
     ffi::FfiLibraryPhotoFilter {
+        recent_imports: filter.recent_imports,
         has_capture_start,
         capture_start_unix_seconds,
         has_capture_end,

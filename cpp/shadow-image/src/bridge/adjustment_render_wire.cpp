@@ -609,13 +609,15 @@ void require_parameter_count(
         const std::size_t patch_count = source.parameter_group_lengths[0];
         if (patch_count == 0U || patch_count > 32U
             || source.parameter_group_lengths.size() != patch_count + 1U
-            || source.parameters.size() != patch_count * 9U) {
+            || (source.parameters.size() != patch_count * 9U
+                && source.parameters.size() != patch_count * 10U
+                && source.parameters.size() != patch_count * 19U)) {
             throw_invalid_adjustment_plan("AI completion patch groups are malformed");
         }
         std::size_t expected_payload = 0U;
         for (std::size_t index = 0U; index < patch_count; ++index) {
             const std::size_t length = source.parameter_group_lengths[index + 1U];
-            if (length > 16U * 1'024U * 1'024U
+            if (length > 64U * 1'024U * 1'024U
                 || expected_payload > std::numeric_limits<std::size_t>::max() - length) {
                 throw_invalid_adjustment_plan("AI completion payload exceeds its bound");
             }
@@ -628,7 +630,11 @@ void require_parameter_count(
         parameters.patches.reserve(patch_count);
         std::size_t payload_offset = 0U;
         for (std::size_t index = 0U; index < patch_count; ++index) {
-            const std::size_t offset = index * 9U;
+            const std::size_t fields = source.parameters.size() / patch_count;
+            const std::size_t offset = index * fields;
+            const double encoding = fields >= 10U ? source.parameters[offset + 9U] : 0.0;
+            if (encoding != 0.0 && encoding != 1.0)
+                throw_invalid_adjustment_plan("AI completion encoding is unsupported");
             const auto exact_u32 = [&](const std::size_t parameter_index, const char* label) {
                 const double value = source.parameters[offset + parameter_index];
                 if (!std::isfinite(value) || value < 1.0
@@ -650,7 +656,11 @@ void require_parameter_count(
                 .bounds_right = source.parameters[offset + 6U],
                 .bounds_bottom = source.parameters[offset + 7U],
                 .strength = source.parameters[offset + 8U],
+                .linear_rgba_f32 = encoding == 1.0,
             };
+            if (fields == 19U)
+                for (std::size_t c = 0U; c < 9U; ++c)
+                    patch.color_response[c] = source.parameters[offset + 10U + c];
             const std::size_t length = source.parameter_group_lengths[index + 1U];
             patch.rgba8.assign(
                 source.payload.begin() + static_cast<std::ptrdiff_t>(payload_offset),

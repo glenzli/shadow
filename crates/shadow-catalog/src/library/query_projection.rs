@@ -91,6 +91,29 @@ pub(super) fn library_photo_query_parts(
     let mut clauses = vec!["p.lifecycle_state = 'active'".to_owned()];
     let mut values = Vec::new();
 
+    if filter.recent_imports {
+        // Use the journal's photo identity, not a path or file timestamp. An
+        // empty rescan does not displace the last batch that added photos.
+        clauses.push(
+            "p.id IN (
+            SELECT entry.photo_id FROM import_entries entry
+            WHERE entry.state = 'inserted' AND entry.photo_id IS NOT NULL
+              AND entry.session_id = (
+                  SELECT session.id FROM import_sessions session
+                  WHERE session.state = 'completed' AND session.source_id IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1 FROM import_entries added
+                        WHERE added.session_id = session.id
+                          AND added.state = 'inserted' AND added.photo_id IS NOT NULL
+                    )
+                  ORDER BY session.finished_at_ms DESC, session.id DESC
+                  LIMIT 1
+              )
+        )"
+            .to_owned(),
+        );
+    }
+
     if let Some(range) = filter.capture_time {
         if let Some(start) = range.start_inclusive {
             clauses.push("f.captured_at_unix_seconds >= ?".to_owned());

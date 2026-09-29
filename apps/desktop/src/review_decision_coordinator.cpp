@@ -132,6 +132,7 @@ bool ReviewDecisionCoordinator::setFlag(
             "ReviewController",
             "Flag already matches the selected photo"
         )));
+        emit decisionCommitted(photo_id);
         return false;
     }
     setStatusMessage(decision_message(QT_TRANSLATE_NOOP(
@@ -181,6 +182,7 @@ bool ReviewDecisionCoordinator::setRating(
             "ReviewController",
             "Rating already matches the selected photo"
         )));
+        emit decisionCommitted(photo_id);
         return false;
     }
     setStatusMessage(decision_message(QT_TRANSLATE_NOOP(
@@ -358,6 +360,7 @@ void ReviewDecisionCoordinator::finishTask() {
             ),
             {result.receipt.sequence}
         ));
+        emit decisionCommitted(result.receipt.after.photo_id);
     }
 }
 

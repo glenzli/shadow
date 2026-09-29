@@ -85,6 +85,7 @@ fn recorded_ffi_raw_development_receipt() -> ffi::FfiRawDevelopmentReceipt {
 fn recorded_ffi_raw_pipeline_receipt(path: ffi::FfiRawPipelinePath) -> ffi::FfiRawPipelineReceipt {
     let is_raw_frame = matches!(path, ffi::FfiRawPipelinePath::ShadowRawFrame);
     ffi::FfiRawPipelineReceipt {
+        completion_camera_to_working: Vec::new(),
         schema_version: RawPipelineReceipt::CURRENT_SCHEMA_VERSION,
         path,
         cache_identity: "raw-pipeline-receipt@20260821.1;fixture=canonical".to_owned(),
@@ -276,6 +277,7 @@ fn raw_development_receipt_bridge_preserves_default_and_recorded_fields() {
 #[test]
 fn raw_pipeline_receipt_bridge_is_typed_cache_stable_and_validated() {
     let absent = raw_pipeline_receipt(ffi::FfiRawPipelineReceipt {
+        completion_camera_to_working: Vec::new(),
         schema_version: 0,
         path: ffi::FfiRawPipelinePath::DecodedRaster,
         cache_identity: String::new(),

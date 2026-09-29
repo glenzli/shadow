@@ -294,7 +294,7 @@ fn every_prepared_source_key_component_participates_in_reuse() {
 }
 
 #[test]
-fn warm_hits_promote_mru_and_the_third_cold_source_evicts_lru() {
+fn previous_current_and_next_stay_warm_until_a_fourth_source_evicts_lru() {
     let root = fixture_root("lru");
     let source = root.join("source.jpg");
     write_display_jpeg(&source);
@@ -304,6 +304,8 @@ fn warm_hits_promote_mru_and_the_third_cold_source_evicts_lru() {
     second.representation_id = RepresentationId::new_v7();
     let mut third = key();
     third.representation_id = RepresentationId::new_v7();
+    let mut fourth = key();
+    fourth.representation_id = RepresentationId::new_v7();
 
     for requested in [first.clone(), second.clone()] {
         cache
@@ -317,10 +319,18 @@ fn warm_hits_promote_mru_and_the_third_cold_source_evicts_lru() {
         .get_or_prepare_with(third.clone(), || open_fixture_session(&source))
         .expect("prepare third entry");
 
+    cache
+        .get_or_prepare_with(first.clone(), || panic!("previous photo must stay warm"))
+        .expect("reuse previous photo after next preheat");
+    cache
+        .get_or_prepare_with(fourth.clone(), || open_fixture_session(&source))
+        .expect("prepare fourth entry");
+
     let entries = cache.entries.lock().expect("cache entries");
     assert_eq!(entries.len(), MAX_WARM_EDIT_PREVIEW_SESSIONS);
-    assert!(entries[0].key.matches(&third));
+    assert!(entries[0].key.matches(&fourth));
     assert!(entries[1].key.matches(&first));
+    assert!(entries[2].key.matches(&third));
     assert!(!entries.iter().any(|entry| entry.key.matches(&second)));
     drop(entries);
     std::fs::remove_dir_all(root).expect("remove warm-preview fixture");

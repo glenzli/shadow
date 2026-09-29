@@ -180,7 +180,7 @@ Item {
         }
     }
 
-    Dialog {
+    ShadowDialog {
         id: relinkConfirmDialog
         anchors.centerIn: parent
         width: Math.min(500, parent.width - 40)
@@ -211,7 +211,7 @@ Item {
         }
     }
 
-    Dialog {
+    ShadowDialog {
         id: removeDialog
         anchors.centerIn: parent
         width: Math.min(460, parent.width - 40)

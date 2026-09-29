@@ -4,6 +4,7 @@
 #include "../scoped_environment.hpp"
 
 #include <shadow/image/adjustment_execution.hpp>
+#include <shadow/image/cpu_edit_reference.hpp>
 #include <shadow/image/display_output.hpp>
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
@@ -429,6 +430,69 @@ void resident_backend_matches_cpu_oracle() {
     }
 }
 
+void accepted_completion_stays_on_the_resident_preview_path() {
+    const auto source = make_random_image(257U, 129U, false);
+    auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
+    if (!preparation.session) {
+        expect(
+            std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
+            "AI completion requires a resident Metal session for this contract"
+        );
+        return;
+    }
+    image::ImageCompletionPatch patch{
+        .raster_width = 16U,
+        .raster_height = 16U,
+        .coordinate_width = source.dimensions.width,
+        .coordinate_height = source.dimensions.height,
+        .bounds_left = 0.23,
+        .bounds_top = 0.18,
+        .bounds_right = 0.76,
+        .bounds_bottom = 0.82,
+        .strength = 1.0,
+        .rgba8 = std::vector<std::uint8_t>(16U * 16U * 4U, 175U),
+    };
+    for (std::size_t pixel = 0U; pixel < 256U; ++pixel) {
+        patch.rgba8[pixel * 4U + 3U] = pixel % 5U == 0U ? 96U : 255U;
+    }
+    std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "moving-exposure",
+            .parameters = image::ExposureAdjustment{.stops = -0.25},
+        },
+        image::AdjustmentNode{
+            .node_id = "accepted-completion",
+            .parameters = image::ImageCompletionAdjustment{.patches = {std::move(patch)}},
+        },
+    };
+    for (const double stops : {-0.25, -0.85}) {
+        nodes[0].parameters = image::ExposureAdjustment{.stops = stops};
+        const auto plan = image::compile_edit_execution_plan(nodes);
+        const auto cpu = image::execute_adjustment_nodes(source, nodes);
+        const auto gpu = preparation.session->render(nodes, plan, true);
+        double maximum_error = 0.0;
+        const bool matched = gpu.output.has_value() && gpu.output->analyzed_linear.has_value()
+                             && linear_close(
+                                 *gpu.output->analyzed_linear, cpu, maximum_error, 2.0e-4
+                             );
+        if (!matched) {
+            std::cerr << "AI completion warm parity: stops=" << stops
+                      << " diagnostic=" << gpu.diagnostic
+                      << " maximum_error=" << maximum_error << '\n';
+        }
+        expect(
+            matched,
+            "changing exposure with accepted completion remains resident and matches CPU"
+        );
+    }
+    const auto stats = preparation.session->stats();
+    expect(
+        stats.source_upload_count == 1U && stats.completed_render_count == 2U
+            && stats.resource_cache_hit_count > 0U,
+        "two completion previews reuse one source and their immutable side resource"
+    );
+}
+
 void cancellation_is_terminal_without_diagnostic() {
     const auto source = make_random_image(64U, 48U, false);
     auto preparation = image::detail::prepare_warm_edit_gpu_session(source);
@@ -610,6 +674,7 @@ int run_resident_backend_matches_cpu_oracle() {
     failures = 0;
     host_replay_bytes_are_exact_and_idempotent();
     resident_backend_matches_cpu_oracle();
+    accepted_completion_stays_on_the_resident_preview_path();
     return failures;
 }
 

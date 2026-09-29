@@ -77,7 +77,7 @@ ScrollView {
         onAccepted: root.controller.addSharedFolder(selectedFolder)
     }
 
-    Dialog {
+    ShadowDialog {
         id: clearCacheDialog
         anchors.centerIn: parent
         modal: true

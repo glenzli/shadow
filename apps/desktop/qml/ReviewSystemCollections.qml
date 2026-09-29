@@ -68,25 +68,19 @@ ColumnLayout {
                 id: "recent-imports",
                 title: qsTranslate("ReviewWorkspace", "Recent Imports"),
                 icon: "qrc:/icons/history.svg",
-                enabled: false,
-                count: 0,
-                hint: qsTranslate("ReviewWorkspace", "Recent import sessions will appear here when import-time filtering is available.")
+                count: collections.systemCounts.recentImports
             },
             {
                 id: "liked",
                 title: qsTranslate("ReviewWorkspace", "Liked"),
                 icon: "qrc:/icons/heart.svg",
-                enabled: true,
-                count: collections.systemCounts.liked,
-                hint: qsTranslate("ReviewWorkspace", "Show photos marked Like")
+                count: collections.systemCounts.liked
             },
             {
                 id: "five-star",
                 title: qsTranslate("ReviewWorkspace", "5 Stars"),
                 icon: "qrc:/icons/star.svg",
-                enabled: true,
-                count: collections.systemCounts.fiveStar,
-                hint: qsTranslate("ReviewWorkspace", "Show photos rated 5 stars")
+                count: collections.systemCounts.fiveStar
             }
         ]
 
@@ -103,7 +97,7 @@ ColumnLayout {
             radius: Theme.compactControlRadius
             color: selected
                 ? Theme.accentSurface
-                : collectionMouse.containsMouse && modelData.enabled
+                : collectionMouse.containsMouse
                     ? Theme.buttonGhostHover : Theme.transparent
 
             Rectangle {
@@ -129,65 +123,38 @@ ColumnLayout {
                         ? Theme.likeAccent
                         : String(collectionRow.modelData.id) === "five-star"
                             ? Theme.labelYellow
-                            : collectionRow.modelData.enabled
-                        ? (collectionRow.selected
-                            ? collections.workspace.accent
-                            : collections.workspace.textMuted)
-                        : Theme.textDisabled
+                            : collectionRow.selected
+                                ? collections.workspace.accent
+                                : collections.workspace.textMuted
                     size: 14
                 }
 
                 Label {
                     Layout.fillWidth: true
                     text: String(collectionRow.modelData.title)
-                    color: collectionRow.modelData.enabled
-                        ? (collectionRow.selected
-                            ? collections.workspace.textPrimary
-                            : collections.workspace.textSecondary)
-                        : Theme.textDisabled
+                    color: collectionRow.selected
+                        ? collections.workspace.textPrimary
+                        : collections.workspace.textSecondary
                     font.pixelSize: Theme.fontSection
                     elide: Text.ElideRight
                 }
-
                 Label {
-                    visible: collectionRow.modelData.enabled
-                        && collections.systemCounts.available
+                    visible: collections.systemCounts.available
                     text: qsTranslate("ReviewWorkspace", "%L1").arg(
                         collectionRow.modelData.count)
                     color: collections.workspace.textMuted
                     font.pixelSize: Theme.fontMeta
                 }
 
-                Label {
-                    visible: !collectionRow.modelData.enabled
-                    text: qsTranslate("ReviewWorkspace", "SOON")
-                    color: Theme.textDisabled
-                    font.pixelSize: Theme.fontMicro
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 0.5
-                }
             }
 
             MouseArea {
                 id: collectionMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                cursorShape: collectionRow.modelData.enabled
-                    ? Qt.PointingHandCursor : Qt.ArrowCursor
-                onClicked: {
-                    if (collectionRow.modelData.enabled) {
-                        collections.workspace.applySystemCollection(
-                            String(collectionRow.modelData.id))
-                    }
-                }
-            }
-
-            ToolTip {
-                parent: collectionRow
-                visible: collectionMouse.containsMouse
-                    && !collectionRow.modelData.enabled
-                delay: 400
-                text: String(collectionRow.modelData.hint)
+                cursorShape: Qt.PointingHandCursor
+                onClicked: collections.workspace.applySystemCollection(
+                    String(collectionRow.modelData.id))
             }
         }
     }

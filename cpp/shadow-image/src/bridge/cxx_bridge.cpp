@@ -3,9 +3,9 @@
 #include "adjustment_render_wire.hpp"
 #include "cxx_bridge_projection.hpp"
 
+#include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/display_luma.hpp>
-#include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/proxy_rendering.hpp>
@@ -728,6 +728,9 @@ raw_camera_profile_status(const image::RawCameraProfileStatus status) {
     result.camera_profile_name = rust::String(receipt.camera_profile_name);
     result.camera_profile_diagnostic = rust::String(receipt.camera_profile_diagnostic);
     result.camera_profile_developer_version = receipt.camera_profile_developer_version;
+    if (receipt.completion_camera_to_working)
+        for (const double value : *receipt.completion_camera_to_working)
+            result.completion_camera_to_working.push_back(value);
     return result;
 }
 
@@ -819,10 +822,10 @@ optics_profile_candidates_for(const image::DecodeSession& session) {
     metadata.focal_length_mm = source.focal_length_mm;
     if (source.has_focus_observation) {
         const auto focus_source = source.focus_observation_source == 1U
-            ? image::FocusObservationSource::camera_focus_area
-            : source.focus_observation_source == 2U
-            ? image::FocusObservationSource::camera_focus_location
-            : image::FocusObservationSource::unknown;
+                                      ? image::FocusObservationSource::camera_focus_area
+                                  : source.focus_observation_source == 2U
+                                      ? image::FocusObservationSource::camera_focus_location
+                                      : image::FocusObservationSource::unknown;
         if (focus_source != image::FocusObservationSource::unknown) {
             metadata.focus_observation = image::FocusObservation{
                 .schema_version = source.focus_observation_schema_version,
@@ -981,8 +984,7 @@ query_raw_white_balance_presentation_for_metadata(const FfiMetadataSnapshot& sou
     }
     const auto temperature = std::llround(presentation->temperature_kelvin);
     const auto tint = std::llround(presentation->tint);
-    if (temperature < 2'000LL || temperature > 25'000LL
-        || tint < -150LL || tint > 150LL) {
+    if (temperature < 2'000LL || temperature > 25'000LL || tint < -150LL || tint > 150LL) {
         return result;
     }
     result.available = true;

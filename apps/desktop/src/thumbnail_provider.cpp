@@ -1,6 +1,7 @@
 #include "thumbnail_provider.hpp"
 
 #include "desktop_backend.hpp"
+#include "review_diagnostics.hpp"
 #include "review_model.hpp"
 #include "review_visual_request.hpp"
 
@@ -136,8 +137,12 @@ QImage ThumbnailProvider::requestImage(
     QSize* size,
     const QSize& requested_size
 ) {
+    auto& diagnostics = ReviewDiagnostics::instance();
+    const bool diagnose = diagnostics.enabled();
     QElapsedTimer clock;
-    clock.start();
+    if (diagnose) {
+        clock.start();
+    }
     if (size != nullptr) {
         *size = {};
     }
@@ -153,39 +158,43 @@ QImage ThumbnailProvider::requestImage(
         return {};
     }
     const QString cache_key = cacheKey(*request, requested_size);
+    QImage cached_image;
     {
         const QMutexLocker lock(&decoded_image_cache_mutex_);
         if (const QImage* const cached = decoded_image_cache_.object(cache_key);
             cached != nullptr) {
-            if (size != nullptr) {
-                *size = cached->size();
-            }
-            if (qEnvironmentVariableIsSet("SHADOW_INTERACTIVE_TIMING"))
-                qInfo() << "Review thumbnail" << "cached" << true << "ms" << clock.elapsed()
-                        << "size" << cached->size();
-            return *cached;
+            cached_image = *cached;
         }
+    }
+    if (!cached_image.isNull()) {
+        if (size != nullptr) {
+            *size = cached_image.size();
+        }
+        diagnostics.count(ReviewDiagnostics::Counter::ThumbnailCacheHit);
+        return cached_image;
     }
 
     BackendReviewVisual payload;
     try {
         payload = backend_->loadReviewVisual(request->ticket);
-    } catch (const std::exception& error) {
-        qWarning() << "Cannot load Review visual" << request->ticket << error.what();
+    } catch (const std::exception&) {
+        diagnostics.failure(ReviewDiagnostics::Failure::ThumbnailLoad);
         return {};
     }
     if (payload.requires_frame_receipt != request->requiresFrameReceipt()) {
-        qWarning() << "Review visual URL lifetime disagrees with its backend ticket";
+        diagnostics.failure(ReviewDiagnostics::Failure::ThumbnailReceipt);
         return {};
     }
     if (!generation_is_current()) {
         return {};
     }
     if (payload.bytes.isEmpty()) {
+        diagnostics.failure(ReviewDiagnostics::Failure::ThumbnailLoad);
         return {};
     }
 
-    const qint64 load_ms = clock.elapsed();
+    const qint64 load_ms = diagnose ? clock.elapsed() : 0;
+    diagnostics.record(ReviewDiagnostics::Stage::ThumbnailLoad, load_ms);
     QBuffer buffer;
     buffer.setData(payload.bytes);
     buffer.open(QIODevice::ReadOnly);
@@ -198,7 +207,11 @@ QImage ThumbnailProvider::requestImage(
         reader.setScaledSize(decode_size);
     }
     QImage image = reader.read();
-    if (image.isNull() || !generation_is_current()) {
+    if (image.isNull()) {
+        diagnostics.failure(ReviewDiagnostics::Failure::ThumbnailDecode);
+        return {};
+    }
+    if (!generation_is_current()) {
         return {};
     }
     // Do the final reduction after decoding. This is deliberately before the
@@ -206,13 +219,22 @@ QImage ThumbnailProvider::requestImage(
     // pixels instead of reintroducing per-frame sampling artifacts.
     const QSize effective_target = thumbnail_target_size(image.size(), requested_size);
     image = antialiased_thumbnail_scale(std::move(image), effective_target);
-    if (image.isNull() || !generation_is_current()) {
+    if (image.isNull()) {
+        diagnostics.failure(ReviewDiagnostics::Failure::ThumbnailDecode);
         return {};
     }
+    if (!generation_is_current()) {
+        return {};
+    }
+    diagnostics.record(
+        ReviewDiagnostics::Stage::ThumbnailDecode,
+        diagnose ? clock.elapsed() - load_ms : 0
+    );
 
     if (payload.requires_frame_receipt) {
         image = image.convertToFormat(QImage::Format_RGBA8888);
         if (image.isNull()) {
+            diagnostics.failure(ReviewDiagnostics::Failure::ThumbnailDecode);
             return {};
         }
         try {
@@ -225,9 +247,8 @@ QImage ThumbnailProvider::requestImage(
                 unsigned_dimension(image.height()),
                 rgba8888_hash(image)
             );
-        } catch (const std::exception& error) {
-            qWarning() << "Cannot record Review visual frame" << request->ticket
-                       << error.what();
+        } catch (const std::exception&) {
+            diagnostics.failure(ReviewDiagnostics::Failure::ThumbnailReceipt);
             return {};
         }
         if (!generation_is_current()) {
@@ -246,8 +267,5 @@ QImage ThumbnailProvider::requestImage(
             imageCacheCost(image)
         );
     }
-    if (qEnvironmentVariableIsSet("SHADOW_INTERACTIVE_TIMING"))
-        qInfo() << "Review thumbnail" << "cached" << false << "load_ms" << load_ms << "decode_ms"
-                << clock.elapsed() - load_ms << "size" << image.size();
     return image;
 }

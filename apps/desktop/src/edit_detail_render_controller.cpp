@@ -1,4 +1,5 @@
 #include "edit_controller.hpp"
+#include "edit_performance_diagnostics.hpp"
 
 #include <QtConcurrent>
 
@@ -15,6 +16,8 @@ namespace {
 
 constexpr int EDIT_DETAIL_DEBOUNCE_MS = 70;
 constexpr int EDIT_DETAIL_WARMUP_IDLE_MS = 80;
+constexpr std::uint32_t EDIT_DETAIL_FIRST_REGION_SIDE = 512;
+constexpr std::uint32_t EDIT_DETAIL_PROGRESSIVE_VIEWPORT_SIDE = 1'024;
 
 [[nodiscard]] LocalizedUiMessage edit_message(
     const char* const source,
@@ -111,6 +114,7 @@ void EditController::leaveDetailMode() {
     if (full_resolution_preparing_) {
         setFullResolutionState(false, false, 0);
     }
+    startDisplayScopeTask();
 }
 
 void EditController::cancelDetailWarmupForRecipeEdit() {
@@ -139,10 +143,11 @@ void EditController::scheduleDetailRefreshForRecipeEdit(const int delay_ms) {
 
 void EditController::finishDetailTask() {
     EditDetailTaskResult result = detail_watcher_.result();
-    setDetailRunning(false);
+    const bool center_phase = std::exchange(detail_center_phase_, false);
     if (persistence_state_.closeAfterAutosave()) {
         detail_queued_ = false;
         before_requested_ = false;
+        setDetailRunning(false);
         maybeFinishDeferredApplicationClose();
         return;
     }
@@ -179,7 +184,10 @@ void EditController::finishDetailTask() {
             if (valid) {
                 auto& mutable_tile = result.viewport.tiles.front();
                 const QString ticket =
-                    QStringLiteral("viewport-%1-%2").arg(mutable_tile.x).arg(mutable_tile.y);
+                    (center_phase ? QStringLiteral("viewport-center-%1-%2")
+                                  : QStringLiteral("viewport-%1-%2"))
+                        .arg(mutable_tile.x)
+                        .arg(mutable_tile.y);
                 publications.push_back({
                     .ticket = ticket,
                     .bytes = std::move(mutable_tile.bytes),
@@ -228,6 +236,35 @@ void EditController::finishDetailTask() {
                 }
                 setFullResolutionState(false, true, result.viewport.retained_bytes);
                 emit detailTilesChanged();
+                log_edit_performance_checkpoint(
+                    center_phase ? "detail-center-published" : "detail-viewport-published",
+                    result.generation.photo,
+                    result.generation.recipe_revision,
+                    result.viewport.retained_bytes
+                );
+                // Keep the exact center visible over the retained preview while
+                // the complete viewport renders. An edit, pan, or photo switch
+                // advances the generation/token and prevents this continuation.
+                if (center_phase && detail_mode_ && active_ && !detail_queued_
+                    && accepts_edit_detail(
+                        result.generation,
+                        photo_generation_,
+                        render_revision_,
+                        detail_viewport_revision_
+                    )) {
+                    dispatchDetailRender(false);
+                    return;
+                }
+                if (center_phase) {
+                    setDetailRunning(false);
+                    if (detail_queued_) {
+                        maybeStartDetailRender();
+                    } else {
+                        maybeStartBeforePreview();
+                    }
+                    maybeFinishDeferredApplicationClose();
+                    return;
+                }
                 const double retained_mib =
                     static_cast<double>(detail_retained_bytes_) / (1'024.0 * 1'024.0);
                 setStatusMessage(edit_message(
@@ -241,11 +278,13 @@ void EditController::finishDetailTask() {
         }
     }
 
+    setDetailRunning(false);
     if (detail_queued_) {
         maybeStartDetailRender();
     } else {
         maybeStartBeforePreview();
     }
+    startDisplayScopeTask();
     maybeFinishDeferredApplicationClose();
 }
 
@@ -255,6 +294,7 @@ void EditController::startDetailRender() {
         return;
     }
     if (stateTaskRunning() || current_rendering_ || before_rendering_
+        || detail_warmup_watcher_.isRunning()
         || settled_render_revision_ != render_revision_ || detail_rendering_) {
         detail_queued_ = true;
         return;
@@ -267,6 +307,27 @@ void EditController::startDetailRender() {
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Preparing exact full-resolution detail…"))
     );
+    log_edit_performance_checkpoint("detail-requested", photo_generation_, render_revision_);
+    dispatchDetailRender(
+        detail_viewport_width_ > EDIT_DETAIL_PROGRESSIVE_VIEWPORT_SIDE
+        || detail_viewport_height_ > EDIT_DETAIL_PROGRESSIVE_VIEWPORT_SIDE
+    );
+}
+
+void EditController::dispatchDetailRender(const bool center_first) {
+    detail_center_phase_ = center_first;
+    // The first region is an exact, bounded 512px readback. The second pass
+    // retains the existing tile grid and surrounding pan margin unchanged.
+    const std::uint32_t width = center_first
+        ? EDIT_DETAIL_FIRST_REGION_SIDE
+        : detail_retain_pan_margin_
+            ? std::min(8'192U, std::max(1'025U, detail_viewport_width_ + 512U))
+            : detail_viewport_width_;
+    const std::uint32_t height = center_first
+        ? EDIT_DETAIL_FIRST_REGION_SIDE
+        : detail_retain_pan_margin_
+            ? std::min(8'192U, std::max(1'025U, detail_viewport_height_ + 512U))
+            : detail_viewport_height_;
     detail_watcher_.setFuture(
         QtConcurrent::run(
             EditTaskRunner::renderDetail,
@@ -278,15 +339,8 @@ void EditController::startDetailRender() {
             detail_render_token_,
             detail_center_x_,
             detail_center_y_,
-            // Keep a bounded surrounding region ready for subsequent pans.
-            // At high zoom this also preserves the fixed 512px tile grid,
-            // instead of rendering an uncacheable tiny crop at every position.
-            detail_retain_pan_margin_
-                ? std::min(8'192U, std::max(1'025U, detail_viewport_width_ + 512U))
-                : detail_viewport_width_,
-            detail_retain_pan_margin_
-                ? std::min(8'192U, std::max(1'025U, detail_viewport_height_ + 512U))
-                : detail_viewport_height_,
+            width,
+            height,
             EditDetailGeneration{
                 .photo = photo_generation_,
                 .recipe_revision = render_revision_,
@@ -298,9 +352,9 @@ void EditController::startDetailRender() {
 
 void EditController::scheduleDetailWarmup() {
     const auto& raw_ai_denoise = grade_stack_.raw_ai_denoise;
-    if (!active_ || crop_tool_active_ || detail_mode_ || stateTaskRunning() || current_rendering_
-        || detail_rendering_ || settled_render_revision_ != render_revision_
-        || detail_warmup_watcher_.isRunning()
+    if (neighbor_preview_preparation_pending_ || crop_tool_active_ || detail_mode_
+        || settled_render_revision_ != render_revision_
+        || !work_scheduler_.admitsIdleDetailWarmup(workAdmissionState())
         || !edit_detail_admits_idle_warmup(
             raw_ai_denoise.present,
             raw_ai_denoise.enabled,
@@ -313,9 +367,9 @@ void EditController::scheduleDetailWarmup() {
 
 void EditController::startDetailWarmup() {
     const auto& raw_ai_denoise = grade_stack_.raw_ai_denoise;
-    if (!active_ || crop_tool_active_ || detail_mode_ || stateTaskRunning() || current_rendering_
-        || before_rendering_ || detail_rendering_ || settled_render_revision_ != render_revision_
-        || detail_warmup_watcher_.isRunning()
+    if (neighbor_preview_preparation_pending_ || crop_tool_active_ || detail_mode_
+        || settled_render_revision_ != render_revision_
+        || !work_scheduler_.admitsIdleDetailWarmup(workAdmissionState())
         || !edit_detail_admits_idle_warmup(
             raw_ai_denoise.present,
             raw_ai_denoise.enabled,
@@ -327,6 +381,7 @@ void EditController::startDetailWarmup() {
     // Any later pan, zoom, Recipe edit, or photo switch increments it and
     // causes this idle request to be discarded between tiles.
     detail_warmup_token_ = backend_->beginEditDetailRequest();
+    log_edit_performance_checkpoint("detail-warmup-start", photo_generation_, render_revision_);
     if (!full_resolution_ready_) {
         setFullResolutionState(true, false, 0);
     }
@@ -345,6 +400,16 @@ void EditController::startDetailWarmup() {
     );
 }
 
+void EditController::setNeighborPreviewPreparationPending(const bool pending) {
+    if (neighbor_preview_preparation_pending_ == pending)
+        return;
+    neighbor_preview_preparation_pending_ = pending;
+    if (pending)
+        detail_warmup_debounce_.stop();
+    else
+        scheduleDetailWarmup();
+}
+
 void EditController::finishDetailWarmupTask() {
     const EditDetailWarmupTaskResult result = detail_warmup_watcher_.result();
     const bool stale =
@@ -355,19 +420,27 @@ void EditController::finishDetailWarmupTask() {
         if (full_resolution_preparing_) {
             setFullResolutionState(false, false, 0);
         }
-        if (active_ && !detail_mode_ && settled_render_revision_ == render_revision_) {
-            scheduleDetailWarmup();
-        }
+        maybeStartDetailRender();
+        startDisplayScopeTask();
+        scheduleDetailWarmup();
         return;
     }
     if (result.error.isEmpty()) {
         setFullResolutionState(false, true, result.retained_bytes);
+        log_edit_performance_checkpoint(
+            "detail-warmup-ready",
+            result.photo_generation,
+            result.render_revision,
+            result.retained_bytes
+        );
     } else if (full_resolution_preparing_) {
         // A provider error remains visible only if the user explicitly asks
         // for full detail. The status bar should nevertheless stop reporting
         // active background development.
         setFullResolutionState(false, false, 0);
     }
+    maybeStartDetailRender();
+    startDisplayScopeTask();
 }
 
 void EditController::maybeStartDetailRender() {
@@ -375,6 +448,7 @@ void EditController::maybeStartDetailRender() {
         return;
     }
     if (stateTaskRunning() || current_rendering_ || before_rendering_
+        || detail_warmup_watcher_.isRunning()
         || settled_render_revision_ != render_revision_) {
         return;
     }

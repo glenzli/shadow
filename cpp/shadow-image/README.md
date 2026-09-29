@@ -454,6 +454,16 @@ executor; automatic mode uses it for full-resolution manual optics while explici
 the f64 coordinate oracle. `src/optics/lensfun_optics.cpp` consumes catalog matches, preserves provider fallback semantics, and selects the stable correction receipt/plan boundary.
 `src/optics/lensfun_modifier_plan.*` clones resolved Lensfun camera/lens state into provider-independent immutable plan ownership.
 `src/optics/lensfun_region_plan.cpp` compiles absolute RGB inverse maps, exact bilinear source preimages, and source-aligned profile-vignette gains; `src/optics/lensfun_cpu_reference.cpp` owns full-frame and regional CPU oracle execution.
+The Metal preview continuation keeps the complete resident RGB buffer layout separate from the
+exact Lensfun source preimage and its compact gain table. A full-preview remap may sample a strict
+interior subset without materializing/redeveloping RAW; logical preimage bounds remain validated
+before device sampling. Regional consumers retain their compact source layout.
+`MetalPreviewOpticsCache` in that owner binds provider, photo metadata, settings and dimensions to
+one RAW preview lineage. The first rebind validates/uploads immutable maps and gains; subsequent
+rebinds share those device resources while retaining independent outputs and the exact RAW path.
+Retention is capped at 64 MiB per lineage and charged to adopted-session admission; oversized
+resources execute transiently. Device failure releases the cached maps, and new source/optics
+preparation creates a new owner. CPU mapping arrays are released after upload.
 `src/optics/scene_linear_region_optics.*` classifies the prepared plan as neutral, owned pointwise, coordinate-remapping, or materialization-only; CPU resident RAW currently admits only neutral or owned pointwise plans and fails closed for the other classes.
 `src/acceleration/image_acceleration_policy.*` is the single parser for
 `SHADOW_IMAGE_ACCELERATION`; RAW, edit, display, and optics boundaries project its neutral choice
@@ -953,3 +963,18 @@ Liquify/Canvas geometry, and performs one explicit host readback on tool prepara
 has at most a 512-pixel edge; pointer updates read it without decode, GPU dispatch or readback.
 The L channel uses working-space Oklab L; RGB channels use the curve's signed sRGB encoding
 in the declared working primaries. It does not clamp HDR samples into the editable SDR range.
+
+Accepted AI repair sampling is owned by [`src/edit/image_completion.cpp`](src/edit/image_completion.cpp)
+and the matching Metal program/MSL. Explicit linear RGBA32F patches keep scene values above one and
+use premultiplied bilinear reconstruction with a nearest-alpha gate; legacy RGBA8 keeps its original
+nearest/sRGB interpretation. Full-frame and detail-tile paths use the same global pixel centers.
+The wire accepts the legacy nine-scalar descriptor and the ten-scalar explicit-encoding descriptor.
+
+## Completion source colour response
+
+Accepted linear completion samples carry a render-only 3x3 response, evaluated after premultiplied
+interpolation and before alpha composition on CPU and Metal. The original patch and erased-texel
+support remain unchanged. The RAW source receipt exposes its compiled unwhite-balanced Camera RGB
+to working-RGB basis only for matrix-only DCP routes; it never substitutes for CFA-domain white
+balance. The Rust source-response owner binds preview/detail/export consistently. GPU side resources
+include the bounded 36-byte matrix, with no source-image readback for matching.

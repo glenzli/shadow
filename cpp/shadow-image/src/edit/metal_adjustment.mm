@@ -37,6 +37,7 @@ kernel void execute_adjustment_program_v1(
     device const MetalPerceptualRange* perceptual_range_entries [[buffer(8)]],
     device const float4* selective_color_entries [[buffer(9)]],
     device const float4* paint_entries [[buffer(10)]],
+    device const uchar* completion_bytes [[buffer(11)]],
     uint2 position [[thread_position_in_grid]]
 ) {
     if (position.x >= invocation.width || position.y >= invocation.height) {
@@ -65,6 +66,7 @@ kernel void execute_adjustment_program_v1(
             perceptual_range_entries,
             selective_color_entries,
             paint_entries,
+            completion_bytes,
             position,
             invocation,
             status
@@ -289,6 +291,7 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
         || program.invocation.selective_color_entry_count
             != program.selective_color_entries.size()
         || program.invocation.paint_entry_count != program.paint_entries.size()
+        || program.invocation.completion_byte_count != program.completion_bytes.size()
         || program.operations.empty()) {
         return MetalAdjustmentAttempt{
             .output = std::nullopt,
@@ -297,6 +300,7 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
     }
 
     std::size_t paint_bytes = 0U;
+    const std::size_t completion_bytes = program.completion_bytes.size();
     std::size_t row_bytes = 0U;
     std::size_t operation_bytes = 0U;
     std::size_t curve_bytes = 0U;
@@ -349,7 +353,8 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
 
     const std::size_t maximum_buffer_bytes =
         static_cast<std::size_t>(context.device().maxBufferLength);
-    if (paint_bytes > maximum_buffer_bytes || row_bytes > maximum_buffer_bytes
+    if (paint_bytes > maximum_buffer_bytes || completion_bytes > maximum_buffer_bytes
+        || row_bytes > maximum_buffer_bytes
         || operation_bytes > maximum_buffer_bytes
         || curve_bytes > maximum_buffer_bytes
         || lut_bytes > maximum_buffer_bytes
@@ -497,9 +502,16 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
                                    : static_cast<const void*>(program.paint_entries.data())
                         length:program.paint_entries.empty() ? sizeof(empty_paint) : paint_bytes
                        options:MTLResourceStorageModeShared]);
+        const std::uint8_t empty_completion = 0U;
+        OwnedObjectiveCObject completion_buffer([context.device()
+            newBufferWithBytes:program.completion_bytes.empty()
+                                   ? static_cast<const void*>(&empty_completion)
+                                   : static_cast<const void*>(program.completion_bytes.data())
+                        length:program.completion_bytes.empty() ? 1U : completion_bytes
+                       options:MTLResourceStorageModeShared]);
         if (!paint_buffer || !input_buffer || !output_buffer || !operations_buffer || !status_buffer
             || !curve_buffer || !lut_buffer || !perceptual_mixer_buffer
-            || !perceptual_range_buffer || !selective_color_buffer) {
+            || !perceptual_range_buffer || !selective_color_buffer || !completion_buffer) {
             return MetalAdjustmentAttempt{
                 .output = std::nullopt,
                 .diagnostic = "Metal could not allocate bounded adjustment buffers",
@@ -601,6 +613,9 @@ MetalAdjustmentAttempt try_execute_adjustments_metal(
             [encoder setBuffer:static_cast<id<MTLBuffer>>(paint_buffer.get())
                         offset:0U
                        atIndex:10U];
+            [encoder setBuffer:static_cast<id<MTLBuffer>>(completion_buffer.get())
+                        offset:0U
+                       atIndex:11U];
             [encoder dispatchThreads:MTLSizeMake(
                     input.dimensions.width,
                     current_rows,

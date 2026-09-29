@@ -87,6 +87,8 @@ signals:
         int rating
     );
     void undone();
+    // Only an accepted forward decision, never a failure refresh or undo.
+    void decisionCommitted(const QString& photoId);
 
 private:
     struct TaskResult final {

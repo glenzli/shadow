@@ -40,6 +40,7 @@ struct MetalSceneLinearRegionOpticsTelemetry final {
 
 class MetalSceneLinearRegionDeviceAccess;
 class MetalSceneLinearRegionWarmPreviewAccess;
+class MetalPreviewOpticsCache;
 
 // The completed result owns one same-device private fp32 RGB buffer. It is move-only so C-d can
 // retain one unambiguous resource owner across asynchronous display/edit consumers. Ordinary C++
@@ -74,11 +75,57 @@ class MetalSceneLinearRegionLease final {
 
     friend class MetalSceneLinearRegionDeviceAccess;
     friend class MetalSceneLinearRegionWarmPreviewAccess;
+    friend class MetalPreviewOpticsCache;
     friend MetalSceneLinearRegionLease develop_metal_scene_linear_region_optics(
         const raw_pipeline_detail::ResidentRawSource& source,
         lensfun_modifier_plan::PreparedRegion region,
         std::uint64_t source_resident_allowance_bytes
     );
+    friend MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
+        const MetalRawPreviewResidentOutput& source,
+        const PreparedSceneLinearRegionOptics& optics,
+        lensfun_modifier_plan::PreparedRegion region
+    );
+};
+
+// One RAW source lineage shares immutable mapping/gain resources across white-balance rebinds.
+// Provider, metadata, settings and preview extent are bound at construction. No rendered pixels
+// are cached. Oversized resources execute transiently; they never enlarge the retention budget.
+inline constexpr std::uint64_t maximum_preview_optics_cache_bytes = 64U * 1024U * 1024U;
+
+struct MetalPreviewOpticsResult final {
+    MetalSceneLinearRegionLease output;
+    OpticsProfileReceipt receipt;
+    std::uint64_t retained_resource_bytes = 0U;
+    bool reused_resources = false;
+};
+
+class MetalPreviewOpticsCache final {
+  public:
+    MetalPreviewOpticsCache(
+        std::shared_ptr<const OpticsProvider> provider,
+        Dimensions dimensions,
+        AssetMetadata metadata,
+        OpticsSettings settings,
+        std::uint64_t budget_bytes = maximum_preview_optics_cache_bytes
+    );
+    ~MetalPreviewOpticsCache();
+    MetalPreviewOpticsCache(const MetalPreviewOpticsCache&) = delete;
+    MetalPreviewOpticsCache& operator=(const MetalPreviewOpticsCache&) = delete;
+    [[nodiscard]] MetalPreviewOpticsResult apply(const MetalRawPreviewResidentOutput& source) const;
+    [[nodiscard]] std::uint64_t retained_bytes() const noexcept;
+
+  private:
+    struct Impl;
+    struct Resources;
+    std::unique_ptr<Impl> implementation_;
+    [[nodiscard]] static std::shared_ptr<const Resources> prepare_resources(
+        const MetalRawPreviewResidentOutput& source,
+        const PreparedSceneLinearRegionOptics& optics,
+        const lensfun_modifier_plan::PreparedRegion& region
+    );
+    [[nodiscard]] static MetalSceneLinearRegionLease
+    execute(const MetalRawPreviewResidentOutput& source, const Resources& resources, bool uploaded);
     friend MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
         const MetalRawPreviewResidentOutput& source,
         const PreparedSceneLinearRegionOptics& optics,

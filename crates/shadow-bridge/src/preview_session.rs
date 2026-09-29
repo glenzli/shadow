@@ -459,11 +459,13 @@ impl LibRawEditPreviewSession {
             .handle
             .as_ref()
             .ok_or(BridgeError::NullHandle)?;
-        let map = handle.curve_input_map(
-            &ffi_render_request(plan, self.max_edge, 90),
-            channel,
-            cancel,
-        )?;
+        let mut request = ffi_render_request(plan, self.max_edge, 90);
+        crate::completion_color_adaptation::bind(
+            &mut request.nodes,
+            plan,
+            &self.raw_pipeline_receipt,
+        );
+        let map = handle.curve_input_map(&request, channel, cancel)?;
         Ok(CurveInputMap {
             width: map.width,
             height: map.height,
@@ -667,7 +669,12 @@ impl LibRawEditPreviewSession {
         validate_jpeg_quality(jpeg_quality)?;
         let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let mut request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        crate::completion_color_adaptation::bind(
+            &mut request.nodes,
+            plan,
+            &self.raw_pipeline_receipt,
+        );
         let proxy = handle.render_adjustment_plan(&request)?;
         let proxy = proxy_payload(proxy);
         if proxy.dimensions != output_dimensions {
@@ -702,7 +709,12 @@ impl LibRawEditPreviewSession {
             .handle
             .as_ref()
             .ok_or(BridgeError::NullHandle)?;
-        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let mut request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        crate::completion_color_adaptation::bind(
+            &mut request.nodes,
+            plan,
+            &self.raw_pipeline_receipt,
+        );
         let rendered = handle.render_adjustment_plan_cancellable(&request, cancellation)?;
         if rendered.cancelled {
             return Ok(CancellableEditPreview::Cancelled);
@@ -771,7 +783,13 @@ impl LibRawEditPreviewSession {
             .ok_or(BridgeError::NullHandle)?;
         // The wire request still contains the legacy JPEG-quality field, but
         // the RGB8 native entry point does not inspect it.
-        let request = ffi_render_request_with_mask_coverage(plan, self.max_edge, 95, mask_coverage);
+        let mut request =
+            ffi_render_request_with_mask_coverage(plan, self.max_edge, 95, mask_coverage);
+        crate::completion_color_adaptation::bind(
+            &mut request.nodes,
+            plan,
+            &self.raw_pipeline_receipt,
+        );
         let rendered = handle.render_adjustment_plan_rgb8_cancellable(&request, cancellation)?;
         if rendered.cancelled {
             return Ok(CancellableEditPreview::Cancelled);
@@ -815,7 +833,13 @@ impl LibRawEditPreviewSession {
             .ok_or(BridgeError::NullHandle)?;
         // The wire request retains the compatibility JPEG-quality field; the owned RGB8 native
         // entry point does not inspect it.
-        let request = ffi_render_request_with_mask_coverage(plan, self.max_edge, 95, mask_coverage);
+        let mut request =
+            ffi_render_request_with_mask_coverage(plan, self.max_edge, 95, mask_coverage);
+        crate::completion_color_adaptation::bind(
+            &mut request.nodes,
+            plan,
+            &self.raw_pipeline_receipt,
+        );
         let native =
             handle.render_adjustment_plan_owned_rgb8_cancellable(&request, cancellation)?;
         match OwnedInteractivePreviewFrame::from_nullable_native(
@@ -850,7 +874,12 @@ impl LibRawEditPreviewSession {
         validate_jpeg_quality(jpeg_quality)?;
         let output_dimensions = plan.geometry.output_dimensions(self.dimensions)?;
         let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        let mut request = ffi_render_request(plan, self.max_edge, jpeg_quality);
+        crate::completion_color_adaptation::bind(
+            &mut request.nodes,
+            plan,
+            &self.raw_pipeline_receipt,
+        );
         let analyzed = handle.render_adjustment_plan_with_analysis(&request)?;
         let proxy = proxy_payload(analyzed.proxy);
         validate_analyzed_edit_preview(
@@ -909,8 +938,13 @@ impl LibRawEditPreviewSession {
             .handle
             .as_ref()
             .ok_or(BridgeError::NullHandle)?;
-        let request =
+        let mut request =
             ffi_render_request_with_mask_coverage(plan, self.max_edge, jpeg_quality, mask_coverage);
+        crate::completion_color_adaptation::bind(
+            &mut request.nodes,
+            plan,
+            &self.raw_pipeline_receipt,
+        );
         let rendered =
             handle.render_adjustment_plan_with_analysis_cancellable(&request, cancellation)?;
         if rendered.cancelled {

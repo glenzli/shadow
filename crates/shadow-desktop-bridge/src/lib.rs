@@ -51,6 +51,8 @@ mod session_preview_store;
 mod edit_version_diff;
 mod image_completion_runtime;
 mod image_completion_service;
+mod image_completion_source;
+use image_completion_source::image_completion_source_states;
 mod infer_runtime_credentials;
 mod lut_export;
 mod raw_foundation_noise_assessment;
@@ -594,6 +596,7 @@ mod ffi {
     struct FfiLibraryPhotoFilter {
         has_photo_ids: bool,
         photo_ids: Vec<String>,
+        recent_imports: bool,
         has_capture_start: bool,
         capture_start_unix_seconds: i64,
         has_capture_end: bool,
@@ -1532,6 +1535,7 @@ mod ffi {
     /// authority and editable placement/strength state.
     #[derive(Debug, Clone)]
     struct FfiImageCompletionRegion {
+        linear_rgba_f32: bool,
         store_object_id: String,
         storage_revision: u32,
         content_blake3: String,
@@ -1545,12 +1549,14 @@ mod ffi {
         bounds_right: f64,
         bounds_bottom: f64,
         source_recipe_blake3: String,
+        source_context_json: String,
         provider: String,
         deployment: String,
         model_build: String,
         postprocessing_identity: String,
         api_contract_revision: String,
         actual_execution_provider: String,
+        pre_grade: bool,
         enabled: bool,
         strength: f64,
     }
@@ -2000,6 +2006,10 @@ mod ffi {
         base_commit_id: String,
         settings: FfiEditSettings,
         points: Vec<FfiImageCompletionBrushPoint>,
+        selection_expansion: f64,
+        /// -1 for a painted selection; otherwise replace this accepted region.
+        refresh_region_index: i32,
+        force_regenerate: bool,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2031,6 +2041,7 @@ mod ffi {
         base_commit_id: String,
         expected_working_commit_id: String,
         settings: FfiEditSettings,
+        replace_region_index: i32,
     }
 
     /// Session-local state for one model-pinned AI RAW foundation job.
@@ -2454,6 +2465,10 @@ mod ffi {
     }
 
     extern "Rust" {
+        fn image_completion_source_states(
+            foundation: &FfiPhotoFoundationSettings,
+            contexts: &Vec<String>,
+        ) -> Vec<u8>;
         type DesktopSession;
         type LibraryServerHost;
         type OwnedEditedPreview;
@@ -2850,6 +2865,16 @@ mod ffi {
             query: &str,
             query_revision: &str,
             language: &str,
+            token: u64,
+        ) -> Result<FfiSemanticSearchReport>;
+        fn begin_similar_review(self: &DesktopSession) -> Result<u64>;
+        fn cancel_similar_review(self: &DesktopSession, token: u64);
+        fn suggest_similar_review(
+            self: &DesktopSession,
+            infer_base_url: &str,
+            credential_file: &str,
+            photo_id: &str,
+            representation_id: &str,
             token: u64,
         ) -> Result<FfiSemanticSearchReport>;
         fn classify_smart_categories_batch(
@@ -3378,6 +3403,7 @@ struct DesktopSession {
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
     semantic_search_token: AtomicU64,
+    similar_review_token: AtomicU64,
     people_analyses: people_analysis_service::PeopleAnalysisService,
     people_library: people_library_store::PeopleLibraryStore,
     subject_masks: subject_mask_service::SubjectMaskService,
@@ -3497,6 +3523,7 @@ fn open_desktop_session_at(
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
         semantic_search_token: AtomicU64::new(0),
+        similar_review_token: AtomicU64::new(0),
         people_analyses: people_analysis_service::PeopleAnalysisService::new(),
         people_library: people_library_store::PeopleLibraryStore::open(people_library_root)?,
         subject_masks,

@@ -249,6 +249,7 @@ class ReviewModel final : public QAbstractListModel {
     /// source-local; this model owns the final cross-source ordering.
     void setPresentationOrder(PresentationSortKey key, bool descending);
     [[nodiscard]] bool isGenerationCurrent(quint64 generation) const noexcept;
+    [[nodiscard]] int rowOfPhoto(const QString& photo_id, const QString& representation_id) const;
     /// Builds a generation-bound comparison source. Grid roles use their own
     /// immutable lifetime contract when projected through data().
     [[nodiscard]] QString visualSourceFor(const QString& ticket) const;
@@ -283,7 +284,12 @@ class ReviewModel final : public QAbstractListModel {
     void localSourceAvailabilityChanged(const QString& photoId, bool available);
 
   private:
+    void rebuildPhotoIndex();
+    [[nodiscard]] std::optional<qsizetype> rowForPhoto(const QString& photo_id) const;
+
     QVector<ReviewItem> items_;
+    QHash<QString, qsizetype> row_by_photo_id_;
+    bool photo_index_valid_ = true;
     std::atomic<quint64> generation_ = 0;
     PresentationSortKey presentation_sort_key_ = PresentationSortKey::CaptureTime;
     bool presentation_sort_descending_ = true;

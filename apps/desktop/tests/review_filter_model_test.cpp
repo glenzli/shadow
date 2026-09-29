@@ -1,6 +1,8 @@
 #include "review_filter_model.hpp"
 #include "review_model.hpp"
 
+#include <QAbstractListModel>
+
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -30,6 +32,43 @@ void require(const bool condition, const std::string& message) {
     value.has_development_edits = edited;
     value.liked = liked;
     return value;
+}
+
+class CountedSource final : public QAbstractListModel {
+  public:
+    mutable int data_reads = 0;
+
+    int rowCount(const QModelIndex& parent = {}) const override {
+        return parent.isValid() ? 0 : 10'000;
+    }
+    QVariant data(const QModelIndex& index, int role) const override {
+        ++data_reads;
+        if (!index.isValid() || index.row() < 0 || index.row() >= 10'000) {
+            return {};
+        }
+        if (role == ReviewModel::DecisionFlagRole) {
+            return QStringLiteral("picked");
+        }
+        if (role == ReviewModel::PhotoIdRole) {
+            return QString::number(index.row());
+        }
+        return {};
+    }
+};
+
+void an_unfiltered_large_library_does_not_fetch_each_photo_to_test_membership() {
+    CountedSource source;
+    ReviewFilterModel filtered;
+    filtered.setSourceModel(&source);
+    require(filtered.rowCount() == 10'000, "an unfiltered library keeps all loaded rows");
+    require(source.data_reads == 0, "default membership must not fetch per-photo roles");
+    filtered.setFlagFilter(QStringLiteral("picked"));
+    require(
+        filtered.rowCount() == 10'000 && source.data_reads > 0,
+        "an active filter must still evaluate photo roles"
+    );
+    filtered.setPhotoScope(true, {});
+    require(filtered.rowCount() == 0, "an empty active scope still hides every photo");
 }
 
 void combined_lightroom_filters_intersect() {
@@ -97,6 +136,34 @@ void combined_lightroom_filters_intersect() {
     );
     filtered.clearFilters();
     require(filtered.rowCount() == 3, "clearing filters must restore the grid");
+}
+
+void photo_lookup_follows_source_rows_and_visible_filter_order() {
+    const ReviewItem first = item("photo-a", "representation-a", "picked", 5);
+    const ReviewItem second = item("photo-b", "representation-b", "rejected", 1);
+    const ReviewItem third = item("photo-c", "representation-c", "picked", 4);
+    ReviewModel source;
+    source.replace({first, second, third}, 1);
+    ReviewFilterModel filtered;
+    filtered.setSourceModel(&source);
+    require(
+        filtered.indexOfPhoto(QStringLiteral("photo-b"), QStringLiteral("representation-b")) == 1,
+        "a visible photo must map from its indexed source row"
+    );
+    filtered.setFlagFilter(QStringLiteral("picked"));
+    require(
+        filtered.indexOfPhoto(QStringLiteral("photo-b"), QStringLiteral("representation-b")) == -1
+            && filtered.indexOfPhoto(QStringLiteral("photo-c"), QStringLiteral("representation-c"))
+                   == 1,
+        "a photo outside the current filter must stay invisible to the filmstrip"
+    );
+    require(source.reconcileSnapshot({third, first, second}, 1), "the source can reorder");
+    require(
+        filtered.indexOfPhoto(QStringLiteral("photo-c"), QStringLiteral("representation-c")) == 0
+            && filtered.indexOfPhoto(QStringLiteral("photo-a"), QStringLiteral("representation-a"))
+                   == 1,
+        "the filmstrip must follow the new visible order after source reconciliation"
+    );
 }
 
 void catalog_metadata_facets_remain_typed_server_filters() {
@@ -383,9 +450,11 @@ void photo_navigation_projects_retained_rows_before_the_query_finishes() {
 } // namespace
 
 int main() {
+    an_unfiltered_large_library_does_not_fetch_each_photo_to_test_membership();
     photo_navigation_projects_retained_rows_before_the_query_finishes();
     offline_availability_filters_preserve_cached_previews_and_unknown_origins();
     combined_lightroom_filters_intersect();
+    photo_lookup_follows_source_rows_and_visible_filter_order();
     catalog_metadata_facets_remain_typed_server_filters();
     hierarchical_keyword_filters_are_normalized_server_predicates();
     remote_rows_participate_only_in_locally_evaluable_filters();

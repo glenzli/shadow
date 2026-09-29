@@ -34,7 +34,10 @@ fn input_admission_requires_exact_digest_identities() {
         prepared_mask_gray8: vec![255],
         coordinate_extent: RasterExtent::new(1, 1).unwrap(),
         source_recipe_blake3: "a".repeat(64),
+        source_context: None,
         mask_revision: "b".repeat(64),
+        scene_referred_input: true,
+        force_regenerate: false,
     };
     assert!(validate_input(&invocation).is_ok());
 }

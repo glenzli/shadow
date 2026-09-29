@@ -1,6 +1,7 @@
 #include "edit_controller.hpp"
 #include "edit_auto_geometry_controller.hpp"
 #include "edit_preview_presentation_context.hpp"
+#include "edit_performance_diagnostics.hpp"
 #include "preview_diagnostics.hpp"
 
 #include <QtConcurrent>
@@ -84,6 +85,13 @@ void EditController::requestBeforePreview() {
 
 void EditController::finishPreviewTask() {
     EditPreviewTaskResult result = preview_watcher_.result();
+    if (result.generation.policy == EditPreviewPolicy::Settled) {
+        log_edit_performance_checkpoint(
+            "settled-preview-task-finished",
+            result.generation.photo,
+            result.generation.current_revision
+        );
+    }
     const EditPreviewKind kind = result.generation.kind();
     if (interactive_preview_timing_token_ == result.generation.render_token) {
         qInfo().noquote()
@@ -166,12 +174,8 @@ void EditController::finishPreviewTask() {
                 }
             }
         } else {
-            const std::optional<PreviewScopeHueQualifier> point_color_qualifier =
-                point_color_scope_active_ ? selectedPointColorScopeQualifier() : std::nullopt;
-            const PreviewDisplayScopeAnalysis display_scope = accepted
-                    && result.preview.analysis.available
-                ? analyzeCurrentDisplayScope(result.preview.bytes, point_color_qualifier)
-                : PreviewDisplayScopeAnalysis{};
+            const QByteArray scope_bytes = accepted && result.preview.analysis.available
+                ? result.preview.bytes : QByteArray{};
             if (result.generation.policy == EditPreviewPolicy::Interactive
                 && !active_parameter_gestures_.isEmpty()) {
                 first_interactive_frame_presented_ = true;
@@ -233,9 +237,21 @@ void EditController::finishPreviewTask() {
                     publishHistogram(
                         EditPreviewKind::Current,
                         result.preview.analysis,
-                        display_scope,
+                        PreviewDisplayScopeAnalysis{},
                         result.generation.current_revision
                     );
+                    queueDisplayScope(
+                        EditPreviewKind::Current,
+                        scope_bytes,
+                        result.generation.current_revision
+                    );
+                    if (result.generation.policy == EditPreviewPolicy::Settled) {
+                        log_edit_performance_checkpoint(
+                            "settled-preview-published",
+                            result.generation.photo,
+                            result.generation.current_revision
+                        );
+                    }
                 }
                 if (!autosaveFailed()) {
                     if (result.generation.policy == EditPreviewPolicy::Settled) {
@@ -262,9 +278,8 @@ void EditController::finishPreviewTask() {
           {result.error});
             emit beforeErrorTextChanged();
         } else {
-            const PreviewDisplayScopeAnalysis display_scope = result.preview.analysis.available
-                ? analyze_display_scope(result.preview.bytes)
-                : PreviewDisplayScopeAnalysis{};
+            const QByteArray scope_bytes = result.preview.analysis.available
+                ? result.preview.bytes : QByteArray{};
             const QSize dimensions(
                 static_cast<int>(result.preview.width),
                 static_cast<int>(result.preview.height)
@@ -280,7 +295,12 @@ void EditController::finishPreviewTask() {
             publishHistogram(
                 EditPreviewKind::NeutralBefore,
                 result.preview.analysis,
-                display_scope,
+                PreviewDisplayScopeAnalysis{},
+                result.generation.before_revision
+            );
+            queueDisplayScope(
+                EditPreviewKind::NeutralBefore,
+                scope_bytes,
                 result.generation.before_revision
             );
             before_preview_source_ = QStringLiteral(
@@ -321,6 +341,7 @@ void EditController::finishPreviewTask() {
             scheduleDetailWarmup();
         }
     }
+    startDisplayScopeTask();
     maybeFinishDeferredApplicationClose();
 }
 
@@ -343,6 +364,11 @@ void EditController::startPreviewRender() {
     const std::uint32_t max_edge = EDIT_PREVIEW_EDGE;
     const std::uint8_t jpeg_quality = interactive
         ? EDIT_INTERACTIVE_PREVIEW_QUALITY : EDIT_PREVIEW_QUALITY;
+    if (policy == EditPreviewPolicy::Settled) {
+        log_edit_performance_checkpoint(
+            "settled-preview-admitted", photo_generation_, render_revision_
+        );
+    }
     preview_render_token_ = backend_->beginEditPreviewRequest();
     if (interactive && interactive_timing_enabled()) {
         interactive_preview_timing_.restart();
@@ -395,6 +421,11 @@ void EditController::startPreviewRender() {
         jpeg_quality,
         std::move(generation)
     ));
+    if (policy == EditPreviewPolicy::Settled) {
+        log_edit_performance_checkpoint(
+            "settled-preview-dispatched", photo_generation_, render_revision_
+        );
+    }
 }
 
 void EditController::maybeStartBeforePreview() {

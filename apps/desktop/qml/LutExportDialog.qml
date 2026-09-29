@@ -5,7 +5,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-Dialog {
+ShadowDialog {
     id: dialog
     required property var controller
     property bool selectedOnly: false

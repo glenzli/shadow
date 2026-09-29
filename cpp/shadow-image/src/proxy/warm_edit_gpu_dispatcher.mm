@@ -261,6 +261,8 @@ WarmEditGpuSession::RenderAttempt dispatch_warm_edit_gpu(
                     offset:0U
                    atIndex:10U];
         [encoder setBuffer:transaction.final_program.buffers.paint.get() offset:0U atIndex:12U];
+        [encoder setBuffer:transaction.final_program.buffers.completion.get()
+                    offset:0U atIndex:13U];
         [encoder setBuffer:transaction.final_program.buffers.selective_color.get()
                     offset:0U
                    atIndex:11U];

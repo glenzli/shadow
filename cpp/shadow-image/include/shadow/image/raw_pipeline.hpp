@@ -97,6 +97,7 @@ struct RawPipelineReceipt final {
     // Compatibility RGB/raster paths intentionally leave this empty: their providers own the
     // rendered source and the existing RGB measurement remains their only truthful fallback.
     std::optional<double> source_scene_luminance_percentile;
+    std::optional<std::array<double, 9U>> completion_camera_to_working;
     RawDevelopmentPlan requested_plan;
     RawDevelopmentPlan effective_plan;
     RawCameraProfileStatus camera_profile_status = RawCameraProfileStatus::not_considered;

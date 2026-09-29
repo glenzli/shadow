@@ -508,11 +508,13 @@ pub struct DenoisedRasterArtifact {
     pub full_resolution: bool,
 }
 
-/// Raw tightly packed RGBA8 completion bytes. RGB is the generated proposal;
+/// Tightly packed RGBA8 or little-endian linear RGBA32F completion bytes.
 /// alpha is the exact user selection, so pixels outside it are immutable.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImageCompletionPatchArtifact {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_context: Option<shadow_domain::ImageCompletionSourceContext>,
     pub artifact: GeneratedArtifactReference,
     pub raster_extent: RasterExtent,
     pub coordinate_extent: RasterExtent,
@@ -526,6 +528,11 @@ pub struct ImageCompletionPatchArtifact {
 }
 
 impl ImageCompletionPatchArtifact {
+    /// Whether the admitted raster uses little-endian working-linear float samples.
+    pub fn linear_rgba_f32(&self) -> bool {
+        self.artifact.media_type() == "application/x-shadow-linear-rgba-f32"
+    }
+
     /// Validates the generated raster and its complete execution provenance.
     ///
     /// # Errors
@@ -535,11 +542,17 @@ impl ImageCompletionPatchArtifact {
     /// completion-patch contract.
     pub fn validate(&self) -> Result<(), AiArtifactContractError> {
         self.artifact.validate()?;
+        if let Some(context) = &self.source_context {
+            if !self.linear_rgba_f32() || context.validate().is_err() {
+                return Err(AiArtifactContractError::InvalidCompletionSourceIdentity);
+            }
+        }
+
         self.raster_extent.validate()?;
         self.coordinate_extent.validate()?;
         let expected = u64::from(self.raster_extent.width)
             .checked_mul(u64::from(self.raster_extent.height))
-            .and_then(|pixels| pixels.checked_mul(4))
+            .and_then(|pixels| pixels.checked_mul(if self.linear_rgba_f32() { 16 } else { 4 }))
             .ok_or(AiArtifactContractError::CompletionPatchTooLarge)?;
         if self.artifact.byte_len() != expected {
             return Err(AiArtifactContractError::CompletionPatchByteLengthMismatch {
@@ -547,7 +560,10 @@ impl ImageCompletionPatchArtifact {
                 actual: self.artifact.byte_len(),
             });
         }
-        if self.artifact.media_type() != "application/x-shadow-rgba8" {
+        if self.artifact.encoding_version() != 1
+            || (self.artifact.media_type() != "application/x-shadow-rgba8"
+                && !self.linear_rgba_f32())
+        {
             return Err(AiArtifactContractError::InvalidCompletionPatchMediaType);
         }
         if !canonical_digest(&self.source_recipe_blake3) {
@@ -720,7 +736,7 @@ pub enum AiArtifactContractError {
     CompletionPatchTooLarge,
     #[error("image-completion patch byte length mismatch: expected {expected}, got {actual}")]
     CompletionPatchByteLengthMismatch { expected: u64, actual: u64 },
-    #[error("image-completion patch must use Shadow's raw RGBA8 media type")]
+    #[error("image-completion patch must use a supported Shadow RGBA media type")]
     InvalidCompletionPatchMediaType,
     #[error("image-completion provenance is incomplete or exceeds its bound")]
     InvalidCompletionProvenance,

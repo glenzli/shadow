@@ -4,6 +4,7 @@
 
 class QApplication;
 class EditController;
+class EditNeighborPreheater;
 class EditPreviewProvider;
 class QQmlApplicationEngine;
 class ReviewController;
@@ -18,6 +19,7 @@ void installDesktopSmokeHarness(
     QQmlApplicationEngine& engine,
     ReviewController& controller,
     EditController& editor,
+    EditNeighborPreheater& edit_neighbor_preheater,
     ThumbnailProvider* thumbnail_provider,
     EditPreviewProvider* edit_preview_provider,
     UiPreferences& preferences,

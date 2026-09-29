@@ -1,6 +1,7 @@
 #include "edit_ai_completion_controller.hpp"
 
 #include "ai_preferences.hpp"
+#include "backend/edit_settings_projection.hpp"
 #include "edit_ai_mask_controller.hpp"
 #include "edit_controller.hpp"
 
@@ -146,7 +147,7 @@ bool EditAiCompletionController::locksInteraction() const noexcept {
 }
 
 bool EditAiCompletionController::canGenerate() const noexcept {
-    return active_ && !busy() && hasPaintedPoint()
+    return active_ && !busy() && (hasPaintedPoint() || refresh_region_index_ >= 0)
            && (!owner_.liquifyNodeMaterialized() || !owner_.liquifyNodeEnabled());
 }
 
@@ -166,7 +167,7 @@ QVariantList EditAiCompletionController::brushPoints() const {
             QVariantMap{
                 {QStringLiteral("x"), point.x},
                 {QStringLiteral("y"), point.y},
-                {QStringLiteral("radius"), point.radius},
+                {QStringLiteral("radius"), effectiveRadius(point)},
                 {QStringLiteral("erase"), point.erase},
                 {QStringLiteral("strokeId"), point.stroke_id},
             }
@@ -177,6 +178,16 @@ QVariantList EditAiCompletionController::brushPoints() const {
 
 double EditAiCompletionController::brushRadius() const noexcept {
     return brush_radius_;
+}
+
+double EditAiCompletionController::selectionExpansion() const noexcept {
+    return selection_expansion_;
+}
+
+double EditAiCompletionController::effectiveRadius(
+    const BackendImageCompletionBrushPoint& point
+) const noexcept {
+    return point.erase ? point.radius : std::min(0.25, point.radius + selection_expansion_);
 }
 
 bool EditAiCompletionController::eraseMode() const noexcept {
@@ -193,7 +204,10 @@ bool EditAiCompletionController::begin() {
     owner_.selectImageCompletionNode();
     active_ = true;
     generation_pending_ = false;
+    refresh_region_index_ = -1;
+    force_regenerate_ = false;
     points_.clear();
+    selection_expansion_ = 0.0;
     retireCandidate();
     context_ = Context{
         .photo_id = owner_.photo_id_,
@@ -205,6 +219,23 @@ bool EditAiCompletionController::begin() {
         "AI Completion · paint the area to replace, then generate"
     )));
     publishStateChange();
+    return true;
+}
+
+bool EditAiCompletionController::refreshRegion(const int index) {
+    if (index < 0 || index >= owner_.grade_stack_.image_completions.size() || busy()) {
+        return false;
+    }
+    if (!active_ && !begin()) {
+        return false;
+    }
+    if (!contextIsCurrent()) {
+        return false;
+    }
+    retireCandidate();
+    points_.clear();
+    refresh_region_index_ = index;
+    generate();
     return true;
 }
 
@@ -264,7 +295,8 @@ void EditAiCompletionController::clearSelection() {
 }
 
 void EditAiCompletionController::generate() {
-    if (!active_ || busy() || !hasPaintedPoint() || !contextIsCurrent()) {
+    if (!active_ || busy() || (!hasPaintedPoint() && refresh_region_index_ < 0)
+        || !contextIsCurrent()) {
         return;
     }
     if (!owner_.imageCompletionExecutionAllowed()) {
@@ -274,7 +306,11 @@ void EditAiCompletionController::generate() {
         publishStateChange();
         return;
     }
-    if (owner_.liquifyNodeMaterialized() && owner_.liquifyNodeEnabled()) {
+    // A new brush is mapped from the displayed image, so authored Liquify
+    // would shift its coordinates. Refresh reuses the accepted region's
+    // original-space mask and does not depend on display coordinates.
+    if (refresh_region_index_ < 0 && owner_.liquifyNodeMaterialized()
+        && owner_.liquifyNodeEnabled()) {
         owner_.setStatusMessage(completion_message(QT_TRANSLATE_NOOP(
             "EditController",
             "AI Completion is before Liquify · bypass Liquify before generating"
@@ -291,6 +327,7 @@ void EditAiCompletionController::retry() {
     if (!active_ || busy()) {
         return;
     }
+    force_regenerate_ = true;
     retireCandidate();
     generate();
 }
@@ -299,7 +336,7 @@ void EditAiCompletionController::tryStartPendingGeneration() {
     if (!generation_pending_ || !active_ || execution_watcher_.isRunning() || apply_in_flight_) {
         return;
     }
-    if (!contextIsCurrent() || !hasPaintedPoint()) {
+    if (!contextIsCurrent() || (!hasPaintedPoint() && refresh_region_index_ < 0)) {
         generation_pending_ = false;
         publishStateChange();
         return;
@@ -359,8 +396,12 @@ void EditAiCompletionController::startGeneration() {
         .base_commit_id = submitted_base_commit_id_,
         .grade_stack = submitted_grade_stack_,
         .points = points_,
+        .selection_expansion = selection_expansion_,
+        .refresh_region_index = refresh_region_index_,
+        .force_regenerate = force_regenerate_,
     };
     generation_pending_ = false;
+    force_regenerate_ = false;
     owner_.setStatusMessage(completion_message(
         QT_TRANSLATE_NOOP("EditController", "AI Completion · generating a local candidate…")
     ));
@@ -392,6 +433,7 @@ void EditAiCompletionController::applyCandidate() {
         .base_commit_id = owner_.base_commit_id_,
         .expected_working_commit_id = owner_.durable_working_commit_id_,
         .grade_stack = owner_.grade_stack_,
+        .replace_region_index = refresh_region_index_,
     };
     apply_watcher_.setFuture(
         QtConcurrent::run(
@@ -420,6 +462,8 @@ void EditAiCompletionController::cancel() {
     }
     retireCandidate();
     points_.clear();
+    refresh_region_index_ = -1;
+    force_regenerate_ = false;
     active_ = false;
     context_.reset();
     owner_.setStatusMessage(
@@ -437,6 +481,19 @@ void EditAiCompletionController::setBrushRadius(const double radius) {
         return;
     }
     brush_radius_ = bounded;
+    publishStateChange();
+}
+
+void EditAiCompletionController::setSelectionExpansion(const double expansion) {
+    if (!active_ || busy() || !std::isfinite(expansion)) {
+        return;
+    }
+    const double bounded = std::clamp(expansion, 0.0, 0.06);
+    if (selection_expansion_ == bounded) {
+        return;
+    }
+    selection_expansion_ = bounded;
+    retireCandidate();
     publishStateChange();
 }
 
@@ -460,6 +517,8 @@ void EditAiCompletionController::resetContext() {
     }
     retireCandidate();
     points_.clear();
+    refresh_region_index_ = -1;
+    force_regenerate_ = false;
     active_ = false;
     context_.reset();
     publishStateChange();
@@ -555,6 +614,8 @@ void EditAiCompletionController::finishApply() {
     const BackendGradeStack before = owner_.grade_stack_;
     active_ = false;
     points_.clear();
+    refresh_region_index_ = -1;
+    force_regenerate_ = false;
     context_.reset();
     owner_.applyImageCompletionState(std::move(task.state), before);
     owner_.setStatusMessage(completion_message(QT_TRANSLATE_NOOP(
@@ -632,6 +693,10 @@ double EditController::imageCompletionBrushRadius() const noexcept {
     return image_completion_controller_ ? image_completion_controller_->brushRadius() : 0.04;
 }
 
+double EditController::imageCompletionSelectionExpansion() const noexcept {
+    return image_completion_controller_ ? image_completion_controller_->selectionExpansion() : 0.0;
+}
+
 bool EditController::imageCompletionEraseMode() const noexcept {
     return image_completion_controller_ && image_completion_controller_->eraseMode();
 }
@@ -639,6 +704,15 @@ bool EditController::imageCompletionEraseMode() const noexcept {
 QVariantList EditController::imageCompletionRegions() const {
     QVariantList result;
     result.reserve(grade_stack_.image_completions.size());
+    if (grade_stack_.image_completions.isEmpty())
+        return result;
+    rust::Vec<rust::String> source_contexts;
+    for (const auto& region : grade_stack_.image_completions)
+        source_contexts.push_back(region.source_context_json.toStdString());
+    const auto source_states = shadow::desktop::image_completion_source_states(
+        desktop_backend_projection::ffi_foundation(grade_stack_),
+        source_contexts
+    );
     for (qsizetype index = 0; index < grade_stack_.image_completions.size(); ++index) {
         const auto& region = grade_stack_.image_completions.at(index);
         result.push_back(
@@ -650,6 +724,11 @@ QVariantList EditController::imageCompletionRegions() const {
                 {QStringLiteral("provider"), region.provider},
                 {QStringLiteral("executionProvider"), region.actual_execution_provider},
                 {QStringLiteral("sourceRecipe"), region.source_recipe_blake3},
+                {QStringLiteral("sourceState"),
+                 index < static_cast<qsizetype>(source_states.size())
+                     ? static_cast<int>(source_states[static_cast<std::size_t>(index)])
+                     : 3},
+                {QStringLiteral("preGrade"), region.pre_grade},
             }
         );
     }
@@ -666,6 +745,10 @@ bool EditController::imageCompletionNodeEnabled() const noexcept {
 
 bool EditController::beginImageCompletion() {
     return image_completion_controller_ && image_completion_controller_->begin();
+}
+
+bool EditController::refreshImageCompletionRegion(const int index) {
+    return image_completion_controller_ && image_completion_controller_->refreshRegion(index);
 }
 
 quint32 EditController::beginImageCompletionStroke() {
@@ -721,6 +804,12 @@ void EditController::cancelImageCompletion() {
 void EditController::setImageCompletionBrushRadius(const double radius) {
     if (image_completion_controller_) {
         image_completion_controller_->setBrushRadius(radius);
+    }
+}
+
+void EditController::setImageCompletionSelectionExpansion(const double expansion) {
+    if (image_completion_controller_) {
+        image_completion_controller_->setSelectionExpansion(expansion);
     }
 }
 

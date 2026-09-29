@@ -4,7 +4,7 @@ use super::{BridgeError, parameter_validation::validate_finite_render_parameter}
 
 pub const MAX_ADJUSTMENT_IMAGE_COMPLETION_PATCHES: usize = 32;
 pub const MAX_ADJUSTMENT_IMAGE_COMPLETION_EDGE: u32 = 2_048;
-pub const MAX_ADJUSTMENT_IMAGE_COMPLETION_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_ADJUSTMENT_IMAGE_COMPLETION_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdjustmentImageCompletionPatch {
@@ -17,6 +17,9 @@ pub struct AdjustmentImageCompletionPatch {
     pub bounds_right: f64,
     pub bounds_bottom: f64,
     pub strength: f64,
+    /// False: legacy sRGB8 RGBA. True: little-endian linear RGBA32F.
+    pub linear_rgba_f32: bool,
+    pub source_color_basis: Option<shadow_domain::ImageCompletionColorBasis>,
     pub rgba8: Vec<u8>,
 }
 
@@ -29,6 +32,15 @@ pub(super) fn validate_image_completion(
         ));
     }
     for patch in patches {
+        if patch
+            .source_color_basis
+            .as_ref()
+            .is_some_and(|b| !b.valid())
+        {
+            return Err(BridgeError::InvalidEditRequest(
+                "invalid completion source basis",
+            ));
+        }
         if patch.raster_width == 0
             || patch.raster_height == 0
             || patch.raster_width > MAX_ADJUSTMENT_IMAGE_COMPLETION_EDGE
@@ -47,14 +59,26 @@ pub(super) fn validate_image_completion(
                     .ok()
                     .and_then(|height| width.checked_mul(height))
             })
-            .and_then(|pixels| pixels.checked_mul(4))
+            .and_then(|pixels| pixels.checked_mul(if patch.linear_rgba_f32 { 16 } else { 4 }))
             .ok_or(BridgeError::InvalidEditRequest(
                 "AI completion patch byte length overflowed",
             ))?;
         if expected > MAX_ADJUSTMENT_IMAGE_COMPLETION_BYTES || patch.rgba8.len() != expected {
             return Err(BridgeError::InvalidEditRequest(
-                "AI completion patch must be bounded tightly packed RGBA8",
+                "AI completion patch must have bounded tightly packed RGBA samples",
             ));
+        }
+        if patch.linear_rgba_f32 {
+            for pixel in patch.rgba8.chunks_exact(16) {
+                for (channel, bytes) in pixel.chunks_exact(4).enumerate() {
+                    let value = f32::from_le_bytes(bytes.try_into().expect("four-byte sample"));
+                    if !value.is_finite() || (channel == 3 && !(0.0..=1.0).contains(&value)) {
+                        return Err(BridgeError::InvalidEditRequest(
+                            "linear completion contains invalid samples",
+                        ));
+                    }
+                }
+            }
         }
         for value in [
             patch.bounds_left,

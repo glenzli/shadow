@@ -147,6 +147,12 @@ EditController::EditController(
         this,
         &EditController::finishPreviewTask
     );
+    connect(
+        &display_scope_watcher_,
+        &QFutureWatcher<EditDisplayScopeTaskResult>::finished,
+        this,
+        &EditController::finishDisplayScopeTask
+    );
     connect(&detail_debounce_, &QTimer::timeout, this, &EditController::startDetailRender);
     connect(
         &detail_watcher_,
@@ -185,8 +191,24 @@ EditController::~EditController() {
     detail_warmup_token_ = detail_render_token_;
     persistence_task_coordinator_->waitForFinished();
     preview_watcher_.waitForFinished();
+    display_scope_watcher_.waitForFinished();
     detail_watcher_.waitForFinished();
     detail_warmup_watcher_.waitForFinished();
+}
+
+EditWorkAdmissionState EditController::workAdmissionState() const noexcept {
+    return {
+        .active = active_,
+        .state_task_running = stateTaskRunning(),
+        .preview_running = current_rendering_ || before_rendering_,
+        .preview_scheduled = preview_queued_ || preview_debounce_.isActive()
+            || before_requested_,
+        .detail_running = detail_rendering_,
+        .detail_scheduled = detail_queued_ || detail_debounce_.isActive(),
+        .warmup_running = detail_warmup_watcher_.isRunning(),
+        .scope_running = display_scope_task_active_,
+        .scope_pending = pending_current_scope_.has_value() || pending_before_scope_.has_value(),
+    };
 }
 
 QObject* EditController::targetedCurve() const noexcept {

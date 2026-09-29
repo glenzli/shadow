@@ -96,6 +96,8 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
   private:
     struct Row final {
         QString kind = QStringLiteral("photos");
+        // Geometry, identity and source-row hints only. Card roles are read
+        // when a visible ListView row requests ItemsRole.
         QVariantList items;
         int height = 0;
         int used_width = 0;
@@ -107,6 +109,7 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
         QString navigation_major_label;
         int section_item_count = 0;
         int section_ordinal = -1;
+        bool justified = false;
     };
 
     struct Section final {
@@ -119,20 +122,55 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
         QStringList representation_keys;
     };
 
-    [[nodiscard]] QVariantMap sourceItem(int row) const;
+    struct ProjectionRoles final {
+        int photo_id = -1;
+        int representation_id = -1;
+        int visual_width = -1;
+        int visual_height = -1;
+    };
+
+    struct ItemPosition final {
+        int row = -1;
+        int column = -1;
+        // Grouped rows are stored relative to their section header so an
+        // insertion in an earlier section never rewrites every photo index.
+        int section_ordinal = -1;
+    };
+
+    [[nodiscard]] static ProjectionRoles projectionRoles(const QHash<int, QByteArray>& roles);
+    [[nodiscard]] QVariantMap sourceItem(int row, const ProjectionRoles& roles) const;
+    [[nodiscard]] QVariantMap
+    materializeItem(const QVariantMap& geometry, const QHash<int, QByteArray>& roles) const;
     [[nodiscard]] static qreal aspectRatio(const QVariantMap& item);
+    [[nodiscard]] int absoluteRow(const ItemPosition& position) const;
     void disconnectSourceModel();
     void requestRebuild();
+    void requestAppend(int first);
+    void flushSourceUpdates();
+    void appendSourceRows();
+    [[nodiscard]] bool appendGroupedSourceRows(const QVector<Section>& next_sections);
+    void
+    updateSourceItems(const QModelIndex& first, const QModelIndex& last, const QList<int>& roles);
     void rebuild();
-    void appendPhotoRows(QVector<Row>& rows, QVariantList items) const;
+    void appendPhotoRows(
+        QVector<Row>& rows,
+        QVariantList items,
+        const QString& section_key = {},
+        bool first_section_row = true
+    ) const;
 
     QPointer<QAbstractItemModel> source_model_;
     QVector<QMetaObject::Connection> source_connections_;
     QTimer rebuild_timer_;
     QVector<Row> rows_;
+    QHash<QString, ItemPosition> item_positions_;
+    QVector<int> section_header_rows_;
     QVariantList section_variants_;
     QVector<Section> sections_;
     int available_width_ = 0;
     int target_row_height_ = 188;
     int spacing_ = 8;
+    int projected_source_count_ = 0;
+    bool full_rebuild_pending_ = false;
+    bool append_pending_ = false;
 };

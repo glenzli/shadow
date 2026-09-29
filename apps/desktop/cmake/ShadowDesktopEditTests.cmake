@@ -9,6 +9,7 @@
     qt_add_qml_module(shadow-lut-export-controller-test
         URI Shadow.LutExportContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
         QML_FILES
+            qml/ShadowDialog.qml
             qml/ShadowComboBox.qml
             qml/ShadowIcon.qml
  qml/LutExportDialog.qml qml/ShadowButton.qml qml/Theme.qml)
@@ -61,6 +62,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowDialog.qml
             qml/ShadowRecipeInterchangeDialog.qml
             qml/ShadowButton.qml
             qml/ShadowIconButton.qml
@@ -199,6 +201,55 @@
         )
     endif()
     add_test(NAME shadow-desktop-preview-diagnostics COMMAND shadow-preview-diagnostics-test)
+
+    add_executable(
+        shadow-edit-display-scope-task-test
+        tests/edit_display_scope_task_test.cpp
+        src/edit_display_scope_task.cpp
+        src/edit_display_scope_task.hpp
+        src/preview_diagnostics.cpp
+        src/preview_diagnostics.hpp
+    )
+    target_compile_features(shadow-edit-display-scope-task-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-edit-display-scope-task-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-edit-display-scope-task-test PRIVATE Qt6::Gui)
+    if(MSVC)
+        target_compile_options(shadow-edit-display-scope-task-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-edit-display-scope-task-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-edit-display-scope-task COMMAND shadow-edit-display-scope-task-test)
+
+    add_executable(
+        shadow-edit-work-scheduler-test
+        tests/edit_work_scheduler_test.cpp
+        src/edit_work_scheduler.cpp
+        src/edit_work_scheduler.hpp
+        src/edit_display_scope_task.cpp
+        src/edit_display_scope_task.hpp
+        src/preview_diagnostics.cpp
+        src/preview_diagnostics.hpp
+    )
+    target_compile_features(shadow-edit-work-scheduler-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-edit-work-scheduler-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-edit-work-scheduler-test PRIVATE Qt6::Gui Qt6::Concurrent)
+    if(MSVC)
+        target_compile_options(shadow-edit-work-scheduler-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-edit-work-scheduler-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(NAME shadow-desktop-edit-work-scheduler COMMAND shadow-edit-work-scheduler-test)
 
     add_executable(
         shadow-edit-retouch-donor-selection-test
@@ -1744,6 +1795,39 @@ if(BUILD_TESTING)
 endif()
 
 if(BUILD_TESTING)
+    set_source_files_properties(
+        tests/fixtures/grade_node_pane/PrecisionGradeNodeMenus.qml
+        PROPERTIES QT_RESOURCE_ALIAS "qml/PrecisionGradeNodeMenus.qml")
+    set_source_files_properties(
+        tests/fixtures/grade_node_pane/PrecisionMaskCreateMenu.qml
+        PROPERTIES QT_RESOURCE_ALIAS "qml/PrecisionMaskCreateMenu.qml")
+    qt_add_executable(shadow-grade-node-pane-order-contract-test
+        tests/precision_grade_node_pane_order_contract_test.cpp)
+    target_compile_features(shadow-grade-node-pane-order-contract-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-grade-node-pane-order-contract-test PRIVATE
+        Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    qt_add_qml_module(shadow-grade-node-pane-order-contract-test
+        URI Shadow.GradeNodePaneOrderContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/PrecisionGradeNodePane.qml qml/ShadowButton.qml
+        qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/Theme.qml
+        tests/fixtures/grade_node_pane/PrecisionGradeNodeMenus.qml
+        tests/fixtures/grade_node_pane/PrecisionMaskCreateMenu.qml)
+    qt_add_resources(shadow-grade-node-pane-order-contract-test grade-node-pane-test-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/grade-node-add.svg icons/grade-node.svg
+        icons/overlay-show.svg icons/overlay-hide.svg icons/move-up.svg
+        icons/move-down.svg icons/duplicate.svg icons/trash.svg)
+    target_compile_definitions(shadow-grade-node-pane-order-contract-test PRIVATE
+        SHADOW_COMPLETION_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+    add_dependencies(shadow-grade-node-pane-order-contract-test shadow-desktop-release-translations)
+    add_test(NAME shadow-desktop-grade-node-pane-order-contract
+        COMMAND shadow-grade-node-pane-order-contract-test)
+    set_tests_properties(shadow-desktop-grade-node-pane-order-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
+        TIMEOUT 30 LABELS "desktop;completion;grading")
+endif()
+
+if(BUILD_TESTING)
     qt_add_executable(shadow-precision-ai-completion-tools-contract-test
         tests/precision_ai_completion_tools_contract_test.cpp)
     target_compile_features(shadow-precision-ai-completion-tools-contract-test PRIVATE cxx_std_20)
@@ -1751,7 +1835,7 @@ if(BUILD_TESTING)
         Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
     qt_add_qml_module(shadow-precision-ai-completion-tools-contract-test
         URI Shadow.CompletionContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
-        QML_FILES qml/PrecisionAiCompletionTools.qml qml/ShadowButton.qml
+        QML_FILES qml/ShadowDialog.qml qml/PrecisionAiCompletionTools.qml qml/ShadowButton.qml
         qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/ShadowSlider.qml
         qml/ShadowInlineSlider.qml qml/ShadowSwitch.qml qml/Theme.qml)
     qt_add_resources(shadow-precision-ai-completion-tools-contract-test completion-test-icons

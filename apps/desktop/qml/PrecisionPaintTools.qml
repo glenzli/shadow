@@ -207,14 +207,14 @@ ColumnLayout {
             }
         }
     }
-    Dialog {
+    ShadowDialog {
         id: saveDialog; title: qsTr("Save brush preset"); modal: true; width: 280
         parent: Overlay.overlay
         anchors.centerIn: parent
         onOpened: savedPresetName.forceActiveFocus()
         standardButtons: Dialog.NoButton
-        ColumnLayout {
-            anchors.fill: parent
+        contentItem: ColumnLayout {
+            spacing: 12
             ShadowTextField {
                 id: savedPresetName
                 Layout.fillWidth: true
@@ -224,7 +224,7 @@ ColumnLayout {
             Label { Layout.fillWidth: true; text: qsTr("A matching name replaces that preset."); wrapMode: Text.WordWrap; color: Theme.textMuted; font.pixelSize: Theme.fontMeta }
             RowLayout {
                 ShadowButton { text: qsTr("Cancel"); onClicked: saveDialog.close() }
-                ShadowButton { text: qsTr("Save"); enabled: savedPresetName.text.trim().length > 0; onClicked: { if (tools.paint.savePreset(savedPresetName.text)) saveDialog.close() } }
+                ShadowButton { variant: ShadowButton.Primary; text: qsTr("Save"); enabled: savedPresetName.text.trim().length > 0; onClicked: { if (tools.paint.savePreset(savedPresetName.text)) saveDialog.close() } }
             }
         }
     }

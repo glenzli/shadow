@@ -18,6 +18,7 @@ void ReviewController::setPhotoFlag(const QString& photo_id, const QString& flag
                 review_decision_flag_name(*desired_flag),
                 current->rating
             );
+            emit decisionCommitted(photo_id);
         }
         return;
     }
@@ -34,6 +35,7 @@ void ReviewController::setPhotoRating(const QString& photo_id, const int rating)
         if (current_flag
             && remote_library_coordinator_.setDecision(photo_id, *current_flag, rating)) {
             emit decisionChanged(photo_id, 0, current->flag, rating);
+            emit decisionCommitted(photo_id);
         }
         return;
     }

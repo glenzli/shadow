@@ -108,7 +108,11 @@ pub fn render_libraw_adjustment_plan(
     validate_jpeg_quality(jpeg_quality)?;
     let handle = open_libraw(path)?;
     let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
-    let ffi_request = ffi_render_request(plan, max_edge, jpeg_quality);
-    let proxy = handle.render_adjustment_plan(&ffi_request)?;
+    let prepared = handle.prepare_edit_preview(max_edge)?;
+    let prepared = prepared.as_ref().ok_or(BridgeError::NullHandle)?;
+    let receipt = crate::raw_development::raw_pipeline_receipt(prepared.raw_pipeline_receipt()?)?;
+    let mut ffi_request = ffi_render_request(plan, max_edge, jpeg_quality);
+    crate::completion_color_adaptation::bind(&mut ffi_request.nodes, plan, &receipt);
+    let proxy = prepared.render_adjustment_plan(&ffi_request)?;
     Ok(proxy_payload(proxy))
 }

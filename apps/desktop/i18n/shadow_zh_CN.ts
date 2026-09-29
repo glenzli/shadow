@@ -6371,6 +6371,14 @@ R %2 · G %3 · B %4</translation>
     </message>
 </context>
 <context>
+    <name>PeopleScopeController</name>
+    <message>
+        <location filename="../src/people_scope_controller.cpp" line="181"/>
+        <source>Could not count people in this scope.</source>
+        <translation>无法统计当前范围内的人物。</translation>
+    </message>
+</context>
+<context>
     <name>PeopleWorkspace</name>
     <message>
         <location filename="../qml/PeopleWorkspace.qml" line="391"/>
@@ -6535,6 +6543,32 @@ R %2 · G %3 · B %4</translation>
         <translation>
             <numerusform>%n 张照片</numerusform>
         </translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="268"/>
+        <source>Current album and filters</source>
+        <translation>当前相册与筛选</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="274"/>
+        <source>All Library</source>
+        <translation>整个图库</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="288"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="448"/>
+        <source>Counting people in the current scope…</source>
+        <translation>正在统计当前范围内的人物…</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="289"/>
+        <source>People shown here match the current album and filters.</source>
+        <translation>这里的人物符合当前相册与筛选条件。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PeopleWorkspace.qml" line="452"/>
+        <source>No analyzed people in the current scope.</source>
+        <translation>当前范围内没有已分析的人物。</translation>
     </message>
 </context>
 <context>
@@ -7331,6 +7365,28 @@ R %2 · G %3 · B %4</translation>
 </context>
 <context>
     <name>PrecisionWorkspace</name>
+    <message><source>Regenerate to enable automatic RAW color matching</source><translation>重新生成以启用自动 RAW 颜色匹配</translation></message>
+    <message><source>Source settings have changed. Check this region or regenerate it.</source><translation>源图调整已变化，请检查此区域或重新生成。</translation></message>
+    <message>
+        <source>Previous photo</source>
+        <translation>上一张照片</translation>
+    </message>
+    <message>
+        <source>Next photo</source>
+        <translation>下一张照片</translation>
+    </message>
+    <message>
+        <source>Preparing next photo…</source>
+        <translation>正在预备下一张照片…</translation>
+    </message>
+    <message>
+        <source>Next photo prepared</source>
+        <translation>下一张照片已预备</translation>
+    </message>
+    <message>
+        <source>Finish painting to adjust the accepted regions.</source>
+        <translation>结束绘制后，即可调整已接受的区域。</translation>
+    </message>
     <message>
         <location filename="../qml/PrecisionInspector.qml" line="482"/>
         <source>Expand color map</source>
@@ -7450,16 +7506,30 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message numerus="yes">
         <location filename="../qml/PrecisionGradeNodePane.qml" line="252"/>
-        <source>%n REGION(S) · BYPASSED</source>
+        <source>%n REGION(S) · AFTER GRADES · BYPASSED</source>
         <translation>
-            <numerusform>%n 个区域 · 已旁路</numerusform>
+            <numerusform>%n 个区域 · 调色后 · 已旁路</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location filename="../qml/PrecisionGradeNodePane.qml" line="250"/>
-        <source>%n REGION(S) · ENABLED</source>
+        <source>%n REGION(S) · AFTER GRADES</source>
         <translation>
-            <numerusform>%n 个区域 · 已启用</numerusform>
+            <numerusform>%n 个区域 · 调色后</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="435"/>
+        <source>%n REGION(S) · BEFORE GRADES</source>
+        <translation>
+            <numerusform>%n 个区域 · 调色前</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="437"/>
+        <source>%n REGION(S) · BEFORE GRADES · BYPASSED</source>
+        <translation>
+            <numerusform>%n 个区域 · 调色前 · 已旁路</numerusform>
         </translation>
     </message>
     <message>
@@ -7479,14 +7549,19 @@ R %2 · G %3 · B %4</translation>
         <translation>AI 补全</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="258"/>
+        <source>AI Completion (older)</source>
+        <translation>AI 补全（旧版）</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="156"/>
-        <source>AI Completion is evaluated before Liquify. Bypass the Liquify node while painting and generating, then turn it back on.</source>
-        <translation>AI 补全在液化之前执行。涂抹和生成时请先旁路液化节点，完成后再重新启用。</translation>
+        <source>Bypass Liquify while painting and generating a new AI Completion region. Accepted regions can be regenerated with Liquify enabled.</source>
+        <translation>涂抹并生成新的 AI 补全区域时，请先旁路液化。重新生成已接受区域时，可保持液化启用。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="66"/>
-        <source>Accepted regions belong to this photo&apos;s fixed AI Completion node and are used by preview, detail, and export.</source>
-        <translation>已接受区域属于此照片的固定 AI 补全节点，并统一用于预览、细节和导出。</translation>
+        <source>Adjust or remove accepted regions, or paint a new region to repair another area.</source>
+        <translation>调整或移除已接受的区域，也可以绘制新区域，继续修复其他位置。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="35"/>
@@ -7498,6 +7573,16 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PrecisionPaintTools.qml" line="163"/>
         <source>Brush size</source>
         <translation>画笔大小</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="153"/>
+        <source>Selection expansion</source>
+        <translation>选区外扩</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="171"/>
+        <source>Expand a painted selection around soft edges, then generate again. Changing this discards the current candidate.</source>
+        <translation>柔和边缘未被完整覆盖时，可外扩已涂抹的选区并重新生成。调整后当前候选会失效。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="212"/>
@@ -7562,6 +7647,16 @@ R %2 · G %3 · B %4</translation>
         <translation>区域 %L1</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="321"/>
+        <source>Regenerate this region with the current photo</source>
+        <translation>以当前照片重新生成此区域</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="344"/>
+        <source>Older region: regenerate it to follow future adjustments</source>
+        <translation>旧版区域：重新生成后可跟随后续调整</translation>
+    </message>
+    <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="318"/>
         <source>Remove this accepted region</source>
         <translation>移除此已接受区域</translation>
@@ -7573,8 +7668,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="45"/>
-        <source>Shadow will send a bounded crop of this photo and your painted selection to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI &amp; Models settings.</source>
-        <translation>Shadow 会将此照片的有限裁剪区域和你的涂抹选区发送到本机 Infer Runtime。Shadow 不会上传该请求。之后可在“AI 与模型”设置中关闭此权限。</translation>
+        <source>Shadow will send a bounded crop of this photo and the selected area to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI &amp; Models settings.</source>
+        <translation>Shadow 会将此照片的有限裁剪区域和所选区域发送到本机 Infer Runtime。Shadow 不会上传该请求。之后可在“AI 与模型”设置中关闭此权限。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionAiCompletionTools.qml" line="118"/>
@@ -7903,18 +7998,18 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="505"/>
-        <source>Hide Basic Adjustments</source>
-        <translation>隐藏基础调整</translation>
+        <source>Hide RAW Development</source>
+        <translation>隐藏 RAW 显影</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="506"/>
-        <source>Show Basic Adjustments</source>
-        <translation>显示基础调整</translation>
+        <source>Show RAW Development</source>
+        <translation>显示 RAW 显影</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="25"/>
-        <source>A fixed photo-local node before Basic Adjustments.</source>
-        <translation>位于基础调整之前的固定照片本地节点。</translation>
+        <source>A fixed photo-local node before RAW Development.</source>
+        <translation>位于 RAW 显影之前的固定照片本地节点。</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="30"/>
@@ -8326,8 +8421,8 @@ R %2 · G %3 · B %4</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="468"/>
-        <source>Basic Adjustments</source>
-        <translation>基础调整</translation>
+        <source>RAW Development</source>
+        <translation>RAW 显影</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodePane.qml" line="479"/>
@@ -11962,6 +12057,10 @@ Details: %3</source>
 <context>
     <name>ReviewSinglePreview</name>
     <message>
+        <source>Loading more photos…</source>
+        <translation>正在载入更多照片…</translation>
+    </message>
+    <message>
         <location filename="../qml/ReviewSinglePreview.qml" line="97"/>
         <source>Select a photo to begin review</source>
         <translation>选择一张照片开始选片</translation>
@@ -12208,6 +12307,18 @@ Details: %3</source>
 </context>
 <context>
     <name>ReviewWorkspace</name>
+    <message>
+        <source>Auto advance is on · click to turn off</source>
+        <translation>已开启自动下一张 · 点击关闭</translation>
+    </message>
+    <message>
+        <source>Auto advance after rating or flagging</source>
+        <translation>评分或标记后自动下一张</translation>
+    </message>
+    <message>
+        <source>Undo last rating or flag (⌘Z / Ctrl+Z)</source>
+        <translation>撤销上一次评分或标记（⌘Z / Ctrl+Z）</translation>
+    </message>
     <message>
         <location filename="../qml/ReviewGallerySurface.qml" line="266"/>
         <source>No photos match the current filters.</source>
@@ -13206,11 +13317,6 @@ Details: %3</source>
         <translation>最近导入</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSystemCollections.qml" line="73"/>
-        <source>Recent import sessions will appear here when import-time filtering is available.</source>
-        <translation>导入时间筛选可用后，最近导入会显示在这里。</translation>
-    </message>
-    <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="74"/>
         <location filename="../qml/ReviewSystemCollections.qml" line="77"/>
         <location filename="../qml/ReviewWorkspace.qml" line="273"/>
@@ -13218,25 +13324,10 @@ Details: %3</source>
         <translation>喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSystemCollections.qml" line="81"/>
-        <source>Show photos marked Like</source>
-        <translation>显示标记为喜欢的照片</translation>
-    </message>
-    <message>
         <location filename="../qml/ReviewSystemCollections.qml" line="85"/>
         <location filename="../qml/ReviewWorkspace.qml" line="275"/>
         <source>5 Stars</source>
         <translation>5 星</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewSystemCollections.qml" line="89"/>
-        <source>Show photos rated 5 stars</source>
-        <translation>显示评分为 5 星的照片</translation>
-    </message>
-    <message>
-        <location filename="../qml/ReviewSystemCollections.qml" line="163"/>
-        <source>SOON</source>
-        <translation>即将支持</translation>
     </message>
     <message>
         <location filename="../qml/ReviewAlbumList.qml" line="24"/>
@@ -14214,6 +14305,114 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <source>More…</source>
         <translation>更多…</translation>
     </message>
+    <message>
+        <source>Similar review candidates</source>
+        <translation>相似审片候选</translation>
+    </message>
+    <message>
+        <source>Image similarity near the selected photo · review each candidate</source>
+        <translation>所选照片附近的图像相似候选 · 请逐张核对</translation>
+    </message>
+    <message>
+        <source>Find similar photos near the selected photo</source>
+        <translation>查找所选照片附近的相似照片</translation>
+    </message>
+    <message>
+        <source>Finding similar review candidates…</source>
+        <translation>正在查找相似审片候选…</translation>
+    </message>
+    <message>
+        <source>Open similar photo comparison (%L1 candidates)</source>
+        <translation>打开相似照片对比（%L1 张候选）</translation>
+    </message>
+    <message>
+        <source>Clear similar review candidates</source>
+        <translation>清除相似审片候选</translation>
+    </message>
+    <message>
+        <source>Similar group · %L1 photos · arrows stay within this group. Check each photo before deciding.</source>
+        <translation>相似组 · %L1 张照片 · 箭头仅在组内切换。请逐张核对后再决定。</translation>
+    </message>
+    <message>
+        <source>Previous photo in this group</source>
+        <translation>组内上一张照片</translation>
+    </message>
+    <message>
+        <source>Next photo in this group</source>
+        <translation>组内下一张照片</translation>
+    </message>
+    <message>
+        <source>Similar candidates are not loaded in this view. Adjust filters or load more photos.</source>
+        <translation>当前视图尚未载入这些相似候选。请调整筛选条件或加载更多照片。</translation>
+    </message>
+    <message>
+        <source>Compare group</source>
+        <translation>对比本组</translation>
+    </message>
+    <message>
+        <source>Show photos</source>
+        <translation>展开照片</translation>
+    </message>
+    <message>
+        <source>Collapse stack</source>
+        <translation>收起堆栈</translation>
+    </message>
+    <message>
+        <source>Group similar review candidates</source>
+        <translation>将相似审片候选分组</translation>
+    </message>
+    <message>
+        <source>Group similar photos</source>
+        <translation>将相似照片分组</translation>
+    </message>
+    <message>
+        <source>Suggested stacks use nearby image similarity. Review each group before deciding; ratings stay untouched.</source>
+        <translation>候选堆栈依据附近照片的图像相似性生成。请逐组核对后再决定；星级不会被修改。</translation>
+    </message>
+    <message>
+        <source>Group selected photos (%L1)</source>
+        <translation>对所选照片分组（%L1 张）</translation>
+    </message>
+    <message>
+        <source>Group loaded photos in this view (%L1)</source>
+        <translation>对当前视图已载入照片分组（%L1 张）</translation>
+    </message>
+    <message>
+        <source>Group current Manual Album: %1</source>
+        <translation>对当前手动相册分组：%1</translation>
+    </message>
+    <message>
+        <source>Each run checks at most 240 photos. Pause resumes in this session; changing a source preview is rechecked on use.</source>
+        <translation>每轮最多检查 240 张照片。暂停后可在本次会话中继续；使用时会重新核对源预览。</translation>
+    </message>
+    <message>
+        <source>Pause</source>
+        <translation>暂停</translation>
+    </message>
+    <message>
+        <source>Resume</source>
+        <translation>继续</translation>
+    </message>
+    <message>
+        <source>Clear groups</source>
+        <translation>清除分组</translation>
+    </message>
+    <message>
+        <source>Cancel similar photo review</source>
+        <translation>取消相似照片审片</translation>
+    </message>
+    <message>
+        <source>Load the rest of this album to compare its candidate group.</source>
+        <translation>请先载入此相册的其余照片，再比较该候选组。</translation>
+    </message>
+    <message>
+        <source>Candidate stack %L1</source>
+        <translation>候选堆栈 %L1</translation>
+    </message>
+    <message>
+        <source>Suggested by reciprocal nearby similarity · compare to confirm</source>
+        <translation>依据附近照片的双向相似关系建议 · 请对比确认</translation>
+    </message>
 </context>
 <context>
     <name>SemanticSearchController</name>
@@ -14241,6 +14440,81 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../src/semantic_search_controller.cpp" line="111"/>
         <source>Make sure Infer Runtime is running and Shadow access is configured, then try again.</source>
         <translation>请确认 Infer Runtime 正在运行且已为 Shadow 配置访问权限，然后重试。</translation>
+    </message>
+    <message>
+        <source>Select a photo to find similar review candidates.</source>
+        <translation>选择一张照片以查找相似审片候选。</translation>
+    </message>
+    <message>
+        <source>Comparing nearby photo previews…</source>
+        <translation>正在比较附近照片的预览…</translation>
+    </message>
+    <message>
+        <source>Similar review candidates are ready.</source>
+        <translation>相似审片候选已就绪。</translation>
+    </message>
+    <message>
+        <source>No comparable nearby photos were found.</source>
+        <translation>未找到可比较的附近照片。</translation>
+    </message>
+    <message>
+        <source>Similar photo review could not finish.</source>
+        <translation>相似照片审片未能完成。</translation>
+    </message>
+    <message>
+        <source>Cancelling similar photo review…</source>
+        <translation>正在取消相似照片审片…</translation>
+    </message>
+    <message>
+        <source>Cancelling semantic search…</source>
+        <translation>正在取消语义搜索…</translation>
+    </message>
+</context>
+<context>
+    <name>ReviewClusteringController</name>
+    <message>
+        <source>Choose photos or an album to group similar review candidates.</source>
+        <translation>选择照片或相册以生成相似审片候选组。</translation>
+    </message>
+    <message>
+        <source>Choose at least two local photos for candidate grouping.</source>
+        <translation>请至少选择两张本地照片以生成候选组。</translation>
+    </message>
+    <message>
+        <source>Collecting album photos…</source>
+        <translation>正在收集相册照片…</translation>
+    </message>
+    <message>
+        <source>Grouping candidates · %L1 of %L2 photos checked</source>
+        <translation>正在生成候选组 · 已检查 %L1 / %L2 张照片</translation>
+    </message>
+    <message>
+        <source>Pausing after the current photo…</source>
+        <translation>正在当前照片完成后暂停…</translation>
+    </message>
+    <message>
+        <source>Paused · %L1 of %L2 photos checked</source>
+        <translation>已暂停 · 已检查 %L1 / %L2 张照片</translation>
+    </message>
+    <message>
+        <source>Cancelling the current photo…</source>
+        <translation>正在取消当前照片的处理…</translation>
+    </message>
+    <message>
+        <source>%L1 candidate groups ready from the first %L2 photos.</source>
+        <translation>已从前 %L2 张照片生成 %L1 个候选组。</translation>
+    </message>
+    <message>
+        <source>%L1 candidate groups ready from %L2 photos.</source>
+        <translation>已从 %L2 张照片生成 %L1 个候选组。</translation>
+    </message>
+    <message>
+        <source>Candidate grouping was cancelled.</source>
+        <translation>已取消候选分组。</translation>
+    </message>
+    <message>
+        <source>Candidate grouping could not finish. Check Infer Runtime and try again.</source>
+        <translation>候选分组未能完成。请检查 Infer Runtime 后重试。</translation>
     </message>
 </context>
 <context>
@@ -15522,6 +15796,21 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/XmpImportDialog.qml" line="301"/>
         <source>All files (*)</source>
         <translation>所有文件 (*)</translation>
+    </message>
+</context>
+<context>
+    <name>ShadowDialog</name>
+    <message>
+        <source>OK</source>
+        <translation>确定</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>保存</translation>
     </message>
 </context>
 </TS>
