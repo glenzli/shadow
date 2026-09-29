@@ -7,3 +7,4 @@ mod comparison_session_contract;
 mod decision_ledger_contract;
 mod feedback_forget_contract;
 mod grid_selection_contract;
+mod preview_refresh_contract;

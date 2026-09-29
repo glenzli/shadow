@@ -59,6 +59,9 @@ struct BackendFineEditParameters final {
     double shadows = 0.0;
     double whites = 0.0;
     double blacks = 0.0;
+    double highlight_red_suppression = 0.0;
+    double highlight_green_suppression = 0.0;
+    double highlight_blue_suppression = 0.0;
     double global_a_balance = 0.0;
     double global_b_balance = 0.0;
     double vibrance = 0.0;
@@ -78,6 +81,8 @@ struct BackendFineEditParameters final {
     std::array<double, BACKEND_SELECTIVE_COLOR_VALUE_COUNT> selective_color_cmyk{};
     /// Flattened authored Oklab-L x/y pairs. Empty means no perceptual curve.
     QVector<double> oklab_lightness_curve_points;
+    /// Master, R, G, B flattened point pairs; empty channels are identity.
+    std::array<QVector<double>, 4U> rgb_curve_points;
     /// A fixed 5×5 Oklab a/b displacement lattice. It remains distinct from
     /// hue-keyed Color Mixer and Point Color values, so one Grade Node can
     /// carry the complete connected chroma field (and its local mask).
@@ -129,26 +134,54 @@ struct BackendFineEditParameters final {
     auto operator<=>(const BackendFineEditParameters&) const = default;
 };
 
+inline constexpr qsizetype BACKEND_MAX_MASK_COMPONENTS = 8;
+
+struct BackendMaskComponent final {
+    QString condition_expression;
+    // Stable photo-instance-local identity. Operation values are 0 = Base,
+    // 1 = Add, 2 = Subtract, and 3 = Intersect. Only the first component may
+    // be Base; later components retain their authored order.
+    QString component_id;
+    std::uint8_t operation = 0;
+    bool enabled = true;
+    // 1 = linear gradient, 2 = radial gradient, 3 = brush,
+    // 4 = Oklab luminance range, 5 = Oklch hue range, 6 = opaque managed
+    // raster. Kind 6 uses x0 for expansion/contraction [-1, 1] and feather for
+    // softness [0, 1]; Rust restores the separate immutable raster identity.
+    // Kind 7 carries a bounded scalar expression in condition_expression.
+    std::uint8_t kind = 0;
+    double x0 = 0.0;
+    double y0 = 0.0;
+    double x1 = 0.0;
+    double y1 = 0.0;
+    double radius_x = 0.0;
+    double radius_y = 0.0;
+    double feather = 0.0;
+    // Each leaf may invert its own coverage before the ordered operation. The
+    // node-level inversion below remains a separate final-composition step.
+    bool leaf_invert = false;
+    // Flattened x/y/begins-stroke triples. Keeping the wire shape flat avoids
+    // making Qt own the typed persistent mask contract.
+    QVector<double> brush_points;
+    // A semantic managed mask keeps its accepted raster for this photo and
+    // this provider-neutral query for re-evaluation when copied elsewhere.
+    QString semantic_query;
+    std::uint8_t semantic_maximum_regions = 0;
+    std::uint8_t semantic_score_threshold_percent = 0;
+
+    bool operator==(const BackendMaskComponent&) const = default;
+};
+
 struct BackendGradeNode final {
     QString grade_node_id;
     QString shared_layer_id;
     QString shared_revision_id;
-    // 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush,
-    // 4 = Oklab luminance range, 5 = Oklch hue range, 6 = opaque managed
-    // raster. Kind 6 uses x0 for expansion/contraction [-1, 1] and feather for
-    // softness [0, 1]; Rust restores the separate immutable raster identity.
-    std::uint8_t local_mask_kind = 0;
-    double local_mask_x0 = 0.0;
-    double local_mask_y0 = 0.0;
-    double local_mask_x1 = 0.0;
-    double local_mask_y1 = 0.0;
-    double local_mask_radius_x = 0.0;
-    double local_mask_radius_y = 0.0;
-    double local_mask_feather = 0.0;
+    // One node-bound MaskRevision owns this complete ordered vector. Empty
+    // means no mask. It is deliberately photo-instance-local even when the
+    // adjustment graph is shared.
+    QVector<BackendMaskComponent> local_mask_components;
+    // Applied after the complete Base/Add/Subtract/Intersect composition.
     bool local_mask_invert = false;
-    // Flattened x/y/begins-stroke triples. Keeping the wire shape flat avoids
-    // making Qt own the typed persistent mask contract.
-    QVector<double> local_mask_brush_points;
     QString label;
     // Complete Grade Node strength. The renderer evaluates the graph once and
     // performs one layer-boundary blend, including for masked nodes.
@@ -208,6 +241,7 @@ struct BackendRetouchSpot final {
     bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
+    std::uint16_t frequency_radius = 8U;
 
     bool operator==(const BackendRetouchSpot&) const = default;
 };
@@ -235,6 +269,7 @@ struct BackendRetouchStroke final {
     bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
+    std::uint16_t frequency_radius = 8U;
 
     bool operator==(const BackendRetouchStroke&) const = default;
 };
@@ -281,6 +316,60 @@ struct BackendPhotoGeometry final {
     bool operator==(const BackendPhotoGeometry&) const = default;
 };
 
+// One immutable accepted region in the fixed photo-local AI Completion node.
+// Pixel bytes stay in the managed derived-raster store; the desktop transports
+// only verified identity, placement, provenance, and editable presentation.
+struct BackendImageCompletionRegion final {
+    QString store_object_id;
+    std::uint32_t storage_revision = 0;
+    QString content_blake3;
+    std::uint64_t byte_len = 0;
+    std::uint32_t raster_width = 0;
+    std::uint32_t raster_height = 0;
+    std::uint32_t coordinate_width = 0;
+    std::uint32_t coordinate_height = 0;
+    double bounds_left = 0.0;
+    double bounds_top = 0.0;
+    double bounds_right = 1.0;
+    double bounds_bottom = 1.0;
+    QString source_recipe_blake3;
+    QString provider;
+    QString deployment;
+    QString model_build;
+    QString postprocessing_identity;
+    QString api_contract_revision;
+    QString actual_execution_provider;
+    bool enabled = true;
+    double strength = 1.0;
+
+    bool operator==(const BackendImageCompletionRegion&) const = default;
+};
+
+struct BackendPaintPoint final {
+    double x = 0, y = 0, pressure = 1;
+    bool operator==(const BackendPaintPoint&) const = default;
+};
+struct BackendPaintStroke final {
+    QVector<BackendPaintPoint> points;
+    double radius = 0.01, hardness = 0, opacity = 1, flow = 0.1;
+    double red = 0.5, green = 0.5, blue = 0.5;
+    bool erase = false;
+    double roundness = 1.0, angle_degrees = 0.0, spacing = 0.125;
+    std::uint8_t texture = 0;
+    double texture_strength = 0.5;
+    bool pressure_size = false, pressure_flow = true;
+    bool operator==(const BackendPaintStroke&) const = default;
+};
+struct BackendPaintLayer final {
+    QString id, label;
+    bool enabled = true;
+    double opacity = 1;
+    std::uint8_t blend = 1;
+    std::uint32_t coordinate_width = 0, coordinate_height = 0;
+    QVector<BackendPaintStroke> strokes;
+    bool operator==(const BackendPaintLayer&) const = default;
+};
+
 struct BackendGradeStack final {
     // One optional fixed, photo-local AI source node before Foundation. It
     // cannot be duplicated, reordered, masked, or shared. Presence is distinct
@@ -302,6 +391,10 @@ struct BackendGradeStack final {
         // Bypassing preserves every authored Foundation value while required
         // source decoding remains active.
         bool enabled = true;
+        // Historical Recipe/FFI compatibility bit. Clipped-highlight continuity is now the
+        // provider-default RawFrame source contract, so the desktop exposes no authoring control
+        // and rendering does not branch on this value.
+        bool raw_highlight_repair_enabled = false;
 
         struct Optics final {
             bool enabled = true;
@@ -337,6 +430,11 @@ struct BackendGradeStack final {
     QVector<BackendGradeNode> grade_nodes;
     QVector<BackendRetouchSpot> retouch_spots;
     QVector<BackendRetouchStroke> retouch_strokes;
+    // The photo-local Repair node keeps all authored areas while bypassed.
+    bool retouch_enabled = true;
+    QVector<BackendPaintLayer> paint_layers;
+    QVector<BackendImageCompletionRegion> image_completions;
+    bool image_completion_enabled = true;
     // Empty strokes plus false is the canonical absent-node projection.
     // A materialized node retains this flag while bypassed.
     bool liquify_enabled = false;
@@ -344,6 +442,75 @@ struct BackendGradeStack final {
     BackendPhotoGeometry geometry;
 
     bool operator==(const BackendGradeStack&) const = default;
+};
+
+/// Desktop projection of a validated Shadow Recipe import plan. The portable
+/// stack contributes only independent Grade Nodes; the destination photo keeps
+/// its own Foundation, Repair, Completion, Liquify, and Canvas stages.
+struct BackendShadowRecipeImportPreview final {
+    QString label;
+    BackendGradeStack portable_grade_stack;
+    std::uint32_t grade_node_count = 0;
+    std::uint32_t portable_mask_count = 0;
+    std::uint32_t managed_mask_node_count = 0;
+    std::uint32_t semantic_mask_intent_count = 0;
+    std::uint32_t detached_shared_node_count = 0;
+    std::uint32_t removed_lut_count = 0;
+    std::uint32_t excluded_retouch_region_count = 0;
+    std::uint32_t excluded_completion_region_count = 0;
+    std::uint32_t excluded_liquify_stroke_count = 0;
+    bool foundation_omitted = false;
+    bool raw_denoise_omitted = false;
+    bool canvas_omitted = false;
+};
+
+enum class BackendRecipeImportItemTerminal : std::uint8_t {
+    Pending,
+    Running,
+    Staged,
+    Completed,
+    NotFound,
+    Unavailable,
+    Cancelled,
+    Failed,
+};
+
+struct BackendRecipeImportItem final {
+    QString item_id;
+    QString grade_node_id;
+    QString component_id;
+    std::uint8_t operation = 0;
+    bool enabled = true;
+    std::int8_t expansion_percent = 0;
+    std::uint8_t feather_percent = 0;
+    bool leaf_invert = false;
+    QString semantic_query;
+    std::uint8_t semantic_maximum_regions = 1;
+    std::uint8_t semantic_score_threshold_percent = 50;
+    BackendRecipeImportItemTerminal terminal = BackendRecipeImportItemTerminal::Pending;
+    std::uint64_t generation = 0;
+    std::uint8_t progress_percent = 0;
+    QString detail;
+    std::uint64_t proposal_token = 0;
+    std::uint32_t preview_width = 0;
+    std::uint32_t preview_height = 0;
+    QByteArray preview_samples;
+};
+
+struct BackendRecipeImportNode final {
+    QString grade_node_id;
+    QString label;
+    std::uint32_t semantic_leaf_count = 0;
+    std::uint32_t unsupported_managed_leaf_count = 0;
+    bool excluded = false;
+};
+
+struct BackendRecipeImportPlan final {
+    std::uint64_t plan_token = 0;
+    std::uint64_t generation = 0;
+    QString label;
+    QVector<BackendRecipeImportItem> items;
+    QVector<BackendRecipeImportNode> nodes;
 };
 
 struct BackendSubjectMaskPoint final {
@@ -354,20 +521,60 @@ struct BackendSubjectMaskPoint final {
     bool operator==(const BackendSubjectMaskPoint&) const = default;
 };
 
+enum class BackendSubjectMaskKind : std::uint8_t {
+    PromptedSubject,
+    PeopleDiscovery,
+    PeopleRegions,
+    SemanticQuery,
+    SubjectAnalysis,
+    SubjectEmphasis,
+};
+
+enum class BackendFaceRegion : std::uint8_t {
+    Face,
+    Skin,
+    Eyes,
+    Eyebrows,
+    LipsAndMouth,
+    Nose,
+    Ears,
+    Hair,
+    Neck,
+    Clothing,
+    Accessories,
+};
+
 enum class BackendSubjectMaskTerminal : std::uint8_t {
     Staged,
+    PeopleReady,
+    AnalysisReady,
     Unavailable,
     Cancelled,
     Failed,
 };
 
+struct BackendSubjectMaskPerson final {
+    std::uint32_t index = 0;
+    double confidence = 0.0;
+    QByteArray thumbnail_jpeg;
+    bool regions_analyzed = false;
+    std::uint32_t available_region_mask = 0;
+};
+
 struct BackendSubjectMaskRequest final {
+    std::uint64_t input_session_token = 0;
     std::uint64_t job_token = 0;
     std::uint64_t generation = 0;
     QString base_commit_id;
     BackendGradeStack grade_stack;
     std::uint32_t target_grade_node_index = 0;
     QString target_grade_node_id;
+    BackendSubjectMaskKind kind = BackendSubjectMaskKind::PromptedSubject;
+    std::uint32_t person_index = 0;
+    std::uint32_t face_region_mask = 1;
+    QString semantic_query;
+    std::uint8_t semantic_maximum_regions = 0;
+    std::uint8_t semantic_score_threshold_percent = 0;
     QVector<BackendSubjectMaskPoint> points;
 };
 
@@ -380,6 +587,20 @@ struct BackendSubjectMaskResult final {
     std::uint32_t preview_width = 0;
     std::uint32_t preview_height = 0;
     QByteArray preview_samples;
+    QVector<BackendSubjectMaskPerson> people;
+    QString description;
+    QStringList subject_queries;
+    QByteArray analysis_preview_jpeg;
+    QString analysis_model;
+    double emphasis_exposure = 0.0;
+    double emphasis_saturation = 1.0;
+    bool emphasis_background = false;
+    std::uint8_t emphasis_reason = 0;
+};
+
+struct BackendAutoStartMask final {
+    std::uint64_t proposal_token = 0, generation = 0;
+    QString node_id;
 };
 
 struct BackendSubjectMaskApplyRequest final {
@@ -390,7 +611,53 @@ struct BackendSubjectMaskApplyRequest final {
     BackendGradeStack grade_stack;
     std::uint32_t target_grade_node_index = 0;
     QString target_grade_node_id;
+    std::uint8_t target_mask_operation = 0;
     bool invert = false;
+    QString semantic_query;
+    std::uint8_t semantic_maximum_regions = 0;
+    std::uint8_t semantic_score_threshold_percent = 0;
+};
+
+struct BackendImageCompletionBrushPoint final {
+    double x = 0.5;
+    double y = 0.5;
+    double radius = 0.04;
+    bool erase = false;
+    std::uint32_t stroke_id = 0;
+};
+
+enum class BackendImageCompletionTerminal : std::uint8_t {
+    Staged,
+    Unavailable,
+    Cancelled,
+    Failed,
+};
+
+struct BackendImageCompletionRequest final {
+    std::uint64_t job_token = 0;
+    std::uint64_t generation = 0;
+    QString base_commit_id;
+    BackendGradeStack grade_stack;
+    QVector<BackendImageCompletionBrushPoint> points;
+};
+
+struct BackendImageCompletionResult final {
+    BackendImageCompletionTerminal terminal = BackendImageCompletionTerminal::Failed;
+    std::uint64_t job_token = 0;
+    std::uint64_t generation = 0;
+    std::uint64_t proposal_token = 0;
+    QString detail;
+    std::uint32_t preview_width = 0;
+    std::uint32_t preview_height = 0;
+    QByteArray preview_rgba8;
+};
+
+struct BackendImageCompletionApplyRequest final {
+    std::uint64_t proposal_token = 0;
+    std::uint64_t generation = 0;
+    QString base_commit_id;
+    QString expected_working_commit_id;
+    BackendGradeStack grade_stack;
 };
 
 enum class BackendRawFoundationJobPhase : std::uint8_t {
@@ -545,6 +812,7 @@ struct BackendMaskCoverage final {
     QByteArray samples;
     std::uint32_t version = 0;
     std::uint32_t target_layer_index = 0;
+    std::int32_t target_component_index = -1;
     std::uint64_t selection_revision = 0;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
@@ -569,7 +837,23 @@ struct BackendEditedPreview final {
     BackendOpticsReceipt optics;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
+    std::uint32_t level_zero_width = 0;
+    std::uint32_t level_zero_height = 0;
     EditPreviewTerminal terminal = EditPreviewTerminal::Completed;
+};
+
+// Result of a source-domain RAW neutral picker lookup. Availability is a
+// capability result: a display-RGB compatibility preview is not allowed to
+// invent photographic temperature/tint controls from its rendered pixels.
+struct BackendCurveInputMap final {
+    std::uint32_t width = 0, height = 0;
+    QVector<float> values;
+};
+
+struct BackendRawWhiteBalancePickerResult final {
+    bool available = false;
+    std::uint32_t temperature_kelvin = 5'500U;
+    std::int16_t tint = 0;
 };
 
 struct BackendEditedDetailTile final {

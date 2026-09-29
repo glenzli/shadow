@@ -20,11 +20,14 @@ Popup {
     modal: true
     dim: true
     focus: true
-    closePolicy: exportController.busy ? Popup.NoAutoClose : Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    // Closing only hides this surface. The controller owns the durable job.
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     function present(exportTargets) {
-        targets = exportTargets || [];
-        presetSidebar.resetSelection();
+        if (!exportController.busy) {
+            targets = exportTargets || [];
+            presetSidebar.resetSelection();
+        }
         open();
     }
 
@@ -58,19 +61,19 @@ Popup {
                 Label {
                     text: qsTr("EXPORT")
                     color: Theme.textPrimary
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
-                    font.letterSpacing: 1.0
                 }
                 Label {
-                    text: qsTr("%L1 selected photos").arg(dialog.targets.length)
+                    text: qsTr("%L1 selected photos").arg(dialog.exportController.busy
+                        ? dialog.exportController.totalCount : dialog.targets.length)
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
                 Label {
                     text: qsTr("Saved locally · unfinished exports resume automatically")
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                 }
@@ -80,7 +83,6 @@ Popup {
                 source: "qrc:/icons/clear.svg"
                 toolTipText: qsTr("Close")
                 accessibleName: toolTipText
-                enabled: !dialog.exportController.busy
                 onClicked: dialog.close()
             }
         }
@@ -145,7 +147,7 @@ Popup {
                 Label {
                     text: qsTr("FAILED ITEMS · %1").arg(dialog.exportController.errors.length)
                     color: Theme.dangerText
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.55
                 }
@@ -163,7 +165,7 @@ Popup {
                         width: errorList.width
                         text: modelData
                         color: Theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                         wrapMode: Text.Wrap
                     }
                 }
@@ -205,7 +207,7 @@ Popup {
                         color: dialog.exportController.errors.length > 0
                                && !dialog.exportController.busy
                                ? Theme.errorText : Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                         elide: Text.ElideRight
                     }
                 }
@@ -238,6 +240,15 @@ Popup {
             }
 
             ShadowButton {
+                objectName: "exportBackgroundButton"
+                visible: dialog.exportController.busy
+                text: qsTr("CONTINUE EDITING")
+                variant: ShadowButton.Ghost
+                onClicked: dialog.close()
+            }
+
+            ShadowButton {
+                objectName: "exportCancelButton"
                 text: qsTr("CANCEL")
                 variant: ShadowButton.Ghost
                 enabled: !dialog.exportController.cancellationRequested
@@ -258,11 +269,4 @@ Popup {
         }
     }
 
-    Connections {
-        target: dialog.exportController
-        function onExportFinished(completed, failed, cancelled, paths, errors) {
-            if (!cancelled && failed === 0 && completed > 0)
-                dialog.close();
-        }
-    }
 }

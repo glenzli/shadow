@@ -21,6 +21,7 @@ unsafe impl Sync for ffi::InteractiveEditPreviewFrameHandle {}
 struct MaskCoverageDescriptor {
     version: String,
     target_layer_index: u32,
+    target_component_index: Option<u32>,
     mask_selection_revision: u64,
     dimensions: ImageDimensions,
     row_stride_bytes: u32,
@@ -52,6 +53,7 @@ pub enum InteractiveEditPreviewStorage {
 pub struct EditPreviewMaskCoverageView<'frame> {
     pub version: &'frame str,
     pub target_layer_index: u32,
+    pub target_component_index: Option<u32>,
     pub mask_selection_revision: u64,
     pub dimensions: ImageDimensions,
     pub row_stride_bytes: u32,
@@ -218,6 +220,7 @@ impl OwnedInteractivePreviewFrame {
         Some(EditPreviewMaskCoverageView {
             version: &descriptor.version,
             target_layer_index: descriptor.target_layer_index,
+            target_component_index: descriptor.target_component_index,
             mask_selection_revision: descriptor.mask_selection_revision,
             dimensions: descriptor.dimensions,
             row_stride_bytes: descriptor.row_stride_bytes,
@@ -311,6 +314,8 @@ fn validate_mask_coverage_descriptor(
     let available = native.mask_coverage_available();
     let version = native.mask_coverage_version();
     let target_layer_index = native.mask_coverage_layer_index();
+    let component_selected = native.mask_coverage_component_selected();
+    let component_index = native.mask_coverage_component_index();
     let dimensions = ImageDimensions {
         width: native.mask_coverage_width(),
         height: native.mask_coverage_height(),
@@ -321,6 +326,8 @@ fn validate_mask_coverage_descriptor(
     if !available {
         if !version.is_empty()
             || target_layer_index != 0
+            || component_selected
+            || component_index != 0
             || dimensions.width != 0
             || dimensions.height != 0
             || row_stride_bytes != 0
@@ -351,6 +358,13 @@ fn validate_mask_coverage_descriptor(
             "owned mask coverage target does not match the requested Grade Node",
         ));
     }
+    if component_selected != request.target_component_index.is_some()
+        || (component_selected && Some(component_index) != request.target_component_index)
+    {
+        return Err(BridgeError::InvalidEditPreviewOutput(
+            "owned mask coverage component does not match the requested target",
+        ));
+    }
     if dimensions != expected_dimensions {
         return Err(BridgeError::InvalidEditPreviewOutput(
             "owned mask coverage dimensions must match the paired RGB frame",
@@ -370,6 +384,7 @@ fn validate_mask_coverage_descriptor(
     Ok(Some(MaskCoverageDescriptor {
         version,
         target_layer_index,
+        target_component_index: request.target_component_index,
         mask_selection_revision: request.mask_selection_revision,
         dimensions,
         row_stride_bytes,

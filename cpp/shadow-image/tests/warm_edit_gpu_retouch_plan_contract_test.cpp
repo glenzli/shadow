@@ -168,6 +168,43 @@ void continuous_clone_geometry_has_complete_bounded_candidates() {
     );
 }
 
+void one_point_click_stroke_lowers_to_one_bounded_gpu_capsule() {
+    const image::SpotHealAdjustment adjustment{
+        .strokes = {{
+            .points = {{.x = 0.4, .y = 0.6}},
+            .radius_level_zero_pixels = 6U,
+            .mode = image::SpotRepairMode::clone,
+            .source_offset_x_radii = 2.0,
+            .feather = 0.2,
+        }},
+    };
+    const auto prepared = image::detail::prepare_warm_retouch_stage(
+        adjustment,
+        {200U, 120U},
+        1.0,
+        1.0,
+        {.full_dimensions = {200U, 120U}}
+    );
+    expect(
+        prepared.has_value() && prepared->valid() && prepared->regions.size() == 1U
+            && prepared->regions.front().parameters.capsule_count == 1U,
+        "a click-authored one-point stroke lowers to one valid GPU region and capsule"
+    );
+    if (!prepared.has_value() || prepared->regions.empty()) {
+        return;
+    }
+    const auto capsules = records<image::detail::WarmRetouchCapsule>(
+        *prepared,
+        prepared->regions.front().capsule_offset_bytes,
+        1U
+    );
+    expect(
+        capsules.size() == 1U && capsules[0].x0 == capsules[0].x1
+            && capsules[0].y0 == capsules[0].y1,
+        "a click-authored GPU capsule keeps a circular zero-length centerline"
+    );
+}
+
 void tile_context_and_heal_mode_are_preserved() {
     const image::SpotHealAdjustment clone{
         .spots = {{
@@ -237,6 +274,7 @@ void tile_context_and_heal_mode_are_preserved() {
 
 int main() {
     continuous_clone_geometry_has_complete_bounded_candidates();
+    one_point_click_stroke_lowers_to_one_bounded_gpu_capsule();
     tile_context_and_heal_mode_are_preserved();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -6,11 +6,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 
-ToolBar {
+ShadowTitleBar {
     id: titleBar
 
-    required property var hostWindow
     required property var editor
+    required property var exportController
     required property var settingsDialog
     required property var personalProfile
     required property var personalProfileDialog
@@ -28,49 +28,14 @@ ToolBar {
     signal mapRequested()
     signal peopleRequested()
     signal historyRequested()
+    signal exportActivityRequested()
 
-    objectName: "titleToolBar"
     Accessible.name: descriptiveTitle
-    implicitHeight: 44
-    topPadding: 0
-    bottomPadding: 0
-    leftPadding: Math.max(
-        SafeArea.margins.left,
-        Qt.platform.os === "osx"
-            && hostWindow.visibility !== Window.FullScreen ? 96 : 16
-    )
-    rightPadding: Math.max(
-        SafeArea.margins.right,
-        Qt.platform.os === "windows" ? 152 : 16
-    )
 
-    background: Rectangle {
-        color: Theme.chrome
-
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: 1
-            color: Theme.border
-        }
-    }
-
-    contentItem: Item {
-        Item {
-            anchors.fill: parent
-
-            DragHandler {
-                target: null
-                acceptedButtons: Qt.LeftButton
-                onActiveChanged: {
-                    if (active)
-                        titleBar.hostWindow.startSystemMove()
-                }
-            }
-        }
-
+    Item {
+        anchors.fill: parent
         Row {
+            id: branding
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             spacing: 10
@@ -82,7 +47,7 @@ ToolBar {
             Label {
                 text: "SHADOW"
                 color: Theme.textPrimary
-                font.pixelSize: 14
+                font.pixelSize: Theme.fontSubheading
                 font.weight: Font.DemiBold
                 font.letterSpacing: 2.5
             }
@@ -95,117 +60,150 @@ ToolBar {
             }
         }
 
-        Row {
-            anchors.horizontalCenter: parent.horizontalCenter
-            // The content item excludes the asymmetric Windows caption-button
-            // inset, so compensate by half that difference to keep workspace
-            // navigation centered on the full window rather than the safe area.
-            anchors.horizontalCenterOffset: Qt.platform.os === "windows"
-                ? (titleBar.rightPadding - titleBar.leftPadding) / 2 : 0
-            anchors.verticalCenter: parent.verticalCenter
-            height: titleBar.availableHeight
-            spacing: 10
+        Item {
+            id: navigationArea
+            anchors.left: branding.right
+            anchors.right: windowActions.left
+            anchors.leftMargin: 14
+            anchors.rightMargin: 14
+            height: parent.height
 
-            ShadowTabButton {
-                height: parent.height
-                active: titleBar.workspaceIndex
-                    === titleBar.reviewWorkspaceIndex
-                iconSource: "qrc:/icons/review-grid.svg"
-                iconSize: 18
-                minimumTabWidth: 46
-                underlineInset: 22
-                underlineBottomMargin: -titleBar.bottomPadding
-                text: qsTr("REVIEW")
-                toolTipText: text
-                onClicked: titleBar.reviewRequested()
-            }
+            Row {
+                anchors.verticalCenter: parent.verticalCenter
+                // Keep workspace targets in the same place when editor-only
+                // status and undo actions appear on the right.
+                x: Math.max(0, Math.min(parent.width - width,
+                    (titleBar.width - width) / 2 - titleBar.leftPadding - navigationArea.x))
+                height: titleBar.availableHeight
+                spacing: 12
 
-            ShadowTabButton {
-                height: parent.height
-                active: titleBar.workspaceIndex
-                    === titleBar.precisionWorkspaceIndex
-                iconSource: "qrc:/icons/edit.svg"
-                iconSize: 18
-                minimumTabWidth: 46
-                underlineInset: 22
-                underlineBottomMargin: -titleBar.bottomPadding
-                text: qsTr("PRECISION")
-                toolTipText: text
-                enabled: titleBar.editor.active || titleBar.editor.busy
-                    || titleBar.canOpenSelectedPhoto
-                onClicked: titleBar.precisionRequested()
-            }
+                ShadowTabButton {
+                    height: parent.height
+                    active: titleBar.workspaceIndex
+                        === titleBar.reviewWorkspaceIndex
+                    iconSource: "qrc:/icons/review-grid.svg"
+                    iconSize: 18
+                    showLabelWithIcon: false
+                    minimumTabWidth: 46
+                    underlineInset: 22
+                    underlineBottomMargin: -titleBar.bottomPadding
+                    text: qsTr("REVIEW")
+                    toolTipText: text
+                    onClicked: titleBar.reviewRequested()
+                }
 
-            ShadowTabButton {
-                height: parent.height
-                active: titleBar.workspaceIndex
-                    === titleBar.mapWorkspaceIndex
-                iconSource: "qrc:/icons/map.svg"
-                iconSize: 18
-                minimumTabWidth: 46
-                underlineInset: 22
-                underlineBottomMargin: -titleBar.bottomPadding
-                text: qsTr("MAP")
-                toolTipText: text
-                onClicked: titleBar.mapRequested()
-            }
+                ShadowTabButton {
+                    height: parent.height
+                    active: titleBar.workspaceIndex
+                        === titleBar.precisionWorkspaceIndex
+                    iconSource: "qrc:/icons/edit.svg"
+                    iconSize: 18
+                    showLabelWithIcon: false
+                    minimumTabWidth: 46
+                    underlineInset: 22
+                    underlineBottomMargin: -titleBar.bottomPadding
+                    text: qsTr("PRECISION")
+                    toolTipText: text
+                    enabled: titleBar.editor.active || titleBar.editor.busy
+                        || titleBar.canOpenSelectedPhoto
+                    onClicked: titleBar.precisionRequested()
+                }
 
-            ShadowTabButton {
-                height: parent.height
-                active: titleBar.workspaceIndex
-                    === titleBar.peopleWorkspaceIndex
-                iconSource: "qrc:/icons/people.svg"
-                iconSize: 18
-                minimumTabWidth: 46
-                underlineInset: 22
-                underlineBottomMargin: -titleBar.bottomPadding
-                text: qsTr("PEOPLE")
-                toolTipText: text
-                onClicked: titleBar.peopleRequested()
+                ShadowTabButton {
+                    height: parent.height
+                    active: titleBar.workspaceIndex
+                        === titleBar.mapWorkspaceIndex
+                    iconSource: "qrc:/icons/map.svg"
+                    iconSize: 18
+                    showLabelWithIcon: false
+                    minimumTabWidth: 46
+                    underlineInset: 22
+                    underlineBottomMargin: -titleBar.bottomPadding
+                    text: qsTr("MAP")
+                    toolTipText: text
+                    onClicked: titleBar.mapRequested()
+                }
+
+                ShadowTabButton {
+                    height: parent.height
+                    active: titleBar.workspaceIndex
+                        === titleBar.peopleWorkspaceIndex
+                    iconSource: "qrc:/icons/people.svg"
+                    iconSize: 18
+                    showLabelWithIcon: false
+                    minimumTabWidth: 46
+                    underlineInset: 22
+                    underlineBottomMargin: -titleBar.bottomPadding
+                    text: qsTr("PEOPLE")
+                    toolTipText: text
+                    onClicked: titleBar.peopleRequested()
+                }
             }
         }
 
         Row {
+            id: windowActions
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 4
+            spacing: 8
 
-            Row {
+            Item {
+                id: saveStatus
                 visible: titleBar.workspaceIndex
                     === titleBar.precisionWorkspaceIndex
                     && titleBar.editor.active
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 6
+                implicitWidth: saveStatusContent.implicitWidth + 12
+                implicitHeight: 30
+                readonly property string statusText: !titleBar.editor.dirty ? qsTr("SAVED")
+                    : titleBar.editor.autosaveFailed ? qsTr("SAVE FAILED")
+                    : titleBar.editor.autosavePending ? qsTr("SAVING") : qsTr("DRAFT")
+                Accessible.name: statusText
 
-                Rectangle {
-                    width: 7
-                    height: 7
-                    anchors.verticalCenter: parent.verticalCenter
-                    radius: width / 2
-                    color: !titleBar.editor.dirty ? Theme.savedText
-                        : titleBar.editor.autosaveFailed
-                            ? Theme.errorText : Theme.warningText
+                Row {
+                    id: saveStatusContent
+                    anchors.centerIn: parent
+                    spacing: 6
+
+                    Rectangle {
+                        width: 7
+                        height: 7
+                        anchors.verticalCenter: parent.verticalCenter
+                        radius: width / 2
+                        color: !titleBar.editor.dirty ? Theme.savedText
+                            : titleBar.editor.autosaveFailed
+                                ? Theme.errorText : Theme.warningText
+                    }
+
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: titleBar.editor.dirty
+                        text: saveStatus.statusText
+                        color: !titleBar.editor.dirty ? Theme.savedText
+                            : titleBar.editor.autosaveFailed
+                                ? Theme.errorText : Theme.warningText
+                        font.pixelSize: Theme.fontCaption
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.65
+                    }
                 }
 
-                Label {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: !titleBar.editor.dirty ? qsTr("SAVED")
-                        : titleBar.editor.autosaveFailed ? qsTr("SAVE FAILED")
-                        : titleBar.editor.autosavePending ? qsTr("SAVING") : qsTr("DRAFT")
-                    color: !titleBar.editor.dirty ? Theme.savedText
-                        : titleBar.editor.autosaveFailed
-                            ? Theme.errorText : Theme.warningText
-                    font.pixelSize: 9
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 0.65
+                MouseArea {
+                    id: saveStatusHover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    acceptedButtons: Qt.NoButton
                 }
+                ToolTip.visible: saveStatusHover.containsMouse
+                ToolTip.text: statusText
+                ToolTip.delay: 450
             }
 
             Row {
                 visible: titleBar.workspaceIndex
                     === titleBar.precisionWorkspaceIndex
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 2
+                spacing: 8
 
                 ShadowIconButton {
                     source: "qrc:/icons/undo.svg"
@@ -224,6 +222,12 @@ ToolBar {
                         && !titleBar.editor.stateBusy
                     onClicked: titleBar.editor.redo()
                 }
+            }
+
+            ExportActivityButton {
+                anchors.verticalCenter: parent.verticalCenter
+                exportController: titleBar.exportController
+                onClicked: titleBar.exportActivityRequested()
             }
 
             ShadowIconButton {

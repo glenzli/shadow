@@ -1,79 +1,59 @@
-//! Desktop application adapter for one admitted SAM subject-mask execution.
+//! Desktop application adapter for one Infer Runtime SAM subject-mask result.
 //!
 //! Prepared JPEG rendering remains a desktop-session responsibility. This
-//! owner verifies the installed model, constructs the provider-neutral job,
-//! performs local resource admission, executes the sidecar, and stages the
-//! resulting bytes without applying them to a Recipe.
+//! owner constructs the product job, admits a typed Runtime result, and stages
+//! its verified native-resolution bytes without applying them to a Recipe.
 
 pub(crate) mod config;
 pub(crate) mod geometry;
 
 use std::{
+    collections::BTreeSet,
     fs::{self, OpenOptions},
     io::Write as _,
     path::Path,
     path::PathBuf,
-    process::Command,
     str::FromStr,
     sync::{
-        Mutex,
+        Arc,
         atomic::{AtomicU64, Ordering},
     },
 };
 
 use shadow_ai::{
-    AI_JOB_REQUEST_CONTRACT_VERSION, AiJobRequest, AiTaskKind, AiTaskParameters, ArtifactReference,
-    BackendKind, CancellationToken, ExecutionBackend, ExecutionLease, FallbackDisclosure,
-    HardwareProfile, InputRole, LocalExecutionAdmission, LocalExecutionBinding,
-    LocalModelAvailability, MaskPrompt, MaskPromptPoint, ModelAvailability, NumericPrecision,
-    ObservationTarget, OnBatteryPolicy, PrivacyClass, ProviderExecutionClass, ProviderIdentity,
-    RasterExtent, ResourceEstimate, ResourcePolicy, SAM2_COREML_ADAPTER_REVISION,
-    SAM2_COREML_PROVIDER_ID, Sam2CoreMlProviderConfigurationError, Sam2CoreMlResidentSession,
-    Sam2CoreMlSidecarProvider, SubjectMaskParameters, TaskPriority, UnitInterval,
-    VerifiedSam2CoreMlInstallation, admit_local_execution, verify_sam2_coreml_installation,
+    AI_JOB_REQUEST_CONTRACT_VERSION, AdmittedExecution, AdmittedModelIdentity, AiCapability,
+    AiGeneratedPayload, AiJobRequest, AiTaskKind, AiTaskParameters, ArtifactHashAlgorithm,
+    ArtifactReference, BackendKind, CancellationToken, DetectedFace, ExecutionLease,
+    ExecutionPlanIdentity, ExecutionRouteIdentity, FaceAnalysisProvider, FallbackDisclosure,
+    InferRuntimeClient, InputRole, MaskPointPolarity, MaskPrompt, MaskPromptPoint, MaskSemantic,
+    NumericPrecision, ObservationTarget, PrivacyClass, ProviderExecutionClass, ProviderIdentity,
+    ProviderTerminal, RasterExtent, ResourceEstimate, RunPlan, RuntimeProgressReporter,
+    RuntimeProvider, RuntimeUsage, SoftMaskArtifact, SoftMaskEncoding, SubjectMaskParameters,
+    TaskPriority, UnitInterval, bind_local_service_execution,
 };
 use shadow_core::{
     DerivedRasterStageError, DerivedRasterStageReceipt, FilesystemDerivedRasterStore,
     execute_and_stage_derived_raster,
 };
-use shadow_domain::{MaskCoordinateSpace, PhotoId, Platform};
+use shadow_domain::{MaskCoordinateSpace, PhotoId, SemanticMaskIntent};
 use thiserror::Error;
 
+use crate::subject_mask_people::{
+    FaceRegionSet, ParsedSubjectMaskPerson, SubjectMaskPersonCandidate, compose_face_region_mask,
+};
+use crate::subject_mask_service::PreparedSubjectMaskInput;
+
 const MAX_PROVIDER_INPUT_JPEG_BYTES: usize = 64 * 1024 * 1024;
-const MEBIBYTE: u64 = 1024 * 1024;
-const GIBIBYTE: u64 = 1024 * MEBIBYTE;
+const SOFT_MASK_MEDIA_TYPE: &str = "application/x-shadow-soft-mask";
+const SOFT_MASK_ENCODING_VERSION: u32 = 1;
+const INFER_FACE_PARSING_CAPABILITY: &str = "infer.vision.face-parsing@20260813.1";
 
 #[derive(Debug)]
 pub(crate) struct SubjectMaskRuntime {
-    executable: PathBuf,
-    model_directory: PathBuf,
-    manifest_path: PathBuf,
     scratch_root: PathBuf,
-    admitted_runtime: Mutex<Option<AdmittedSubjectMaskRuntime>>,
+    infer_base_url_override: Option<String>,
+    infer_credential_file: PathBuf,
     scratch_sequence: AtomicU64,
-}
-
-#[derive(Debug)]
-struct AdmittedSubjectMaskRuntime {
-    installation: VerifiedSam2CoreMlInstallation,
-    resident_session: Sam2CoreMlResidentSession,
-}
-
-#[derive(Debug)]
-pub(crate) struct PreparedSubjectMaskInput {
-    path: PathBuf,
-}
-
-impl PreparedSubjectMaskInput {
-    pub(crate) fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for PreparedSubjectMaskInput {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
 }
 
 #[derive(Debug)]
@@ -85,55 +65,61 @@ pub(crate) struct SubjectMaskInvocation {
     /// Display-encoded current edits with final photo geometry forced to
     /// identity. Prompt points and the generated raster therefore share the
     /// original-image normalized coordinate space used by Grade Node masks.
-    pub(crate) original_space_input_jpeg: PathBuf,
+    pub(crate) original_space_input_jpeg: Arc<[u8]>,
+    pub(crate) original_space_input_content_hash: String,
     pub(crate) coordinate_extent: RasterExtent,
-    pub(crate) points: Vec<MaskPromptPoint>,
+    pub(crate) selection: SubjectMaskSelection,
+}
+
+#[derive(Debug)]
+pub(crate) struct SemanticMaskInvocation {
+    pub(crate) request_id: String,
+    pub(crate) promotion_id: String,
+    pub(crate) generation: u64,
+    pub(crate) photo_id: String,
+    pub(crate) original_space_input: PreparedSubjectMaskInput,
+    pub(crate) intent: SemanticMaskIntent,
+}
+
+#[derive(Debug)]
+pub(crate) enum SemanticMaskStageOutcome {
+    Staged(DerivedRasterStageReceipt),
+    ProviderUnavailable(DerivedRasterStageReceipt),
+    ProviderFailed(DerivedRasterStageReceipt),
+    NotFound,
+    Cancelled,
+    Unavailable(SubjectMaskRuntimeError),
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SubjectMaskRuntimeResources {
-    hardware: HardwareProfile,
-    policy: ResourcePolicy,
-    route_estimate: ResourceEstimate,
+pub(crate) enum SubjectMaskSelection {
+    PromptedSubject {
+        points: Vec<MaskPromptPoint>,
+    },
+    FaceRegions {
+        person: SubjectMaskPersonCandidate,
+        regions: FaceRegionSet,
+        parsed: Arc<ParsedSubjectMaskPerson>,
+    },
+    SemanticQuery {
+        intent: SemanticMaskIntent,
+    },
 }
 
 impl SubjectMaskRuntime {
     pub(crate) fn new(
-        executable: impl Into<PathBuf>,
-        model_directory: impl Into<PathBuf>,
-        manifest_path: impl Into<PathBuf>,
         scratch_root: impl Into<PathBuf>,
+        infer_base_url_override: Option<String>,
+        infer_credential_file: impl Into<PathBuf>,
     ) -> Result<Self, SubjectMaskRuntimeError> {
         let scratch_root = scratch_root.into();
         fs::create_dir_all(&scratch_root).map_err(SubjectMaskRuntimeError::Scratch)?;
         Ok(Self {
-            executable: executable.into(),
-            model_directory: model_directory.into(),
-            manifest_path: manifest_path.into(),
             scratch_root,
-            admitted_runtime: Mutex::new(None),
+            infer_base_url_override,
+            infer_credential_file: infer_credential_file.into(),
             scratch_sequence: AtomicU64::new(0),
         })
-    }
-
-    pub(crate) fn prepare_input_jpeg(
-        &self,
-        bytes: &[u8],
-    ) -> Result<PreparedSubjectMaskInput, SubjectMaskRuntimeError> {
-        if bytes.is_empty() || bytes.len() > MAX_PROVIDER_INPUT_JPEG_BYTES {
-            return Err(SubjectMaskRuntimeError::InputSize(bytes.len()));
-        }
-        let path = self.next_scratch_path("input", "jpg")?;
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .map_err(SubjectMaskRuntimeError::Scratch)?;
-        if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
-            let _ = fs::remove_file(&path);
-            return Err(SubjectMaskRuntimeError::Scratch(error));
-        }
-        Ok(PreparedSubjectMaskInput { path })
     }
 
     pub(crate) fn stage(
@@ -142,34 +128,183 @@ impl SubjectMaskRuntime {
         invocation: SubjectMaskInvocation,
         cancellation: &CancellationToken,
     ) -> Result<DerivedRasterStageReceipt, SubjectMaskRuntimeError> {
-        let resources = SubjectMaskRuntimeResources::current_macos()?;
-        self.stage_with_resources(store, invocation, cancellation, &resources)
+        self.stage_with_runtime(store, invocation, cancellation)
     }
 
-    // This is one fail-closed admission transaction: splitting its linear
-    // verify/admit/configure/stage sequence would obscure authority lifetimes.
+    /// Grounds one semantic intent and stages its SAM-derived raster without
+    /// publishing durable Recipe state.
+    pub(crate) fn stage_semantic_intent(
+        &self,
+        store: &FilesystemDerivedRasterStore,
+        invocation: SemanticMaskInvocation,
+        cancellation: &CancellationToken,
+    ) -> SemanticMaskStageOutcome {
+        let invocation = SubjectMaskInvocation {
+            request_id: invocation.request_id,
+            promotion_id: invocation.promotion_id,
+            generation: invocation.generation,
+            photo_id: invocation.photo_id,
+            original_space_input_jpeg: invocation.original_space_input.bytes,
+            original_space_input_content_hash: invocation.original_space_input.content_hash,
+            coordinate_extent: invocation.original_space_input.coordinate_extent,
+            selection: SubjectMaskSelection::SemanticQuery {
+                intent: invocation.intent,
+            },
+        };
+        Self::classify_semantic_stage(self.stage_with_runtime(store, invocation, cancellation))
+    }
+
+    fn classify_semantic_stage(
+        result: Result<DerivedRasterStageReceipt, SubjectMaskRuntimeError>,
+    ) -> SemanticMaskStageOutcome {
+        match result {
+            Ok(receipt)
+                if matches!(
+                    receipt.outcome,
+                    shadow_core::DerivedRasterStageOutcome::Unavailable { .. }
+                ) =>
+            {
+                SemanticMaskStageOutcome::ProviderUnavailable(receipt)
+            }
+            Ok(receipt)
+                if matches!(
+                    receipt.outcome,
+                    shadow_core::DerivedRasterStageOutcome::Failed { .. }
+                ) =>
+            {
+                SemanticMaskStageOutcome::ProviderFailed(receipt)
+            }
+            Ok(receipt)
+                if matches!(
+                    receipt.outcome,
+                    shadow_core::DerivedRasterStageOutcome::Cancelled
+                ) =>
+            {
+                SemanticMaskStageOutcome::Cancelled
+            }
+            Ok(receipt) => SemanticMaskStageOutcome::Staged(receipt),
+            Err(SubjectMaskRuntimeError::SemanticQueryNotFound) => {
+                SemanticMaskStageOutcome::NotFound
+            }
+            Err(error) => SemanticMaskStageOutcome::Unavailable(error),
+        }
+    }
+
+    pub(crate) fn detect_people(
+        &self,
+        input_jpeg: &[u8],
+        input_content_hash: &str,
+        coordinate_extent: RasterExtent,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<Vec<DetectedFace>>, SubjectMaskRuntimeError> {
+        validate_input_jpeg(input_jpeg)?;
+        if cancellation.is_cancelled() {
+            return Ok(None);
+        }
+        let Some(detections) = self.client()?.detect_faces_cancellable(
+            input_jpeg,
+            "image/jpeg",
+            &input_source_revision(input_content_hash),
+            &|| cancellation.is_cancelled(),
+        )?
+        else {
+            return Ok(None);
+        };
+        if detections.width != coordinate_extent.width
+            || detections.height != coordinate_extent.height
+        {
+            return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+        }
+        if cancellation.is_cancelled() {
+            Ok(None)
+        } else {
+            Ok(Some(detections.detections))
+        }
+    }
+
+    pub(crate) fn parse_person(
+        &self,
+        input_jpeg: &[u8],
+        input_content_hash: &str,
+        coordinate_extent: RasterExtent,
+        person: &SubjectMaskPersonCandidate,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<ParsedSubjectMaskPerson>, SubjectMaskRuntimeError> {
+        validate_input_jpeg(input_jpeg)?;
+        if cancellation.is_cancelled() {
+            return Ok(None);
+        }
+        let Some(parsed) = self.client()?.parse_face_cancellable(
+            input_jpeg,
+            "image/jpeg",
+            &input_source_revision(input_content_hash),
+            person.bounding_box,
+            &|| cancellation.is_cancelled(),
+        )?
+        else {
+            return Ok(None);
+        };
+        if parsed.width != coordinate_extent.width || parsed.height != coordinate_extent.height {
+            return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+        }
+        if cancellation.is_cancelled() {
+            Ok(None)
+        } else {
+            Ok(Some(ParsedSubjectMaskPerson::new(
+                parsed.labels,
+                coordinate_extent,
+                parsed.provenance,
+            )?))
+        }
+    }
+
+    pub(crate) fn client(&self) -> Result<InferRuntimeClient, SubjectMaskRuntimeError> {
+        Ok(InferRuntimeClient::from_credential_file_with_discovery(
+            self.infer_base_url_override.as_deref(),
+            &self.infer_credential_file,
+        )?)
+    }
+
+    // Shadow owns input rendering, staging and durable promotion. Infer Runtime
+    // owns the user-installed SAM model, scheduling and native worker lifecycle.
     #[allow(clippy::too_many_lines)]
-    fn stage_with_resources(
+    fn stage_with_runtime(
         &self,
         store: &FilesystemDerivedRasterStore,
         invocation: SubjectMaskInvocation,
         cancellation: &CancellationToken,
-        resources: &SubjectMaskRuntimeResources,
     ) -> Result<DerivedRasterStageReceipt, SubjectMaskRuntimeError> {
-        let input_bytes = fs::read(&invocation.original_space_input_jpeg)
-            .map_err(|_| SubjectMaskRuntimeError::InputUnavailable)?;
-        if input_bytes.is_empty() || input_bytes.len() > MAX_PROVIDER_INPUT_JPEG_BYTES {
-            return Err(SubjectMaskRuntimeError::InputSize(input_bytes.len()));
-        }
+        let input_bytes = invocation.original_space_input_jpeg.as_ref();
+        validate_input_jpeg(input_bytes)?;
         let photo_id = PhotoId::from_str(&invocation.photo_id)
             .map_err(|_| SubjectMaskRuntimeError::InvalidPhotoId)?;
-        let prompt = MaskPrompt::Points {
-            points: invocation.points,
+        let prompt = match &invocation.selection {
+            SubjectMaskSelection::PromptedSubject { points } => MaskPrompt::Points {
+                points: points.clone(),
+            },
+            SubjectMaskSelection::FaceRegions { person, .. } => MaskPrompt::Points {
+                points: vec![MaskPromptPoint {
+                    x: UnitInterval::new(
+                        ((person.bounding_box.x + person.bounding_box.width * 0.5)
+                            / invocation.coordinate_extent.width as f32)
+                            as f64,
+                    )
+                    .map_err(|_| SubjectMaskRuntimeError::InvalidPrompt)?,
+                    y: UnitInterval::new(
+                        ((person.bounding_box.y + person.bounding_box.height * 0.5)
+                            / invocation.coordinate_extent.height as f32)
+                            as f64,
+                    )
+                    .map_err(|_| SubjectMaskRuntimeError::InvalidPrompt)?,
+                    polarity: MaskPointPolarity::Foreground,
+                }],
+            },
+            SubjectMaskSelection::SemanticQuery { .. } => MaskPrompt::AutomaticSubject,
         };
         prompt
             .validate()
             .map_err(|_| SubjectMaskRuntimeError::InvalidPrompt)?;
-        let input_content_hash = blake3::hash(&input_bytes).to_hex().to_string();
+        let input_content_hash = &invocation.original_space_input_content_hash;
         let request = AiJobRequest {
             contract_version: AI_JOB_REQUEST_CONTRACT_VERSION,
             request_id: invocation.request_id.clone(),
@@ -192,77 +327,134 @@ impl SubjectMaskRuntime {
                 edge_refinement: UnitInterval::new(0.5).expect("constant edge refinement is valid"),
                 maximum_candidates: 3,
             }),
-            estimate: resources.route_estimate,
-        };
-
-        let mut runtime_guard = self
-            .admitted_runtime
-            .lock()
-            .map_err(|_| SubjectMaskRuntimeError::StatePoisoned)?;
-        if runtime_guard.is_none() {
-            let installation = verify_sam2_coreml_installation(
-                &self.executable,
-                &self.model_directory,
-                &self.manifest_path,
-                cancellation,
-            )?;
-            let resident_session = Sam2CoreMlResidentSession::new(&installation);
-            *runtime_guard = Some(AdmittedSubjectMaskRuntime {
-                installation,
-                resident_session,
-            });
-        }
-        let admitted_runtime = runtime_guard
-            .as_ref()
-            .expect("admitted subject-mask runtime was inserted");
-        let admission = admit_local_execution(
-            LocalExecutionBinding {
-                execution_id: format!("subject-mask-execution-{}", invocation.request_id),
-                request,
-                provider: ProviderIdentity {
-                    provider_id: SAM2_COREML_PROVIDER_ID.into(),
-                    adapter_revision: SAM2_COREML_ADAPTER_REVISION.into(),
-                    execution_class: ProviderExecutionClass::LocalModel,
-                },
-                route_estimate: resources.route_estimate,
-                fallback: FallbackDisclosure::Primary,
+            // Infer Runtime performs actual resource admission. This small
+            // consumer plan only records the staged local result boundary.
+            estimate: ResourceEstimate {
+                cpu_threads: 1,
+                ..ResourceEstimate::default()
             },
-            admitted_runtime.installation.manifest(),
-            &resources.hardware,
-            resources.policy,
-            ModelAvailability {
-                local: LocalModelAvailability::Installed {
-                    artifact_set_blake3: admitted_runtime
-                        .installation
-                        .manifest()
-                        .artifact_set
-                        .inventory_blake3
-                        .clone(),
-                    license_accepted: true,
-                },
-            },
-        )?;
-        let LocalExecutionAdmission::Admitted { execution } = admission else {
-            let LocalExecutionAdmission::Deferred { blockers } = admission else {
-                unreachable!("local admission has exactly two variants");
-            };
-            return Err(SubjectMaskRuntimeError::AdmissionDeferred(format!(
-                "{blockers:?}"
-            )));
         };
         let output_mask = self.next_scratch_path("proposal", "gray8")?;
-        let provider = Sam2CoreMlSidecarProvider::new_resident(
-            &admitted_runtime.installation,
-            execution.plan_identity().clone(),
-            &invocation.original_space_input_jpeg,
-            input_content_hash,
-            &output_mask,
-            admitted_runtime.resident_session.clone(),
+        let (samples, raster_extent, provenance, api_contract) = match &invocation.selection {
+            SubjectMaskSelection::PromptedSubject { .. } => {
+                let client = self.client()?;
+                let Some(evidence) = client.segment_subject_soft_mask_cancellable(
+                    input_bytes,
+                    &input_source_revision(input_content_hash),
+                    match &request.parameters {
+                        AiTaskParameters::SubjectMask(parameters) => match &parameters.prompt {
+                            MaskPrompt::Points { points } => points,
+                            MaskPrompt::AutomaticSubject | MaskPrompt::Box { .. } => {
+                                unreachable!("this runtime always requires points")
+                            }
+                        },
+                        _ => unreachable!("subject-mask request has subject-mask parameters"),
+                    },
+                    cancellation,
+                )?
+                else {
+                    return Ok(cancelled_stage_receipt(&invocation));
+                };
+                if evidence.input_extent != invocation.coordinate_extent {
+                    return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+                }
+                (
+                    evidence.samples,
+                    RasterExtent::new(256, 256)
+                        .map_err(|_| SubjectMaskRuntimeError::RuntimeMaskMalformed)?,
+                    evidence.provenance,
+                    shadow_ai::INFER_SUBJECT_MASK_CAPABILITY,
+                )
+            }
+            SubjectMaskSelection::FaceRegions {
+                regions, parsed, ..
+            } => {
+                let samples = compose_face_region_mask(parsed, *regions)?;
+                (
+                    samples,
+                    invocation.coordinate_extent,
+                    parsed.provenance.clone(),
+                    INFER_FACE_PARSING_CAPABILITY,
+                )
+            }
+            SubjectMaskSelection::SemanticQuery { intent } => {
+                let client = self.client()?;
+                let source_revision = input_source_revision(input_content_hash);
+                let Some(grounding) = client.ground_semantics_cancellable(
+                    input_bytes,
+                    &source_revision,
+                    intent.query(),
+                    intent.query_revision(),
+                    intent.maximum_regions(),
+                    f32::from(intent.score_threshold_percent()) / 100.0,
+                    cancellation,
+                )?
+                else {
+                    return Ok(cancelled_stage_receipt(&invocation));
+                };
+                if grounding.input_extent != invocation.coordinate_extent {
+                    return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+                }
+                if grounding.regions.is_empty() {
+                    return Err(SubjectMaskRuntimeError::SemanticQueryNotFound);
+                }
+                let mut merged = vec![0_u8; 256 * 256];
+                let mut sam_provenance = None;
+                for region in grounding.regions {
+                    let Some(evidence) = client.segment_subject_box_soft_mask_cancellable(
+                        input_bytes,
+                        &source_revision,
+                        region,
+                        cancellation,
+                    )?
+                    else {
+                        return Ok(cancelled_stage_receipt(&invocation));
+                    };
+                    if evidence.input_extent != invocation.coordinate_extent
+                        || evidence.samples.len() != merged.len()
+                    {
+                        return Err(SubjectMaskRuntimeError::RuntimeGeometryMismatch);
+                    }
+                    for (target, sample) in merged.iter_mut().zip(evidence.samples) {
+                        *target = (*target).max(sample);
+                    }
+                    sam_provenance = Some(evidence.provenance);
+                }
+                (
+                    merged,
+                    RasterExtent::new(256, 256)
+                        .map_err(|_| SubjectMaskRuntimeError::RuntimeMaskMalformed)?,
+                    sam_provenance.ok_or(SubjectMaskRuntimeError::SemanticQueryNotFound)?,
+                    shadow_ai::INFER_SUBJECT_MASK_CAPABILITY,
+                )
+            }
+        };
+        if cancellation.is_cancelled() {
+            return Ok(cancelled_stage_receipt(&invocation));
+        }
+        write_verified_soft_mask(&output_mask, &samples, raster_extent)?;
+        let payload = soft_mask_payload(&samples, raster_extent, invocation.coordinate_extent)?;
+        let (route, plan) = infer_route_and_plan(&provenance, api_contract)?;
+        let execution = bind_local_service_execution(
+            format!("infer-subject-mask-execution-{}", invocation.request_id),
+            request,
+            route.clone(),
+            &BTreeSet::from([AiCapability::SubjectMask]),
+            plan.clone(),
+            ResourceEstimate {
+                cpu_threads: 1,
+                ..ResourceEstimate::default()
+            },
+            FallbackDisclosure::Primary,
         )?;
-        drop(runtime_guard);
+        let provider = PreverifiedInferSubjectMaskProvider {
+            route,
+            plan: execution.plan_identity().clone(),
+            payload,
+        };
         let lease = ExecutionLease::issue(
             format!("subject-mask-lease-{}", invocation.request_id),
-            *execution,
+            execution,
         )?;
         execute_and_stage_derived_raster(
             store,
@@ -270,7 +462,7 @@ impl SubjectMaskRuntime {
             lease,
             &provider,
             cancellation,
-            provider.proposal_path(),
+            &output_mask,
         )
         .map_err(SubjectMaskRuntimeError::Stage)
     }
@@ -293,102 +485,191 @@ impl SubjectMaskRuntime {
     }
 }
 
-impl SubjectMaskRuntimeResources {
-    fn current_macos() -> Result<Self, SubjectMaskRuntimeError> {
-        if !cfg!(target_os = "macos") {
-            return Err(SubjectMaskRuntimeError::PlatformUnsupported);
-        }
-        let total_system_ram_bytes = macos_total_memory_bytes()?;
-        let logical_cpu_threads = u32::try_from(
-            std::thread::available_parallelism()
-                .map_err(|_| SubjectMaskRuntimeError::HardwareUnavailable)?
-                .get(),
-        )
-        .map_err(|_| SubjectMaskRuntimeError::HardwareUnavailable)?;
-        let available_system_ram_bytes = total_system_ram_bytes / 2;
-        let maximum_ai_system_ram_bytes = total_system_ram_bytes / 2;
-        let reserved_system_ram_bytes = (total_system_ram_bytes / 8).min(512 * MEBIBYTE);
-        let cpu_threads = logical_cpu_threads.clamp(1, 2);
-        Ok(Self {
-            hardware: HardwareProfile {
-                platform: Platform::MacOs,
-                total_system_ram_bytes,
-                available_system_ram_bytes,
-                logical_cpu_threads,
-                on_battery: false,
-                backends: vec![ExecutionBackend {
-                    id: "apple-coreml".into(),
-                    kind: BackendKind::CoreMl,
-                    available: true,
-                    supported_precisions: vec![NumericPrecision::Float16],
-                    total_device_memory_bytes: None,
-                    available_device_memory_bytes: None,
-                    maximum_concurrent_sessions: 1,
-                    active_sessions: 0,
-                }],
-            },
-            policy: ResourcePolicy {
-                maximum_ai_system_ram_bytes,
-                reserved_system_ram_bytes,
-                maximum_ai_cpu_threads: logical_cpu_threads.clamp(1, 4),
-                maximum_device_memory_percent: 75,
-                on_battery: OnBatteryPolicy::Continue,
-            },
-            route_estimate: ResourceEstimate {
-                peak_system_ram_bytes: GIBIBYTE,
-                peak_device_memory_bytes: 0,
-                cpu_threads,
-                scratch_disk_bytes: 256 * MEBIBYTE,
-                upload_bytes: 0,
-                estimated_duration_ms: Some(1_500),
-            },
-        })
+fn input_source_revision(input_content_hash: &str) -> String {
+    format!("shadow:subject-mask/artifact:{input_content_hash}")
+}
+
+fn validate_input_jpeg(bytes: &[u8]) -> Result<(), SubjectMaskRuntimeError> {
+    if bytes.is_empty() || bytes.len() > MAX_PROVIDER_INPUT_JPEG_BYTES {
+        Err(SubjectMaskRuntimeError::InputSize(bytes.len()))
+    } else {
+        Ok(())
     }
 }
 
-fn macos_total_memory_bytes() -> Result<u64, SubjectMaskRuntimeError> {
-    let output = Command::new("/usr/sbin/sysctl")
-        .args(["-n", "hw.memsize"])
-        .output()
-        .map_err(|_| SubjectMaskRuntimeError::HardwareUnavailable)?;
-    if !output.status.success() {
-        return Err(SubjectMaskRuntimeError::HardwareUnavailable);
+fn cancelled_stage_receipt(invocation: &SubjectMaskInvocation) -> DerivedRasterStageReceipt {
+    DerivedRasterStageReceipt {
+        request_id: invocation.request_id.clone(),
+        generation: invocation.generation,
+        usage: RuntimeUsage::default(),
+        outcome: shadow_core::DerivedRasterStageOutcome::Cancelled,
     }
-    std::str::from_utf8(&output.stdout)
-        .ok()
-        .and_then(|value| value.trim().parse().ok())
-        .filter(|value| *value > 0)
-        .ok_or(SubjectMaskRuntimeError::HardwareUnavailable)
+}
+
+#[derive(Debug)]
+struct PreverifiedInferSubjectMaskProvider {
+    route: ExecutionRouteIdentity,
+    plan: ExecutionPlanIdentity,
+    payload: AiGeneratedPayload,
+}
+
+impl RuntimeProvider for PreverifiedInferSubjectMaskProvider {
+    type Output = AiGeneratedPayload;
+
+    fn route(&self) -> &ExecutionRouteIdentity {
+        &self.route
+    }
+
+    fn execution_plan(&self) -> &ExecutionPlanIdentity {
+        &self.plan
+    }
+
+    fn supports(&self, capability: AiCapability) -> bool {
+        capability == AiCapability::SubjectMask
+    }
+
+    fn execute(
+        &self,
+        _execution: &AdmittedExecution,
+        cancellation: &CancellationToken,
+        _progress: &RuntimeProgressReporter<'_>,
+    ) -> ProviderTerminal<Self::Output> {
+        if cancellation.is_cancelled() {
+            ProviderTerminal::Cancelled {
+                usage: RuntimeUsage::default(),
+            }
+        } else {
+            ProviderTerminal::Succeeded {
+                output: self.payload.clone(),
+                usage: RuntimeUsage::default(),
+            }
+        }
+    }
+}
+
+fn write_verified_soft_mask(
+    path: &Path,
+    samples: &[u8],
+    raster_extent: RasterExtent,
+) -> Result<(), SubjectMaskRuntimeError> {
+    let expected = u64::from(raster_extent.width)
+        .checked_mul(u64::from(raster_extent.height))
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or(SubjectMaskRuntimeError::RuntimeMaskMalformed)?;
+    if samples.len() != expected {
+        return Err(SubjectMaskRuntimeError::RuntimeMaskMalformed);
+    }
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(SubjectMaskRuntimeError::Scratch)?;
+    if let Err(error) = file.write_all(samples).and_then(|()| file.sync_all()) {
+        let _ = fs::remove_file(path);
+        return Err(SubjectMaskRuntimeError::Scratch(error));
+    }
+    Ok(())
+}
+
+fn soft_mask_payload(
+    samples: &[u8],
+    raster_extent: RasterExtent,
+    coordinate_extent: RasterExtent,
+) -> Result<AiGeneratedPayload, SubjectMaskRuntimeError> {
+    let artifact = shadow_ai::GeneratedArtifactReference::new(
+        ArtifactHashAlgorithm::Blake3_256,
+        blake3::hash(samples).to_hex().to_string(),
+        u64::try_from(samples.len()).map_err(|_| SubjectMaskRuntimeError::RuntimeMaskMalformed)?,
+        SOFT_MASK_MEDIA_TYPE.into(),
+        SOFT_MASK_ENCODING_VERSION,
+    )
+    .map_err(|_| SubjectMaskRuntimeError::RuntimeMaskMalformed)?;
+    Ok(AiGeneratedPayload::SoftMask(SoftMaskArtifact {
+        artifact,
+        raster_extent,
+        coordinate_extent,
+        coordinate_space: MaskCoordinateSpace::Original,
+        encoding: SoftMaskEncoding::Gray8Unorm,
+        semantic: MaskSemantic::UserPrompt,
+    }))
+}
+
+fn infer_route_and_plan(
+    provenance: &shadow_ai::VisionProvenance,
+    api_contract_revision: &str,
+) -> Result<(ExecutionRouteIdentity, RunPlan), SubjectMaskRuntimeError> {
+    if provenance.execution_provider_fallback_reason.is_some() {
+        return Err(SubjectMaskRuntimeError::RuntimeFallbackDisclosed);
+    }
+    let backend_kind = match provenance
+        .actual_execution_provider
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        value if value.contains("coreml") => BackendKind::CoreMl,
+        value if value.contains("cpu") => BackendKind::Cpu,
+        _ => return Err(SubjectMaskRuntimeError::RuntimeProvenanceMalformed),
+    };
+    let precision = match provenance.precision.to_ascii_lowercase().as_str() {
+        "float16" | "fp16" | "f16" => NumericPrecision::Float16,
+        "float32" | "fp32" | "f32" => NumericPrecision::Float32,
+        _ => return Err(SubjectMaskRuntimeError::RuntimeProvenanceMalformed),
+    };
+    let route = ExecutionRouteIdentity {
+        contract_version: shadow_ai::EXECUTION_ROUTE_IDENTITY_CONTRACT_VERSION,
+        provider: ProviderIdentity {
+            provider_id: provenance.provider.clone(),
+            adapter_revision: provenance.postprocessing_identity.clone(),
+            execution_class: ProviderExecutionClass::LocalService,
+        },
+        model: AdmittedModelIdentity::RemoteService {
+            service_revision: provenance.runtime.clone(),
+            model_id: provenance.model_build.clone(),
+            model_revision: provenance.artifact_sha256.clone(),
+            api_contract_revision: api_contract_revision.into(),
+        },
+    };
+    Ok((
+        route,
+        RunPlan {
+            backend_id: format!("infer-runtime/{}", provenance.deployment),
+            backend_kind,
+            precision,
+            cpu_threads: 1,
+            reserved_system_ram_bytes: 0,
+            reserved_device_memory_bytes: 0,
+        },
+    ))
 }
 
 #[derive(Debug, Error)]
 pub(crate) enum SubjectMaskRuntimeError {
-    #[error("subject-mask runtime supports only macOS")]
-    PlatformUnsupported,
-    #[error("subject-mask hardware capacity is unavailable")]
-    HardwareUnavailable,
-    #[error("subject-mask input JPEG is unavailable")]
-    InputUnavailable,
     #[error("subject-mask input JPEG size {0} is outside the bounded contract")]
     InputSize(usize),
     #[error("subject-mask photo identity is invalid")]
     InvalidPhotoId,
     #[error("subject-mask point prompt is invalid")]
     InvalidPrompt,
-    #[error("subject-mask runtime state is poisoned")]
-    StatePoisoned,
     #[error("subject-mask scratch output token space is exhausted")]
     TokenExhausted,
-    #[error("subject-mask resource admission was deferred: {0}")]
-    AdmissionDeferred(String),
+    #[error("Infer Runtime returned a subject mask for a different input geometry")]
+    RuntimeGeometryMismatch,
+    #[error("Infer Runtime returned a malformed subject probability mask")]
+    RuntimeMaskMalformed,
+    #[error("semantic query did not match a visible region")]
+    SemanticQueryNotFound,
+    #[error("Infer Runtime disclosed a forbidden execution-provider fallback")]
+    RuntimeFallbackDisclosed,
+    #[error("Infer Runtime returned malformed subject-mask provenance")]
+    RuntimeProvenanceMalformed,
     #[error("create subject-mask scratch directory")]
     Scratch(#[source] std::io::Error),
     #[error(transparent)]
-    Verification(#[from] shadow_ai::Sam2CoreMlModelVerificationError),
-    #[error(transparent)]
     RuntimeContract(#[from] shadow_ai::RuntimeContractError),
     #[error(transparent)]
-    ProviderConfiguration(#[from] Sam2CoreMlProviderConfigurationError),
+    Infer(#[from] shadow_ai::InferRuntimeClientError),
+    #[error(transparent)]
+    People(#[from] crate::subject_mask_people::SubjectMaskPeopleError),
     #[error("stage subject-mask provider output")]
     Stage(#[source] DerivedRasterStageError),
 }

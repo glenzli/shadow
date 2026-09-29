@@ -31,7 +31,12 @@ ColumnLayout {
         Item { Layout.fillWidth: true }
 
         Label {
-            text: qsTr("%L1 photos").arg(importPane.controller.itemCount)
+            // itemCount belongs to the active Review query (album/filter/page),
+            // whereas source management describes the whole local catalog.
+            text: importPane.controller.librarySystemCollectionCounts.available
+                ? qsTr("%L1 photos").arg(
+                    importPane.controller.librarySystemCollectionCounts.all)
+                : "—"
             color: Theme.textSecondary
             font.pixelSize: Theme.fontMeta
         }

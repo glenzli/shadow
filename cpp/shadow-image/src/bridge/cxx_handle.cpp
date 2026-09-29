@@ -11,6 +11,7 @@
 #include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -36,10 +37,17 @@ namespace {
     return std::filesystem::path(encoded);
 }
 
-[[nodiscard]] std::optional<std::uint32_t>
+struct MaskCoverageTarget final {
+    std::uint32_t layer_index = 0U;
+    std::optional<std::uint32_t> component_index;
+};
+
+[[nodiscard]] std::optional<MaskCoverageTarget>
 mask_coverage_target(const FfiAdjustmentRenderRequest& request) {
     if (!request.mask_coverage_requested) {
-        if (request.mask_coverage_target_layer_index != 0U) {
+        if (request.mask_coverage_target_layer_index != 0U
+            || request.mask_coverage_component_requested
+            || request.mask_coverage_target_component_index != 0U) {
             throw image::DecodeError(
                 image::DecodeErrorCode::invalid_request,
                 0,
@@ -48,7 +56,21 @@ mask_coverage_target(const FfiAdjustmentRenderRequest& request) {
         }
         return std::nullopt;
     }
-    return request.mask_coverage_target_layer_index;
+    if (!request.mask_coverage_component_requested
+        && request.mask_coverage_target_component_index != 0U) {
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "unselected mask coverage component must use the zero target sentinel"
+        );
+    }
+    return MaskCoverageTarget{
+        .layer_index = request.mask_coverage_target_layer_index,
+        .component_index =
+            request.mask_coverage_component_requested
+                ? std::optional<std::uint32_t>{request.mask_coverage_target_component_index}
+                : std::nullopt,
+    };
 }
 
 void reject_mask_coverage_target(const FfiAdjustmentRenderRequest& request) {
@@ -88,10 +110,11 @@ render_adjustment_plan_rgb8_frame(
     if (layers.has_value()) {
         return session.render_rgb8_layers_with_mask_coverage_cancellable(
             *layers,
-            target,
+            target.has_value() ? std::optional<std::uint32_t>{target->layer_index} : std::nullopt,
             cancellation.token(),
             geometry,
-            liquify.has_value() ? &*liquify : nullptr
+            liquify.has_value() ? &*liquify : nullptr,
+            target.has_value() ? target->component_index : std::nullopt
         );
     }
 
@@ -139,10 +162,11 @@ render_adjustment_plan_interactive_frame(
     if (layers.has_value()) {
         return session.render_interactive_frame_layers_with_mask_coverage_cancellable(
             *layers,
-            target,
+            target.has_value() ? std::optional<std::uint32_t>{target->layer_index} : std::nullopt,
             cancellation.token(),
             geometry,
-            liquify.has_value() ? &*liquify : nullptr
+            liquify.has_value() ? &*liquify : nullptr,
+            target.has_value() ? target->component_index : std::nullopt
         );
     }
     return session.render_interactive_frame_cancellable(
@@ -474,6 +498,10 @@ FfiDimensions EditPreviewHandle::dimensions() const noexcept {
     return cxx_bridge_projection::dimensions(session_.dimensions());
 }
 
+FfiDimensions EditPreviewHandle::level_zero_dimensions() const noexcept {
+    return cxx_bridge_projection::dimensions(session_.level_zero_dimensions());
+}
+
 std::uint32_t EditPreviewHandle::max_edge() const noexcept {
     return session_.max_edge();
 }
@@ -498,6 +526,91 @@ FfiSensorClippingMask EditPreviewHandle::sensor_clipping_mask() const {
 
 bool EditPreviewHandle::supports_raw_development_rebinding() const noexcept {
     return session_.supports_raw_development_rebinding();
+}
+
+bool EditPreviewHandle::supports_raw_white_balance_picker() const noexcept {
+    return session_.supports_raw_white_balance_picker();
+}
+
+FfiRawWhiteBalancePresentation EditPreviewHandle::pick_raw_white_balance(
+    const double normalized_x,
+    const double normalized_y
+) const noexcept {
+    FfiRawWhiteBalancePresentation result{
+        .available = false,
+        .temperature_kelvin = 5'500U,
+        .tint = 0,
+    };
+    const auto presentation = session_.pick_raw_white_balance(normalized_x, normalized_y);
+    if (!presentation.has_value()) {
+        return result;
+    }
+    const auto temperature = std::llround(presentation->temperature_kelvin);
+    const auto tint = std::llround(presentation->tint);
+    if (temperature < 2'000LL || temperature > 25'000LL || tint < -150LL || tint > 150LL) {
+        return result;
+    }
+    result.available = true;
+    result.temperature_kelvin = static_cast<std::uint32_t>(temperature);
+    result.tint = static_cast<std::int16_t>(tint);
+    return result;
+}
+
+FfiCurveInputMap EditPreviewHandle::curve_input_map(
+    const FfiAdjustmentRenderRequest& request,
+    const std::uint8_t channel,
+    const EditPreviewCancellationHandle& cancellation
+) const {
+    reject_mask_coverage_target(request);
+    if (request.max_edge != session_.max_edge())
+        throw image::DecodeError(
+            image::DecodeErrorCode::invalid_request,
+            0,
+            "curve input source edge mismatch"
+        );
+    auto layers = adjustment_render_wire::adjustment_layers(request.nodes);
+    if (!layers) {
+        image::AdjustmentLayer layer;
+        layer.layer_id = "curve-input-flat";
+        layer.nodes = adjustment_render_wire::adjustment_nodes(request.nodes);
+        layers = std::vector<image::AdjustmentLayer>{std::move(layer)};
+    }
+    const auto liquify = adjustment_render_wire::photo_liquify(request.liquify);
+    const auto map = session_.curve_input_map(
+        *layers,
+        channel,
+        photo_geometry(request.geometry),
+        liquify ? &*liquify : nullptr,
+        cancellation.token()
+    );
+    FfiCurveInputMap result;
+    result.width = map.dimensions.width;
+    result.height = map.dimensions.height;
+    result.values.reserve(map.values.size());
+    for (const auto value : map.values)
+        result.values.push_back(value);
+    return result;
+}
+
+FfiRawWhiteBalancePresentation EditPreviewHandle::auto_raw_white_balance() const noexcept {
+    FfiRawWhiteBalancePresentation result{
+        .available = false,
+        .temperature_kelvin = 5'500U,
+        .tint = 0,
+    };
+    const auto presentation = session_.auto_raw_white_balance();
+    if (!presentation.has_value()) {
+        return result;
+    }
+    const auto temperature = std::llround(presentation->temperature_kelvin);
+    const auto tint = std::llround(presentation->tint);
+    if (temperature < 2'000LL || temperature > 25'000LL || tint < -150LL || tint > 150LL) {
+        return result;
+    }
+    result.available = true;
+    result.temperature_kelvin = static_cast<std::uint32_t>(temperature);
+    result.tint = static_cast<std::int16_t>(tint);
+    return result;
 }
 
 std::unique_ptr<EditPreviewHandle>
@@ -706,11 +819,12 @@ EditPreviewHandle::render_adjustment_plan_with_analysis_cancellable(
     if (layers.has_value()) {
         auto rendered = session_.render_jpeg_with_analysis_layers_and_mask_coverage_cancellable(
             *layers,
-            target,
+            target.has_value() ? std::optional<std::uint32_t>{target->layer_index} : std::nullopt,
             request.jpeg_quality,
             cancellation.token(),
             geometry,
-            liquify.has_value() ? &*liquify : nullptr
+            liquify.has_value() ? &*liquify : nullptr,
+            target.has_value() ? target->component_index : std::nullopt
         );
         if (rendered.cancelled()) {
             return FfiCancellableAnalyzedEditPreview{
@@ -887,6 +1001,28 @@ FfiRenderedDetailTile FullEditDetailHandle::render_adjustment_plan_tile(
                                  liquify.has_value() ? &*liquify : nullptr
                              )
                            : session_.render_rgb8(
+                                 adjustment_render_wire::adjustment_nodes(request.nodes),
+                                 detail_tile_rect(request.rect),
+                                 geometry,
+                                 liquify.has_value() ? &*liquify : nullptr
+                             )
+    );
+}
+
+FfiRenderedDetailTile16 FullEditDetailHandle::render_adjustment_plan_tile16(
+    const FfiAdjustmentDetailTileRequest& request
+) const {
+    const auto layers = adjustment_render_wire::adjustment_layers(request.nodes);
+    const auto geometry = photo_geometry(request.geometry);
+    const auto liquify = adjustment_render_wire::photo_liquify(request.liquify);
+    return rendered_detail_tile16(
+        layers.has_value() ? session_.render_rgb16_layers(
+                                 *layers,
+                                 detail_tile_rect(request.rect),
+                                 geometry,
+                                 liquify.has_value() ? &*liquify : nullptr
+                             )
+                           : session_.render_rgb16(
                                  adjustment_render_wire::adjustment_nodes(request.nodes),
                                  detail_tile_rect(request.rect),
                                  geometry,

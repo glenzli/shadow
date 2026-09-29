@@ -82,6 +82,16 @@ pub(super) fn library_filter_from_ffi(
             .has_development_edits
             .then_some(filter.development_edits),
         album_id,
+        photo_ids: filter
+            .has_photo_ids
+            .then(|| {
+                filter
+                    .photo_ids
+                    .iter()
+                    .map(|id| id.parse().context("invalid person photo id"))
+                    .collect::<AnyResult<Vec<_>>>()
+            })
+            .transpose()?,
         keyword_ids_all: keyword_ids_from_ffi(&filter.keyword_ids_all)?,
         excluded_keyword_ids_any: keyword_ids_from_ffi(&filter.excluded_keyword_ids_any)?,
     })
@@ -194,6 +204,13 @@ pub(super) fn ffi_library_filter(filter: LibraryPhotoFilter) -> ffi::FfiLibraryP
         minimum_rating: filter.minimum_rating.unwrap_or_default(),
         has_development_edits: filter.has_development_edits.is_some(),
         development_edits: filter.has_development_edits.unwrap_or_default(),
+        has_photo_ids: filter.photo_ids.is_some(),
+        photo_ids: filter
+            .photo_ids
+            .unwrap_or_default()
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect(),
         album_id: filter.album_id.map(|id| id.to_string()).unwrap_or_default(),
         keyword_ids_all: filter
             .keyword_ids_all

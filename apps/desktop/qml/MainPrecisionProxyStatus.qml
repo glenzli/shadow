@@ -13,7 +13,7 @@ RowLayout {
     Label {
         text: qsTranslate("Main", "PROXY")
         color: Theme.textMuted
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         font.letterSpacing: 0.7
     }
 
@@ -29,7 +29,7 @@ RowLayout {
             ? qsTranslate("Main", "ON")
             : qsTranslate("Main", "OFF")
         color: proxyStatus.active ? Theme.accent : Theme.textMuted
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         font.weight: Font.DemiBold
     }
 }

@@ -67,6 +67,7 @@ pub(in crate::tests) fn ffi_parameters(
         saturation_factor,
     };
     ffi::FfiEditSettings {
+        paint_layers: Vec::new(),
         foundation: ffi_photo_foundation_settings(
             &PhotoFoundationNode::default(),
             shadow_domain::RawFoundationDenoise::disabled(),
@@ -74,6 +75,9 @@ pub(in crate::tests) fn ffi_parameters(
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {

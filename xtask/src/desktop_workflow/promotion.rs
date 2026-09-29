@@ -32,7 +32,7 @@ pub(super) fn promote_candidate(candidate: &Path, validation_label: &str) -> io:
 #[cfg(target_os = "macos")]
 mod macos {
     use std::{
-        env, fs,
+        fs,
         io::{self, Write},
         os::unix::fs::symlink,
         path::{Path, PathBuf},
@@ -40,22 +40,16 @@ mod macos {
     };
 
     use super::super::{
+        acquire_canonical_debug_lock,
         layout::{AppBundlePaths, WorkflowPaths},
         process,
-        provider::{self, ModelPaths},
     };
 
     pub(super) fn promote_candidate(candidate: &Path, validation_label: &str) -> io::Result<()> {
         validate_request(candidate, validation_label)?;
         let paths = WorkflowPaths::resolve()?;
         let candidate_paths = AppBundlePaths::macos(candidate.to_path_buf());
-        let models = ModelPaths::resolve()?;
         verify_bundle(&candidate_paths)?;
-        provider::verify(
-            &candidate_paths.rawnind_provider,
-            &candidate_paths.rawnind_manifest,
-            &models,
-        )?;
         lint_bundle_plists(&candidate_paths)?;
 
         fs::create_dir_all(&paths.local_build_root).map_err(|error| {
@@ -72,12 +66,8 @@ mod macos {
         let current_link = paths.local_build_root.join("current-debug");
         ensure_symlink_or_absent(&current_link)?;
 
-        let lock_path = paths.local_build_root.join(".promote-debug-build.lock");
-        let lock_helper = paths
-            .repository_root
-            .join("scripts/acquire_debug_promotion_lock.py");
-        let lock_token = acquire_lock(&lock_helper, &lock_path)?;
-        let mut cleanup = PromotionCleanup::new(lock_helper, lock_path, lock_token);
+        let _lock = acquire_canonical_debug_lock()?;
+        let mut cleanup = PromotionCleanup::new();
 
         let revision = process::capture(
             Command::new("git")
@@ -107,11 +97,6 @@ mod macos {
         )?;
         let copied_paths = AppBundlePaths::macos(copied_app);
         let digests = verify_copy_digests(&candidate_paths, &copied_paths)?;
-        provider::verify(
-            &copied_paths.rawnind_provider,
-            &copied_paths.rawnind_manifest,
-            &models,
-        )?;
         let worktree_status = git_status(&paths.repository_root)?;
         let worktree_digest = process::sha256_bytes(&worktree_status)?;
         let manifest = Manifest {
@@ -137,7 +122,6 @@ mod macos {
 
         let canonical = AppBundlePaths::macos(current_link.join("Shadow.app"));
         verify_bundle(&canonical)?;
-        cleanup.release_lock();
         println!("canonical debug app: {}", canonical.app.display());
         println!(
             "run: cargo xtask desktop-run-debug (or {})",
@@ -150,12 +134,11 @@ mod macos {
     struct BundleDigests {
         shadow: String,
         decode_helper: String,
+        composition_worker: String,
         server: String,
         server_decode_helper: String,
         geonames_index: String,
         geonames_notice: String,
-        rawnind_provider: String,
-        rawnind_manifest: String,
     }
 
     struct Manifest<'a> {
@@ -171,9 +154,9 @@ mod macos {
         for (label, path) in [
             ("Shadow executable", &bundle.shadow_executable),
             ("isolated RAW decode helper", &bundle.decode_helper),
+            ("photo composition worker", &bundle.composition_worker),
             ("Shadow Server executable", &bundle.server_executable),
             ("Shadow Server decode helper", &bundle.server_decode_helper),
-            ("AI RAW Denoise provider", &bundle.rawnind_provider),
         ] {
             if !process::is_executable(path) {
                 return Err(not_found(format!("{label} is missing: {}", path.display())));
@@ -182,11 +165,6 @@ mod macos {
         for (label, path) in [
             ("GeoNames city index", &bundle.geonames_index),
             ("GeoNames notice", &bundle.geonames_notice),
-            ("AI RAW Denoise manifest", &bundle.rawnind_manifest),
-            (
-                "AI RAW Denoise runtime base library",
-                &bundle.rawnind_runtime.join("base_library.zip"),
-            ),
         ] {
             if !path.is_file() {
                 return Err(not_found(format!("{label} is missing: {}", path.display())));
@@ -202,12 +180,11 @@ mod macos {
         let pairs = [
             (&source.shadow_executable, &copied.shadow_executable),
             (&source.decode_helper, &copied.decode_helper),
+            (&source.composition_worker, &copied.composition_worker),
             (&source.server_executable, &copied.server_executable),
             (&source.server_decode_helper, &copied.server_decode_helper),
             (&source.geonames_index, &copied.geonames_index),
             (&source.geonames_notice, &copied.geonames_notice),
-            (&source.rawnind_provider, &copied.rawnind_provider),
-            (&source.rawnind_manifest, &copied.rawnind_manifest),
         ];
         let mut verified = Vec::with_capacity(pairs.len());
         for (source_path, copied_path) in pairs {
@@ -224,24 +201,22 @@ mod macos {
         let [
             shadow,
             decode_helper,
+            composition_worker,
             server,
             server_decode_helper,
             geonames_index,
             geonames_notice,
-            rawnind_provider,
-            rawnind_manifest,
         ] = verified.try_into().map_err(|_| {
             io::Error::other("internal digest projection did not retain every bundle path")
         })?;
         Ok(BundleDigests {
             shadow,
             decode_helper,
+            composition_worker,
             server,
             server_decode_helper,
             geonames_index,
             geonames_notice,
-            rawnind_provider,
-            rawnind_manifest,
         })
     }
 
@@ -259,6 +234,11 @@ mod macos {
             "decode_helper_sha256={}",
             manifest.digests.decode_helper
         )?;
+        writeln!(
+            file,
+            "composition_worker_sha256={}",
+            manifest.digests.composition_worker
+        )?;
         writeln!(file, "server_executable_sha256={}", manifest.digests.server)?;
         writeln!(
             file,
@@ -275,17 +255,7 @@ mod macos {
             "geonames_notice_sha256={}",
             manifest.digests.geonames_notice
         )?;
-        writeln!(
-            file,
-            "rawnind_provider_sha256={}",
-            manifest.digests.rawnind_provider
-        )?;
-        writeln!(
-            file,
-            "rawnind_manifest_sha256={}",
-            manifest.digests.rawnind_manifest
-        )?;
-        writeln!(file, "rawnind_model_verified=true")
+        Ok(())
     }
 
     fn validate_request(candidate: &Path, validation_label: &str) -> io::Result<()> {
@@ -299,21 +269,6 @@ mod macos {
             return Err(invalid("validation label must be one non-empty line"));
         }
         Ok(())
-    }
-
-    fn acquire_lock(helper: &Path, lock: &Path) -> io::Result<String> {
-        let python = env::var_os("PYTHON").unwrap_or_else(|| "python3".into());
-        let owner = env::var("SHADOW_CANONICAL_DEBUG_STEWARD")
-            .unwrap_or_else(|_| format!("promotion-xtask-{}", std::process::id()));
-        process::capture(
-            Command::new(python)
-                .arg(helper)
-                .arg("acquire")
-                .arg(lock)
-                .arg("--owner")
-                .arg(owner),
-            "acquire canonical debug promotion lock",
-        )
     }
 
     fn ensure_symlink_or_absent(path: &Path) -> io::Result<()> {
@@ -365,36 +320,16 @@ mod macos {
     }
 
     struct PromotionCleanup {
-        helper: PathBuf,
-        lock: PathBuf,
-        token: Option<String>,
         incoming: Option<PathBuf>,
         next_link: Option<PathBuf>,
     }
 
     impl PromotionCleanup {
-        fn new(helper: PathBuf, lock: PathBuf, token: String) -> Self {
+        fn new() -> Self {
             Self {
-                helper,
-                lock,
-                token: Some(token),
                 incoming: None,
                 next_link: None,
             }
-        }
-
-        fn release_lock(&mut self) {
-            let Some(token) = self.token.take() else {
-                return;
-            };
-            let python = env::var_os("PYTHON").unwrap_or_else(|| "python3".into());
-            let _ = Command::new(python)
-                .arg(&self.helper)
-                .arg("release")
-                .arg(&self.lock)
-                .arg("--token")
-                .arg(token)
-                .status();
         }
     }
 
@@ -406,7 +341,6 @@ mod macos {
             if let Some(incoming) = self.incoming.take() {
                 let _ = fs::remove_dir_all(incoming);
             }
-            self.release_lock();
         }
     }
 

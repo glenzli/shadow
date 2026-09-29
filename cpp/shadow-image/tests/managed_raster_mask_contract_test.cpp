@@ -169,6 +169,55 @@ void malformed_payloads_fail_closed() {
     );
 }
 
+void composite_topology_is_bounded_and_non_nested() {
+    const auto leaf = [] {
+        return image::LocalMask{
+            .kind = image::LocalMaskKind::linear_gradient,
+            .x0 = 0.0,
+            .y0 = 0.0,
+            .x1 = 1.0,
+            .y1 = 1.0,
+        };
+    };
+    image::LocalMask too_many;
+    for (std::size_t index = 0U; index <= image::maximum_composite_local_mask_components;
+         ++index) {
+        too_many.components.push_back(
+            image::LocalMaskComponent{
+                .operation = index == 0U ? image::LocalMaskComponentOperation::base
+                                         : image::LocalMaskComponentOperation::add,
+                .mask = leaf(),
+            }
+        );
+    }
+    expect(rejects(too_many), "composite masks reject a ninth leaf before execution");
+
+    image::LocalMask wrong_base;
+    wrong_base.components.push_back(
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::add,
+            .mask = leaf(),
+        }
+    );
+    expect(rejects(wrong_base), "the first composite component must establish Base coverage");
+
+    image::LocalMask nested_leaf;
+    nested_leaf.components.push_back(
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::base,
+            .mask = leaf(),
+        }
+    );
+    image::LocalMask nested;
+    nested.components.push_back(
+        image::LocalMaskComponent{
+            .operation = image::LocalMaskComponentOperation::base,
+            .mask = std::move(nested_leaf),
+        }
+    );
+    expect(rejects(nested), "composite masks reject recursive component topology");
+}
+
 void refinement_is_recomputed_from_the_immutable_soft_mask() {
     std::vector<std::uint8_t> center(25U, 0U);
     center[12U] = 255U;
@@ -244,6 +293,7 @@ int main() {
     gray8_uses_pixel_center_bilinear_sampling();
     gray16_float_is_portable_little_endian_coverage();
     malformed_payloads_fail_closed();
+    composite_topology_is_bounded_and_non_nested();
     refinement_is_recomputed_from_the_immutable_soft_mask();
     resident_gpu_declines_without_changing_the_cpu_contract();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

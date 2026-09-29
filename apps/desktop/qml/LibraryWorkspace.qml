@@ -54,7 +54,7 @@ Item {
                         Layout.fillWidth: true
                         text: qsTr("Library Management")
                         color: Theme.textPrimary
-                        font.pixelSize: 20
+                        font.pixelSize: Theme.fontHero
                         font.weight: Font.DemiBold
                     }
 
@@ -62,7 +62,7 @@ Item {
                         Layout.fillWidth: true
                         text: qsTr("Manage local folders and remote Libraries together. Original files remain read-only.")
                         color: Theme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
                 }
             }

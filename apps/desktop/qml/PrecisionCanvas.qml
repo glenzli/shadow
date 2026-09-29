@@ -37,10 +37,12 @@ Rectangle {
     readonly property int toolCrop: 2
     readonly property int toolRepair: 3
     readonly property int toolLiquify: 4
+    readonly property int toolCompletion: 5
+    readonly property int toolPaint: 6
 
     // Public viewport state.
-    property real zoomFactor: 1.0
-    property bool fitView: true
+    property alias zoomFactor: viewportState.zoomFactor
+    property alias fitView: viewportState.fitView
     property bool zoomToolActive: false
     property bool comparisonActive: false
     property int comparisonMode: comparisonWipeVertical
@@ -93,10 +95,21 @@ Rectangle {
     readonly property bool dualComparison: comparisonActive && beforeReady && (comparisonMode === comparisonSideBySide || comparisonMode === comparisonStacked)
     readonly property bool scopePreviewAvailable: editor.active && previewFrameReadyState && readyPreviewGenerationState.length > 0 && !showingProvisionalPreview && !comparisonActive && Boolean(editor.histogram.valid) && !Boolean(editor.histogram.updating) && !Boolean(editor.histogram.stale) && String(editor.histogram.generation) === readyPreviewGenerationState
     readonly property real deviceScale: Math.max(1.0, Screen.devicePixelRatio)
-    readonly property real imagePixelWidth: editor.detailFullWidth > 0 ? editor.detailFullWidth : Math.max(1, editedPreview.sourceSize.width)
-    readonly property real imagePixelHeight: editor.detailFullHeight > 0 ? editor.detailFullHeight : Math.max(1, editedPreview.sourceSize.height)
-    readonly property real fitScale: Math.min(previewFlick.width / imagePixelWidth, previewFlick.height / imagePixelHeight)
-    readonly property real displayScale: fitView ? Math.max(0.0001, fitScale) : zoomFactor / deviceScale
+    // Pixel-sized Recipe parameters are authored against the oriented level-zero source, not the
+    // bounded 1536px preview texture. The texture remains only a compatibility fallback while the
+    // first authoritative preview response is loading.
+    readonly property real imagePixelWidth: editor.levelZeroWidth > 0
+        ? editor.levelZeroWidth
+        : (editor.detailFullWidth > 0
+            ? editor.detailFullWidth
+            : Math.max(1, editedPreview.sourceSize.width))
+    readonly property real imagePixelHeight: editor.levelZeroHeight > 0
+        ? editor.levelZeroHeight
+        : (editor.detailFullHeight > 0
+            ? editor.detailFullHeight
+            : Math.max(1, editedPreview.sourceSize.height))
+    readonly property real fitScale: viewportState.fitScale
+    readonly property real displayScale: viewportState.displayScale
 
     readonly property color panel: Theme.panel
     readonly property color frameBorderColor: Theme.border
@@ -152,8 +165,7 @@ Rectangle {
     }
 
     function resetView() {
-        fitView = true;
-        zoomFactor = 1.0;
+        viewportState.reset();
         detailImageReadyState = false;
         detailImageLoadFailedState = false;
         previewFlick.contentX = 0;
@@ -172,41 +184,41 @@ Rectangle {
         }
     }
 
-    function normalizedCenterX() {
-        if (photoSurface.width <= 0)
-            return 0.5;
-        return Math.max(0, Math.min(1, (previewFlick.contentX + previewFlick.width / 2 - photoSurface.x) / photoSurface.width));
-    }
-
-    function normalizedCenterY() {
-        if (photoSurface.height <= 0)
-            return 0.5;
-        return Math.max(0, Math.min(1, (previewFlick.contentY + previewFlick.height / 2 - photoSurface.y) / photoSurface.height));
-    }
+    function normalizedCenterX() { return viewportState.centerX }
+    function normalizedCenterY() { return viewportState.centerY }
 
     function centerOnNormalized(nx, ny) {
-        previewFlick.contentX = Math.max(0, Math.min(previewFlick.contentWidth - previewFlick.width, photoSurface.x + nx * photoSurface.width - previewFlick.width / 2));
-        previewFlick.contentY = Math.max(0, Math.min(previewFlick.contentHeight - previewFlick.height, photoSurface.y + ny * photoSurface.height - previewFlick.height / 2));
+        viewportState.place(nx, ny, previewFlick.width / 2, previewFlick.height / 2)
     }
 
-    function normalizedAtViewportX(viewportX) {
-        if (photoSurface.width <= 0)
-            return 0.5;
-        return Math.max(0, Math.min(1, (previewFlick.contentX + viewportX - photoSurface.x) / photoSurface.width));
+    function normalizedAtViewportX(x) { return viewportState.normalizedX(x) }
+    function normalizedAtViewportY(y) { return viewportState.normalizedY(y) }
+
+    function placeNormalizedAtViewport(nx, ny, x, y) {
+        viewportState.place(nx, ny, x, y)
     }
 
-    function normalizedAtViewportY(viewportY) {
-        if (photoSurface.height <= 0)
-            return 0.5;
-        return Math.max(0, Math.min(1, (previewFlick.contentY + viewportY - photoSurface.y) / photoSurface.height));
+    function zoomAnchorX(x) {
+        if (!dualComparison)
+            return x
+        const paneWidth = comparisonMode === comparisonSideBySide
+            ? previewFlick.width / 2 : previewFlick.width
+        return x % paneWidth - 10
+            + (previewFlick.width - viewportState.viewportWidth) / 2
     }
 
-    function placeNormalizedAtViewport(nx, ny, viewportX, viewportY) {
-        previewFlick.contentX = Math.max(0, Math.min(previewFlick.contentWidth - previewFlick.width, photoSurface.x + nx * photoSurface.width - viewportX));
-        previewFlick.contentY = Math.max(0, Math.min(previewFlick.contentHeight - previewFlick.height, photoSurface.y + ny * photoSurface.height - viewportY));
+    function zoomAnchorY(y) {
+        if (!dualComparison)
+            return y
+        const paneHeight = comparisonMode === comparisonStacked
+            ? previewFlick.height / 2 : previewFlick.height
+        return y % paneHeight - 10
+            + (previewFlick.height - viewportState.viewportHeight) / 2
     }
 
     function requestVisibleDetail() {
+        if (viewportState.continuousZoomActive)
+            return;
         if (detailLoupeVisible && fitView && !comparisonActive
                 && editor.active) {
             detailLoupeState.requestDetail()
@@ -226,31 +238,26 @@ Rectangle {
             return;
         }
         detailImageLoadFailedState = false;
-        editor.requestDetailViewport(requestedDetailCenterX, requestedDetailCenterY, pixelWidth, pixelHeight);
+        editor.requestDetailViewport(requestedDetailCenterX, requestedDetailCenterY, pixelWidth, pixelHeight, true);
     }
 
     function directViewportPositionChanged() {
-        if (!componentReady || fitView || zoomFactor < 1.0 || comparisonActive || !editor.active || previewFlick.moving || previewFlick.flicking || suppressViewportTracking || (!editor.detailMode && !detailImageReadyState))
+        if (!componentReady || fitView || zoomFactor < 1.0 || comparisonActive || !editor.active || previewFlick.moving || previewFlick.flicking || suppressViewportTracking || viewportState.applyingTransform || viewportState.continuousZoomActive || (!editor.detailMode && !detailImageReadyState))
             return;
         directViewportSettle.restart();
     }
 
     function setPixelZoom(value) {
-        zoomAtViewport(previewFlick.width / 2, previewFlick.height / 2, value, true);
+        detailLoupeState.close()
+        viewportState.zoomAt(previewFlick.width / 2, previewFlick.height / 2, value);
+        canvas.requestVisibleDetail();
     }
 
     function zoomAtViewport(viewportX, viewportY, value, settleDetail) {
         detailLoupeState.close()
-        const anchorX = normalizedAtViewportX(viewportX);
-        const anchorY = normalizedAtViewportY(viewportY);
-        fitView = false;
-        comparisonActive = false;
-        zoomFactor = Math.max(0.05, Math.min(4.0, value));
-        Qt.callLater(function () {
-            canvas.placeNormalizedAtViewport(anchorX, anchorY, viewportX, viewportY);
-            if (settleDetail)
-                canvas.requestVisibleDetail();
-        });
+        viewportState.zoomAt(zoomAnchorX(viewportX), zoomAnchorY(viewportY), value);
+        if (settleDetail)
+            canvas.requestVisibleDetail();
     }
 
     function zoomStepAtViewport(viewportX, viewportY, direction) {
@@ -283,13 +290,12 @@ Rectangle {
     function beginContinuousZoom() {
         detailLoupeState.close()
         directViewportSettle.stop();
-        detailImageReadyState = false;
-        detailImageLoadFailedState = false;
-        editor.leaveDetailMode();
+        viewportState.beginContinuousZoom();
     }
 
     function finishContinuousZoom() {
-        Qt.callLater(canvas.requestVisibleDetail);
+        viewportState.finishContinuousZoom();
+        canvas.requestVisibleDetail();
     }
 
     Connections {
@@ -301,19 +307,7 @@ Rectangle {
             canvas.readyPreviewGenerationState = "";
             canvas.resetView();
         }
-        function onDetailGeometryChanged() {
-            if (!canvas.fitView && canvas.editor.detailMode) {
-                Qt.callLater(function () {
-                    canvas.suppressViewportTracking = true;
-                    canvas.centerOnNormalized(canvas.requestedDetailCenterX, canvas.requestedDetailCenterY);
-                    canvas.suppressViewportTracking = false;
-                });
-            }
-        }
-        function onDetailTilesChanged() {
-            canvas.detailImageReadyState = false;
-            canvas.detailImageLoadFailedState = false;
-        }
+
     }
 
     onDeviceScaleChanged: {
@@ -335,6 +329,22 @@ Rectangle {
         interval: 70
         repeat: false
         onTriggered: canvas.requestVisibleDetail()
+    }
+
+    PrecisionViewportState {
+        id: viewportState
+        flickable: previewFlick
+        imagePixelWidth: canvas.imagePixelWidth
+        imagePixelHeight: canvas.imagePixelHeight
+        deviceScale: canvas.deviceScale
+        viewportWidth: canvas.dualComparison
+            ? Math.max(1, previewFlick.width
+                / (canvas.comparisonMode === canvas.comparisonSideBySide ? 2 : 1) - 20)
+            : previewFlick.width
+        viewportHeight: canvas.dualComparison
+            ? Math.max(1, previewFlick.height
+                / (canvas.comparisonMode === canvas.comparisonStacked ? 2 : 1) - 20)
+            : previewFlick.height
     }
 
     PrecisionDetailLoupeState {
@@ -385,9 +395,9 @@ Rectangle {
             Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            contentWidth: Math.max(width, photoSurface.width)
-            contentHeight: Math.max(height, photoSurface.height)
-            interactive: !canvas.zoomToolActive && (contentWidth > width || contentHeight > height)
+            contentWidth: viewportState.contentWidth
+            contentHeight: viewportState.contentHeight
+            interactive: !viewportState.continuousZoomActive && !canvas.zoomToolActive && (contentWidth > width || contentHeight > height)
             onMovementStarted: {
                 directViewportSettle.stop();
             }
@@ -405,10 +415,10 @@ Rectangle {
 
             Item {
                 id: photoSurface
-                x: (previewFlick.contentWidth - width) / 2
-                y: (previewFlick.contentHeight - height) / 2
-                width: canvas.dualComparison ? previewFlick.width : canvas.imagePixelWidth * canvas.displayScale
-                height: canvas.dualComparison ? previewFlick.height : canvas.imagePixelHeight * canvas.displayScale
+                x: viewportState.imageX
+                y: viewportState.imageY
+                width: viewportState.imageWidth
+                height: viewportState.imageHeight
 
                 Image {
                     id: editedPreview
@@ -482,7 +492,12 @@ Rectangle {
 
                 PrecisionComparisonSurface {
                     id: comparisonSurface
+                    parent: canvas.dualComparison ? previewFlick : photoSurface
                     anchors.fill: parent
+                    imageDisplayWidth: viewportState.imageWidth
+                    imageDisplayHeight: viewportState.imageHeight
+                    imageCenterX: viewportState.centerX
+                    imageCenterY: viewportState.centerY
                     z: 20
                     editor: canvas.editor
                     editPreviewPresentation: canvas.editPreviewPresentation
@@ -499,29 +514,15 @@ Rectangle {
                     onComparisonPositionRequested: nextPosition => canvas.comparisonPosition = nextPosition
                 }
 
-                Repeater {
-                    model: canvas.editor.detailTiles
-                    delegate: Image {
-                        required property var modelData
-                        x: modelData.x * canvas.displayScale
-                        y: modelData.y * canvas.displayScale
-                        width: modelData.width * canvas.displayScale
-                        height: modelData.height * canvas.displayScale
-                        source: modelData.source
-                        fillMode: Image.Stretch
-                        asynchronous: true
-                        cache: false
-                        smooth: false
-                        visible: canvas.showingFullDetail
-                        onStatusChanged: {
-                            if (status === Image.Ready)
-                                canvas.detailImageReadyState = true;
-                            else if (status === Image.Error) {
-                                canvas.detailImageReadyState = false;
-                                canvas.detailImageLoadFailedState = true;
-                            }
-                        }
-                    }
+                PrecisionDetailSurface {
+                    id: detailSurface
+                    z: 2
+                    tile: canvas.editor.detailTiles.length > 0
+                        ? canvas.editor.detailTiles[0] : ({})
+                    displayScale: canvas.displayScale
+                    visible: canvas.showingFullDetail
+                    onReadyChanged: canvas.detailImageReadyState = ready
+                    onLoadFailedChanged: canvas.detailImageLoadFailedState = loadFailed
                 }
 
                 PrecisionMaskCoverageOverlay {
@@ -543,20 +544,50 @@ Rectangle {
                     interactionEnabled: canvas.activeToolMode === canvas.toolMask && !canvas.comparisonActive && !canvas.editor.aiMaskPromptActive && !canvas.editor.pointColorPickerActive && !canvas.editor.whiteBalancePickerActive && !canvas.editor.retouchPickerActive
                 }
 
+                Image {
+                    objectName: "subjectEmphasisCandidateOverlay"
+                    anchors.fill: parent
+                    z: 100
+                    source: canvas.editor.subjectEmphasis && canvas.editor.subjectEmphasis.active
+                        ? canvas.editor.subjectEmphasis.maskSource : ""
+                    visible: !canvas.comparisonActive && canvas.previewFrameReady
+                        && source.toString().length > 0
+                    fillMode: Image.Stretch
+                    cache: false
+                }
+
                 PrecisionAiMaskPromptOverlay {
                     anchors.fill: parent
                     z: 101
                     interactionEnabled: canvas.editor.aiMaskPromptActive && !canvas.comparisonActive && canvas.previewFrameReady
                     busy: canvas.editor.aiMaskBusy
+                    faceRegionMode: canvas.editor.aiMaskFaceRegionMode
+                    semanticMode: canvas.editor.aiMaskSemanticMode
                     foregroundMode: canvas.editor.aiMaskForegroundMode
                     promptPoints: canvas.editor.aiMaskPromptPoints
+                    peopleCount: canvas.editor.aiMaskPeople.length
                     candidateSource: canvas.editor.aiMaskCandidateSource
                     candidateVisible: canvas.editor.aiMaskHasCandidate
                     foregroundColor: Theme.labelGreen
                     backgroundColor: Theme.labelRed
+                    candidateColor: Theme.labelPurple
                     onPointRequested: (normalizedX, normalizedY, foreground) => canvas.editor.addAiMaskPromptPoint(normalizedX, normalizedY, foreground)
                     onUndoRequested: canvas.editor.undoAiMaskPromptPoint()
                     onClearRequested: canvas.editor.clearAiMaskPromptPoints()
+                    onForegroundModeRequested: foreground => canvas.editor.aiMaskForegroundMode = foreground
+                    onRetryRequested: canvas.editor.generateAiMask()
+                    onApplyRequested: canvas.editor.applyAiMaskCandidate()
+                    onCancelRequested: canvas.editor.cancelAiMaskPrompt()
+                }
+
+                PrecisionAiCompletionOverlay {
+                    anchors.fill: parent
+                    z: 102
+                    editor: canvas.editor
+                    interactionEnabled:
+                        canvas.activeToolMode === canvas.toolCompletion
+                        && !canvas.comparisonActive
+                        && canvas.previewFrameReady
                 }
 
                 PrecisionCropOverlay {
@@ -577,6 +608,23 @@ Rectangle {
                     levelZeroWidth: canvas.imagePixelWidth
                     levelZeroHeight: canvas.imagePixelHeight
                     onRegionSelected: (continuous, index) => canvas.retouchRegionSelectionRequested(continuous, index)
+                }
+
+                PrecisionTargetedCurveOverlay {
+                    anchors.fill: parent
+                    z: 106
+                    editor: canvas.editor
+                    interactionEnabled: !canvas.comparisonActive
+                }
+
+                PrecisionPaintOverlay {
+                    anchors.fill: parent
+                    z: 105
+                    editor: canvas.editor
+                    previewReady: canvas.previewFrameReady
+                    previewGeneration: canvas.readyPreviewGeneration
+                    outputAspectRatio: canvas.imagePixelWidth / Math.max(1, canvas.imagePixelHeight)
+                    interactionEnabled: canvas.activeToolMode === canvas.toolPaint && !canvas.comparisonActive
                 }
 
                 PrecisionLiquifyOverlay {
@@ -601,13 +649,15 @@ Rectangle {
                     z: 100
                     editor: canvas.editor
                     previewItem: photoSurface
+                    samplePreviewItem: liveEditedPreview
                     previewContentRect: Qt.rect(0, 0, photoSurface.width, photoSurface.height)
                     previewFrameReady: canvas.previewFrameReady
                     readyPreviewGeneration: canvas.readyPreviewGeneration
                     displayScale: canvas.displayScale
                     levelZeroWidth: canvas.imagePixelWidth
                     levelZeroHeight: canvas.imagePixelHeight
-                    interactionEnabled: !canvas.comparisonActive && (canvas.editor.retouchPickerActive || ((canvas.editor.pointColorPickerActive || canvas.editor.whiteBalancePickerActive) && canvas.previewFrameReady && canvas.readyPreviewGeneration.length > 0))
+                    selectedRetouchIndex: canvas.selectedRetouchIndex
+                    interactionEnabled: !canvas.comparisonActive && (canvas.editor.retouchPickerActive || ((canvas.editor.pointColorPickerActive || canvas.editor.whiteBalancePickerActive || canvas.editor.rawWhiteBalancePickerActive) && canvas.previewFrameReady && canvas.readyPreviewGeneration.length > 0))
                 }
 
                 HoverHandler {
@@ -659,7 +709,7 @@ Rectangle {
         parent: previewFlick
         anchors.fill: parent
         z: 150
-        interactionEnabled: canvas.editor.active && !canvas.comparisonActive
+        interactionEnabled: canvas.editor.active
             && canvas.activeToolMode === canvas.toolNone
             && !canvas.detailLoupeVisible
         toolActive: canvas.zoomToolActive

@@ -8,6 +8,8 @@ Item {
     id: review
     objectName: "reviewWorkspace"
 
+    property var peopleController: null
+    signal returnToPeopleRequested()
     required property var controller
     required property var justifiedReviewLayout
     required property var reviewGalleryGrouping
@@ -70,6 +72,8 @@ Item {
         selectionState.selectedRemotePreviewUnavailableReason
     readonly property alias selectedRole: selectionState.selectedRole
     readonly property alias selectedVisualSource: selectionState.selectedVisualSource
+    readonly property alias selectedVisualAutoTransform:
+        selectionState.selectedVisualAutoTransform
     readonly property alias selectedWidth: selectionState.selectedWidth
     readonly property alias selectedHeight: selectionState.selectedHeight
 
@@ -167,6 +171,7 @@ Item {
     property string precisionOpenStatus: ""
 
     readonly property bool canMutateDecision: selectedPhotoId.length > 0
+        && selectedPhotoCount === 1
         && !locationCompletionActive
         && !comparison.compareMode
         && !culling.arenaActive
@@ -211,7 +216,10 @@ Item {
         controller.filterKeywordIdsAll.length > 0
         || controller.filterExcludedKeywordIdsAny.length > 0
     readonly property bool hasActiveLibraryFilter:
-        controller.filterFlag !== "all"
+        String(controller.personFilterId || "").length > 0 ||
+        controller.filterHideOfflineUncached === true
+        || controller.filterOnlyEditable === true
+        || controller.filterFlag !== "all"
         || controller.filterMinimumRating > 0
         || controller.filterColorLabel !== "all"
         || controller.filterEditState !== "all"
@@ -223,6 +231,8 @@ Item {
         || semanticSearchController.hasResults
         || smartCategoryController.selectedCategoryId.length > 0
     readonly property string currentLibraryScopeName: {
+        if (String(controller.personFilterId || "").length > 0)
+            return String(controller.personFilterName || "")
         if (currentLibraryAlbumName.length > 0)
             return currentLibraryAlbumName
         if (isDailyCollectionActive())
@@ -280,11 +290,13 @@ Item {
     }
     signal openPrecisionRequested(string photoId, string representationId,
                                   string sourcePath, string photoTitle,
-                                  string previewSource)
+                                  string previewSource, var captureMetadata)
     signal openLibraryManagementRequested()
     signal openMapProviderSettingsRequested()
     signal libraryScopeCommitted()
     signal exportRequested(var targets)
+    signal compositionRequested(var targets, string mode)
+    property string pendingCompositionMode: ""
 
     ReviewMetadataPresentation {
         id: metadataPresentation
@@ -396,6 +408,45 @@ Item {
         return false
     }
 
+    function requestComposition(mode) {
+        if (controller.remoteLibraryBusy || pendingCompositionMode.length > 0) return
+        const targets = batchSelectionTargets()
+        if (targets.length < 2 || targets.length > 12) return
+        pendingCompositionMode = mode
+        if (!requestExport(targets)) pendingCompositionMode = ""
+    }
+    function completePreparedTargets(targets) {
+        const mode = pendingCompositionMode
+        pendingCompositionMode = ""
+        if (mode.length > 0) compositionRequested(targets, mode)
+        else exportRequested(targets)
+    }
+    function requestExport(targets) {
+        const requestedTargets = targets || batchSelectionTargets()
+        let hasRemote = false
+        let needsDownload = false
+        for (let index = 0; index < requestedTargets.length; ++index) {
+            if (Boolean(requestedTargets[index].isRemote)) {
+                hasRemote = true
+                if (!Boolean(requestedTargets[index].remoteOriginalCached))
+                    needsDownload = true
+            }
+        }
+        if (!hasRemote) {
+            completePreparedTargets(requestedTargets)
+            return true
+        }
+        precisionOpenStatus = needsDownload
+            ? qsTr("Downloading the original from the remote Library…")
+            : qsTr("Preparing the cached original…")
+        if (controller.prepareRemoteExport(requestedTargets))
+            return true
+        const failure = remoteOpenFailureMessage(controller.remoteLibraryStatusCode)
+        if (failure.length > 0)
+            precisionOpenStatus = failure
+        return false
+    }
+
     // `revisionId` is UUIDv7-based, so descending lexical order gives a
     // stable "recently published or revised" quick list today. A later
     // catalog usage counter can refine this list by frequency without
@@ -468,6 +519,10 @@ Item {
 
     function selectPhoto(card, modifiers) {
         selectionState.selectPhoto(card, modifiers)
+    }
+
+    function focusGallery() {
+        gallerySurface.forceGalleryFocus()
     }
 
     function selectMapPhoto(cluster) {
@@ -603,7 +658,9 @@ Item {
         if (!canOpenSelectedPhoto)
             return
         if (selectedIsRemote) {
-            precisionOpenStatus = qsTr("Downloading the original RAW from the remote Library…")
+            precisionOpenStatus = selectedRemoteOriginalCached
+                ? qsTr("Preparing the cached original…")
+                : qsTr("Downloading the original from the remote Library…")
             controller.materializeRemotePhoto(selectedPhotoId)
             return
         }
@@ -615,7 +672,33 @@ Item {
             return
         }
         openPrecisionRequested(selectedPhotoId, selectedRepresentationId,
-                               selectedPath, selectedTitle, selectedVisualSource)
+                               selectedPath, selectedTitle, selectedVisualSource,
+                               selectedCaptureMetadata())
+    }
+
+    function selectedCaptureMetadata() {
+        return {
+            "representationId": selectedRepresentationId,
+            "pending": controller.scanning || controller.refreshing,
+            "available": selectedHasMetadata,
+            "cameraMake": selectedCameraMake,
+            "cameraModel": selectedCameraModel,
+            "lensMake": selectedLensMake,
+            "lensModel": selectedLensModel,
+            "isoSpeed": selectedIsoSpeed,
+            "exposureTimeSeconds": selectedExposureTimeSeconds,
+            "apertureFNumber": selectedApertureFNumber,
+            "focalLengthMm": selectedFocalLengthMm,
+            "hasFocusObservation": selectedHasFocusObservation,
+            "focusObservationSchemaVersion": selectedFocusObservationSchemaVersion,
+            "focusObservationSource": selectedFocusObservationSource,
+            "focusObservationCenterX": selectedFocusObservationCenterX,
+            "focusObservationCenterY": selectedFocusObservationCenterY,
+            "focusObservationWidth": selectedFocusObservationWidth,
+            "focusObservationHeight": selectedFocusObservationHeight,
+            "focusObservationConfirmed": selectedFocusObservationConfirmed,
+            "focusObservationConfidence": selectedFocusObservationConfidence
+        }
     }
 
     function reportPrecisionOpenFailure(message) {
@@ -629,6 +712,8 @@ Item {
             return qsTr("Connect to the remote Library in Settings, then try again.")
         case "remote-original-unavailable":
             return qsTr("The remote server does not currently allow this RAW to be downloaded.")
+        case "remote-server-offline":
+            return qsTr("The remote server is offline and this original is not cached locally.")
         case "remote-photo-unavailable":
             return qsTr("This remote photo is no longer available in the local mirror.")
         case "materialize-failed":
@@ -650,6 +735,15 @@ Item {
 
     Connections {
         target: review.controller
+        function onFiltersChanged() {
+            Qt.callLater(selectionState.reconcileSelection)
+        }
+        function onRefreshingChanged() {
+            Qt.callLater(selectionState.reconcileSelection)
+        }
+        function onScanningChanged() {
+            Qt.callLater(selectionState.reconcileSelection)
+        }
         function onItemCountChanged() {
             if (review.controller.itemCount === 0)
                 review.clearSelection()
@@ -666,10 +760,24 @@ Item {
         function onSourceAvailabilityChanged(photoId, available) {
             selectionState.applySourceAvailabilityChanged(photoId, available)
         }
-        function onRemotePhotoReady(photoId, representationId, sourcePath, title) {
+        function onRemotePhotoReady(photoId, representationId, sourcePath, title,
+                                    captureMetadata) {
             review.precisionOpenStatus = ""
             review.openPrecisionRequested(
-                photoId, representationId, sourcePath, title, "")
+                photoId, representationId, sourcePath, title, "", captureMetadata)
+        }
+        function onRemoteInspectionChanged(photoId, inspection) {
+            selectionState.applyRemoteInspectionChanged(photoId, inspection)
+        }
+        function onRemoteExportReady(targets) {
+            review.precisionOpenStatus = ""
+            review.completePreparedTargets(targets)
+        }
+        function onRemoteExportPreparationFailed(statusCode) {
+            review.pendingCompositionMode = ""
+            const failure = review.remoteOpenFailureMessage(statusCode)
+            review.precisionOpenStatus = failure.length > 0 ? failure
+                : review.controller.remoteLibraryDiagnosticText
         }
         function onRemoteLibraryChanged() {
             if (review.controller.remoteLibraryMaterializing)
@@ -749,8 +857,22 @@ Item {
         onActivated: review.setSelectedRating(5)
     }
 
+    ReviewPersonBar {
+        id: personBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        visible: String(review.controller.personFilterId || "").length > 0
+        height: visible ? implicitHeight : 0
+        workspace: review
+        onBackRequested: review.returnToPeopleRequested()
+    }
+
     RowLayout {
-        anchors.fill: parent
+        anchors.top: personBar.bottom
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
         spacing: 0
 
         ReviewLibrarySidebar {
@@ -772,7 +894,7 @@ Item {
             onOpenMetadataRequested: metadataWindow.present()
             onSharedGradeRequested: anchorItem =>
                 sharedGradePicker.presentFrom(anchorItem)
-            onExportRequested: targets => review.exportRequested(targets)
+            onExportRequested: targets => review.requestExport(targets)
         }
 
         LibraryLocationCompletionGallery {

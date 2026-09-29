@@ -15,8 +15,10 @@ use shadow_domain::operation::{
     CONTRAST_FACTOR_PARAMETER_KEY, CONTRAST_PIVOT_PARAMETER_KEY,
     CPU_REFERENCE_IMPLEMENTATION_VERSION, CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
     DETAIL_EFFECTS_PARAMETERS_KEY, EXPOSURE_STOPS_PARAMETER_KEY, GLOBAL_A_BALANCE_PARAMETER_KEY,
-    GLOBAL_B_BALANCE_PARAMETER_KEY, HIGHLIGHTS_PARAMETER_KEY, LUT_INTENSITY_PARAMETER_KEY,
-    LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
+    GLOBAL_B_BALANCE_PARAMETER_KEY, HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY,
+    HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY, HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY,
+    HIGHLIGHTS_PARAMETER_KEY, LUT_INTENSITY_PARAMETER_KEY, LUT_MANAGED_PATH_PARAMETER_KEY,
+    LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
     OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY, OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
     OKLAB_COLOR_WARPER_OPERATION_ID, OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
     OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
@@ -43,14 +45,16 @@ use crate::ffi;
 
 use super::snapshot_layout::GradeNodeRecipeV1RenderOps;
 use super::{
-    CONTRAST_PIVOT, FineEditParameters, GradeNodeDraft, GradeNodeRecipeV1Identity, GradeStackDraft,
-    LutEditParameters, MAX_GRADE_NODES, PreservedManagedRasterSettings, SharedGradeNodeReference,
-    apply_detail_effect_values, encode_grade_node_draft_recipe_v1, fixed_color_mixer,
-    fixed_selective_color, grade_node_recipe_v1_render_ops, is_neutral_oklab_color_warper,
-    oklab_color_warper_from_ffi, point_color_ranges_from_vector, recipe_color_grading_render_op_id,
-    recipe_finishing_effects_render_op_id, recipe_v1_oklab_color_warper_render_op_id,
-    recipe_v1_oklab_lightness_tone_curve_render_op_id, validate_basic_parameters,
-    validate_fine_parameters, validate_grade_stack_draft_recipe_v1, validate_tone_curve,
+    CONTRAST_PIVOT, CompositeMaskDraft, FineEditParameters, GradeNodeDraft,
+    GradeNodeRecipeV1Identity, GradeStackDraft, LutEditParameters, MAX_GRADE_NODES,
+    MaskComponentDraft, MaskComponentDraftDefinition, PreservedManagedRasterSettings,
+    SharedGradeNodeReference, apply_detail_effect_values, encode_grade_node_draft_recipe_v1,
+    fixed_color_mixer, fixed_selective_color, grade_node_recipe_v1_render_ops,
+    is_neutral_oklab_color_warper, oklab_color_warper_from_ffi, point_color_ranges_from_vector,
+    recipe_color_grading_render_op_id, recipe_finishing_effects_render_op_id,
+    recipe_v1_oklab_color_warper_render_op_id, recipe_v1_oklab_lightness_tone_curve_render_op_id,
+    validate_basic_parameters, validate_fine_parameters, validate_grade_stack_draft_recipe_v1,
+    validate_tone_curve,
 };
 
 #[cfg(test)]
@@ -109,13 +113,7 @@ pub(crate) fn basic_parameters_from_nodes(
 pub(crate) fn fine_parameters_from_nodes(
     nodes: &GradeNodeRecipeV1RenderOps<'_>,
 ) -> AnyResult<FineEditParameters> {
-    let node = nodes.selective_tone;
-    let selective_tone = SelectiveToneParameters {
-        highlights: required_float(node.parameters(), HIGHLIGHTS_PARAMETER_KEY, 4)?,
-        shadows: required_float(node.parameters(), SHADOWS_PARAMETER_KEY, 4)?,
-        whites: required_float(node.parameters(), WHITES_PARAMETER_KEY, 4)?,
-        blacks: required_float(node.parameters(), BLACKS_PARAMETER_KEY, 4)?,
-    };
+    let selective_tone = selective_tone_parameters(nodes.selective_tone.parameters())?;
     let perceptual_color = {
         let node = nodes.perceptual_color;
         let expected_len = 17;
@@ -315,6 +313,10 @@ pub(crate) fn fine_parameters_from_nodes(
         perceptual_color,
         oklab_color_warper,
         oklab_lightness_curve,
+        rgb_tone_curves: nodes
+            .rgb_tone_curves
+            .map(super::rgb_tone_curves::decode_rgb_tone_curves)
+            .transpose()?,
         lut,
         sharpen,
     };
@@ -350,17 +352,22 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
             .layers()
             .iter()
             .map(|layer| {
-                let (local_mask, preserved_managed_raster) =
+                let (local_mask, composite_mask, preserved_managed_raster) =
                     recipe_v1_local_mask_from_snapshot(snapshot, layer)?;
                 decode_grade_node_draft_from_recipe_v1_layer(
                     layer,
                     local_mask,
+                    composite_mask,
                     preserved_managed_raster,
                 )
             })
             .collect::<AnyResult<Vec<_>>>()?,
         retouch_spots: snapshot.retouch_spots().to_vec(),
         retouch_strokes: snapshot.retouch_strokes().to_vec(),
+        retouch_enabled: snapshot.retouch_enabled(),
+        paint_layers: snapshot.paint_layers().to_vec(),
+        image_completions: snapshot.image_completions().to_vec(),
+        image_completion_enabled: snapshot.image_completion_enabled(),
         liquify: snapshot.structural_nodes().liquify().cloned(),
         canvas: *snapshot.canvas_node(),
     };
@@ -371,10 +378,14 @@ pub(crate) fn decode_grade_stack_draft_from_recipe_v1_snapshot(
 pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
     layer: &LayerInstance,
     local_mask: Option<MaskDefinition>,
+    composite_mask: Option<CompositeMaskDraft>,
     preserved_managed_raster: Option<PreservedManagedRasterSettings>,
 ) -> AnyResult<GradeNodeDraft> {
     let nodes = grade_node_recipe_v1_render_ops(layer)?;
-    if nodes.color_grading.id() != recipe_color_grading_render_op_id(layer.id())
+    if nodes
+        .rgb_tone_curves
+        .is_some_and(|node| node.id() != super::recipe_v1_rgb_tone_curves_render_op_id(layer.id()))
+        || nodes.color_grading.id() != recipe_color_grading_render_op_id(layer.id())
         || nodes.finishing_effects.id() != recipe_finishing_effects_render_op_id(layer.id())
         || nodes.oklab_lightness_curve.is_some_and(|node| {
             node.id() != recipe_v1_oklab_lightness_tone_curve_render_op_id(layer.id())
@@ -390,6 +401,7 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
     Ok(GradeNodeDraft {
         recipe_v1_identity: GradeNodeRecipeV1Identity {
             grade_node_id: layer.id(),
+            rgb_tone_curves_render_op_id: super::recipe_v1_rgb_tone_curves_render_op_id(layer.id()),
             exposure_render_op_id: nodes.exposure.id(),
             contrast_render_op_id: nodes.contrast.id(),
             oklab_lightness_curve_render_op_id: nodes.oklab_lightness_curve.map_or_else(
@@ -424,6 +436,7 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
         label: layer.label().to_owned(),
         opacity: layer.opacity(),
         local_mask,
+        composite_mask,
         preserved_managed_raster,
         basic,
         fine,
@@ -431,15 +444,33 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
     })
 }
 
+fn validate_editable_condition(node: &shadow_domain::ConditionMaskNode) -> AnyResult<()> {
+    use shadow_domain::{ConditionMaskNode, ConditionMaskPredicate};
+    match node {
+        ConditionMaskNode::Leaf {
+            condition: ConditionMaskPredicate::LocalDetailRange { .. },
+        } => bail!("local-detail mask conditions are not supported by this desktop renderer"),
+        ConditionMaskNode::All { children } | ConditionMaskNode::Any { children } => {
+            for child in children {
+                validate_editable_condition(child)?;
+            }
+        }
+        ConditionMaskNode::Not { child } => validate_editable_condition(child)?,
+        ConditionMaskNode::Leaf { .. } => {}
+    }
+    Ok(())
+}
+
 fn recipe_v1_local_mask_from_snapshot(
     snapshot: &RecipeSnapshot,
     layer: &LayerInstance,
 ) -> AnyResult<(
     Option<MaskDefinition>,
+    Option<CompositeMaskDraft>,
     Option<PreservedManagedRasterSettings>,
 )> {
     let Some(reference) = layer.mask() else {
-        return Ok((None, None));
+        return Ok((None, None, None));
     };
     if reference.coordinate_space() != MaskCoordinateSpace::Original {
         bail!(
@@ -456,29 +487,71 @@ fn recipe_v1_local_mask_from_snapshot(
             reference.revision()
         )
     })?;
-    if matches!(
-        mask.definition(),
-        MaskDefinition::ConditionExpression { .. }
-    ) {
-        bail!(
-            "the current editable Grade Stack cannot project persisted composite condition masks into the Qt DTO"
-        );
-    }
     match mask.definition() {
+        MaskDefinition::ConditionExpression { expression } => {
+            validate_editable_condition(expression.root())?;
+            Ok((Some(mask.definition().clone()), None, None))
+        }
         MaskDefinition::ManagedRaster {
+            semantic_intent,
             expansion_percent,
             feather_percent,
             invert,
             ..
         } => Ok((
             None,
+            None,
             Some(PreservedManagedRasterSettings {
                 expansion_percent: *expansion_percent,
                 feather_percent: *feather_percent,
                 invert: *invert,
+                semantic_intent: semantic_intent.clone(),
             }),
         )),
-        definition => Ok((Some(definition.clone()), None)),
+        MaskDefinition::Composite { composite } => {
+            let components = composite
+                .components()
+                .iter()
+                .map(|component| {
+                    let definition = match component.definition() {
+                        MaskDefinition::ConditionExpression { expression } => {
+                            validate_editable_condition(expression.root())?;
+                            MaskComponentDraftDefinition::Definition(component.definition().clone())
+                        }
+                        MaskDefinition::ManagedRaster {
+                            semantic_intent,
+                            expansion_percent,
+                            feather_percent,
+                            invert,
+                            ..
+                        } => MaskComponentDraftDefinition::PreservedManagedRaster(
+                            PreservedManagedRasterSettings {
+                                expansion_percent: *expansion_percent,
+                                feather_percent: *feather_percent,
+                                invert: *invert,
+                                semantic_intent: semantic_intent.clone(),
+                            },
+                        ),
+                        definition => MaskComponentDraftDefinition::Definition(definition.clone()),
+                    };
+                    Ok(MaskComponentDraft {
+                        id: component.id(),
+                        operation: component.operation(),
+                        enabled: component.enabled(),
+                        definition,
+                    })
+                })
+                .collect::<AnyResult<Vec<_>>>()?;
+            Ok((
+                None,
+                Some(CompositeMaskDraft {
+                    components,
+                    invert: composite.invert(),
+                }),
+                None,
+            ))
+        }
+        definition => Ok((Some(definition.clone()), None, None)),
     }
 }
 
@@ -499,7 +572,7 @@ pub(crate) fn grade_node_draft_from_shared_revision(
         BlendMode::Normal,
         None,
     )?;
-    decode_grade_node_draft_from_recipe_v1_layer(&layer, None, None)
+    decode_grade_node_draft_from_recipe_v1_layer(&layer, None, None, None)
 }
 
 pub(crate) fn ffi_shared_grade_node(
@@ -713,6 +786,52 @@ pub(crate) fn required_float(
             key.as_str()
         ),
     }
+}
+
+pub(crate) fn selective_tone_parameters(
+    parameters: &ParameterBlock,
+) -> AnyResult<SelectiveToneParameters> {
+    const LEGACY_PARAMETER_COUNT: usize = 4;
+    const CURRENT_PARAMETER_COUNT: usize = 7;
+    let parameter_count = parameters.len();
+    if parameter_count != LEGACY_PARAMETER_COUNT && parameter_count != CURRENT_PARAMETER_COUNT {
+        bail!("Selective Tone node has unexpected parameter count");
+    }
+
+    let legacy = parameter_count == LEGACY_PARAMETER_COUNT;
+    Ok(SelectiveToneParameters {
+        highlights: required_float(parameters, HIGHLIGHTS_PARAMETER_KEY, parameter_count)?,
+        shadows: required_float(parameters, SHADOWS_PARAMETER_KEY, parameter_count)?,
+        whites: required_float(parameters, WHITES_PARAMETER_KEY, parameter_count)?,
+        blacks: required_float(parameters, BLACKS_PARAMETER_KEY, parameter_count)?,
+        highlight_red_suppression: if legacy {
+            0.0
+        } else {
+            required_float(
+                parameters,
+                HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY,
+                parameter_count,
+            )?
+        },
+        highlight_green_suppression: if legacy {
+            0.0
+        } else {
+            required_float(
+                parameters,
+                HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY,
+                parameter_count,
+            )?
+        },
+        highlight_blue_suppression: if legacy {
+            0.0
+        } else {
+            required_float(
+                parameters,
+                HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY,
+                parameter_count,
+            )?
+        },
+    })
 }
 
 pub(crate) fn required_float_vector(

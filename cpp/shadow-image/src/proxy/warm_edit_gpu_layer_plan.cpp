@@ -31,6 +31,12 @@ WarmGpuLayerPlan prepare_warm_gpu_layer_plan(
     if (target_layer_index.has_value()) {
         const AdjustmentLayer& target = layers[*target_layer_index];
         if (target.mask.has_value()) {
+            if (!target.mask->components.empty()) {
+                result.complete = false;
+                result.diagnostic =
+                    "composite local-mask coverage requires exact CPU replay; resident Metal supports legacy leaves only";
+                return result;
+            }
             auto preparation = prepare_warm_gpu_mask_plan(
                 source_layout,
                 *target.mask,
@@ -64,6 +70,13 @@ WarmGpuLayerPlan prepare_warm_gpu_layer_plan(
         );
         if (execution.segments.empty()) {
             continue;
+        }
+        if (layer.mask.has_value() && !layer.mask->components.empty()) {
+            result.complete = false;
+            result.active_layers.clear();
+            result.diagnostic =
+                "active composite local masks require exact CPU replay; resident Metal supports legacy leaves only";
+            return result;
         }
         WarmLayerBlendParameters blend{
             .width = source_layout.dimensions.width,

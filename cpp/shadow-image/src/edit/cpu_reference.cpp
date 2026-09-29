@@ -12,6 +12,7 @@
 #include "edit_execution_validation.hpp"
 #include "finishing_effects_cpu.hpp"
 #include "guided_selective_tone.hpp"
+#include "image_completion.hpp"
 #include "oklab_color_warper.hpp"
 #include "perceptual_color.hpp"
 #include "perceptual_contrast.hpp"
@@ -21,6 +22,7 @@
 #include "technical_detail_cpu.hpp"
 #include "tone_curve_internal.hpp"
 #include "working_color_math.hpp"
+#include <shadow/image/paint.hpp>
 
 #include <algorithm>
 #include <array>
@@ -46,12 +48,14 @@ namespace {
 using detail::apply_color_matrix;
 using detail::apply_creative_detail_grading_cpu;
 using detail::apply_finishing_effects_cpu;
+using detail::apply_image_completion;
 using detail::apply_oklab_color_warper_cpu;
 using detail::apply_perceptual_color_cpu;
 using detail::apply_prepared_guided_selective_tone_cpu;
 using detail::apply_prepared_oklab_lightness_tone_curve;
 using detail::apply_prepared_oklab_opponent_tone_curves;
 using detail::apply_prepared_perceptual_contrast_cpu;
+using detail::apply_prepared_rgb_tone_curves;
 using detail::apply_technical_detail_cpu;
 using detail::classify_perceptual_color;
 using detail::creative_detail_footprint;
@@ -64,10 +68,12 @@ using detail::prepare_guided_selective_tone;
 using detail::prepare_oklab_lightness_tone_curve_node;
 using detail::prepare_oklab_opponent_tone_curves_node;
 using detail::prepare_perceptual_contrast;
+using detail::prepare_rgb_tone_curves_node;
 using detail::prepare_rgb_white_balance_matrix;
 using detail::prepare_working_space_transform;
 using detail::PreparedOklabOpponentToneCurves;
 using detail::PreparedPerceptualContrast;
+using detail::PreparedRgbToneCurves;
 using detail::PreparedSmoothToneCurve;
 using detail::PreparedToneCurveAdjustment;
 using detail::technical_detail_footprint;
@@ -76,6 +82,7 @@ using detail::transform_rgb_pixels;
 using detail::validate_edit_execution_context;
 using detail::validate_edit_image;
 using detail::validate_guided_selective_tone;
+using detail::validate_image_completion;
 using detail::validate_oklab_color_warper;
 using detail::validate_perceptual_color;
 using detail::Vector3;
@@ -164,6 +171,8 @@ validate_node(const AdjustmentNode& node, const std::size_t index) {
                 }
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
                 prepared.perceptual_contrast = prepare_perceptual_contrast(parameters, node, index);
+            } else if constexpr (std::is_same_v<Parameters, RgbToneCurves>) {
+                prepared.tone_curve = prepare_rgb_tone_curves_node(parameters, node, index);
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 prepared.tone_curve =
                     prepare_oklab_lightness_tone_curve_node(parameters, node, index);
@@ -232,6 +241,14 @@ validate_node(const AdjustmentNode& node, const std::size_t index) {
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 try {
                     validate_spot_heal(parameters);
+                } catch (const EditError& error) {
+                    throw_node_error(error.code(), index, node, error.what());
+                }
+            } else if constexpr (std::is_same_v<Parameters, PaintLayerAdjustment>) {
+                detail::validate_paint_layer(parameters);
+            } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
+                try {
+                    validate_image_completion(parameters);
                 } catch (const EditError& error) {
                     throw_node_error(error.code(), index, node, error.what());
                 }
@@ -322,6 +339,8 @@ prepare_adjustment_nodes(const std::span<const AdjustmentNode> nodes) {
                 return value.stops == 0.0;
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
                 return prepared.perceptual_contrast->neutral();
+            } else if constexpr (std::is_same_v<Parameters, RgbToneCurves>) {
+                return std::get<PreparedRgbToneCurves>(prepared.tone_curve).is_identity();
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 return std::get<PreparedSmoothToneCurve>(prepared.tone_curve).is_identity();
             } else if constexpr (std::is_same_v<Parameters, OklabOpponentToneCurves>) {
@@ -340,6 +359,13 @@ prepare_adjustment_nodes(const std::span<const AdjustmentNode> nodes) {
                 return value.intensity == 0.0;
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 return value.spots.empty() && value.strokes.empty();
+            } else if constexpr (std::is_same_v<Parameters, PaintLayerAdjustment>) {
+                return value.strokes.empty() || value.opacity == 0;
+            } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
+                return value.patches.empty()
+                       || std::ranges::all_of(value.patches, [](const auto& patch) {
+                              return patch.strength == 0.0;
+                          });
             } else {
                 static_assert(std::is_same_v<Parameters, SharpenAdjustment>);
                 switch (value.execution_pass) {
@@ -400,6 +426,13 @@ void apply_node(
                     node,
                     index,
                     *prepared.perceptual_contrast
+                );
+            } else if constexpr (std::is_same_v<Parameters, RgbToneCurves>) {
+                apply_prepared_rgb_tone_curves(
+                    image,
+                    std::get<PreparedRgbToneCurves>(prepared.tone_curve),
+                    node,
+                    index
                 );
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 const WorkingSpaceTransform color_transform =
@@ -480,7 +513,8 @@ void apply_node(
                     image,
                     node,
                     index,
-                    prepared_selective_tone
+                    prepared_selective_tone,
+                    context
                 );
             } else if constexpr (std::is_same_v<Parameters, PerceptualColorAdjustment>) {
                 const PerceptualColorStages stages = classify_perceptual_color(parameters);
@@ -507,6 +541,10 @@ void apply_node(
                 });
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 apply_spot_heal(image, parameters, context);
+            } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
+                apply_image_completion(image, parameters, context);
+            } else if constexpr (std::is_same_v<Parameters, PaintLayerAdjustment>) {
+                detail::apply_paint_layer(image, parameters, context);
             } else if constexpr (std::is_same_v<Parameters, SharpenAdjustment>) {
                 switch (parameters.execution_pass) {
                 case DetailEffectsExecutionPass::technical_detail:
@@ -539,6 +577,7 @@ AdjustmentLocality locality(const AdjustmentOperation operation) noexcept {
     switch (operation) {
     case AdjustmentOperation::exposure:
     case AdjustmentOperation::contrast:
+    case AdjustmentOperation::rgb_tone_curves:
     case AdjustmentOperation::oklab_lightness_tone_curve:
     case AdjustmentOperation::oklab_opponent_tone_curves:
     case AdjustmentOperation::rgb_white_balance:
@@ -546,6 +585,8 @@ AdjustmentLocality locality(const AdjustmentOperation operation) noexcept {
     case AdjustmentOperation::perceptual_color:
     case AdjustmentOperation::oklab_color_warper:
     case AdjustmentOperation::lut_3d:
+    case AdjustmentOperation::paint_layer:
+    case AdjustmentOperation::image_completion:
         return AdjustmentLocality::pixel_local;
     case AdjustmentOperation::selective_tone:
     case AdjustmentOperation::sharpen:

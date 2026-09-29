@@ -52,15 +52,14 @@ class EditAiMaskPromptState final {
     [[nodiscard]] bool busy() const noexcept;
     [[nodiscard]] std::optional<std::uint64_t> active_job_token() const noexcept;
 
-    [[nodiscard]] AiMaskPromptMutationResult append_point(
-        AiMaskPromptPoint point
-    );
+    [[nodiscard]] AiMaskPromptMutationResult append_point(AiMaskPromptPoint point);
     [[nodiscard]] AiMaskPromptMutationResult undo_point() noexcept;
     [[nodiscard]] AiMaskPromptMutationResult clear_points() noexcept;
 
-    [[nodiscard]] std::optional<AiMaskPromptSnapshot> begin_request(
-        std::uint64_t job_token
-    );
+    [[nodiscard]] AiMaskPromptMutationResult invalidate_selection() noexcept;
+
+    [[nodiscard]] std::optional<AiMaskPromptSnapshot>
+    begin_request(std::uint64_t job_token, bool allow_empty = false);
 
     // Cancelling returns the provider job token that the controller must pass
     // to the backend cancellation boundary.
@@ -72,10 +71,8 @@ class EditAiMaskPromptState final {
 
     // Current means the result matches the exact active job and generation.
     // Either outcome retires a matching active job exactly once.
-    [[nodiscard]] AiMaskPromptCompletion complete_request(
-        std::uint64_t job_token,
-        std::uint64_t generation
-    ) noexcept;
+    [[nodiscard]] AiMaskPromptCompletion
+    complete_request(std::uint64_t job_token, std::uint64_t generation) noexcept;
 
   private:
     struct ActiveRequest final {

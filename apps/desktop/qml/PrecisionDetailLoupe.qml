@@ -155,7 +155,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: qsTr("Detail loupe")
                             color: Theme.textPrimary
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontSection
                             font.weight: Font.DemiBold
                             elide: Text.ElideRight
                         }
@@ -164,7 +164,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: loupe.targetLabel
                             color: Theme.textMuted
-                            font.pixelSize: 8
+                            font.pixelSize: Theme.fontCaption
                             elide: Text.ElideRight
                         }
                     }
@@ -331,7 +331,7 @@ Rectangle {
                             ? qsTr("Rendering 100% detail…")
                             : qsTr("Waiting for 100% detail…")
                     color: Theme.textPrimary
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                 }
             }
 
@@ -342,7 +342,7 @@ Rectangle {
                 wrapMode: Text.Wrap
                 text: String(loupe.editor.detailErrorText || "")
                 color: Theme.labelRed
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 visible: text.length > 0 && !loupe.detailReady
             }
         }
@@ -364,7 +364,7 @@ Rectangle {
                         ? qsTr("Following pointer")
                         : qsTr("Pinned · click photo to reposition")
                     color: Theme.textMuted
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontCaption
                     elide: Text.ElideRight
                 }
 

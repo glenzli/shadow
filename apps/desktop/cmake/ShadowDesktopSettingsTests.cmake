@@ -530,6 +530,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowTextField.qml
             qml/MapProviderSettingsDialog.qml
             qml/MapProviderSettingsPane.qml
             qml/ShadowButton.qml
@@ -575,6 +576,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowTextField.qml
             qml/ApplicationSettingsDialog.qml
             qml/SettingsGeneralPane.qml
             qml/SettingsLibraryPane.qml
@@ -621,6 +623,19 @@
         shadow-desktop-application-settings-dialog
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+
+    add_executable(shadow-review-metadata-presentation-test
+        tests/review_metadata_presentation_test.cpp)
+    target_compile_features(shadow-review-metadata-presentation-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-review-metadata-presentation-test PRIVATE Qt6::Gui Qt6::Qml)
+    qt_add_qml_module(shadow-review-metadata-presentation-test
+        URI Shadow.ReviewMetadataContract VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/ReviewMetadataPresentation.qml)
+    add_test(NAME shadow-desktop-review-metadata-presentation
+        COMMAND shadow-review-metadata-presentation-test)
+    set_tests_properties(shadow-desktop-review-metadata-presentation PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
 
     add_executable(
         shadow-metadata-field-selector-row-test
@@ -788,6 +803,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowTextField.qml
             qml/LibraryRemoteConnectionsPane.qml
             qml/ShadowButton.qml
             qml/ShadowIcon.qml
@@ -821,3 +837,27 @@
         shadow-desktop-library-remote-connections-pane
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+
+# Packaged shared fields preserve editing and keyboard popup semantics.
+add_executable(shadow-form-controls-contract-test tests/form_controls_contract_test.cpp)
+target_compile_features(shadow-form-controls-contract-test PRIVATE cxx_std_20)
+target_compile_definitions(shadow-form-controls-contract-test
+    PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(shadow-form-controls-contract-test
+    PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+qt_add_qml_module(shadow-form-controls-contract-test
+    URI Shadow.FormControlsContract
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+        qml/ShadowTextField.qml
+        qml/ShadowComboBox.qml
+        qml/ShadowIcon.qml
+        qml/Theme.qml)
+qt_add_resources(shadow-form-controls-contract-test form-controls-icons
+    PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+    FILES icons/chevron-down.svg icons/map.svg icons/settings.svg)
+add_test(NAME shadow-desktop-form-controls-contract COMMAND shadow-form-controls-contract-test)
+set_tests_properties(shadow-desktop-form-controls-contract
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

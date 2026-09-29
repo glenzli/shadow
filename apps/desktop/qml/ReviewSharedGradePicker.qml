@@ -49,7 +49,7 @@ Popup {
             text: qsTr("APPLY SHARED NODE · %L1 PHOTOS").arg(
                 picker.workspace.selectedPhotoCount)
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }
@@ -63,7 +63,7 @@ Popup {
             visible: picker.workspace.controller.sharedGradeNodes.length === 0
             text: qsTr("No shared Grade Nodes yet")
             color: Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
 
         ListView {
@@ -100,7 +100,7 @@ Popup {
                         Layout.fillWidth: true
                         text: String(sharedBatchRow.modelData.label)
                         color: Theme.textPrimary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                         elide: Text.ElideRight
                     }
 
@@ -108,7 +108,7 @@ Popup {
                         text: qsTr("V%1").arg(
                             Number(sharedBatchRow.modelData.revisionNumber))
                         color: Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                     }
                 }
 

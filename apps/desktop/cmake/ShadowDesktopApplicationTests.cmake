@@ -1,5 +1,18 @@
 # Application-shell and Qt/backend boundary contracts: startup, history,
 # export, folder import, and production-linked backend projection.
+    add_executable(shadow-export-workflow-contract-test
+        tests/export_workflow_contract_test.cpp)
+    target_compile_features(shadow-export-workflow-contract-test PRIVATE cxx_std_20)
+    target_compile_definitions(shadow-export-workflow-contract-test PRIVATE
+        SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(shadow-export-workflow-contract-test PRIVATE
+        Qt6::Quick Qt6::Qml Qt6::Test)
+    add_test(NAME shadow-desktop-export-workflow-contract
+        COMMAND shadow-export-workflow-contract-test)
+    set_tests_properties(shadow-desktop-export-workflow-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+        LABELS "desktop;qml;export" TIMEOUT 30)
+
     add_test(
         NAME shadow-desktop-qml-startup
         COMMAND $<TARGET_FILE:shadow-desktop>
@@ -12,6 +25,8 @@
     add_executable(
         shadow-people-analysis-controller-test
         tests/people_analysis_controller_test.cpp
+        src/ai_preferences.cpp
+        src/ai_preferences.hpp
         src/people_analysis_controller.cpp
         src/people_analysis_controller.hpp
     )
@@ -100,6 +115,56 @@
     )
 
     add_executable(
+        shadow-review-smart-category-feedback-popup-test
+        tests/review_smart_category_feedback_popup_test.cpp
+    )
+    target_compile_features(
+        shadow-review-smart-category-feedback-popup-test PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-review-smart-category-feedback-popup-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test
+    )
+    qt_add_qml_module(
+        shadow-review-smart-category-feedback-popup-test
+        URI Shadow.SmartCategoryFeedbackContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/ReviewSmartCategoryFeedbackPopup.qml
+            qml/ShadowButton.qml
+            qml/ShadowCheckBox.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-review-smart-category-feedback-popup-test
+        shadow-review-smart-category-feedback-popup-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/check.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-review-smart-category-feedback-popup-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-review-smart-category-feedback-popup-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-review-smart-category-feedback-popup
+        COMMAND shadow-review-smart-category-feedback-popup-test
+    )
+    set_tests_properties(
+        shadow-desktop-review-smart-category-feedback-popup
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-image-understanding-controller-test
         tests/image_understanding_controller_test.cpp
         src/image_understanding_controller.cpp
@@ -147,7 +212,9 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowTextField.qml
             qml/PeopleWorkspace.qml
+            qml/ShadowIconButton.qml
             qml/ShadowButton.qml
             qml/ShadowIcon.qml
             qml/Theme.qml
@@ -158,6 +225,8 @@
         BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
         FILES
             icons/people.svg
+            icons/refresh.svg
+            icons/trash.svg
             icons/storage.svg
     )
     if(MSVC)
@@ -277,6 +346,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowTextField.qml
             qml/HistoryDrawer.qml
             qml/ShadowButton.qml
             qml/ShadowIcon.qml
@@ -598,3 +668,10 @@
         NAME shadow-desktop-review-source-health-backend-contract
         COMMAND shadow-review-source-health-backend-contract-test
     )
+
+    add_executable(shadow-catalog-startup-recovery-test
+        tests/catalog_startup_recovery_test.cpp src/catalog_startup_recovery.cpp src/catalog_startup_recovery.hpp)
+    target_compile_features(shadow-catalog-startup-recovery-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-catalog-startup-recovery-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-catalog-startup-recovery-test PRIVATE Qt6::Core Qt6::Widgets)
+    add_test(NAME shadow-desktop-catalog-startup-recovery COMMAND shadow-catalog-startup-recovery-test)

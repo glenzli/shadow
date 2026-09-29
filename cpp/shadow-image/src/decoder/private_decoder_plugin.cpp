@@ -363,22 +363,23 @@ public:
         info_ = provider_->info();
         const auto* descriptor = module_->descriptor();
         info_.id = "private." + std::string(descriptor->plugin_id) + "." + info_.id;
-        // ProviderInfo::version is persisted in cache identities and deliberately capped. An
-        // adapter such as the LibRaw dummy may wrap an already verbose provider signature, so
-        // preserve its complete identity through a stable compact hash instead of rejecting a
-        // valid local module merely for being descriptive.
+        // ProviderInfo::version is persisted in cache identities and deliberately capped. Its
+        // compact fields are a=ABI, c=interface seal, p=plan, f=RawFrame, w=wrapped identity and
+        // m=module binary. An adapter such as the LibRaw dummy may wrap an already verbose
+        // provider signature, so preserve its complete identity through a stable compact hash
+        // instead of rejecting a valid local module merely for being descriptive.
         const std::string wrapped_identity = info_.id + ";" + info_.version;
         info_.version = std::string(descriptor->plugin_version)
-            + ";abi=" + std::to_string(private_decoder_plugin_abi_version)
-            + ";contract=" + compact_identity(std::to_string(
+            + ";a=" + std::to_string(private_decoder_plugin_abi_version)
+            + ";c=" + compact_identity(std::to_string(
                 private_decoder_plugin_interface_contract_token
             ))
-            + ";plan="
+            + ";p="
             + std::to_string(descriptor->raw_development_plan_schema_version)
-            + ";frame="
+            + ";f="
             + std::to_string(descriptor->raw_frame_schema_version)
-            + ";wrapped=" + compact_identity(wrapped_identity);
-        info_.version += ";module=" + std::move(module_binary_identity);
+            + ";w=" + compact_identity(wrapped_identity);
+        info_.version += ";m=" + std::move(module_binary_identity);
         if (info_.version.size() > 128U) {
             throw_plugin_error("private decoder provider cache identity exceeds 128 bytes");
         }

@@ -3,6 +3,20 @@
 This guide owns repository-wide developer workflows. Component-specific build options and focused
 tests remain documented beside their source owner.
 
+## Interactive editing pipeline
+
+Before changing a live adjustment, RAW rebinding, GPU/CPU render path, warm session, or preview
+scheduler, read the [interactive editing pipeline contract](interactive-editing-pipeline.md). It
+defines the required minimal invalidation path, source/receipt continuity, host/device-transfer
+budget, and interactive-versus-settled behavior. The project-local
+`$shadow-interactive-rendering` skill turns that contract into the required change workflow.
+
+## Multi-photo composition
+
+The [desktop composition owner](../../apps/desktop/README.md#hdr-and-panorama-composition)
+documents source admission, quality limits, cancellable worker execution and non-destructive
+publication. The native decoder index owns the linear TIFF round-trip contract.
+
 ## Canonical debug application
 
 Build and atomically promote a complete debug application with:
@@ -26,9 +40,8 @@ directory while still refreshing its build graph for the current source tree.
 The matching `.sh` and `.ps1` files in `scripts/` are thin wrappers for terminals that prefer
 platform-native launchers. Use `cargo xtask desktop-build-promote --check` to inspect resolved
 build and asset inputs
-without building. A first machine setup supplies `SHADOW_GEONAMES_CITY_INDEX_PATH` and
-`SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR`; later builds can reuse the dedicated local asset cache or
-the previous canonical bundle as a read-only bootstrap source.
+without building. A first machine setup supplies `SHADOW_GEONAMES_CITY_INDEX_PATH`; later builds can
+reuse the dedicated local asset cache or the previous canonical bundle as a read-only bootstrap source.
 
 Promoted builds live outside the repository under the sibling `.shadow-local-build` directory.
 Promotion creates an immutable revision-stamped release and atomically advances `current-debug`, so
@@ -37,6 +50,28 @@ resolved executable and managed model paths without launching the application.
 
 The launcher detaches by default and appends output to
 `.shadow-local-build/logs/shadow-debug.log`. Pass `--foreground` for process-attached debugging.
+
+## Local build storage
+
+Shadow keeps build output outside the repository so concurrent work cannot pollute source, but those
+external artifacts still need deliberate retention. Inspect the canonical CMake directory, default
+Cargo target root, and immutable debug releases with:
+
+```sh
+cargo xtask storage-report
+```
+
+Debug releases are immutable rollback points. The prune command is dry-run by default, always keeps
+`current-debug`, and keeps three releases unless requested otherwise. Close any old debug app before
+deleting its bundle:
+
+```sh
+cargo xtask storage-prune-debug --keep 3
+cargo xtask storage-prune-debug --keep 3 --apply
+```
+
+This command intentionally does not delete canonical or task-private Cargo/CMake directories:
+those need an owner-aware task lease rather than an age-based guess.
 
 ## Repository checks
 

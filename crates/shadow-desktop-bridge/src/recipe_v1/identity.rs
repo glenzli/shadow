@@ -47,6 +47,13 @@ pub(crate) fn recipe_v1_derived_render_op_id(
     NodeId::from_uuid(Uuid::from_bytes(bytes))
 }
 
+pub(crate) fn recipe_v1_rgb_tone_curves_render_op_id(grade_node_id: LayerInstanceId) -> NodeId {
+    recipe_v1_derived_render_op_id(
+        b"shadow.desktop.rgb-tone-curves-slot-id.v1\0",
+        grade_node_id,
+    )
+}
+
 pub(crate) fn recipe_v1_oklab_lightness_tone_curve_render_op_id(
     grade_node_id: LayerInstanceId,
 ) -> NodeId {
@@ -125,6 +132,7 @@ pub(crate) struct GradeNodeRecipeV1Identity {
     pub(crate) grade_node_id: LayerInstanceId,
     pub(crate) exposure_render_op_id: NodeId,
     pub(crate) contrast_render_op_id: NodeId,
+    pub(crate) rgb_tone_curves_render_op_id: NodeId,
     pub(crate) oklab_lightness_curve_render_op_id: NodeId,
     pub(crate) selective_tone_render_op_id: NodeId,
     pub(crate) white_balance_render_op_id: NodeId,
@@ -142,6 +150,7 @@ impl GradeNodeRecipeV1Identity {
         let grade_node_id = LayerInstanceId::new_v7();
         Self {
             grade_node_id,
+            rgb_tone_curves_render_op_id: recipe_v1_rgb_tone_curves_render_op_id(grade_node_id),
             exposure_render_op_id: NodeId::new_v7(),
             contrast_render_op_id: NodeId::new_v7(),
             oklab_lightness_curve_render_op_id: recipe_v1_oklab_lightness_tone_curve_render_op_id(
@@ -164,8 +173,9 @@ impl GradeNodeRecipeV1Identity {
     /// Recipe v1 stores the controls inside one Grade Node as atomic
     /// `AdjustmentNode`s. These are compiler/adapter identities, not Grade
     /// Nodes exposed to the product surface.
-    pub(crate) fn recipe_v1_render_op_ids(&self) -> [(&'static str, NodeId); 12] {
+    pub(crate) fn recipe_v1_render_op_ids(&self) -> [(&'static str, NodeId); 13] {
         [
+            ("rgb_tone_curves", self.rgb_tone_curves_render_op_id),
             ("exposure", self.exposure_render_op_id),
             ("contrast", self.contrast_render_op_id),
             ("selective_tone", self.selective_tone_render_op_id),
@@ -185,7 +195,7 @@ impl GradeNodeRecipeV1Identity {
     }
 
     #[cfg(test)]
-    pub(crate) fn recipe_v1_render_op_id_values(&self) -> [NodeId; 12] {
+    pub(crate) fn recipe_v1_render_op_id_values(&self) -> [NodeId; 13] {
         self.recipe_v1_render_op_ids()
             .map(|(_, render_op_id)| render_op_id)
     }

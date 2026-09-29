@@ -90,20 +90,15 @@ int main() {
         controller.providerPolicy() == QStringLiteral("auto")
             && controller.providerId() == QStringLiteral("amap")
             && web_view.html.contains(QStringLiteral("webapi.amap.com/maps"))
-            && web_view.html.contains(QStringLiteral("const options={center:"))
-            && web_view.html.contains(
-                QStringLiteral("if(config.style==='satellite')options.layers=")
-            )
-            && web_view.html.contains(QStringLiteral("new AMap.Map('map',options)"))
-            && !web_view.html.contains(QStringLiteral("layers,viewMode")),
+            && web_view.html.contains(amap_key)
+            && web_view.html.contains(amap_security),
         "Auto chooses AMap when a mainland-China map context opens"
     );
 
     controller.setCenter(37.7749, -122.4194, 11.0);
     valid &= require(
         controller.providerId() == QStringLiteral("amap") && !controller.providerRegionAvailable(),
-        "ordinary viewport movement keeps the automatic provider sticky and exposes an "
-        "unsupported-region state"
+        "ordinary viewport movement keeps the automatic provider sticky even outside AMap coverage"
     );
 
     controller.navigateToContext(37.7749, -122.4194, 11.0);
@@ -119,8 +114,7 @@ int main() {
     controller.beginMapContext(31.2304, 121.4737);
     valid &= require(
         controller.providerId() == QStringLiteral("amap")
-            && web_view.html.contains(QStringLiteral("webapi.amap.com/maps"))
-            && web_view.html.contains(amap_key) && web_view.html.contains(amap_security),
+            && web_view.html.contains(QStringLiteral("webapi.amap.com/maps")),
         "a new mainland-China context re-resolves Auto to AMap"
     );
 

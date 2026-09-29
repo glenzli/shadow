@@ -11,6 +11,7 @@
 #include <shadow/image/raw_development_plan.hpp>
 #include <shadow/image/raw_development_receipt.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/raw_white_balance.hpp>
 #include <shadow/image/reference_pixels.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/working_rgb.hpp>
@@ -182,7 +183,13 @@ class WarmEditGpuSession;
 namespace raw_pipeline_detail {
 class RawPreviewRebindingSource;
 struct RawPreviewRebindingTelemetry;
-}
+} // namespace raw_pipeline_detail
+
+// Transient scalar samples in final-canvas coordinates, before a selected curve.
+struct CurveInputMap final {
+    Dimensions dimensions{};
+    std::vector<float> values;
+};
 
 class WarmEditPreviewSession final {
   public:
@@ -192,7 +199,18 @@ class WarmEditPreviewSession final {
     WarmEditPreviewSession& operator=(WarmEditPreviewSession&&) noexcept = default;
     ~WarmEditPreviewSession() = default;
 
+    [[nodiscard]] CurveInputMap curve_input_map(
+        std::span<const AdjustmentLayer> prefix,
+        std::uint8_t channel,
+        const PhotoGeometry& geometry,
+        const PhotoLiquify* liquify,
+        std::stop_token cancellation = {}
+    ) const;
     [[nodiscard]] Dimensions dimensions() const noexcept;
+    // Authoring geometry begins in oriented level-zero source pixels even though the retained
+    // working raster is bounded. Callers apply the current crop/rotation geometry to this source
+    // extent before presenting pixel-sized interactive controls.
+    [[nodiscard]] Dimensions level_zero_dimensions() const noexcept;
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
     // Provenance of the provider render retained by this preview. It remains separate from the
     // editable recipe and from the later optical-correction receipt.
@@ -202,6 +220,8 @@ class WarmEditPreviewSession final {
     // Optional source-domain clip classification retained from the same RawFrame development.
     // It never asks a provider to decode the source again merely to drive an optional zebra.
     [[nodiscard]] const std::optional<SensorClippingMask>& sensor_clipping_mask() const noexcept;
+    [[nodiscard]] const std::optional<HighlightChromaRiskMap>&
+    highlight_chroma_risk_map() const noexcept;
     // Runtime-only observability for tests and future diagnostics. These counters never enter
     // Recipe, catalog, or cache identities.
     [[nodiscard]] WarmEditPreviewGpuStats gpu_stats() const noexcept;
@@ -209,6 +229,14 @@ class WarmEditPreviewSession final {
     // foundation but owns a fresh scene-linear proxy, DCP receipt and GPU edit session. Raster
     // sessions and legacy borrowed-optics preparations deliberately report false.
     [[nodiscard]] bool supports_raw_development_rebinding() const noexcept;
+    // A sensor-domain RAW neutral picker is intentionally narrower than
+    // rebinding: it requires an ordinary retained CFA frame, not an RGB
+    // compatibility or AI-foundation representation.
+    [[nodiscard]] bool supports_raw_white_balance_picker() const noexcept;
+    [[nodiscard]] std::optional<RawWhiteBalancePresentation>
+    pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
+    [[nodiscard]] std::optional<RawWhiteBalancePresentation>
+    auto_raw_white_balance() const noexcept;
     // Source-stage observability stays attached to the retained camera basis,
     // so a new immutable session can report cumulative rebind execution
     // without polluting Recipe/cache provenance.
@@ -296,7 +324,8 @@ class WarmEditPreviewSession final {
         std::optional<std::uint32_t> target_layer_index,
         std::stop_token cancellation,
         const PhotoGeometry& geometry = {},
-        const PhotoLiquify* liquify = nullptr
+        const PhotoLiquify* liquify = nullptr,
+        std::optional<std::uint32_t> target_component_index = std::nullopt
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<InteractiveEditPreviewFrame>
     render_interactive_frame_layers_with_mask_coverage_cancellable(
@@ -304,7 +333,8 @@ class WarmEditPreviewSession final {
         std::optional<std::uint32_t> target_layer_index,
         std::stop_token cancellation,
         const PhotoGeometry& geometry = {},
-        const PhotoLiquify* liquify = nullptr
+        const PhotoLiquify* liquify = nullptr,
+        std::optional<std::uint32_t> target_component_index = std::nullopt
     ) const;
     [[nodiscard]] CancellableEditPreviewResult<AnalyzedEditPreview>
     render_jpeg_with_analysis_cancellable(
@@ -321,7 +351,8 @@ class WarmEditPreviewSession final {
         std::uint8_t jpeg_quality,
         std::stop_token cancellation,
         const PhotoGeometry& geometry = {},
-        const PhotoLiquify* liquify = nullptr
+        const PhotoLiquify* liquify = nullptr,
+        std::optional<std::uint32_t> target_component_index = std::nullopt
     ) const;
 
   private:
@@ -332,10 +363,12 @@ class WarmEditPreviewSession final {
         RawPipelineReceipt raw_pipeline_receipt,
         OpticsProfileReceipt optics_receipt,
         std::optional<SensorClippingMask> sensor_clipping_mask,
+        std::optional<HighlightChromaRiskMap> highlight_chroma_risk_map,
         std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source =
             nullptr,
         std::shared_ptr<const OpticsProvider> retained_optics_provider = nullptr,
-        OpticsSettings retained_optics_settings = default_optics_settings()
+        OpticsSettings retained_optics_settings = default_optics_settings(),
+        std::shared_ptr<detail::WarmEditGpuSession> adopted_warm_gpu_session = nullptr
     );
 
     FloatRgbImage working_proxy_;
@@ -344,6 +377,7 @@ class WarmEditPreviewSession final {
     RawPipelineReceipt raw_pipeline_receipt_;
     OpticsProfileReceipt optics_receipt_;
     std::optional<SensorClippingMask> sensor_clipping_mask_;
+    std::optional<HighlightChromaRiskMap> highlight_chroma_risk_map_;
     std::shared_ptr<detail::WarmEditGpuSession> warm_gpu_session_;
     std::string warm_gpu_diagnostic_;
     std::shared_ptr<const raw_pipeline_detail::RawPreviewRebindingSource> raw_rebinding_source_;
@@ -387,6 +421,14 @@ class WarmEditPreviewSession final {
         const OpticsSettings& optics_settings
     );
     friend WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+        const AssetMetadata& metadata,
+        std::uint32_t max_edge,
+        const RawDevelopmentPlan& raw_development_plan,
+        RawFrame staged_frame,
+        std::shared_ptr<const OpticsProvider> optics_provider,
+        const OpticsSettings& optics_settings
+    );
+    friend WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
         const DecodeSession& session,
         std::uint32_t max_edge,
         const RawDevelopmentPlan& raw_development_plan,
@@ -422,6 +464,18 @@ class WarmEditPreviewSession final {
 // balance cannot be reproduced by a provider-processed RGB fallback.
 [[nodiscard]] WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
     const DecodeSession& metadata_session,
+    std::uint32_t max_edge,
+    const RawDevelopmentPlan& raw_development_plan,
+    RawFrame staged_frame,
+    std::shared_ptr<const OpticsProvider> optics_provider,
+    const OpticsSettings& optics_settings = default_optics_settings()
+);
+
+// A provider-neutral RawFrame and metadata snapshot emitted by the isolated
+// helper form one source-admission unit. No source path or decoder session is
+// required after that unit is established.
+[[nodiscard]] WarmEditPreviewSession prepare_rebindable_warm_edit_preview(
+    const AssetMetadata& metadata,
     std::uint32_t max_edge,
     const RawDevelopmentPlan& raw_development_plan,
     RawFrame staged_frame,

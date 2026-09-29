@@ -17,11 +17,15 @@ Popup {
     property string openedPhotoId: ""
     property string openedRepresentationId: ""
     property string openedGradeNodeId: ""
+    property bool semanticExpanded: false
+    property int componentOperation: 1
     readonly property int currentNodeDestination: 0
     readonly property int newNodeDestination: 1
     readonly property int currentMaskKind: Number(menu.editor.selectedLocalMask.kind || 0)
-    readonly property bool currentNodeAvailable: menu.editor.active && menu.editor.hasSelectedGradeNode && menu.editor.gradeNodeEnabled && menu.currentMaskKind === 0 && !menu.editor.stateBusy
+    readonly property int currentMaskComponentCount: menu.editor.localMaskComponents.length
+    readonly property bool currentNodeAvailable: menu.editor.active && menu.editor.hasSelectedGradeNode && menu.editor.gradeNodeEnabled && menu.currentMaskComponentCount < 8 && !menu.editor.stateBusy
     readonly property bool newNodeAvailable: menu.editor.canAddGradeNode && !menu.editor.stateBusy
+    readonly property bool aiDestinationAvailable: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
 
     signal maskCreated
     signal aiMaskRequested
@@ -59,16 +63,35 @@ Popup {
         const available = destination === currentNodeDestination ? currentNodeAvailable : newNodeAvailable;
         if (!available)
             return;
-        if (menu.editor.createLocalMask(kind, destination)) {
+        const created = destination === currentNodeDestination && currentMaskComponentCount > 0
+            ? menu.editor.addLocalMaskComponent(kind, componentOperation)
+            : menu.editor.createLocalMask(kind, destination);
+        if (created) {
             menu.close();
             menu.maskCreated();
         }
     }
 
-    function startAiMask() {
-        if (!currentNodeAvailable)
+    function startAiMask(faceRegions) {
+        if (!aiDestinationAvailable)
             return;
-        if (menu.editor.beginAiMaskPrompt()) {
+        const preferCurrentNode = destination === currentNodeDestination;
+        const operation = preferCurrentNode && currentMaskComponentCount > 0 ? componentOperation : 0;
+        const started = faceRegions
+            ? menu.editor.beginAiFaceMaskPromptForOperation(operation, preferCurrentNode)
+            : menu.editor.beginAiMaskPromptForOperation(operation, preferCurrentNode);
+        if (started) {
+            menu.close();
+            menu.aiMaskRequested();
+        }
+    }
+
+    function startSemanticMask(query) {
+        if (!aiDestinationAvailable || query.trim().length === 0)
+            return;
+        const preferCurrentNode = destination === currentNodeDestination;
+        const operation = preferCurrentNode && currentMaskComponentCount > 0 ? componentOperation : 0;
+        if (menu.editor.beginAiSemanticMaskForOperation(query.trim(), operation, preferCurrentNode)) {
             menu.close();
             menu.aiMaskRequested();
         }
@@ -104,11 +127,12 @@ Popup {
         }
     }
 
-    component MaskAction: Button {
+    component MenuAction: Button {
         id: action
 
         required property url iconSource
-        required property int maskKind
+        property string toolTipText: ""
+        property bool selected: false
 
         Layout.fillWidth: true
         implicitHeight: 40
@@ -116,28 +140,40 @@ Popup {
         rightPadding: 10
         hoverEnabled: enabled
         Accessible.name: text
+        Accessible.description: toolTipText
 
         background: Rectangle {
             radius: 6
-            color: action.down ? Theme.buttonGhostPressed : action.hovered ? Theme.buttonGhostHover : Theme.transparent
+            color: action.selected ? Theme.accentSurfaceQuiet
+                : action.down ? Theme.buttonGhostPressed : action.hovered ? Theme.buttonGhostHover : Theme.transparent
+            border.color: action.visualFocus ? Theme.focusRing : Theme.transparent
         }
 
         contentItem: RowLayout {
             spacing: 10
             ShadowIcon {
                 source: action.iconSource
-                color: action.enabled ? Theme.textSecondary : Theme.textDisabled
+                color: !action.enabled ? Theme.textDisabled
+                    : action.selected ? Theme.accentSelectionText : Theme.textSecondary
                 size: 19
             }
             Label {
                 Layout.fillWidth: true
                 text: action.text
-                color: action.enabled ? Theme.textPrimary : Theme.textDisabled
-                font.pixelSize: 11
+                color: !action.enabled ? Theme.textDisabled
+                    : action.selected ? Theme.accentSelectionText : Theme.textPrimary
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.Medium
             }
         }
 
+        ToolTip.visible: hovered && toolTipText.length > 0
+        ToolTip.text: toolTipText
+        ToolTip.delay: 450
+    }
+
+    component MaskAction: MenuAction {
+        required property int maskKind
         onClicked: menu.createMask(maskKind)
     }
 
@@ -152,7 +188,7 @@ Popup {
             bottomPadding: 4
             text: qsTr("CREATE MASK")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }
@@ -161,7 +197,7 @@ Popup {
             id: editCurrentMaskButton
             Layout.fillWidth: true
             implicitHeight: visible ? 40 : 0
-            visible: menu.currentMaskKind !== 0
+            visible: menu.currentMaskComponentCount > 0
             leftPadding: 9
             rightPadding: 9
             hoverEnabled: enabled
@@ -182,7 +218,7 @@ Popup {
                     Layout.fillWidth: true
                     text: editCurrentMaskButton.text
                     color: Theme.textPrimary
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     font.weight: Font.Medium
                 }
             }
@@ -209,7 +245,7 @@ Popup {
             bottomPadding: 1
             text: qsTr("APPLY TO")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }
@@ -234,7 +270,7 @@ Popup {
                     minimumTabWidth: 108
                     underlineInset: 18
                     enabled: menu.currentNodeAvailable
-                    toolTipText: menu.currentMaskKind === 0 ? qsTr("Attach the mask to the selected Grade Node") : qsTr("The selected Grade Node already has a mask")
+                    toolTipText: menu.currentMaskComponentCount === 0 ? qsTr("Attach the mask to the selected Grade Node") : qsTr("Add a component to the selected node mask")
                     onClicked: menu.destination = menu.currentNodeDestination
                 }
 
@@ -267,21 +303,94 @@ Popup {
             rightPadding: 8
             topPadding: 3
             bottomPadding: 1
-            text: qsTr("MASK TYPE")
+            visible: menu.destination === menu.currentNodeDestination
+                && menu.currentMaskComponentCount > 0
+            text: qsTr("COMBINE AS")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }
 
-        ShadowButton {
-            objectName: "aiSubjectMaskAction"
+        RowLayout {
+            objectName: "maskComponentOperationSelector"
             Layout.fillWidth: true
+            visible: menu.destination === menu.currentNodeDestination
+                && menu.currentMaskComponentCount > 0
+            spacing: 8
+
+            ShadowButton {
+                compact: true
+                Layout.fillWidth: true
+                text: qsTr("Add")
+                variant: menu.componentOperation === 1 ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: menu.componentOperation = 1
+            }
+            ShadowButton {
+                compact: true
+                Layout.fillWidth: true
+                text: qsTr("Subtract")
+                variant: menu.componentOperation === 2 ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: menu.componentOperation = 2
+            }
+            ShadowButton {
+                compact: true
+                Layout.fillWidth: true
+                text: qsTr("Intersect")
+                variant: menu.componentOperation === 3 ? ShadowButton.Primary : ShadowButton.Ghost
+                onClicked: menu.componentOperation = 3
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            leftPadding: 8
+            rightPadding: 8
+            topPadding: 3
+            bottomPadding: 1
+            text: qsTr("MASK TYPE")
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontCaption
+            font.weight: Font.DemiBold
+            font.letterSpacing: 0.7
+        }
+
+        MenuAction {
+            objectName: "aiSubjectMaskAction"
+            iconSource: "qrc:/icons/mask.svg"
             text: qsTr("AI subject")
-            variant: ShadowButton.Secondary
-            enabled: menu.currentNodeAvailable
-            toolTipText: qsTr("Prompt SAM 2.1 on the selected Grade Node")
-            onClicked: menu.startAiMask()
+            enabled: menu.aiDestinationAvailable
+            toolTipText: menu.destination === menu.currentNodeDestination ? qsTr("Add an AI subject component to the selected node mask") : qsTr("Create a new Grade Node and prompt SAM 2.1")
+            onClicked: menu.startAiMask(false)
+        }
+
+        MenuAction {
+            objectName: "aiPeopleDetailsMaskAction"
+            iconSource: "qrc:/icons/people.svg"
+            text: qsTr("AI people details")
+            enabled: menu.aiDestinationAvailable
+            toolTipText: menu.destination === menu.currentNodeDestination ? qsTr("Add selected people details to the selected node mask") : qsTr("Create a new Grade Node and select facial features")
+            onClicked: menu.startAiMask(true)
+        }
+
+        MenuAction {
+            objectName: "aiSemanticMaskAction"
+            iconSource: "qrc:/icons/filter.svg"
+            text: qsTr("AI semantic")
+            selected: menu.semanticExpanded
+            enabled: menu.aiDestinationAvailable
+            toolTipText: menu.destination === menu.currentNodeDestination ? qsTr("Add a semantic component that can be re-evaluated on another photo") : qsTr("Create a semantic mask that can be re-evaluated on another photo")
+            onClicked: menu.semanticExpanded = !menu.semanticExpanded
+        }
+
+        PrecisionSemanticMaskPanel {
+            objectName: "semanticMaskCreationPanel"
+            Layout.fillWidth: true
+            Layout.leftMargin: 6
+            Layout.rightMargin: 6
+            visible: menu.semanticExpanded
+            startEnabled: menu.aiDestinationAvailable
+            onStartRequested: query => menu.startSemanticMask(query)
         }
 
         MaskAction {
@@ -323,7 +432,7 @@ Popup {
             bottomPadding: 1
             text: qsTr("CONDITION")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 0.7
         }
@@ -339,6 +448,13 @@ Popup {
             text: qsTr("Color range")
             iconSource: "qrc:/icons/mask-color-range.svg"
             maskKind: 5
+            enabled: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
+        }
+        MaskAction {
+            objectName: "conditionMaskAction"
+            text: qsTr("Combined conditions")
+            iconSource: "qrc:/icons/mask-intersect.svg"
+            maskKind: 7
             enabled: menu.destination === menu.currentNodeDestination ? menu.currentNodeAvailable : menu.newNodeAvailable
         }
     }

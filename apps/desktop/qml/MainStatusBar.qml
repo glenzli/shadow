@@ -67,7 +67,8 @@ Rectangle {
                         || statusBar.controller.comparisonBusy
                         || statusBar.controller.decisionBusy
                 : statusBar.editor.busy
-                    || statusBar.editor.fullResolutionPreparing
+                    || statusBar.precisionWorkspace
+                        .foregroundFullResolutionPending
             running: visible
         }
 
@@ -101,13 +102,14 @@ Rectangle {
                         : statusBar.controller.comparisonBusy
                             ? statusBar.controller.comparisonStatusText
                             : statusBar.controller.statusText)
-                    : statusBar.editor.fullResolutionPreparing
+                    : statusBar.precisionWorkspace
+                        .foregroundFullResolutionPending
                         ? statusBar.fullResolutionPreparationText()
                         : statusBar.editor.statusText
             color: statusBar.workspaceIndex === statusBar.reviewWorkspaceIndex
                 && statusBar.semanticSearchController.errorText.length > 0
                 ? Theme.errorText : Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             elide: Text.ElideRight
         }
 
@@ -137,7 +139,7 @@ Rectangle {
                     ? qsTranslate("Main", "PEOPLE")
                     : qsTranslate("Main", "LIBRARY")
             color: Theme.textFaint
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.letterSpacing: 0.8
         }
     }

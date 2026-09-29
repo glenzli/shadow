@@ -32,8 +32,7 @@ QString ReviewController::remoteLibraryServerAddress() const {
 }
 
 bool ReviewController::remoteLibraryConnected() const noexcept {
-    return remote_library_coordinator_.tokenStored()
-           && !remote_library_coordinator_.serverAddress().isEmpty();
+    return remote_library_coordinator_.connected();
 }
 
 QString ReviewController::remoteLibraryServerName() const {
@@ -95,6 +94,10 @@ void ReviewController::materializeRemotePhoto(const QString& photo_id) {
     remote_library_coordinator_.materializeForEdit(photo_id);
 }
 
+bool ReviewController::prepareRemoteExport(const QVariantList& targets) {
+    return remote_library_coordinator_.prepareExport(targets);
+}
+
 void ReviewController::refreshRemoteLibraryPresentation() {
     if (remoteLibraryPresentationEligible()) {
         remote_library_coordinator_.reapplyRemoteItems();
@@ -104,26 +107,11 @@ void ReviewController::refreshRemoteLibraryPresentation() {
 }
 
 bool ReviewController::remoteLibraryPresentationEligible() const {
-    return album_coordinator_.albumId().isEmpty() && filtered_model_.captureMonth().isEmpty()
+    return person_filter_id_.isEmpty() && album_coordinator_.albumId().isEmpty()
            && filtered_model_.chineseLunarMonth() == 0 && filtered_model_.chineseLunarDay() == 0
            && filtered_model_.chineseLunarMonthType() == QStringLiteral("all")
-           && filtered_model_.cameraKey().isEmpty() && filtered_model_.lensKey().isEmpty()
            && filtered_model_.countryKey().isEmpty() && filtered_model_.localityKey().isEmpty()
            && !filtered_model_.travelFilterEnabled() && !filtered_model_.dailyFilterEnabled()
            && filtered_model_.keywordIdsAll().isEmpty()
            && filtered_model_.excludedKeywordIdsAny().isEmpty();
-}
-
-int ReviewController::visibleRemotePhotoCount() const {
-    if (!remoteLibraryPresentationEligible()) {
-        return 0;
-    }
-    int count = 0;
-    for (int row = 0; row < filtered_model_.rowCount(); ++row) {
-        const QModelIndex index = filtered_model_.index(row, 0);
-        if (filtered_model_.data(index, ReviewModel::IsRemoteRole).toBool()) {
-            ++count;
-        }
-    }
-    return count;
 }

@@ -57,11 +57,11 @@ fn valid_edit_preview_proxy() -> shadow_domain::ProxyPayload {
 fn valid_ffi_edit_preview_execution_receipt() -> ffi::FfiEditPreviewExecutionReceipt {
     ffi::FfiEditPreviewExecutionReceipt {
         schema_version: EDIT_PREVIEW_EXECUTION_RECEIPT_SCHEMA_VERSION,
-        cache_identity: concat!(
-            "shadow-edit-preview-execution-v1;adjustment=cpu-v1;",
-            "plan=1;display=cpu-v1;display-contract=1;route=staged"
-        )
-        .to_owned(),
+        cache_identity: format!(
+            "shadow-edit-preview-execution-v1;adjustment=cpu-v1;\
+             plan=1;display=cpu-v1;display-contract={DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION};\
+             route=staged"
+        ),
         adjustment_backend: ffi::FfiEditPreviewBackend::Cpu,
         adjustment_backend_version: 1,
         adjustment_execution_contract_version: EDIT_PREVIEW_EXECUTION_PLAN_CONTRACT_VERSION,
@@ -90,11 +90,18 @@ fn rust_edit_preview_backend_versions_match_the_native_generator_contract() {
         "Rust's fused warm route must be named in the native generator identity: \
          {native_identity}"
     );
+    assert!(
+        native_identity.contains(&format!(
+            "display-contract={DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION};"
+        )),
+        "Rust's display receipt version must track the native generator identity: \
+         {native_identity}"
+    );
 
     let mut split_metal = valid_ffi_edit_preview_execution_receipt();
     split_metal.cache_identity = format!(
         "shadow-edit-preview-execution-v1;adjustment=metal-v{EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION};\
-         plan=1;display=cpu-v1;display-contract=1;route=staged"
+         plan=1;display=cpu-v1;display-contract={DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION};route=staged"
     );
     split_metal.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
     split_metal.adjustment_backend_version = EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION;
@@ -249,9 +256,10 @@ fn edit_preview_execution_receipt_validation_is_strict_and_keeps_diagnostics_sep
     assert_eq!(validated.adjustment_backend, EditPreviewBackend::Cpu);
     assert_eq!(
         validated.cache_identity,
-        concat!(
-            "shadow-edit-preview-execution-v1;adjustment=cpu-v1;",
-            "plan=1;display=cpu-v1;display-contract=1;route=staged"
+        format!(
+            "shadow-edit-preview-execution-v1;adjustment=cpu-v1;\
+             plan=1;display=cpu-v1;display-contract={DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION};\
+             route=staged"
         )
     );
     assert_eq!(
@@ -264,7 +272,7 @@ fn edit_preview_execution_receipt_validation_is_strict_and_keeps_diagnostics_sep
     fused.cache_identity = format!(
         "shadow-edit-preview-execution-v1;adjustment=metal-v{EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION};\
          plan=1;display=metal-v{EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION};\
-         display-contract=1;route=fused"
+         display-contract={DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION};route=fused"
     );
     fused.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
     fused.adjustment_backend_version = EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION;

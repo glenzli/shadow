@@ -139,10 +139,13 @@ void private_decoder_plugin_loads_an_explicit_local_module() {
   expect(provider->info().id == "private.test-private-provider.fixture",
          "private plugin identity remains namespaced by its explicit local "
          "module");
-  expect(provider->info().version.starts_with("1.0.0;abi=1;contract=") &&
-             provider->info().version.find(";plan=1;frame=1;wrapped=") !=
+  expect(provider->info().version.starts_with(
+             "1.0.0;a=" + std::to_string(image::private_decoder_plugin_abi_version)) &&
+             provider->info().version.find(
+                 ";p=" + std::to_string(image::raw_development_plan_schema_version)
+                 + ";f=" + std::to_string(image::raw_frame_schema_version) + ";w=") !=
                  std::string::npos &&
-             provider->info().version.find(";module=") != std::string::npos &&
+             provider->info().version.find(";m=") != std::string::npos &&
              provider->info().version.size() <= 128U,
          "private plugin version, ABI seal, wrapped provider and local module "
          "identity stay bounded");

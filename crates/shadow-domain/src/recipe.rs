@@ -19,14 +19,17 @@
 mod condition_mask;
 mod edit_graph;
 mod history;
+mod image_completion;
 mod input_settings;
 mod layer;
 mod local_mask;
 mod mask_creation;
+mod paint;
 mod photo_foundation;
 mod photo_geometry;
 mod photo_liquify;
 mod photo_structural_nodes;
+mod portable;
 mod raw_foundation_denoise;
 mod retouch;
 mod snapshot;
@@ -50,14 +53,22 @@ pub use edit_graph::{
     OperationDescriptor, ParameterBlock, ParameterValue, PortType, ProcessingStage,
 };
 pub use history::{NamedVersion, RecipeBranch, RecipeCommit, RecipeHistory};
+pub use image_completion::{
+    ImageCompletionRegion, MANAGED_IMAGE_COMPLETION_REFERENCE_VERSION,
+    MAX_IMAGE_COMPLETION_PATCH_DIMENSION, MAX_IMAGE_COMPLETION_REGIONS_PER_RECIPE,
+    ManagedImageCompletionPatch,
+};
 pub use input_settings::{RecipeInputSettings, RecipeOpticsSettings};
 pub use layer::{
     AdjustmentScope, BlendMode, LayerContent, LayerInstance, LayerRevision, LayerRevisionSelector,
 };
 pub use local_mask::{
     MANAGED_RASTER_MASK_REFERENCE_VERSION, MAX_MANAGED_RASTER_MASK_DIMENSION,
-    MAX_MASK_BRUSH_POINTS, ManagedRasterMask, MaskBrushPoint, MaskDefinition, MaskReference,
-    MaskRevision, RasterMaskEncoding,
+    MAX_MASK_BRUSH_POINTS, MAX_MASK_COMPONENTS, MAX_SEMANTIC_MASK_QUERY_BYTES,
+    MAX_SEMANTIC_MASK_REGIONS, ManagedRasterMask, MaskBrushPoint, MaskComponent,
+    MaskComponentOperation, MaskComposite, MaskDefinition, MaskReference, MaskRevision,
+    RasterMaskEncoding, SEMANTIC_MASK_INTENT_CONTRACT_VERSION, SemanticMaskAggregation,
+    SemanticMaskIntent,
 };
 pub use mask_creation::{NodeLocalMaskCreationIntent, NodeLocalMaskCreationTarget};
 pub use photo_foundation::{
@@ -72,6 +83,11 @@ pub use photo_liquify::{
     PhotoLiquifyNode,
 };
 pub use photo_structural_nodes::{PhotoStructuralNodeRef, PhotoStructuralNodes};
+pub use portable::{
+    CURRENT_SHADOW_RECIPE_DOCUMENT_VERSION, MAX_SHADOW_RECIPE_DOCUMENT_BYTES,
+    MAX_SHADOW_RECIPE_LABEL_BYTES, SHADOW_RECIPE_FORMAT, ShadowRecipeDocument,
+    ShadowRecipeDocumentError, ShadowRecipeLutResource,
+};
 pub use raw_foundation_denoise::{
     RAW_FOUNDATION_DENOISE_FULL_AMOUNT_PERCENT, RawFoundationDenoise, RawFoundationDenoiseModel,
 };
@@ -84,3 +100,8 @@ pub use snapshot::{
 };
 pub use validation_error::RecipeValidationError;
 pub use value::{BranchName, FiniteF64, OperationId, ParameterKey, UnitInterval, VersionName};
+
+pub use paint::{
+    MAX_PAINT_LAYERS, MAX_PAINT_POINTS, MAX_PAINT_STROKES, PaintBlendMode, PaintLayer, PaintPoint,
+    PaintStroke,
+};

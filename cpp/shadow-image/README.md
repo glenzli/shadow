@@ -3,11 +3,75 @@
 `shadow-image` is Shadow's platform-neutral C++20 image kernel. Its first implemented provider
 uses LibRaw behind provider-neutral public contracts.
 
+Changes to an interactive render path must also follow the repository-wide
+[interactive editing pipeline contract](../../docs/development/interactive-editing-pipeline.md):
+it defines minimal invalidation, GPU continuity, cancellation, and preview/detail/export
+equivalence requirements without duplicating this source-owned implementation map.
+
+The detailed maintainer contract for provider routing, `RawFrame` parsing, CFA-owned clipped
+highlight reconstruction, CPU/Metal parity, downstream Highlights/Whites behavior, cache
+identities, and regression diagnostics is
+[`docs/raw-highlight-reconstruction.md`](docs/raw-highlight-reconstruction.md).
+
+The repository-level [`RAW highlight oracle lab`](../../tools/raw-highlight-oracle/README.md)
+orchestrates offline comparisons against pinned Darktable, RawTherapee, LibRaw, and vkdt routes.
+Its `shadow-cfa-opposed` adapter is the strict reconstruction comparison because both outputs share
+this owner's exact provider-neutral `RawFrame`. External-container adapters are intentionally
+classified as complete independent pipelines: their visual differences also include decoder,
+calibration, demosaic, and colour-transform choices and are not attributed to this owner alone.
+The strict probe also emits per-channel reference clip/write counts, effective WB gains, and the
+two threshold domains. `tools/raw-highlight-oracle/strict_alignment.py` turns those bounded facts
+into an immutable cross-fixture receipt without adding work, buffers, or cache identity to desktop
+preview, detail, or export.
+
 The line-based manifests under
 [`cmake/source-manifests/`](cmake/source-manifests/) are the single compiled-source index shared
-by CMake and direct Cargo builds. Portable, Apple/Core ML, Metal, and non-Metal fallback
+by CMake and direct Cargo builds. Portable, Metal, and non-Metal fallback
 translation units are selected there; adding Windows acceleration must add a distinct manifest
 and backend owner rather than duplicate the portable kernel or fork this library.
+
+## Tone curves
+
+[`src/edit/tone_curve.cpp`](src/edit/tone_curve.cpp) owns PCHIP preparation and CPU evaluation;
+[`src/edit/metal_adjustment_program.cpp`](src/edit/metal_adjustment_program.cpp) lowers the same
+knots into bounded resident Metal segments. Oklab L remains separate from RGB master/R/G/B.
+RGB curves use the signed sRGB transfer function on the declared working primaries, master first
+then individual channels, with tangent extrapolation and no intermediate clipping. Identity
+channels bypass exactly. This is a versioned Shadow creative operation, not Photoshop profile
+compatibility. The recipe adapter places it after perceptual L and before technical detail.
+
+## Photographic paint
+
+[`paint.hpp`](include/shadow/image/paint.hpp) and [`src/edit/paint.cpp`](src/edit/paint.cpp)
+validate bounded, resolution-independent strokes and replay flow/pressure into premultiplied
+working-RGB coverage. CPU execution uses bounded tiles; Metal receives only the touched overlay
+and composites it against the resident image. Layer opacity and blend leave overlay content
+unchanged, allowing reuse of the GPU side resource. The final source, RAW preparation and AI
+results remain upstream reusable state. Render cancellation follows the existing request identity
+and latest-generation publication policy; CPU dab preparation is bounded but not interruptible
+inside a dab. Preview, detail and export share path spacing and coverage, with the same original
+coordinate extent and explicit tile origin. Color preserves Oklab lightness; Soft Light changes
+only Oklab lightness and treats encoded 50% gray as neutral. These are photographic blend modes,
+not a Photoshop compatibility contract. Very large untiled outputs use the tiled CPU fallback.
+Elliptical tips rotate in authored photo pixels. Spacing is a fraction of diameter; pressure-size
+strokes step adaptively in arc length with a conservative 10%-diameter admission budget. Fine-grain
+and soft-speckle tips use deterministic grayscale noise in tip coordinates, shared across preview,
+tiled export and GPU coverage preparation. Legacy strokes retain the original circular tip and
+one-quarter-radius spacing. Native wire decoding accepts both old eight-value and new fifteen-value
+stroke headers. Per-dab bounds shrink with ellipse and pressure size; layer rasterization still
+replays its strokes when geometry/coverage changes, so long dense layers remain CPU preparation
+work rather than a guaranteed frame-time budget.
+
+## Linear composite raster
+
+[`include/shadow/image/linear_raster.hpp`](include/shadow/image/linear_raster.hpp) and
+[`src/decoder/linear_raster.cpp`](src/decoder/linear_raster.cpp) own Shadow's tagged 32-bit float
+linear-sRGB TIFF contract, including ICC/provenance writing and bounded streaming area resampling.
+The optional `LinearRasterSource` interface leaves the private `DecodeSession` ABI unchanged.
+The router and isolation wrapper preserve this interface through normal source development, so
+composite values above white remain float in warm preview, detail and export. Untagged TIFFs keep
+the previous decoder route; this is not general TIFF/ICC import support. Private provider u16
+compatibility entry points remain clamped; normal composite editing uses the float interface.
 
 ## Decoder boundary
 
@@ -93,12 +157,9 @@ Current contract rules:
   provider-processed compatibility route. Every choice and fallback is recorded in the pipeline
   receipt and cache identity. `src/raw/raw_frame_development_plan.*` owns source validation, the
   immutable camera transform and optional DCP lifetime, source-wide luminance calibration,
-  preview/diagnostic geometry, prepared neural/conventional CFA-denoise intent, and RAW receipt
-  finalization. `src/raw/neural_raw_denoise/*` owns the optional RAW-to-RAW neural stage: calibrated
-  Bayer admission, canonical R/Gr/Gb/B packing, normalized Poisson-Gaussian conditioning, bounded
-  tile/halo assembly, the Core ML adapter, atomic fallback, and exact model/execution provenance.
-  It runs before the existing `raw_denoise_plan.*` stage; it neither reinterprets nor replaces the
-  conventional denoise setting.
+  preview/diagnostic geometry, conventional CFA-denoise intent, and RAW receipt finalization.
+  Local RAW development never loads an AI model; Infer Runtime owns RawNIND execution and publishes
+  its verified camera-RGB foundation through the distinct ingestion boundary below.
   `include/shadow/image/raw_foundation.hpp` and `src/raw/raw_foundation.cpp` own the distinct
   post-model ingestion boundary for externally materialized AI foundations. They accept only a
   verified, path-free public RawNIND identity and finite interleaved linear Camera RGB, bind its
@@ -132,7 +193,77 @@ Current contract rules:
   exact-DCP admission, final RawFrame pipeline receipt, and unforgeable source identity shared by
   materialized and resident consumers. Only that owner may prepare region optics for publication,
   so independently prepared or cross-source camera/optics state is rejected before CFA work or
-  device upload. `src/raw/raw_frame_source_development.*` consumes that preparation for the complete
+  device upload. The default source treatment applies selected CFA gains (normalized by their
+  minimum) before demosaic and retains scene-referred fp32 headroom for every terminal CFA phase.
+  Projecting an isolated terminal phase back to a common ceiling creates the Bayer-aligned edge
+  step it was intended to prevent; physical-white topology therefore remains a separate signal,
+  and only a shared three-colour terminal core may reconstruct missing luminance. Each
+  reconstruction footprint separately retains exact per-colour physical-white coverage. Before
+  the camera matrix, only a physical-white photosite may move upward toward the cube-root mean of its
+  two locally reconstructed opposing colours; this recovers a plausible neutral highlight
+  shoulder without spreading a neighbouring object's hue, and leaves a one-colour emitter
+  unchanged when its opposing reference is lower. Reduced CFA-area previews
+  keep measured and terminal contributions separate for each colour until the final area
+  average. An opposed estimate may replace only a physical-white photosite using its local
+  opposing colours; a reliable dark fixture contribution sharing the same preview bin remains
+  exact. This removes both the false pink ratio and the compensating preview-width yellow/grey
+  contour without expanding write ownership. Area previews then skip post-demosaic scene-RGB
+  surface replacement because that stage can no longer distinguish the two subjects after
+  integration. Native detail/export uses the same CFA-site ownership inside its existing bilinear
+  dependency halo, so ordinary Bayer sources stay eligible for resident CPU/Metal execution. The
+  repair stays in the existing fused sampling pass and adds no full-frame side buffer, pass, or
+  device transfer.
+  The source also projects an immutable, display-sized R8 CFA-chroma-risk sidecar from the same
+  calibrated linear-response limits. A single near-white channel remains measured colour evidence;
+  risk rises when independently sampled channels lose headroom and their evidence diverges. A
+  terminal shared-clipping component feathers its confidence one display bin into adjacent valid
+  bins; it copies no neighbouring hue, detail, or luminance. Bounded warm preview retains this
+  sidecar beside its reusable source. Camera-RGB compatibility sources, including verified AI RAW
+  foundations that no longer retain individual CFA photosites, use a separate bounded
+  post-demosaic fallback. Its push-pull guide is bounded to 384 pixels on its longest edge; its
+  reliable
+  colour branch excludes physical clipping and non-clipped samples whose CFA colour is already
+  marked unreliable, while a separately smoothed bright-observation branch retains local light
+  shape. The existing R8 physical-clipping mask uses a separate bit when every CFA colour in the
+  local reconstruction footprint has reached white. Only coherent support from that shared core
+  may drive the low-frequency luminance surface; single/two-channel clips remain measured instead
+  of growing Bayer-phase hairs along a high-contrast edge. A luminance gate applies to clipped
+  projection bins, preventing a bin that straddles a clipped lamp and a dark fixture from being
+  painted as part of the light. Ordinary Bayer preview/detail/export does not enter this
+  post-demosaic stage. The
+  reliable measured guide supplies camera-space boundary chromaticity. The guide retains its
+  original measurement confidence after push-pull initialization: measured boundary bins stay
+  fixed, while inferred bins relax only inward through coherent clipping support. They do not
+  become new colour seeds, so the repair neither imports a circular search hue nor paints that hue
+  outside the segment. Retained WB headroom passes through a monotonic, locally anchored
+  logarithmic shoulder inside factual shared clipping; unclipped pixels may receive chroma repair
+  only where the native R8 risk map explicitly owns it and retain exact measured luminance. The
+  risk projection remains local to each output pixel's own CFA footprint. Wider neighbourhoods
+  estimate replacement colour but never enlarge write ownership, matching darktable's separation
+  between candidate gathering and damaged-site replacement. This removes the former
+  symmetric boundary bell, whose dip could become a second arc after an extreme highlight pull,
+  while retaining light energy and suppressing quantised core plateaus. Adjacent dark
+  subjects have zero support and the measured exterior remains unchanged. Once the source pass has
+  consumed the sidecar's broad colour-loss topology, it keeps only weak residual uncertainty inside
+  exact shared-terminal coverage before the grade path. That continuous core signal lets extreme
+  recovery suppress a remaining terminal tint without expanding onto measured neighbours. This
+  prevents either reconstruction or later recovery from drawing a dark island, bright dome, or
+  second clipping-mask contour while still correcting false colour without inventing texture.
+  Camera-RGB fallback detail/export materializes this source once instead of inferring a different
+  surface independently
+  in resident tiles. DCP input rendering follows the reconstruction, so the spatial estimate
+  remains a RAW source operation. The warm preview then binds the prepared source and one R8
+  chroma-risk plane once to the resident GPU edit session (or the matching CPU fallback); slider
+  events add no source work, neighbourhood pass, or extra evidence plane. During actual negative highlight/white
+  recovery, Selective Tone progressively pulls chroma toward neutral in
+  proportion to that source risk while preserving its ordinary Oklab-lightness behavior elsewhere.
+  It never reconstructs spatial detail or invents a neighbouring hue. `disabled` stays an explicit
+  unbounded diagnostic plan. The historical `aggressive` value remains a compatible diagnostic
+  alias that adds its earlier CFA-scale spatial chroma feather before the same default surface
+  reconstruction; no desktop authoring switch selects it. The effective policy and reconstruction
+  identity remain part of the developed cache identity. CPU and Metal apply the same CFA-scale
+  route before their camera transforms.
+  `src/raw/raw_frame_source_development.*` consumes that preparation for the complete
   CPU/Metal materialization transaction. `src/raw/raw_frame_region_development.*` owns the exact
   CPU region contract: oriented output cores, active-sensor reconstruction coordinates,
   stored-sensor demosaic/denoise preimages, halos, CFA phase, and byte-identical full-versus-region
@@ -146,7 +277,8 @@ Current contract rules:
 - `decode_jpeg_display_luma` is a separate analysis path over compressed display proxies. It requires 8-bit libjpeg-turbo with in-memory sources, rejects encoded inputs above 128 MiB and source headers above 65,535 per axis or 100 million pixels, applies a stricter 50-million-pixel limit to multi-scan inputs, caps libjpeg memory at 256 MiB, and bounds scaled intermediates before emitting a tightly packed normalized `float` luma plane with a caller-selected edge in 1 through 512. Corrupt-data warnings, including synthesized end-of-image recovery for truncation, fail closed.
 - A `DecodeSession` is thread-confined. Providers may be shared; parallel work should open independent sessions.
 - `RawFrame` intentionally copies LibRaw memory and preserves raw-coordinate samples, active
-  margins, CFA layout, per-CFA black/white calibration, as-shot neutral, an optional explicit
+  margins (preferring LibRaw's standard RAW inset over legacy rendered-image margins), CFA layout,
+  per-CFA black/white calibration, as-shot neutral, an optional explicit
   Camera RGB -> XYZ D50 matrix, the optional physical XYZ D65 -> Camera RGB calibration used to
   derive manual temperature/tint neutrals, optional exact embedded sensor-noise calibration, and pending DNG
   opcode declarations. It is explicitly
@@ -177,43 +309,22 @@ Runtime controls:
 ```text
 SHADOW_RAW_PIPELINE=auto|raw-frame|processed
 SHADOW_IMAGE_ACCELERATION=auto|cpu|metal
-SHADOW_AI_RAW_DENOISE_MODEL=/absolute/path/to/model.mlmodelc
-SHADOW_AI_RAW_DENOISE_MODEL_IDENTITY=sha256-tree-v1:<64-lowercase-hex>
-SHADOW_AI_RAW_DENOISE_TILE_EDGE=512
-SHADOW_AI_RAW_DENOISE_HALO=32
-SHADOW_AI_RAW_DENOISE_PREVIEWS=0|1
 ```
 
 `metal` requires Metal for every eligible Bayer detail or area-preview request. Build-time
 `SHADOW_ENABLE_METAL=OFF` compiles the same public API against a cross-platform stub.
 
-The `SHADOW_AI_RAW_DENOISE_*` variables are a headless development seam, not the eventual Recipe
-or UI contract. No model is bundled or downloaded by `shadow-image`. The admitted artifact must be
-a compiled Core ML directory pinned by Shadow's deterministic tree digest. Its float32 features
-are `mosaic` `[1,4,H,W]`, `noise` `[1,8]`, and `denoised_mosaic` `[1,4,H,W]`; the tile edge in the
-environment fixes `H=W`. Preview execution is bypassed by default. Unsupported calibration,
-invalid configuration, model mismatch, loading failure, or inference failure preserves the
-original RAW plane and publishes an explicit fallback identity. Cancellation propagates without
-publishing a partial plane. A successful stage is still independent of conventional CFA denoise,
-which may execute afterward under its existing plan and backend.
-
-`shadow-image-neural-raw-denoise-contract` always runs the portable packing, tiling, fallback, and
-provenance contracts. Supplying all four
-`SHADOW_TEST_NEURAL_RAW_DENOISE_MODEL{,_IDENTITY}`, `SHADOW_TEST_NEURAL_RAW_DENOISE_TILE_EDGE`, and
-`SHADOW_TEST_NEURAL_RAW_DENOISE_HALO` variables additionally turns the same executable into a real
-Core ML checkpoint gate. That gate must pass before claiming a model artifact is runnable; image
-quality and performance still require a separate representative RAW corpus benchmark.
-[`tools/neural-raw-denoise-baseline`](../../tools/neural-raw-denoise-baseline/README.md) owns the
-synthetic-only checkpoint generator and first Core ML quality/latency smoke gate; passing it never
-promotes that checkpoint to a real-camera or product model.
+RawNIND runs only through Infer Runtime. `shadow-image` accepts its verified camera-RGB foundation;
+it never loads, validates, or gates a local model artifact.
 
 DNG technology notice: This product includes DNG technology under license by Adobe.
 
 The Metal implementation also follows the language boundary.
 `src/raw/metal_raw_development_msl.hpp` is the thin one-library composition index:
-`metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, and source-clipping projection
-mirrored by the CPU region developer; RAW reconstruction preserves measured camera colour, while
-any highlight rendering policy remains an explicit later stage;
+`metal_raw_common_msl.hpp` owns the shared ABI, Bayer sampling, source-clipping projection, and
+the same editable CFA scale, per-colour physical-white topology, one-sided local opposed repair, and
+residual shared-chroma contract mirrored by the CPU region developer; WB-induced fp32 headroom
+reaches the resident GPU edit source without reconstructing missing spatial detail;
 `metal_raw_denoise_msl.hpp` owns same-CFA sensor denoise;
 `metal_raw_reconstruction_msl.hpp` owns balanced/high-quality detail and CFA-area previews; and
 `metal_dcp_color_msl.hpp` owns DCP post-processing. Host execution is split by transaction:
@@ -300,6 +411,13 @@ sensor extraction and reports the exact resolved noise model. `--neural-raw-only
 executes the configured RAW-to-RAW neural node and reports its model/runtime identity plus numeric
 sample deltas, but deliberately does not claim that later declared DNG opcodes or final rendering
 have executed.
+
+`shadow-raw-probe --highlight-diagnostic` also writes `warm-highlight-shared-coverage.pgm` and
+`warm-highlight-grade-risk.pgm`. The former is the factual source-bin terminal coverage; the latter
+is the exact R8 sidecar delivered to Selective Tone after source-owned CFA reconstruction. Keeping
+both artifacts separate makes ownership expansion, missing warm-session evidence, and an
+over-conservative residual strength directly distinguishable without treating a rendered JPEG as
+RAW truth.
 
 `shadow-image-decode-helper neutral-detail-tile` is a development isolation proof, not the current
 Recipe-aware edit or export route. It proves that a child process can open a source through the
@@ -488,7 +606,17 @@ New production code should include the narrow semantic owner directly:
   clamping, and exact full-detail source reach for rotation, scale, and mirroring, while
   `src/edit/retouch_heal_blending.*` owns Heal's robust local-illumination boundary fit and
   scale-aware bounded screened gradient-domain texture blend; `adjustment_layers.hpp` owns masks,
-  layer composition, and masked execution.
+  layer composition, and masked execution. `src/edit/retouch_frequency.*` owns manual tone/texture
+  repair with a persisted 2–32 px Gaussian scale. It samples a bounded target/donor union, preserves
+  signed residuals, and leaves the other component unchanged against each pre-stroke input.
+  Frequency modes currently use complete CPU grade replay from the retained developed preview.
+  A resident-only source is materialized once per warm session, then reused; this avoids source
+  reopen or repeated RAW/denoise work but remains performance debt until frequency repair has a
+  resident kernel or an intermediate retouch-input cache. Obsolete row work is cancelled. Hover previews sample the displayed
+  GPU texture; donor analysis reads one matched preview on demand. Preview, detail, and export
+  use the same linear RGB split with raster-scaled radii. `src/edit/retouch_dependency_reach.*`
+  follows ordered target/donor intersections backwards, retaining necessary blur halos without
+  charging every displacement to unrelated pixels; the full-detail resource limit stays bounded.
 - `warm_edit_preview.hpp` owns the reusable interactive preview session, analysis, cancellation,
   execution provenance, transient display-sRGB RGB8 rendering, and settled JPEG output;
   `edit_preview_frame.hpp` owns the immutable moved RGB8/R8 presentation frame and paired mask
@@ -500,7 +628,9 @@ New production code should include the narrow semantic owner directly:
 
 The implementation follows the same map. `src/proxy/developed_source_raster.*` owns validation,
 dimensions, resizing, and bounded rectangular extraction for the decoder's two developed-source
-representations. `src/proxy/jpeg_proxy_encoding.*` owns the bounded libjpeg 4:4:4 encoder shared
+representations. Retained scene-linear sources receive complete validation at session admission;
+tile extraction checks layout and the requested samples without rescanning the whole frame.
+`src/proxy/jpeg_proxy_encoding.*` owns the bounded libjpeg 4:4:4 encoder shared
 by reference and edited proxies. `src/proxy/proxy_render_request_validation.*` owns the shared
 proxy-size/JPEG-quality boundary and RAW-plan schema/intent checks. Lifecycle-specific preparation
 and rendering stay with the warm-preview, full-detail, and proxy owners rather than with these
@@ -547,7 +677,10 @@ admission contract. CPU layer execution and resident Metal lowering both call it
 disabled or neutral content, so malformed persisted recipes cannot acquire backend-dependent
 validation.
 `src/edit/local_mask_coverage.*` owns CPU mask dispatch, pre-adjustment-input capture, continuous
-brush capsules, condition-mask color conversion, and scalar geometry/R8 projection;
+brush capsules, condition-mask color conversion, and scalar geometry/R8 projection.
+`src/edit/condition_mask.hpp` owns bounded postfix admission and scalar evaluation for grouped
+lightness/hue/chroma conditions; `warm_edit_gpu_mask_plan.*` lowers the same program into the
+resident Metal mask ABI. Existing spatial composites retain their explicit CPU replay route;
 `src/edit/managed_raster_mask.*` separately owns the bounded portable Gray8/Gray16Float contract,
 validation, binary16 decoding, and pixel-center bilinear sampling for application-managed masks.
 `src/edit/local_mask.cpp` consumes that evaluator for layer blending; a selected active layer
@@ -785,6 +918,14 @@ red-fastest storage order, rejects 1D/malformed files, and provides clamped-doma
 sampling. LUT resource ownership and Grade Node persistence remain outside this image-kernel
 format/parser boundary.
 
+[`include/shadow/image/lut_baking.hpp`](include/shadow/image/lut_baking.hpp) and
+[`src/edit/lut_baking.cpp`](src/edit/lut_baking.cpp) sample an explicitly color-only layer stack
+through the CPU executor, preserving node order and opacity. Spatial controls, including texture,
+clarity and local contrast within the Color Grading pass, fail closed. The bounded 17³/33³/65³
+linear-sRGB lattice checks cancellation between chunks and layers and measures interpolation error
+at 4096 independent RGB probes. It excludes RAW and display transforms. The same owner renders
+bounded LUT Library reference images through sRGB decoding, native LUT execution and display output.
+
 ## Display-luma analysis boundary
 
 `include/shadow/image/display_luma.hpp` names the complete preprocessing contract returned with
@@ -805,3 +946,10 @@ cargo xtask native-check
 ```
 
 This configures CMake, builds the library and probe, and runs CTest contract tests. Real RAW samples stay in the ignored local reference area; public deterministic fixtures will be added separately.
+
+`src/proxy/curve_input_map.cpp` owns the bounded, read-only scalar map for photo-space curve
+authoring. It evaluates the supplied prefix against the retained warm source, applies current
+Liquify/Canvas geometry, and performs one explicit host readback on tool preparation. The map
+has at most a 512-pixel edge; pointer updates read it without decode, GPU dispatch or readback.
+The L channel uses working-space Oklab L; RGB channels use the curve's signed sRGB encoding
+in the declared working primaries. It does not clamp HDR samples into the editable SDR range.

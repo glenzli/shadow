@@ -9,6 +9,7 @@ use std::{
     collections::VecDeque,
     path::Path,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 #[cfg(test)]
@@ -19,10 +20,12 @@ use shadow_bridge::{
     OpticsSettings, PhotoEditPreviewSession, RawDevelopmentPlan, raw_development_plan_identity,
 };
 use shadow_catalog::{RepresentationFingerprint, ReviewItemRecord};
-use shadow_domain::RepresentationId;
+use shadow_domain::{RawWhiteBalance, RepresentationId};
 
 use crate::{
-    isolated_proxy::{configured_helper_path, stage_isolated_raw_frame},
+    isolated_proxy::{
+        configured_helper_path, snapshot_isolated_photo_metadata, stage_isolated_raw_frame,
+    },
     photo_provider::isolated_edit_raster,
     preview_cache_identity::requested_raw_development_plan_cache_matches,
     raw_foundation_render_source::{
@@ -81,6 +84,21 @@ impl WarmEditPreviewSessionKey {
             && self.optics == requested.optics
             && self.raw_foundation == requested.raw_foundation
     }
+
+    /// The RAW picker samples the retained CFA using normalized source
+    /// coordinates, not pixels from the rendered preview. It can therefore
+    /// reuse a source prepared at another presentation edge, while every
+    /// source-domain and development-stage input must still match.
+    fn shares_raw_white_balance_picker_source(&self, requested: &Self) -> bool {
+        let mut requested_fixed = requested.raw_development_plan;
+        requested_fixed.white_balance = self.raw_development_plan.white_balance;
+        self.representation_id == requested.representation_id
+            && self.source == requested.source
+            && self.source_environment_cache_identity == requested.source_environment_cache_identity
+            && self.raw_development_plan == requested_fixed
+            && self.optics == requested.optics
+            && self.raw_foundation == requested.raw_foundation
+    }
 }
 
 #[derive(Debug)]
@@ -108,9 +126,28 @@ pub(crate) struct WarmEditPreviewSourceRequest<'request> {
     pub(crate) optics: &'request OpticsSettings,
     pub(crate) source_environment_cache_identity: &'request str,
     pub(crate) raw_foundation: Option<&'request RawFoundationRenderSelection>,
+    /// Debug-only correlation for one interactive request. It is deliberately
+    /// outside the cache key: tracing must never change reuse behavior.
+    pub(crate) interactive_timing_token: Option<u64>,
 }
 
 impl WarmEditPreviewSessionCache {
+    /// Exact-source lookup for transient tools; never prepares or rebinds a source.
+    pub(crate) fn get_existing(
+        &self,
+        request: &WarmEditPreviewSourceRequest<'_>,
+    ) -> AnyResult<Option<Arc<PhotoEditPreviewSession>>> {
+        let key = warm_preview_session_key(request)?;
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
+        Ok(entries
+            .iter()
+            .find(|entry| entry.key.matches(&key))
+            .map(|entry| Arc::clone(&entry.session)))
+    }
+
     pub(crate) fn get_or_prepare(
         &self,
         request: &WarmEditPreviewSourceRequest<'_>,
@@ -121,29 +158,16 @@ impl WarmEditPreviewSessionCache {
             max_edge,
             raw_development_plan,
             optics,
-            source_environment_cache_identity,
+            source_environment_cache_identity: _,
             raw_foundation,
+            interactive_timing_token,
         } = *request;
         // RAW development is immutable prepared-source provenance, not a
         // Recipe color operation. Its requested identity must participate in
         // the key before any warm reuse decision.
-        let requested_raw_development_plan_identity =
-            raw_development_plan_identity(raw_development_plan)
-                .context("build requested preview RAW-development cache identity")?;
-        let key = WarmEditPreviewSessionKey {
-            representation_id: source.representation_id,
-            source: source.source,
-            max_edge,
-            source_environment_cache_identity: source_environment_cache_identity.to_owned(),
-            requested_raw_development_plan_identity,
-            raw_development_plan,
-            optics: optics.clone(),
-            raw_foundation: raw_foundation.map(|selection| selection.identity.clone()),
-            raw_foundation_amount_percent: raw_foundation
-                .map(RawFoundationRenderSelection::amount_percent),
-        };
+        let key = warm_preview_session_key(request)?;
 
-        self.get_or_prepare_with(key, || {
+        self.get_or_prepare_with_timing(key, interactive_timing_token, || {
             // A warm hit intentionally returns before path resolution and
             // quarantine admission. Persisted crash evidence blocks reopening
             // the source; it does not invalidate already decoded pixels.
@@ -190,6 +214,59 @@ impl WarmEditPreviewSessionCache {
         })
     }
 
+    /// Samples only a retained source-domain RAW basis. This intentionally
+    /// never prepares, stages, decodes, or rebinds a session from a picker
+    /// click: the visible preview is the admission boundary for the tool.
+    pub(crate) fn pick_raw_white_balance(
+        &self,
+        request: &WarmEditPreviewSourceRequest<'_>,
+        normalized_x: f64,
+        normalized_y: f64,
+    ) -> AnyResult<Option<(u32, i16)>> {
+        let key = warm_preview_session_key(request)?;
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
+        let Some(session) = entries
+            .iter()
+            .find(|entry| {
+                entry.key.shares_raw_white_balance_picker_source(&key)
+                    && entry.session.supports_raw_white_balance_picker()
+            })
+            .map(|entry| Arc::clone(&entry.session))
+        else {
+            return Ok(None);
+        };
+        Ok(session.pick_raw_white_balance(normalized_x, normalized_y))
+    }
+
+    /// Estimates from only an already-admitted source-domain RAW basis. Like
+    /// the picker, the one-shot action is forbidden from preparing, staging,
+    /// decoding, or rebinding a session on demand.
+    pub(crate) fn auto_raw_white_balance(
+        &self,
+        request: &WarmEditPreviewSourceRequest<'_>,
+    ) -> AnyResult<Option<(u32, i16)>> {
+        let key = warm_preview_session_key(request)?;
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
+        let Some(session) = entries
+            .iter()
+            .find(|entry| {
+                entry.key.shares_raw_white_balance_picker_source(&key)
+                    && entry.session.supports_raw_white_balance_picker()
+            })
+            .map(|entry| Arc::clone(&entry.session))
+        else {
+            return Ok(None);
+        };
+        Ok(session.auto_raw_white_balance())
+    }
+
+    #[cfg(test)]
     fn get_or_prepare_with<Prepare>(
         &self,
         key: WarmEditPreviewSessionKey,
@@ -198,12 +275,30 @@ impl WarmEditPreviewSessionCache {
     where
         Prepare: FnOnce() -> AnyResult<PhotoEditPreviewSession>,
     {
+        self.get_or_prepare_with_timing(key, None, prepare)
+    }
+
+    fn get_or_prepare_with_timing<Prepare>(
+        &self,
+        key: WarmEditPreviewSessionKey,
+        interactive_timing_token: Option<u64>,
+        prepare: Prepare,
+    ) -> AnyResult<Arc<PhotoEditPreviewSession>>
+    where
+        Prepare: FnOnce() -> AnyResult<PhotoEditPreviewSession>,
+    {
+        let timing_started = interactive_timing_token.map(|_| Instant::now());
         {
             let mut entries = self
                 .entries
                 .lock()
                 .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
             if let Some(session) = take_matching_session(&mut entries, &key)? {
+                log_interactive_session_timing(
+                    interactive_timing_token,
+                    timing_started.as_ref(),
+                    "exact-hit",
+                );
                 return Ok(session);
             }
             if let Some(source) = entries
@@ -218,6 +313,11 @@ impl WarmEditPreviewSessionCache {
                 .map(|entry| Arc::clone(&entry.session))
             {
                 drop(entries);
+                let rebind_route = if key.raw_foundation_amount_percent.is_some() {
+                    "raw-foundation-amount-rebind"
+                } else {
+                    "raw-white-balance-rebind"
+                };
                 let rebound = Arc::new(match key.raw_foundation_amount_percent {
                     Some(amount_percent) => source
                         .rebind_raw_foundation_amount(key.raw_development_plan, amount_percent)
@@ -231,6 +331,11 @@ impl WarmEditPreviewSessionCache {
                     .lock()
                     .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
                 if let Some(session) = take_matching_session(&mut entries, &key)? {
+                    log_interactive_session_timing(
+                        interactive_timing_token,
+                        timing_started.as_ref(),
+                        "rebind-raced-exact-hit",
+                    );
                     return Ok(session);
                 }
                 entries.push_front(WarmEditPreviewSessionEntry {
@@ -238,19 +343,39 @@ impl WarmEditPreviewSessionCache {
                     session: Arc::clone(&rebound),
                 });
                 entries.truncate(MAX_WARM_EDIT_PREVIEW_SESSIONS);
+                log_interactive_session_timing(
+                    interactive_timing_token,
+                    timing_started.as_ref(),
+                    rebind_route,
+                );
                 return Ok(rebound);
             }
         }
 
         // Decoder work may be slow and may itself use process-wide provider
         // gates. Never serialize unrelated warm-cache reads behind this mutex.
-        let prepared = Arc::new(prepare()?);
+        let prepared = match prepare() {
+            Ok(prepared) => Arc::new(prepared),
+            Err(error) => {
+                log_interactive_session_timing(
+                    interactive_timing_token,
+                    timing_started.as_ref(),
+                    "cold-prepare-error",
+                );
+                return Err(error);
+            }
+        };
 
         let mut entries = self
             .entries
             .lock()
             .map_err(|_| anyhow!(CACHE_LOCK_POISONED))?;
         if let Some(session) = take_matching_session(&mut entries, &key)? {
+            log_interactive_session_timing(
+                interactive_timing_token,
+                timing_started.as_ref(),
+                "cold-prepare-raced-exact-hit",
+            );
             return Ok(session);
         }
         entries.push_front(WarmEditPreviewSessionEntry {
@@ -258,8 +383,49 @@ impl WarmEditPreviewSessionCache {
             session: Arc::clone(&prepared),
         });
         entries.truncate(MAX_WARM_EDIT_PREVIEW_SESSIONS);
+        log_interactive_session_timing(
+            interactive_timing_token,
+            timing_started.as_ref(),
+            "cold-prepare",
+        );
         Ok(prepared)
     }
+}
+
+fn log_interactive_session_timing(
+    interactive_timing_token: Option<u64>,
+    started: Option<&Instant>,
+    route: &str,
+) {
+    if let (Some(token), Some(started)) = (interactive_timing_token, started) {
+        eprintln!(
+            "shadow.interactive-timing token={token} component=warm-preview-session route={route} elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
+    }
+}
+
+fn warm_preview_session_key(
+    request: &WarmEditPreviewSourceRequest<'_>,
+) -> AnyResult<WarmEditPreviewSessionKey> {
+    let requested_raw_development_plan_identity =
+        raw_development_plan_identity(request.raw_development_plan)
+            .context("build requested preview RAW-development cache identity")?;
+    Ok(WarmEditPreviewSessionKey {
+        representation_id: request.source.representation_id,
+        source: request.source.source,
+        max_edge: request.max_edge,
+        source_environment_cache_identity: request.source_environment_cache_identity.to_owned(),
+        requested_raw_development_plan_identity,
+        raw_development_plan: request.raw_development_plan,
+        optics: request.optics.clone(),
+        raw_foundation: request
+            .raw_foundation
+            .map(|selection| selection.identity.clone()),
+        raw_foundation_amount_percent: request
+            .raw_foundation
+            .map(RawFoundationRenderSelection::amount_percent),
+    })
 }
 
 fn take_matching_session(
@@ -301,41 +467,71 @@ fn prepare_preview_session(
             Err(error) => error,
         };
 
-    if !raw_development_plan.white_balance.is_as_shot() {
-        let helper_path = configured_helper_path().ok_or_else(|| {
-            anyhow!(
-                "manual Foundation RAW white balance requires the isolated Provider Host RawFrame route; public decoder could not prepare {}: {public_decoder_error}",
-                native_path.display()
-            )
-        })?;
+    // A provider-only RAW must acquire its rebindable camera-space basis when
+    // the preview opens, not lazily on the first RAW-white-balance drag.  The
+    // latter made the gesture block on Provider Host staging and left regular
+    // Grade controls behind the same single preview request.  A persisted
+    // manual white balance stages the canonical as-shot basis, then performs
+    // the requested bind in memory so every subsequent slider value shares
+    // that exact source.
+    if let Some(helper_path) = configured_helper_path() {
         let staging_root = runtime_cache_root
             .join("decode-helper")
             .join("raw-frame-staging");
-        let staging = stage_isolated_raw_frame(&helper_path, &staging_root, native_path)
-            .with_context(|| {
-                format!(
-                    "stage provider-neutral RawFrame for manual Foundation white balance after public decoder could not prepare {}: {public_decoder_error}",
-                    native_path.display()
+        let staged_plan =
+            manual_white_balance_base_plan(raw_development_plan).unwrap_or(raw_development_plan);
+        let staged_result = (|| -> AnyResult<PhotoEditPreviewSession> {
+            // Metadata is cached by source and helper identity. It accompanies
+            // the staged RawFrame into the bridge, so the desktop process never
+            // reopens a provider-only source merely to compile its DCP and
+            // optics preparation.
+            let metadata =
+                snapshot_isolated_photo_metadata(&helper_path, runtime_cache_root, native_path)
+                    .context("snapshot isolated RAW metadata for staged preview preparation")?;
+            let staging = stage_isolated_raw_frame(&helper_path, &staging_root, native_path)
+                .with_context(|| {
+                    format!(
+                        "stage provider-neutral RawFrame after public decoder could not prepare {}: {public_decoder_error}",
+                        native_path.display()
+                    )
+                })?;
+            let staged =
+                PhotoEditPreviewSession::open_with_staged_raw_development_plan_from_metadata(
+                    &metadata.metadata,
+                    staging.manifest_path(),
+                    max_edge,
+                    staged_plan,
+                    optics,
                 )
-            })?;
-        let prepared = PhotoEditPreviewSession::open_with_staged_raw_development_plan(
-            native_path,
-            staging.manifest_path(),
-            max_edge,
-            raw_development_plan,
-            optics,
-        )
-        .with_context(|| {
-            format!(
-                "prepare manual Foundation white balance from the isolated RawFrame for {}",
-                native_path.display()
-            )
-        })?;
-        ensure_foundation_development_receipt(
-            raw_development_plan,
-            prepared.raw_pipeline_receipt(),
-        )?;
-        return Ok(prepared);
+                .with_context(|| {
+                    format!(
+                        "prepare rebindable preview from the isolated RawFrame for {}",
+                        native_path.display()
+                    )
+                })?;
+            let prepared = if staged_plan == raw_development_plan {
+                staged
+            } else {
+                staged
+                    .rebind_raw_development_plan(raw_development_plan)
+                    .context("rebind persisted manual Foundation RAW white balance from the staged as-shot source")?
+            };
+            ensure_foundation_development_receipt(
+                raw_development_plan,
+                prepared.raw_pipeline_receipt(),
+            )?;
+            Ok(prepared)
+        })();
+        match staged_result {
+            Ok(prepared) => return Ok(prepared),
+            Err(error) if !raw_development_plan.white_balance.is_as_shot() => return Err(error),
+            Err(_) => {}
+        }
+    } else if !raw_development_plan.white_balance.is_as_shot() {
+        return Err(anyhow!(
+            "manual Foundation RAW white balance requires the isolated Provider Host RawFrame route; public decoder could not prepare {}: {public_decoder_error}",
+            native_path.display()
+        ));
     }
 
     // Private providers stay outside the desktop process. The isolated helper
@@ -361,6 +557,13 @@ fn prepare_preview_session(
             native_path.display()
         )
     })
+}
+
+fn manual_white_balance_base_plan(
+    raw_development_plan: RawDevelopmentPlan,
+) -> Option<RawDevelopmentPlan> {
+    (!raw_development_plan.white_balance.is_as_shot())
+        .then(|| raw_development_plan.with_white_balance(RawWhiteBalance::AsShot))
 }
 
 #[cfg(test)]

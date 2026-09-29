@@ -7,18 +7,29 @@
 
 use anyhow::{Context, Result as AnyResult, bail};
 use shadow_ai::{
-    MaskPointPolarity, MaskPrompt, MaskPromptPoint, RasterExtent, SAM2_COREML_MAX_PROMPT_POINTS,
+    MAX_MASK_PROMPT_POINTS, MaskPointPolarity, MaskPrompt, MaskPromptPoint, RasterExtent,
     UnitInterval,
+};
+use shadow_domain::{
+    EntityId, MaskComponentId, MaskComponentOperation, SemanticMaskAggregation, SemanticMaskIntent,
 };
 
 use super::{
     DesktopSession, ffi,
-    recipe_v1::{GradeStackDraft, decode_grade_stack_draft_recipe_v1},
+    recipe_v1::{
+        CompositeMaskDraft, GradeStackDraft, MaskComponentDraft, MaskComponentDraftDefinition,
+        decode_grade_stack_draft_recipe_v1,
+    },
+    subject_mask_people::{FaceRegionSet, prepare_person_candidates},
     subject_mask_runtime::{
-        SubjectMaskInvocation,
+        SemanticMaskInvocation, SemanticMaskStageOutcome, SubjectMaskInvocation,
+        SubjectMaskSelection,
         geometry::{map_output_prompt_to_original, project_gray8_mask_to_output},
     },
-    subject_mask_service::{SubjectMaskCompletion, SubjectMaskServiceError},
+    subject_mask_service::{
+        SubjectMaskCompletion, SubjectMaskInputAdmission, SubjectMaskPersonSnapshot,
+        SubjectMaskRefinement, SubjectMaskRenderInputIdentity, SubjectMaskServiceError,
+    },
     wall_clock::current_time_ms,
 };
 
@@ -27,6 +38,19 @@ const SUBJECT_MASK_INPUT_JPEG_QUALITY: u8 = 95;
 const SUBJECT_MASK_CANDIDATE_PREVIEW_EDGE: u32 = 256;
 
 impl DesktopSession {
+    pub(crate) fn begin_subject_mask_input_session(&self) -> AnyResult<u64> {
+        Ok(self.subject_masks.begin_input_session()?)
+    }
+
+    pub(crate) fn finish_subject_mask_input_session(
+        &self,
+        subject_mask_input_session_token: u64,
+    ) -> AnyResult<()> {
+        Ok(self
+            .subject_masks
+            .finish_input_session(subject_mask_input_session_token)?)
+    }
+
     pub(crate) fn begin_subject_mask_job(&self) -> AnyResult<u64> {
         Ok(self.subject_masks.begin_job()?)
     }
@@ -85,65 +109,166 @@ impl DesktopSession {
             request.target_grade_node_index,
             &request.target_grade_node_id,
         )?;
-        let display_points = subject_mask_points(&request.points)?;
-
-        let render_token = self.begin_basic_edit_preview();
-        if render_token == 0 {
-            bail!("subject-mask input preview registry is full");
+        if request.kind == ffi::FfiSubjectMaskKind::SubjectAnalysis {
+            return self.analyze_subject_emphasis(photo_id, source_path, request);
         }
-        if let Err(error) = self
+        let display_points = match request.kind {
+            ffi::FfiSubjectMaskKind::PromptedSubject => subject_mask_points(&request.points)?,
+            ffi::FfiSubjectMaskKind::PeopleDiscovery
+            | ffi::FfiSubjectMaskKind::PeopleRegions
+            | ffi::FfiSubjectMaskKind::SemanticQuery
+            | ffi::FfiSubjectMaskKind::SubjectEmphasis => Vec::new(),
+            _ => bail!("subject-mask selection kind is unsupported"),
+        };
+        let input_identity = SubjectMaskRenderInputIdentity {
+            photo_id: photo_id.to_owned(),
+            source_path: source_path.to_owned(),
+            base_commit_id: request.base_commit_id.clone(),
+            grade_stack: grade_stack.clone(),
+        };
+        let prepared_input = match self
             .subject_masks
-            .attach_preview_render(request.job_token, render_token)
+            .admit_original_space_input(request.input_session_token, &input_identity)?
         {
-            let _ = self.cancel_basic_edit_preview(render_token);
-            if matches!(error, SubjectMaskServiceError::JobCancelled(_)) {
-                self.subject_masks.finish_job(request.job_token)?;
-                return Ok(subject_mask_terminal(
-                    request,
-                    ffi::FfiSubjectMaskTerminal::Cancelled,
-                    0,
-                    String::new(),
-                ));
-            }
-            return Err(error.into());
-        }
+            SubjectMaskInputAdmission::Reuse(input) => input,
+            SubjectMaskInputAdmission::Prepare => {
+                let prepared = (|| -> AnyResult<Option<_>> {
+                    let render_token = self.begin_basic_edit_preview();
+                    if render_token == 0 {
+                        bail!("subject-mask input preview registry is full");
+                    }
+                    if let Err(error) = self
+                        .subject_masks
+                        .attach_preview_render(request.job_token, render_token)
+                    {
+                        let _ = self.cancel_basic_edit_preview(render_token);
+                        if matches!(error, SubjectMaskServiceError::JobCancelled(_)) {
+                            return Ok(None);
+                        }
+                        return Err(error.into());
+                    }
 
-        let mut original_space_settings = request.settings.clone();
-        original_space_settings.geometry = identity_ffi_geometry();
-        let input_preview = self.render_basic_edit_preview(
-            photo_id,
-            source_path,
-            &ffi::FfiEditPreviewRequest {
-                base_commit_id: request.base_commit_id.clone(),
-                settings: original_space_settings,
-                render_token,
-                max_edge: SUBJECT_MASK_INPUT_MAX_EDGE,
-                jpeg_quality: SUBJECT_MASK_INPUT_JPEG_QUALITY,
-                policy: ffi::FfiEditPreviewPolicy::Settled,
-                use_working_recipe: true,
-                mask_coverage_requested: false,
-                mask_coverage_target_layer_index: 0,
-                mask_selection_revision: 0,
-            },
-        )?;
-        if input_preview.terminal == ffi::FfiEditPreviewTerminal::Cancelled
-            || cancellation.is_cancelled()
-        {
+                    let mut original_space_settings = request.settings.clone();
+                    original_space_settings.geometry = identity_ffi_geometry();
+                    let input_preview = self.render_subject_mask_input_preview(
+                        photo_id,
+                        source_path,
+                        &ffi::FfiEditPreviewRequest {
+                            base_commit_id: request.base_commit_id.clone(),
+                            settings: original_space_settings,
+                            render_token,
+                            max_edge: SUBJECT_MASK_INPUT_MAX_EDGE,
+                            jpeg_quality: SUBJECT_MASK_INPUT_JPEG_QUALITY,
+                            // The subject-mask render entry replaces this
+                            // public work class with its internal no-analysis
+                            // JPEG policy while retaining the same working
+                            // Recipe source.
+                            policy: ffi::FfiEditPreviewPolicy::Settled,
+                            use_working_recipe: true,
+                            mask_coverage_requested: false,
+                            mask_coverage_target_layer_index: 0,
+                            mask_coverage_component_requested: false,
+                            mask_coverage_target_component_index: 0,
+                            mask_selection_revision: 0,
+                        },
+                    )?;
+                    if input_preview.terminal == ffi::FfiEditPreviewTerminal::Cancelled
+                        || cancellation.is_cancelled()
+                    {
+                        return Ok(None);
+                    }
+                    if input_preview.terminal != ffi::FfiEditPreviewTerminal::Completed
+                        || input_preview.row_stride_bytes != 0
+                    {
+                        bail!("subject-mask input preview returned an invalid terminal payload");
+                    }
+                    let coordinate_extent =
+                        RasterExtent::new(input_preview.width, input_preview.height)
+                            .context("subject-mask input preview dimensions are invalid")?;
+                    Ok(Some(
+                        self.subject_masks
+                            .complete_original_space_input_preparation(
+                                request.input_session_token,
+                                &input_identity,
+                                input_preview.bytes,
+                                coordinate_extent,
+                            )?,
+                    ))
+                })();
+                match prepared {
+                    Ok(Some(input)) => input,
+                    Ok(None) => {
+                        let _ = self.subject_masks.abort_original_space_input_preparation(
+                            request.input_session_token,
+                            &input_identity,
+                        );
+                        self.subject_masks.finish_job(request.job_token)?;
+                        return Ok(subject_mask_terminal(
+                            request,
+                            ffi::FfiSubjectMaskTerminal::Cancelled,
+                            0,
+                            String::new(),
+                        ));
+                    }
+                    Err(error) => {
+                        let _ = self.subject_masks.abort_original_space_input_preparation(
+                            request.input_session_token,
+                            &input_identity,
+                        );
+                        return Err(error);
+                    }
+                }
+            }
+        };
+        let coordinate_extent = prepared_input.coordinate_extent;
+        if request.kind == ffi::FfiSubjectMaskKind::PeopleDiscovery {
+            let people = match self
+                .subject_masks
+                .people_snapshot(request.input_session_token, &input_identity)?
+            {
+                Some(people) => people,
+                None => {
+                    let detections = match self.subject_mask_runtime.detect_people(
+                        &prepared_input.bytes,
+                        &prepared_input.content_hash,
+                        coordinate_extent,
+                        &cancellation,
+                    ) {
+                        Ok(Some(detections)) => detections,
+                        Ok(None) => {
+                            self.subject_masks.finish_job(request.job_token)?;
+                            return Ok(subject_mask_terminal(
+                                request,
+                                ffi::FfiSubjectMaskTerminal::Cancelled,
+                                0,
+                                String::new(),
+                            ));
+                        }
+                        Err(error) => {
+                            self.subject_masks.finish_job(request.job_token)?;
+                            return Ok(subject_mask_terminal(
+                                request,
+                                ffi::FfiSubjectMaskTerminal::Unavailable,
+                                0,
+                                error.to_string(),
+                            ));
+                        }
+                    };
+                    let candidates = prepare_person_candidates(
+                        &prepared_input.bytes,
+                        coordinate_extent,
+                        &detections,
+                    )?;
+                    self.subject_masks.cache_people(
+                        request.input_session_token,
+                        &input_identity,
+                        candidates,
+                    )?
+                }
+            };
             self.subject_masks.finish_job(request.job_token)?;
-            return Ok(subject_mask_terminal(
-                request,
-                ffi::FfiSubjectMaskTerminal::Cancelled,
-                0,
-                String::new(),
-            ));
+            return Ok(people_ready_result(request, people, String::new()));
         }
-        if input_preview.terminal != ffi::FfiEditPreviewTerminal::Completed
-            || input_preview.row_stride_bytes != 0
-        {
-            bail!("subject-mask input preview returned an invalid terminal payload");
-        }
-        let coordinate_extent = RasterExtent::new(input_preview.width, input_preview.height)
-            .context("subject-mask input preview dimensions are invalid")?;
         let points = display_points
             .into_iter()
             .map(|point| {
@@ -153,31 +278,157 @@ impl DesktopSession {
                     coordinate_extent,
                 )
             })
-            .collect();
-        let prepared_input = self
-            .subject_mask_runtime
-            .prepare_input_jpeg(&input_preview.bytes)?;
-        let receipt = match self.subject_mask_runtime.stage(
-            self.subject_masks.store(),
-            SubjectMaskInvocation {
-                request_id: format!(
-                    "desktop-subject-mask-{}-{}",
-                    request.job_token, request.generation
-                ),
-                promotion_id: format!(
-                    "photo:{photo_id}:grade-node:{}:subject-mask:{}",
-                    request.target_grade_node_id, request.job_token
-                ),
-                generation: request.generation,
-                photo_id: photo_id.to_owned(),
-                original_space_input_jpeg: prepared_input.path().to_path_buf(),
-                coordinate_extent,
-                points,
+            .collect::<Vec<_>>();
+        let selection = match request.kind {
+            ffi::FfiSubjectMaskKind::PromptedSubject => {
+                SubjectMaskSelection::PromptedSubject { points }
+            }
+            ffi::FfiSubjectMaskKind::PeopleRegions => {
+                let regions = FaceRegionSet::from_bits(request.face_region_mask)?;
+                let person = self.subject_masks.person_candidate(
+                    request.input_session_token,
+                    &input_identity,
+                    request.person_index,
+                )?;
+                let parsed = match self.subject_masks.parsed_person(
+                    request.input_session_token,
+                    &input_identity,
+                    request.person_index,
+                )? {
+                    Some(parsed) => parsed,
+                    None => {
+                        let parsed = match self.subject_mask_runtime.parse_person(
+                            &prepared_input.bytes,
+                            &prepared_input.content_hash,
+                            coordinate_extent,
+                            &person,
+                            &cancellation,
+                        ) {
+                            Ok(Some(parsed)) => parsed,
+                            Ok(None) => {
+                                self.subject_masks.finish_job(request.job_token)?;
+                                return Ok(subject_mask_terminal(
+                                    request,
+                                    ffi::FfiSubjectMaskTerminal::Cancelled,
+                                    0,
+                                    String::new(),
+                                ));
+                            }
+                            Err(error) => {
+                                self.subject_masks.finish_job(request.job_token)?;
+                                return Ok(subject_mask_terminal(
+                                    request,
+                                    ffi::FfiSubjectMaskTerminal::Unavailable,
+                                    0,
+                                    error.to_string(),
+                                ));
+                            }
+                        };
+                        self.subject_masks.cache_parsed_person(
+                            request.input_session_token,
+                            &input_identity,
+                            request.person_index,
+                            parsed,
+                        )?
+                    }
+                };
+                if !regions.intersects(parsed.available_regions) {
+                    self.subject_masks.finish_job(request.job_token)?;
+                    let people = self
+                        .subject_masks
+                        .people_snapshot(request.input_session_token, &input_identity)?
+                        .unwrap_or_default();
+                    return Ok(people_ready_result(
+                        request,
+                        people,
+                        "the selected facial regions are not visible for this person".into(),
+                    ));
+                }
+                SubjectMaskSelection::FaceRegions {
+                    person,
+                    regions,
+                    parsed,
+                }
+            }
+            ffi::FfiSubjectMaskKind::SemanticQuery | ffi::FfiSubjectMaskKind::SubjectEmphasis => {
+                if !request.points.is_empty() {
+                    bail!("semantic-mask request cannot also carry point prompts");
+                }
+                SubjectMaskSelection::SemanticQuery {
+                    intent: SemanticMaskIntent::new(
+                        request.semantic_query.clone(),
+                        request.semantic_maximum_regions,
+                        request.semantic_score_threshold_percent,
+                        SemanticMaskAggregation::Union,
+                    )?,
+                }
+            }
+            _ => bail!("subject-mask selection kind is unsupported"),
+        };
+        let request_id = format!(
+            "desktop-subject-mask-{}-{}",
+            request.job_token, request.generation
+        );
+        let promotion_id = format!(
+            "photo:{photo_id}:grade-node:{}:subject-mask:{}",
+            request.target_grade_node_id, request.job_token
+        );
+        let staged = match selection {
+            SubjectMaskSelection::SemanticQuery { intent } => {
+                self.subject_mask_runtime.stage_semantic_intent(
+                    self.subject_masks.store(),
+                    SemanticMaskInvocation {
+                        request_id,
+                        promotion_id,
+                        generation: request.generation,
+                        photo_id: photo_id.to_owned(),
+                        original_space_input: prepared_input.clone(),
+                        intent,
+                    },
+                    &cancellation,
+                )
+            }
+            selection => match self.subject_mask_runtime.stage(
+                self.subject_masks.store(),
+                SubjectMaskInvocation {
+                    request_id,
+                    promotion_id,
+                    generation: request.generation,
+                    photo_id: photo_id.to_owned(),
+                    original_space_input_jpeg: prepared_input.bytes.clone(),
+                    original_space_input_content_hash: prepared_input.content_hash.clone(),
+                    coordinate_extent,
+                    selection,
+                },
+                &cancellation,
+            ) {
+                Ok(receipt) => SemanticMaskStageOutcome::Staged(receipt),
+                Err(error) => SemanticMaskStageOutcome::Unavailable(error),
             },
-            &cancellation,
-        ) {
-            Ok(receipt) => receipt,
-            Err(error) => {
+        };
+        let receipt = match staged {
+            SemanticMaskStageOutcome::Staged(receipt)
+            | SemanticMaskStageOutcome::ProviderUnavailable(receipt)
+            | SemanticMaskStageOutcome::ProviderFailed(receipt) => receipt,
+            SemanticMaskStageOutcome::Cancelled => {
+                self.subject_masks.finish_job(request.job_token)?;
+                return Ok(subject_mask_terminal(
+                    request,
+                    ffi::FfiSubjectMaskTerminal::Cancelled,
+                    0,
+                    String::new(),
+                ));
+            }
+            SemanticMaskStageOutcome::NotFound => {
+                self.subject_masks.finish_job(request.job_token)?;
+                return Ok(subject_mask_terminal(
+                    request,
+                    ffi::FfiSubjectMaskTerminal::Failed,
+                    0,
+                    "semantic query did not match a visible region".into(),
+                ));
+            }
+            SemanticMaskStageOutcome::Unavailable(error) => {
                 self.subject_masks.finish_job(request.job_token)?;
                 let terminal = if cancellation.is_cancelled() {
                     ffi::FfiSubjectMaskTerminal::Cancelled
@@ -205,7 +456,14 @@ impl DesktopSession {
                     "desktop-subject-mask-{}-{}",
                     request.job_token, request.generation
                 );
-                if request_id != expected_request_id || generation != request.generation {
+                if validate_staged_subject_mask_identity(
+                    &expected_request_id,
+                    request.generation,
+                    &request_id,
+                    generation,
+                )
+                .is_err()
+                {
                     let _ = self.subject_masks.discard_proposal(proposal_token);
                     bail!("subject-mask runtime returned mismatched request identity");
                 }
@@ -248,6 +506,23 @@ impl DesktopSession {
                 result.preview_width = output_extent.width;
                 result.preview_height = output_extent.height;
                 result.preview_samples = preview_samples;
+                if request.kind == ffi::FfiSubjectMaskKind::SubjectEmphasis {
+                    let preview = self.subject_masks.proposal_preview(proposal_token)?;
+                    if let Err(error) = super::session_subject_emphasis::recommend_emphasis(
+                        &prepared_input,
+                        &preview,
+                        grade_stack.canvas.effective_geometry(),
+                        &mut result,
+                    ) {
+                        let _ = self.subject_masks.discard_proposal(proposal_token);
+                        return Err(error);
+                    }
+                }
+                result.people = project_people(
+                    self.subject_masks
+                        .people_snapshot(request.input_session_token, &input_identity)?
+                        .unwrap_or_default(),
+                );
                 result
             }
             SubjectMaskCompletion::Unavailable { reason } => subject_mask_terminal(
@@ -286,17 +561,40 @@ impl DesktopSession {
             request.target_grade_node_index,
             &request.target_grade_node_id,
         )?;
+        let operation = subject_mask_operation(request.target_mask_operation)?;
+        let target_component_count = subject_mask_target_component_count(
+            &grade_stack.grade_nodes[request.target_grade_node_index as usize],
+        );
+        if (target_component_count == 0 && operation != MaskComponentOperation::Base)
+            || (target_component_count > 0 && operation == MaskComponentOperation::Base)
+            || target_component_count >= shadow_domain::MAX_MASK_COMPONENTS
+        {
+            bail!("subject-mask operation is incompatible with the target component stack");
+        }
         let mask = self.subject_masks.promote_proposal(
             request.proposal_token,
             request.generation,
-            request.invert,
+            SubjectMaskRefinement {
+                expansion_percent: 0,
+                feather_percent: 0,
+                leaf_invert: request.invert,
+                semantic_intent: if request.semantic_query.is_empty() {
+                    None
+                } else {
+                    Some(SemanticMaskIntent::new(
+                        request.semantic_query.clone(),
+                        request.semantic_maximum_regions,
+                        request.semantic_score_threshold_percent,
+                        SemanticMaskAggregation::Union,
+                    )?)
+                },
+            },
         )?;
         let target = grade_stack
             .grade_nodes
             .get_mut(request.target_grade_node_index as usize)
             .context("subject-mask target Grade Node index is unavailable")?;
-        target.local_mask = Some(mask);
-        target.preserved_managed_raster = None;
+        append_subject_mask_component(target, mask, operation)?;
         self.autosave_grade_stack_working_at(
             photo_id,
             source_path,
@@ -312,6 +610,18 @@ impl DesktopSession {
     }
 }
 
+fn validate_staged_subject_mask_identity(
+    expected_request_id: &str,
+    expected_generation: u64,
+    request_id: &str,
+    generation: u64,
+) -> AnyResult<()> {
+    if request_id != expected_request_id || generation != expected_generation {
+        bail!("subject-mask runtime returned mismatched request identity");
+    }
+    Ok(())
+}
+
 fn validate_subject_mask_target(
     grade_stack: &GradeStackDraft,
     target_grade_node_index: u32,
@@ -324,15 +634,87 @@ fn validate_subject_mask_target(
     if target.recipe_v1_identity.grade_node_id.to_string() != target_grade_node_id {
         bail!("subject-mask target Grade Node identity changed");
     }
-    if target.local_mask.is_some() {
-        bail!("subject-mask v1 requires a Grade Node without a geometric or condition mask");
+    if subject_mask_target_component_count(target) >= shadow_domain::MAX_MASK_COMPONENTS {
+        bail!("subject-mask target already contains the maximum number of mask components");
     }
     Ok(())
 }
 
+fn subject_mask_target_component_count(target: &super::recipe_v1::GradeNodeDraft) -> usize {
+    target.composite_mask.as_ref().map_or_else(
+        || usize::from(target.local_mask.is_some() || target.preserved_managed_raster.is_some()),
+        |composite| composite.components.len(),
+    )
+}
+
+fn subject_mask_operation(value: u8) -> AnyResult<MaskComponentOperation> {
+    match value {
+        0 => Ok(MaskComponentOperation::Base),
+        1 => Ok(MaskComponentOperation::Add),
+        2 => Ok(MaskComponentOperation::Subtract),
+        3 => Ok(MaskComponentOperation::Intersect),
+        other => bail!("subject-mask target uses unsupported component operation {other}"),
+    }
+}
+
+pub(crate) fn append_subject_mask_component(
+    target: &mut super::recipe_v1::GradeNodeDraft,
+    mask: shadow_domain::MaskDefinition,
+    operation: MaskComponentOperation,
+) -> AnyResult<MaskComponentId> {
+    let component_count = subject_mask_target_component_count(target);
+    if (component_count == 0 && operation != MaskComponentOperation::Base)
+        || (component_count > 0 && operation == MaskComponentOperation::Base)
+        || component_count >= shadow_domain::MAX_MASK_COMPONENTS
+    {
+        bail!("subject-mask operation is incompatible with the target component stack");
+    }
+    let component_id = MaskComponentId::from_uuid(uuid::Uuid::new_v4());
+    let new_component = MaskComponentDraft {
+        id: component_id,
+        operation,
+        enabled: true,
+        definition: MaskComponentDraftDefinition::Definition(mask),
+    };
+    if operation == MaskComponentOperation::Base {
+        target.local_mask = None;
+        target.preserved_managed_raster = None;
+        target.composite_mask = Some(CompositeMaskDraft {
+            components: vec![new_component],
+            invert: false,
+        });
+    } else if let Some(composite) = &mut target.composite_mask {
+        composite.components.push(new_component);
+    } else {
+        let base_definition = match (
+            target.local_mask.take(),
+            target.preserved_managed_raster.take(),
+        ) {
+            (Some(definition), None) => MaskComponentDraftDefinition::Definition(definition),
+            (None, Some(settings)) => {
+                MaskComponentDraftDefinition::PreservedManagedRaster(settings)
+            }
+            _ => bail!("subject-mask target has no unambiguous base component"),
+        };
+        target.composite_mask = Some(CompositeMaskDraft {
+            components: vec![
+                MaskComponentDraft {
+                    id: MaskComponentId::from_uuid(uuid::Uuid::new_v4()),
+                    operation: MaskComponentOperation::Base,
+                    enabled: true,
+                    definition: base_definition,
+                },
+                new_component,
+            ],
+            invert: false,
+        });
+    }
+    Ok(component_id)
+}
+
 fn subject_mask_points(points: &[ffi::FfiSubjectMaskPoint]) -> AnyResult<Vec<MaskPromptPoint>> {
-    if points.is_empty() || points.len() > SAM2_COREML_MAX_PROMPT_POINTS {
-        bail!("subject-mask prompt requires between 1 and {SAM2_COREML_MAX_PROMPT_POINTS} points");
+    if points.is_empty() || points.len() > MAX_MASK_PROMPT_POINTS {
+        bail!("subject-mask prompt requires between 1 and {MAX_MASK_PROMPT_POINTS} points");
     }
     let points = points
         .iter()
@@ -376,7 +758,7 @@ const fn identity_ffi_geometry() -> ffi::FfiPhotoGeometry {
     }
 }
 
-fn subject_mask_terminal(
+pub(crate) fn subject_mask_terminal(
     request: &ffi::FfiSubjectMaskRequest,
     terminal: ffi::FfiSubjectMaskTerminal,
     proposal_token: u64,
@@ -391,7 +773,41 @@ fn subject_mask_terminal(
         preview_width: 0,
         preview_height: 0,
         preview_samples: Vec::new(),
+        people: Vec::new(),
+        description: String::new(),
+        subject_queries: Vec::new(),
+        analysis_preview_jpeg: Vec::new(),
+        analysis_model: String::new(),
+        emphasis_exposure: 0.0,
+        emphasis_saturation: 1.0,
+        emphasis_background: false,
+        emphasis_reason: 0,
     }
+}
+
+fn people_ready_result(
+    request: &ffi::FfiSubjectMaskRequest,
+    people: Vec<SubjectMaskPersonSnapshot>,
+    detail: String,
+) -> ffi::FfiSubjectMaskResult {
+    let mut result =
+        subject_mask_terminal(request, ffi::FfiSubjectMaskTerminal::PeopleReady, 0, detail);
+    result.people = project_people(people);
+    result
+}
+
+fn project_people(people: Vec<SubjectMaskPersonSnapshot>) -> Vec<ffi::FfiSubjectMaskPerson> {
+    people
+        .into_iter()
+        .enumerate()
+        .map(|(index, person)| ffi::FfiSubjectMaskPerson {
+            index: index as u32,
+            confidence: f64::from(person.candidate.confidence),
+            thumbnail_jpeg: person.candidate.thumbnail_jpeg.as_ref().to_vec(),
+            regions_analyzed: person.available_regions.is_some(),
+            available_region_mask: person.available_regions.map_or(0, |regions| regions.bits()),
+        })
+        .collect()
 }
 
 #[cfg(test)]

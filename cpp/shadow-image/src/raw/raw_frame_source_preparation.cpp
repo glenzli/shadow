@@ -16,8 +16,9 @@ namespace shadow::image::raw_pipeline_detail {
 namespace {
 
 inline constexpr std::string_view raw_frame_pipeline_identity =
-    "shadow-raw-frame-developer-v2:cfa-wb-before-demosaic:bayer-area-preview+bayer-bilinear:"
-    "raw-denoise-cfa-bilateral-v1:plan-camera-neutral:camera-matrix:scene-linear-f32";
+    "shadow-raw-frame-developer@20260821.4:cfa-wb-before-demosaic:decoder-matrix-dcp-neutral-only:"
+    "bayer-area-preview+bayer-bilinear:raw-denoise-cfa-bilateral-v1:plan-camera-neutral:"
+    "camera-matrix:scene-linear-f32";
 
 [[nodiscard]] const char* camera_profile_status_name(const RawCameraProfileStatus status) noexcept {
     switch (status) {
@@ -99,6 +100,22 @@ PreparedRawFrameSource prepare_raw_frame_source(
     const std::optional<std::uint32_t> preview_max_edge,
     const CameraProfileCatalog& camera_profiles
 ) {
+    return prepare_raw_frame_source(
+        session.metadata(),
+        std::move(frame),
+        requested_plan,
+        preview_max_edge,
+        camera_profiles
+    );
+}
+
+PreparedRawFrameSource prepare_raw_frame_source(
+    AssetMetadata metadata,
+    RawFrame frame,
+    const RawDevelopmentPlan& requested_plan,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const CameraProfileCatalog& camera_profiles
+) {
     const RawDevelopmentPlanNegotiation negotiation =
         negotiate_shadow_raw_frame_development_plan(requested_plan);
     if (!negotiation.accepted()) {
@@ -119,8 +136,7 @@ PreparedRawFrameSource prepare_raw_frame_source(
     pipeline.camera_profile_catalog_identity = camera_profiles.identity;
     pipeline.camera_profile_developer_version = dcp_color_developer_version;
 
-    const CameraProfileDefinition* camera_profile =
-        match_camera_profile(camera_profiles, session.metadata());
+    const CameraProfileDefinition* camera_profile = match_camera_profile(camera_profiles, metadata);
     std::optional<DcpColorTransform> dcp_transform;
     std::optional<CameraProfileDefinition> camera_profile_definition;
     pipeline.camera_profile_status = RawCameraProfileStatus::no_match;
@@ -150,7 +166,7 @@ PreparedRawFrameSource prepare_raw_frame_source(
         negotiation.effective,
         preview_max_edge,
         std::move(dcp_transform),
-        session.metadata().iso_speed
+        metadata.iso_speed
     );
     pipeline.source_scene_luminance_percentile = development.source_scene_luminance_percentile();
     return PreparedRawFrameSource(
@@ -158,7 +174,7 @@ PreparedRawFrameSource prepare_raw_frame_source(
         std::move(development),
         std::move(pipeline),
         negotiation.status,
-        session.metadata(),
+        std::move(metadata),
         std::move(camera_profile_definition)
     );
 }
@@ -237,6 +253,7 @@ DevelopedSourceReference materialize_prepared_raw_frame_source(PreparedRawFrameS
         .raw_development_receipt = std::move(raw_receipt),
         .pipeline_receipt = std::move(pipeline),
         .sensor_clipping_mask = std::move(developed.sensor_clipping_mask),
+        .highlight_chroma_risk_map = std::move(developed.highlight_chroma_risk_map),
     };
 }
 

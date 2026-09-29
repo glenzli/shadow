@@ -1,9 +1,15 @@
 #include "edit_controller.hpp"
 #include "ai_preferences.hpp"
+#include "edit_ai_completion_controller.hpp"
 #include "edit_ai_mask_controller.hpp"
 #include "edit_auto_geometry_controller.hpp"
+#include "edit_auto_start_controller.hpp"
+#include "edit_paint_controller.hpp"
 #include "edit_persistence_task_coordinator.hpp"
 #include "edit_raw_foundation_controller.hpp"
+#include "edit_retouch_sources.hpp"
+#include "edit_subject_emphasis_controller.hpp"
+#include "edit_targeted_curve_controller.hpp"
 
 #include <QCoreApplication>
 #include <QEvent>
@@ -46,12 +52,16 @@ EditController::EditController(
     preview_presentation_context_(std::move(preview_presentation_context)),
     ai_preferences_(ai_preferences), persistence_state_(*this, [this] { startAutosave(); }),
     versions_(this), tone_curve_points_(this) {
+    image_completion_controller_ = std::make_unique<EditAiCompletionController>(*this, backend_);
     ai_mask_controller_ = std::make_unique<EditAiMaskController>(*this, backend_);
+    auto_start_controller_ = std::make_unique<EditAutoStartController>(*this, backend_);
+    subject_emphasis_controller_ = std::make_unique<EditSubjectEmphasisController>(*this, backend_);
+    paint_controller_ = std::make_unique<EditPaintController>(*this);
+    targeted_curve_controller_ = std::make_unique<EditTargetedCurveController>(*this);
+    retouch_sources_ = std::make_unique<EditRetouchSources>(*this);
     auto_geometry_controller_ = std::make_unique<EditAutoGeometryController>(*this);
-    persistence_task_coordinator_ = std::make_unique<EditPersistenceTaskCoordinator>(
-        *this,
-        [this] { finishStateTask(); }
-    );
+    persistence_task_coordinator_ =
+        std::make_unique<EditPersistenceTaskCoordinator>(*this, [this] { finishStateTask(); });
     raw_foundation_controller_ = std::make_unique<EditRawFoundationController>(*this, backend_);
     histogram_ = empty_histogram();
     before_histogram_ = empty_histogram();
@@ -87,12 +97,14 @@ EditController::EditController(
     );
     connect(this, &EditController::sourceIdentityChanged, this, [this] {
         ai_mask_controller_->resetContext();
+        image_completion_controller_->resetContext();
     });
     connect(this, &EditController::selectedGradeNodeChanged, this, [this] {
         ai_mask_controller_->resetContext();
     });
     connect(this, &EditController::parametersChanged, this, [this] {
         ai_mask_controller_->resetContext();
+        image_completion_controller_->resetContext();
     });
     connect(this, &EditController::sourceIdentityChanged, this, [this] {
         auto_geometry_controller_->resetContext();
@@ -122,6 +134,12 @@ EditController::EditController(
             this,
             &EditController::aiMaskPromptChanged
         );
+        connect(
+            ai_preferences_,
+            &AiPreferences::imageCompletionExecutionAllowedChanged,
+            this,
+            &EditController::imageCompletionChanged
+        );
     }
     connect(
         &preview_watcher_,
@@ -150,9 +168,15 @@ EditController::EditController(
 }
 
 EditController::~EditController() {
+    retouch_sources_.reset();
+    targeted_curve_controller_.reset();
+    paint_controller_.reset();
     auto_geometry_controller_.reset();
     raw_foundation_controller_.reset();
+    auto_start_controller_.reset();
+    subject_emphasis_controller_.reset();
     ai_mask_controller_.reset();
+    image_completion_controller_.reset();
     preview_debounce_.stop();
     detail_debounce_.stop();
     detail_warmup_debounce_.stop();
@@ -165,13 +189,34 @@ EditController::~EditController() {
     detail_warmup_watcher_.waitForFinished();
 }
 
+QObject* EditController::targetedCurve() const noexcept {
+    return targeted_curve_controller_.get();
+}
+
+QObject* EditController::paint() const noexcept {
+    return paint_controller_.get();
+}
+
+QObject* EditController::retouchSources() const noexcept {
+    return retouch_sources_.get();
+}
+
+QObject* EditController::autoStart() const noexcept { return auto_start_controller_.get(); }
+
+QObject* EditController::subjectEmphasis() const noexcept {
+    return subject_emphasis_controller_.get();
+}
+
 bool EditController::active() const noexcept {
     return active_;
 }
 
 bool EditController::busy() const noexcept {
     return stateTaskRunning() || current_rendering_ || before_rendering_ || detail_rendering_
+           || (auto_start_controller_ && auto_start_controller_->busy())
+           || (subject_emphasis_controller_ && subject_emphasis_controller_->busy())
            || (ai_mask_controller_ && ai_mask_controller_->busy())
+           || (image_completion_controller_ && image_completion_controller_->busy())
            || (auto_geometry_controller_ && auto_geometry_controller_->busy());
 }
 
@@ -185,10 +230,12 @@ bool EditController::interactionLocked() const noexcept {
     // head when the transaction returns. Opening a photo, creating a named
     // Version, and loading a Version still replace controller state, so they
     // remain interaction-locking operations.
-    return persistence_state_.hasPendingVersionSave()
-           || persistence_state_.hasPendingVersionLoad()
+    return persistence_state_.hasPendingVersionSave() || persistence_state_.hasPendingVersionLoad()
            || (stateTaskRunning() && stateTaskKind() != EditStateTaskKind::Autosave)
-           || (ai_mask_controller_ && ai_mask_controller_->locksInteraction());
+           || (auto_start_controller_ && auto_start_controller_->applying())
+           || (subject_emphasis_controller_ && subject_emphasis_controller_->active())
+           || (ai_mask_controller_ && ai_mask_controller_->locksInteraction())
+           || (image_completion_controller_ && image_completion_controller_->locksInteraction());
 }
 
 bool EditController::rendering() const noexcept {
@@ -219,6 +266,14 @@ quint32 EditController::detailFullHeight() const noexcept {
     return detail_full_height_;
 }
 
+quint32 EditController::levelZeroWidth() const noexcept {
+    return level_zero_width_;
+}
+
+quint32 EditController::levelZeroHeight() const noexcept {
+    return level_zero_height_;
+}
+
 quint64 EditController::detailRetainedBytes() const noexcept {
     return detail_retained_bytes_;
 }
@@ -245,8 +300,7 @@ bool EditController::dirty() const noexcept {
 
 bool EditController::autosavePending() const noexcept {
     return !autosaveFailed()
-           && (persistence_state_.autosaveRequested()
-               || persistence_state_.autosaveDebounceActive()
+           && (persistence_state_.autosaveRequested() || persistence_state_.autosaveDebounceActive()
                || (stateTaskRunning() && stateTaskKind() == EditStateTaskKind::Autosave
                    && stateTaskFutureRunning()));
 }
@@ -267,6 +321,10 @@ QString EditController::editBaseCommitId() const {
     return base_commit_id_;
 }
 
+QString EditController::durableWorkingCommitId() const {
+    return durable_working_commit_id_;
+}
+
 QString EditController::activeVariantId() const {
     return active_variant_id_;
 }
@@ -280,11 +338,11 @@ bool EditController::variantActionsEnabled() const noexcept {
 }
 
 bool EditController::canUndo() const noexcept {
-    return history_.canUndo();
+    return history_.canUndo() || (paint_controller_ && paint_controller_->strokeActive());
 }
 
 bool EditController::canRedo() const noexcept {
-    return history_.canRedo();
+    return history_.canRedo() && !(paint_controller_ && paint_controller_->strokeActive());
 }
 
 QString EditController::photoId() const {

@@ -24,7 +24,7 @@ ColumnLayout {
             Layout.fillWidth: true
             text: qsTr("SMART CATEGORIES")
             color: smartCategories.workspace.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 1.1
         }
@@ -92,7 +92,7 @@ ColumnLayout {
                     anchors.centerIn: parent
                     text: "?"
                     color: Theme.warningText
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     font.weight: Font.Bold
                 }
             }
@@ -100,14 +100,14 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: qsTr("Review uncertain")
                 color: smartCategories.workspace.textPrimary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
             }
             Label {
                 text: smartCategories.controller.uncertainCount
                 color: Theme.warningText
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
             }
         }
 
@@ -167,14 +167,14 @@ ColumnLayout {
                     Layout.fillWidth: true
                     text: String(categoryRow.modelData.name)
                     color: smartCategories.workspace.textPrimary
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     elide: Text.ElideRight
                 }
                 Label {
                     text: String(categoryRow.modelData.count)
                     color: categoryRow.selected ? smartCategories.workspace.accent
                         : smartCategories.workspace.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
             }
             MouseArea {
@@ -211,7 +211,7 @@ ColumnLayout {
                 : smartCategories.controller.statusText
             color: smartCategories.controller.failed ? Theme.errorText
                 : smartCategories.workspace.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             elide: Text.ElideRight
         }
         ShadowButton {

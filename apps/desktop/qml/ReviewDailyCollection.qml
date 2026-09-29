@@ -24,7 +24,7 @@ ColumnLayout {
         Layout.bottomMargin: 3
         text: qsTr("DAILY")
         color: Theme.textMuted
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         font.weight: Font.DemiBold
         font.letterSpacing: 1.2
     }

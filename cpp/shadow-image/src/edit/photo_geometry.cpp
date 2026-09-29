@@ -385,6 +385,17 @@ FloatRgbImage apply_photo_geometry_tile(
     return output;
 }
 
+std::array<double, 2> photo_geometry_source_point(
+    Dimensions source_dimensions, const PhotoGeometry& geometry, double x, double y
+) {
+    const auto layout = photo_geometry_layout(source_dimensions, geometry);
+    if (!std::isfinite(x) || !std::isfinite(y)) invalid_geometry("non-finite authoring point");
+    const auto point = detail::photo_geometry_source_coordinate_for_output(
+        layout, geometry, x * layout.output_dimensions.width - 0.5,
+        y * layout.output_dimensions.height - 0.5);
+    return {(point.x + 0.5) / source_dimensions.width, (point.y + 0.5) / source_dimensions.height};
+}
+
 FloatRgbImage apply_photo_geometry(
     const FloatRgbImage& source,
     const PhotoGeometry& geometry

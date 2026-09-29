@@ -6,22 +6,29 @@
 //! synchronous provider traits, input staging, strict evidence admission, and
 //! stale/cache/publish policy in callers.
 
+mod image_completion;
 mod image_understanding;
 mod raw_foundation;
 mod semantic;
+mod semantic_grounding;
+mod subject_mask;
 
 use std::{collections::BTreeMap, fmt, io::Write, path::Path};
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use image::ImageFormat;
 use infer_runtime_client::{
-    Client as SdkClient, DiscoveryResolver, FaceDetectionResponse, FaceEmbeddingResponse,
-    FivePointLandmarks, Point,
+    BoundingBox, Client as SdkClient, DiscoveryResolver, FaceDetectionResponse,
+    FaceEmbeddingResponse, FaceParsingResponse, FivePointLandmarks, Point,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use tempfile::NamedTempFile;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 
 use crate::{FaceBoundingBox, FaceEmbedding, FaceLandmarks, FacePoint};
 
+pub use image_completion::{INFER_IMAGE_COMPLETION_CAPABILITY, InferImageCompletionEvidence};
 pub use image_understanding::{
     ClassificationReviewCategory, ClassificationReviewDisposition, ClassificationReviewEvidence,
     ClassificationReviewProvider, ClassificationReviewRequest, ClassificationReviewSuggestion,
@@ -39,16 +46,46 @@ pub use raw_foundation::{
     InferRawFoundationDecoderIdentity, InferRawFoundationJob, InferRawFoundationLeaseGrant,
     InferRawFoundationPriority, InferRawFoundationProvenance, InferRawFoundationProvider,
     InferRawFoundationRegisteredLease, InferRawFoundationRequest, InferRawFoundationResult,
-    InferRawFoundationSource, InferRawFoundationStaging, infer_raw_foundation_sdk_status,
+    InferRawFoundationSource, InferRawFoundationStaging, RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256,
+    RAWNIND_FOUNDATION_MODEL_ID, RAWNIND_FOUNDATION_PACKAGE_SHA256,
+    RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256, infer_raw_foundation_sdk_status,
 };
 pub use semantic::{
     ImageEmbeddingEvidence, SemanticEmbeddingProvider, SemanticRequestPriority,
     TextEmbeddingEvidence,
 };
+pub use semantic_grounding::{
+    INFER_SEMANTIC_GROUNDING_CAPABILITY, SemanticGroundedRegion, SemanticGroundingEvidence,
+};
+pub use subject_mask::{INFER_SUBJECT_MASK_CAPABILITY, InferSubjectMaskEvidence};
 
 const MAX_DETECTIONS: usize = 4_096;
 const EXPECTED_FACE_ORIENTATION: &str = "input_pixels_no_exif_transform";
+const EXPECTED_FACE_PARSING_ORIENTATION: &str = "display_pixels_orientation_normalized";
 const BIOMETRIC_CLASSIFICATION: &str = "sensitive_biometric";
+pub const FACE_PARSING_ONTOLOGY: &str = "celebamask_hq_19";
+const FACE_PARSING_CLASS_COUNT: usize = 19;
+const FACE_PARSING_CLASS_IDS: [&str; FACE_PARSING_CLASS_COUNT] = [
+    "background",
+    "skin",
+    "left_eyebrow",
+    "right_eyebrow",
+    "left_eye",
+    "right_eye",
+    "eyeglasses",
+    "left_ear",
+    "right_ear",
+    "earring",
+    "nose",
+    "mouth",
+    "upper_lip",
+    "lower_lip",
+    "neck",
+    "necklace",
+    "clothing",
+    "hair",
+    "hat",
+];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisionProvenance {
@@ -108,6 +145,15 @@ pub struct EmbeddedFace {
     pub provenance: VisionProvenance,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedFace {
+    pub source_revision: String,
+    pub width: u32,
+    pub height: u32,
+    pub labels: Vec<u8>,
+    pub provenance: VisionProvenance,
+}
+
 pub trait FaceAnalysisProvider {
     /// # Errors
     ///
@@ -130,6 +176,71 @@ pub trait FaceAnalysisProvider {
         source_revision: &str,
         landmarks: FaceLandmarks,
     ) -> Result<EmbeddedFace, InferRuntimeClientError>;
+
+    /// Runs detection with a cooperative cancellation boundary.
+    /// # Errors
+    /// Returns the underlying provider error.
+    fn detect_faces_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<DetectedFaceBatch>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        let result = self.detect_faces(image, media_type, source_revision)?;
+        Ok((!cancelled()).then_some(result))
+    }
+
+    /// Runs embedding with a cooperative cancellation boundary.
+    /// # Errors
+    /// Returns the underlying provider error.
+    fn embed_face_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        landmarks: FaceLandmarks,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<EmbeddedFace>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        let result = self.embed_face(image, media_type, source_revision, landmarks)?;
+        Ok((!cancelled()).then_some(result))
+    }
+
+    /// Returns one full-image CelebAMask-HQ label map for the selected face.
+    ///
+    /// # Errors
+    ///
+    /// Returns a provider-specific error without logging image bytes.
+    fn parse_face(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        face_box: FaceBoundingBox,
+    ) -> Result<ParsedFace, InferRuntimeClientError>;
+
+    /// Cancels face parsing cooperatively; Runtime overrides this to drop
+    /// the in-flight SDK future rather than wait for the HTTP deadline.
+    fn parse_face_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        face_box: FaceBoundingBox,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<ParsedFace>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        let parsed = self.parse_face(image, media_type, source_revision, face_box)?;
+        Ok((!cancelled()).then_some(parsed))
+    }
 }
 
 /// Synchronous product adapter over the official asynchronous SDK.
@@ -292,6 +403,29 @@ impl InferRuntimeClient {
         &self.sdk
     }
 
+    fn block_on_cancellable<T>(
+        &self,
+        future: impl std::future::Future<Output = Result<T, InferRuntimeClientError>>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<T>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        self.runtime.block_on(async {
+            tokio::select! {
+                biased;
+                () = async {
+                    while !cancelled() {
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                } => Ok(None),
+                result = future => result.map(Some),
+            }
+        })
+    }
+}
+
+impl InferRuntimeClient {
     fn block_on<T>(
         &self,
         future: impl std::future::Future<Output = Result<T, InferRuntimeClientError>>,
@@ -299,7 +433,6 @@ impl InferRuntimeClient {
         self.runtime.block_on(future)
     }
 }
-
 impl FaceAnalysisProvider for InferRuntimeClient {
     fn detect_faces(
         &self,
@@ -307,17 +440,9 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         media_type: &str,
         source_revision: &str,
     ) -> Result<DetectedFaceBatch, InferRuntimeClientError> {
-        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
-        let metadata = local_metadata("background", None);
-        let response = self.block_on(self.sdk.detect_faces(
-            staged.path(),
-            media_type,
-            source_revision,
-            &metadata,
-        ))?;
-        admit_face_detection(response, source_revision)
+        self.detect_faces_cancellable(image, media_type, source_revision, &|| false)?
+            .ok_or_else(|| InferRuntimeClientError::Input("face detection cancelled".into()))
     }
-
     fn embed_face(
         &self,
         image: &[u8],
@@ -325,6 +450,37 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         source_revision: &str,
         landmarks: FaceLandmarks,
     ) -> Result<EmbeddedFace, InferRuntimeClientError> {
+        self.embed_face_cancellable(image, media_type, source_revision, landmarks, &|| false)?
+            .ok_or_else(|| InferRuntimeClientError::Input("face embedding cancelled".into()))
+    }
+
+    fn detect_faces_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<DetectedFaceBatch>, InferRuntimeClientError> {
+        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
+        let metadata = local_metadata("background", None);
+        let response = self.block_on_cancellable(
+            self.sdk
+                .detect_faces(staged.path(), media_type, source_revision, &metadata),
+            cancelled,
+        )?;
+        response
+            .map(|value| admit_face_detection(value, source_revision))
+            .transpose()
+    }
+
+    fn embed_face_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        landmarks: FaceLandmarks,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<EmbeddedFace>, InferRuntimeClientError> {
         if landmarks
             .points()
             .iter()
@@ -334,14 +490,66 @@ impl FaceAnalysisProvider for InferRuntimeClient {
         }
         let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
         let metadata = local_metadata("background", None);
-        let response = self.block_on(self.sdk.embed_face(
-            staged.path(),
-            media_type,
-            source_revision,
-            sdk_landmarks(landmarks),
-            &metadata,
-        ))?;
-        admit_face_embedding(response, source_revision)
+        let response = self.block_on_cancellable(
+            self.sdk.embed_face(
+                staged.path(),
+                media_type,
+                source_revision,
+                sdk_landmarks(landmarks),
+                &metadata,
+            ),
+            cancelled,
+        )?;
+        response
+            .map(|value| admit_face_embedding(value, source_revision))
+            .transpose()
+    }
+
+    fn parse_face(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        face_box: FaceBoundingBox,
+    ) -> Result<ParsedFace, InferRuntimeClientError> {
+        self.parse_face_cancellable(image, media_type, source_revision, face_box, &|| false)?
+            .ok_or_else(|| InferRuntimeClientError::Input("face parsing cancelled".into()))
+    }
+
+    fn parse_face_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        face_box: FaceBoundingBox,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<ParsedFace>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        if !valid_face_box(face_box) {
+            return malformed("face parsing requires a finite positive face box");
+        }
+        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
+        let metadata = local_metadata("interactive", None);
+        let response = self.block_on_cancellable(
+            self.sdk.parse_face(
+                staged.path(),
+                media_type,
+                source_revision,
+                BoundingBox {
+                    x: face_box.x,
+                    y: face_box.y,
+                    width: face_box.width,
+                    height: face_box.height,
+                },
+                &metadata,
+            ),
+            cancelled,
+        )?;
+        response
+            .map(|response| admit_face_parsing(response, source_revision, face_box))
+            .transpose()
     }
 }
 
@@ -427,6 +635,87 @@ fn admit_face_embedding(
         },
         provenance: admit_vision_provenance(response.provenance)?,
     })
+}
+
+fn admit_face_parsing(
+    response: FaceParsingResponse,
+    expected_source_revision: &str,
+    expected_face_box: FaceBoundingBox,
+) -> Result<ParsedFace, InferRuntimeClientError> {
+    if response.object != "vision.face_parsing"
+        || response.status != "completed"
+        || response.source_revision != expected_source_revision
+        || response.data_classification != BIOMETRIC_CLASSIFICATION
+        || response.image.orientation != EXPECTED_FACE_PARSING_ORIENTATION
+        || response.image.width == 0
+        || response.image.height == 0
+        || response.label_map.content_type != "image/png"
+        || response.label_map.encoding != "indexed_u8_png"
+        || response.label_map.width != response.image.width
+        || response.label_map.height != response.image.height
+        || response.ontology.id != FACE_PARSING_ONTOLOGY
+        || response.ontology.background_value != 0
+        || response.ontology.class_count != FACE_PARSING_CLASS_COUNT
+        || response.regions.len() != FACE_PARSING_CLASS_COUNT
+        || !same_face_box(&response.face_box, expected_face_box)
+    {
+        return malformed("face parsing response violated Shadow's typed evidence contract");
+    }
+    let encoded = STANDARD
+        .decode(&response.label_map.data_base64)
+        .map_err(|_| {
+            InferRuntimeClientError::MalformedResponse(
+                "face parsing label map is not valid base64".into(),
+            )
+        })?;
+    if format!("{:x}", Sha256::digest(&encoded)) != response.label_map.sha256 {
+        return malformed("face parsing label-map digest does not match its evidence");
+    }
+    let decoded =
+        image::load_from_memory_with_format(&encoded, ImageFormat::Png).map_err(|_| {
+            InferRuntimeClientError::MalformedResponse(
+                "face parsing label map is not a decodable PNG".into(),
+            )
+        })?;
+    if decoded.color() != image::ColorType::L8 {
+        return malformed("face parsing label map is not an indexed Gray8 raster");
+    }
+    let decoded = decoded.into_luma8();
+    if decoded.width() != response.image.width || decoded.height() != response.image.height {
+        return malformed("face parsing label map dimensions changed after decoding");
+    }
+    let mut class_counts = [0_u64; FACE_PARSING_CLASS_COUNT];
+    for label in decoded.as_raw() {
+        let Some(count) = class_counts.get_mut(usize::from(*label)) else {
+            return malformed("face parsing label map contains an unknown class");
+        };
+        *count += 1;
+    }
+    if response.regions.iter().enumerate().any(|(index, region)| {
+        usize::from(region.label_value) != index
+            || region.class_id
+                != format!(
+                    "{}:{}",
+                    FACE_PARSING_ONTOLOGY, FACE_PARSING_CLASS_IDS[index]
+                )
+            || region.pixel_count != class_counts[index]
+    }) {
+        return malformed("face parsing label map violated the CelebAMask-HQ ontology");
+    }
+    Ok(ParsedFace {
+        source_revision: response.source_revision,
+        width: response.image.width,
+        height: response.image.height,
+        labels: decoded.into_raw(),
+        provenance: admit_vision_provenance(response.provenance)?,
+    })
+}
+
+fn same_face_box(actual: &BoundingBox, expected: FaceBoundingBox) -> bool {
+    (actual.x - expected.x).abs() <= 0.01
+        && (actual.y - expected.y).abs() <= 0.01
+        && (actual.width - expected.width).abs() <= 0.01
+        && (actual.height - expected.height).abs() <= 0.01
 }
 
 fn admit_vision_provenance(
@@ -534,9 +823,22 @@ fn valid_detection(detection: &DetectedFace, width: u32, height: u32) -> bool {
                 && point.y.is_finite()
                 && point.x >= 0.0
                 && point.y >= 0.0
-                && f64::from(point.x) < width
-                && f64::from(point.y) < height
+                // YuNet clips detection landmarks to the closed image extent.
+                // SFace separately checks strict interior/alignment eligibility;
+                // one clipped face must not invalidate the whole detection batch.
+                && f64::from(point.x) <= width
+                && f64::from(point.y) <= height
         })
+}
+
+fn valid_face_box(value: FaceBoundingBox) -> bool {
+    [value.x, value.y, value.width, value.height]
+        .iter()
+        .all(|component| component.is_finite())
+        && value.x >= 0.0
+        && value.y >= 0.0
+        && value.width > 0.0
+        && value.height > 0.0
 }
 
 fn valid_provenance(provenance: &VisionProvenance) -> bool {

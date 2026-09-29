@@ -7,15 +7,122 @@ use shadow_bridge::{
 use shadow_domain::{
     ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, LiquifyPoint,
     LiquifyStroke, ManagedRasterMask, MaskDefinition, PhotoLiquifyNode, RasterMaskEncoding,
-    UnitInterval,
+    RetouchPoint, RetouchStroke, UnitInterval,
 };
 
 use super::{
-    adjustment_liquify, adjustment_local_mask, adjustment_local_mask_with_resolver,
-    compile_recipe_render_plan,
+    RECIPE_V1_RETOUCH_RENDER_NODE_ID, adjustment_liquify, adjustment_local_mask,
+    adjustment_local_mask_with_resolver, compile_recipe_render_plan,
 };
 use crate::recipe_v1::managed_raster_resolution::ManagedRasterMaskResolver;
 use crate::recipe_v1::{GradeStackDraft, grade_stack_recipe_v1_snapshot};
+
+struct FixtureCompletionResolver;
+
+impl crate::recipe_v1::managed_raster_resolution::ManagedImageCompletionResolver
+    for FixtureCompletionResolver
+{
+    fn resolve_completion(
+        &self,
+        patch: &shadow_domain::ManagedImageCompletionPatch,
+        strength: f64,
+    ) -> AnyResult<shadow_bridge::AdjustmentImageCompletionPatch> {
+        Ok(shadow_bridge::AdjustmentImageCompletionPatch {
+            raster_width: 2,
+            raster_height: 2,
+            coordinate_width: 4000,
+            coordinate_height: 3000,
+            bounds_left: patch.bounds_left().get(),
+            bounds_top: patch.bounds_top().get(),
+            bounds_right: patch.bounds_right().get(),
+            bounds_bottom: patch.bounds_bottom().get(),
+            strength,
+            rgba8: vec![255; 16],
+        })
+    }
+}
+
+#[test]
+fn completion_and_repair_remain_inside_a_complete_unmasked_layer() {
+    use shadow_domain::{ImageCompletionRegion, ManagedImageCompletionPatch};
+    let unit = |value| UnitInterval::new(value).unwrap();
+    let digest = "a".repeat(64);
+    let patch = ManagedImageCompletionPatch::new(
+        format!("objects/v1/b3/{}/{}", &digest[..2], &digest[2..]),
+        1,
+        digest,
+        16,
+        2,
+        2,
+        4000,
+        3000,
+        unit(0.1),
+        unit(0.2),
+        unit(0.4),
+        unit(0.6),
+        "b".repeat(64),
+        "infer-runtime".into(),
+        "local".into(),
+        "lama-v1".into(),
+        "rgba-mask-v1".into(),
+        "infer.vision.image-completion@20260830.1".into(),
+        "CPUExecutionProvider".into(),
+    )
+    .unwrap();
+    for repair in [false, true] {
+        for completion_enabled in [false, true] {
+            let mut draft = GradeStackDraft::default();
+            draft.grade_nodes[0].opacity = unit(0.7);
+            for _ in 1..16 {
+                draft
+                    .grade_nodes
+                    .push(crate::recipe_v1::GradeNodeDraft::neutral("grade"));
+            }
+            draft.image_completions = vec![ImageCompletionRegion::new(patch.clone())];
+            draft.image_completion_enabled = completion_enabled;
+            if repair {
+                draft.retouch_strokes = vec![
+                    RetouchStroke::new(vec![RetouchPoint::new(unit(0.3), unit(0.6))], 18).unwrap(),
+                ];
+            }
+            let snapshot = grade_stack_recipe_v1_snapshot(&draft, None).unwrap();
+            let plan = super::compile_recipe_render_plan_with_resolver(
+                &snapshot,
+                None,
+                Some(&FixtureCompletionResolver),
+            )
+            .unwrap();
+            let mut open = false;
+            let mut layer_count = 0;
+            let mut saw_repair = false;
+            for node in &plan.nodes {
+                match &node.operation {
+                    AdjustmentRenderOperation::LocalMaskLayerStart { .. } => {
+                        assert!(!open);
+                        open = true;
+                        layer_count += 1;
+                    }
+                    AdjustmentRenderOperation::LocalMaskLayerEnd => {
+                        assert!(open);
+                        open = false;
+                    }
+                    AdjustmentRenderOperation::SpotHeal { .. } => {
+                        assert!(open);
+                        saw_repair = true;
+                    }
+                    AdjustmentRenderOperation::ImageCompletion { .. } => {
+                        assert!(open);
+                        assert_eq!(saw_repair, repair);
+                        assert_eq!(node.enabled, completion_enabled);
+                    }
+                    _ => assert!(open),
+                }
+            }
+            assert!(!open);
+            assert_eq!(layer_count, 17);
+        }
+    }
+}
 
 struct FixtureManagedRasterResolver;
 
@@ -99,7 +206,7 @@ fn condition_masks_compile_without_changing_authored_units() {
 }
 
 #[test]
-fn composite_condition_masks_fail_at_the_executability_boundary() {
+fn composite_condition_masks_preserve_their_native_program() {
     let unit = |value| UnitInterval::new(value).expect("unit interval");
     let expression = ConditionMaskExpression::all(vec![
         ConditionMaskNode::leaf(ConditionMaskPredicate::oklab_lightness_range(
@@ -116,11 +223,13 @@ fn composite_condition_masks_fail_at_the_executability_boundary() {
     .expect("composite expression");
     let definition =
         MaskDefinition::condition_expression(expression).expect("persistent condition mask");
-    let error = adjustment_local_mask(&definition).expect_err("runtime must reject unsupported");
-    assert!(
-        error
-            .to_string()
-            .contains("persists bounded condition-mask expressions")
+    let compiled = adjustment_local_mask(&definition).expect("scalar conditions compile");
+    let MaskDefinition::ConditionExpression { expression } = definition else {
+        panic!("condition")
+    };
+    assert_eq!(
+        compiled,
+        AdjustmentLocalMask::ConditionExpression { expression }
     );
 }
 
@@ -227,4 +336,30 @@ fn liquify_compilation_preserves_authored_paths_and_brush_units_exactly() {
             ],
         }
     );
+}
+
+#[test]
+fn retouch_bypass_disables_one_render_node_without_discarding_regions() {
+    let unit = |value| UnitInterval::new(value).expect("unit interval");
+    let mut draft = GradeStackDraft::default();
+    draft.retouch_strokes = vec![
+        RetouchStroke::new(vec![RetouchPoint::new(unit(0.3), unit(0.6))], 18)
+            .expect("one-point repair region"),
+    ];
+    draft.retouch_enabled = false;
+
+    let snapshot = grade_stack_recipe_v1_snapshot(&draft, None).expect("Recipe snapshot");
+    let plan = compile_recipe_render_plan(&snapshot).expect("render plan");
+    let retouch = plan
+        .nodes
+        .iter()
+        .find(|node| node.node_id == RECIPE_V1_RETOUCH_RENDER_NODE_ID)
+        .expect("photo-local Repair render node");
+
+    assert!(!retouch.enabled);
+    assert!(matches!(
+        &retouch.operation,
+        AdjustmentRenderOperation::SpotHeal { targets, strokes }
+            if targets.is_empty() && strokes.len() == 1 && strokes[0].points.len() == 1
+    ));
 }

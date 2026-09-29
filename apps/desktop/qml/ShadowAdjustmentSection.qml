@@ -16,6 +16,8 @@ Item {
     property bool resetEnabled: true
     property string resetObjectName: ""
     property string resetToolTipText: qsTr("Reset panel")
+    // Optional presentation-only actions; their behavior stays with the panel.
+    property Component headerActions: null
     default property alias contentData: body.data
     signal resetRequested()
 
@@ -63,7 +65,7 @@ Item {
                 Layout.minimumWidth: 0
                 text: root.title
                 color: root.sectionEnabled ? Theme.textPrimary : Theme.textDisabled
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.45
                 elide: Text.ElideRight
@@ -75,8 +77,17 @@ Item {
                 Layout.minimumWidth: 0
                 text: root.summary
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight
+            }
+
+            Loader {
+                sourceComponent: root.headerActions
+                active: root.headerActions !== null
+                visible: active
+                Layout.preferredWidth: item ? item.implicitWidth : 0
+                Layout.preferredHeight: item ? item.implicitHeight : 0
+                Layout.alignment: Qt.AlignVCenter
             }
 
             ShadowIcon {

@@ -77,6 +77,12 @@ int main(int argc, char* argv[]) {
     const QImage rendered = provider.requestImage(id, &rendered_size, QSize(90, 60));
     require(!rendered.isNull(), "valid LUT preview was not rendered");
     require(rendered_size == QSize(90, 60), "preview did not honor requested size");
+    const QColor pixel = rendered.pixelColor(45, 30);
+    // An inverted linear-light LUT is not 255 minus each encoded channel.
+    // These independently calculated sRGB values catch a missing transfer decode.
+    require(std::abs(pixel.red() - 252) <= 1 && std::abs(pixel.green() - 241) <= 1
+            && std::abs(pixel.blue() - 183) <= 1,
+        "LUT preview did not evaluate in linear sRGB");
     require(QDir(cache).entryList({QStringLiteral("*.png")}, QDir::Files).size() == 1,
         "content-addressed preview was not cached");
 
@@ -85,5 +91,15 @@ int main(int argc, char* argv[]) {
         "tampered managed LUT reused a stale cached preview");
     require(!provider.requestImage(QStringLiteral("original"), nullptr, {}).isNull(),
         "bundled reference preview was not available");
+
+    const QByteArray identity = cube(false);
+    const QString identity_id = QString::fromLatin1(
+        QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+    write_bytes(QDir(store).filePath(identity_id + QStringLiteral(".cube")), identity);
+    const QColor identity_pixel = provider.requestImage(identity_id, nullptr, {}).pixelColor(0, 0);
+    require(std::abs(identity_pixel.red() - 48) <= 1
+            && std::abs(identity_pixel.green() - 96) <= 1
+            && std::abs(identity_pixel.blue() - 192) <= 1,
+        "identity LUT changed the display reference");
     return EXIT_SUCCESS;
 }

@@ -2,6 +2,20 @@
 
 namespace shadow::image::detail {
 
+MetalSourceRenderingInPlaceAttempt apply_source_rendering_in_place_metal(
+    void*,
+    void*,
+    void*,
+    const Dimensions,
+    const SourceRenderingReceipt&
+) {
+    return MetalSourceRenderingInPlaceAttempt{
+        .applied = false,
+        .curve_upload_bytes = 0U,
+        .diagnostic = "Metal source rendering is unavailable on this platform",
+    };
+}
+
 FullEditDetailMetalSourcePreparation prepare_full_edit_detail_metal_source(
     raw_pipeline_detail::ResidentRawSource& source,
     const SourceRenderingReceipt&,

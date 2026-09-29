@@ -11,6 +11,8 @@ Rectangle {
     id: pane
 
     required property var editor
+    required property var interchangeController
+    property var lutExportController: null
     required property color panel
     required property color panelRaised
     required property color borderColor
@@ -21,13 +23,19 @@ Rectangle {
 
     signal maskToolRequested
     signal cropToolRequested
+    signal repairToolRequested
     signal liquifyToolRequested
+    signal paintToolRequested
+    signal completionToolRequested
 
     color: pane.panel
     PrecisionGradeNodeMenus {
         id: gradeNodeMenus
         editor: pane.editor
+        interchangeController: pane.interchangeController
+        lutExportController: pane.lutExportController
         onCropGeometryRequested: pane.cropToolRequested()
+        onRepairRequested: pane.repairToolRequested()
         onLiquifyRequested: pane.liquifyToolRequested()
     }
 
@@ -71,7 +79,7 @@ Rectangle {
                     text: structuralRow.nodeGlyph
                     color: structuralRow.nodeSelected
                         ? pane.accent : pane.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.Bold
                 }
             }
@@ -84,7 +92,7 @@ Rectangle {
                     Layout.fillWidth: true
                     text: structuralRow.nodeLabel
                     color: pane.textPrimary
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     font.weight: Font.Medium
                     elide: Text.ElideRight
                 }
@@ -94,7 +102,7 @@ Rectangle {
                     text: structuralRow.nodeStatus
                     color: structuralRow.nodeSelected
                         ? Theme.accentTextMuted : pane.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.2
                     elide: Text.ElideRight
@@ -152,7 +160,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: qsTr("NODES")
                 color: pane.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.35
             }
@@ -160,7 +168,7 @@ Rectangle {
                 text: qsTr("GRADES %L1 / %L2")
                     .arg(pane.editor.gradeNodes.length).arg(16)
                 color: pane.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
             }
             ShadowIconButton {
                 id: addGradeNodeButton
@@ -172,6 +180,15 @@ Rectangle {
                 accessibleName: qsTr("Add node")
                 onClicked: gradeNodeMenus.openAdd(addGradeNodeButton)
             }
+        }
+
+        ShadowButton {
+            id: gradingExchangeButton
+            objectName: "gradingExchangeButton"
+            Layout.fillWidth: true
+            text: qsTr("Import / export grading…")
+            enabled: pane.editor.active && !pane.editor.stateBusy
+            onClicked: gradeNodeMenus.openExchange(gradingExchangeButton)
         }
 
         StructuralNodeRow {
@@ -210,6 +227,62 @@ Rectangle {
             onActivated: {
                 pane.editor.selectLiquifyNode()
                 pane.liquifyToolRequested()
+            }
+        }
+
+        StructuralNodeRow {
+            objectName: "paintNodeRow"
+            visible: pane.editor.paint.layers.length > 0 || pane.editor.selectedRecipeNodeKind === "paint"
+            nodeLabel: qsTr("Paint layers")
+            nodeStatus: qsTr("%n PAINT LAYER(S)", "", pane.editor.paint.layers.length)
+            nodeGlyph: "P"
+            nodeSelected: pane.editor.selectedRecipeNodeKind === "paint"
+            onActivated: pane.paintToolRequested()
+        }
+
+        StructuralNodeRow {
+            objectName: "imageCompletionNodeRow"
+            visible: pane.editor.imageCompletionNodeMaterialized
+                || pane.editor.selectedRecipeNodeKind === "completion"
+            nodeLabel: qsTr("AI Completion")
+            nodeStatus: pane.editor.imageCompletionNodeMaterialized
+                ? (pane.editor.imageCompletionNodeEnabled
+                    ? qsTr("%n REGION(S) · ENABLED", "",
+                        pane.editor.imageCompletionRegions.length)
+                    : qsTr("%n REGION(S) · BYPASSED", "",
+                        pane.editor.imageCompletionRegions.length))
+                : qsTr("EMPTY · PAINT TO CREATE")
+            nodeGlyph: "AI"
+            nodeSelected: pane.editor.selectedRecipeNodeKind === "completion"
+            bypassAvailable: pane.editor.imageCompletionNodeMaterialized
+            nodeEnabled: pane.editor.imageCompletionNodeEnabled
+            onEnabledToggled: enabled =>
+                pane.editor.imageCompletionNodeEnabled = enabled
+            onActivated: {
+                pane.editor.selectImageCompletionNode()
+                pane.completionToolRequested()
+            }
+        }
+
+        StructuralNodeRow {
+            objectName: "retouchNodeRow"
+            visible: pane.editor.retouchNodeMaterialized
+                || pane.editor.selectedRecipeNodeKind === "retouch"
+            nodeLabel: qsTr("Repair")
+            nodeStatus: pane.editor.retouchNodeMaterialized
+                ? (pane.editor.retouchNodeEnabled
+                    ? qsTr("PHOTO · ENABLED")
+                    : qsTr("PHOTO · BYPASSED"))
+                : qsTr("EMPTY · DRAW TO CREATE")
+            nodeGlyph: "R"
+            nodeSelected: pane.editor.selectedRecipeNodeKind === "retouch"
+            bypassAvailable: pane.editor.retouchNodeMaterialized
+            nodeEnabled: pane.editor.retouchNodeEnabled
+            onEnabledToggled: enabled =>
+                pane.editor.retouchNodeEnabled = enabled
+            onActivated: {
+                pane.editor.selectRetouchNode()
+                pane.repairToolRequested()
             }
         }
 
@@ -267,15 +340,15 @@ Rectangle {
                             Layout.fillWidth: true
                             text: gradeNodeRow.modelData.label
                             color: gradeNodeRow.modelData.enabled ? pane.textPrimary : pane.textSecondary
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.fontSection
                             font.weight: Font.Medium
                             elide: Text.ElideRight
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: (gradeNodeRow.modelData.shared ? (gradeNodeRow.modelData.enabled ? qsTr("SHARED · V%1 · ENABLED").arg(gradeNodeRow.modelData.sharedRevisionNumber) : qsTr("SHARED · V%1 · BYPASSED").arg(gradeNodeRow.modelData.sharedRevisionNumber)) : (gradeNodeRow.modelData.enabled ? qsTr("LOCAL · ENABLED") : qsTr("LOCAL · BYPASSED"))) + (gradeNodeRow.modelData.hasLocalMask ? qsTr(" · NODE MASK") : "")
+                            text: (gradeNodeRow.modelData.shared ? (gradeNodeRow.modelData.enabled ? qsTr("SHARED · V%1 · ENABLED").arg(gradeNodeRow.modelData.sharedRevisionNumber) : qsTr("SHARED · V%1 · BYPASSED").arg(gradeNodeRow.modelData.sharedRevisionNumber)) : (gradeNodeRow.modelData.enabled ? qsTr("LOCAL · ENABLED") : qsTr("LOCAL · BYPASSED"))) + (gradeNodeRow.modelData.hasLocalMask ? qsTr(" · %L1 MASK PART(S)").arg(gradeNodeRow.modelData.localMaskComponentCount) : "")
                             color: gradeNodeRow.modelData.enabled ? (gradeNodeRow.selected ? Theme.accentTextMuted : pane.textMuted) : Theme.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                             font.weight: Font.DemiBold
                             font.letterSpacing: 0.2
                             elide: Text.ElideRight
@@ -292,7 +365,7 @@ Rectangle {
                     ShadowIconButton {
                         buttonSize: 30
                         iconSize: 17
-                        source: gradeNodeRow.modelData.localMaskKind === 1 ? "qrc:/icons/mask-linear.svg" : gradeNodeRow.modelData.localMaskKind === 2 ? "qrc:/icons/mask-radial.svg" : gradeNodeRow.modelData.localMaskKind === 3 ? "qrc:/icons/brush.svg" : gradeNodeRow.modelData.localMaskKind === 4 ? "qrc:/icons/mask-luminance-range.svg" : gradeNodeRow.modelData.localMaskKind === 5 ? "qrc:/icons/mask-color-range.svg" : "qrc:/icons/mask-add.svg"
+                        source: gradeNodeRow.modelData.localMaskComponentCount > 1 ? "qrc:/icons/mask.svg" : gradeNodeRow.modelData.localMaskKind === 1 ? "qrc:/icons/mask-linear.svg" : gradeNodeRow.modelData.localMaskKind === 2 ? "qrc:/icons/mask-radial.svg" : gradeNodeRow.modelData.localMaskKind === 3 ? "qrc:/icons/brush.svg" : gradeNodeRow.modelData.localMaskKind === 4 ? "qrc:/icons/mask-luminance-range.svg" : gradeNodeRow.modelData.localMaskKind === 5 ? "qrc:/icons/mask-color-range.svg" : "qrc:/icons/mask-add.svg"
                         toolTipText: gradeNodeRow.modelData.hasLocalMask ? qsTr("Edit this node mask") : qsTr("Add a mask to this node")
                         accessibleName: toolTipText
                         enabled: pane.editor.active && gradeNodeRow.modelData.enabled && !pane.editor.stateBusy
@@ -381,7 +454,7 @@ Rectangle {
                         text: "F"
                         color: pane.editor.foundationSelected
                             ? pane.accent : pane.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.Bold
                     }
                 }
@@ -395,7 +468,7 @@ Rectangle {
                         text: qsTr("Basic Adjustments")
                         color: pane.editor.foundationEnabled
                             ? pane.textPrimary : pane.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                         font.weight: Font.Medium
                         elide: Text.ElideRight
                     }
@@ -409,7 +482,7 @@ Rectangle {
                             ? (pane.editor.foundationSelected
                                 ? Theme.accentTextMuted : pane.textMuted)
                             : Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.2
                         elide: Text.ElideRight
@@ -482,7 +555,7 @@ Rectangle {
                         text: "AI"
                         color: pane.editor.rawDenoiseSelected
                             ? pane.accent : pane.textMuted
-                        font.pixelSize: 8
+                        font.pixelSize: Theme.fontMicro
                         font.weight: Font.Bold
                     }
                 }
@@ -496,7 +569,7 @@ Rectangle {
                         text: qsTr("AI RAW Denoise")
                         color: pane.editor.rawDenoiseNodeVisible
                             ? pane.textPrimary : pane.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                         font.weight: Font.Medium
                         elide: Text.ElideRight
                     }
@@ -517,7 +590,7 @@ Rectangle {
                             ? (pane.editor.rawDenoiseSelected
                                 ? Theme.accentTextMuted : pane.textMuted)
                             : Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontCaption
                         font.weight: Font.DemiBold
                         font.letterSpacing: 0.2
                         elide: Text.ElideRight
@@ -645,7 +718,7 @@ Rectangle {
             text: qsTr("Read from bottom source to top output. Fixed-order photo nodes appear only after you add them.")
             color: Theme.textSubtle
             wrapMode: Text.WordWrap
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             lineHeight: 1.35
         }
     }

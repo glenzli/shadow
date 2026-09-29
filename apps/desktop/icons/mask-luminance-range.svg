@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M4.5 8.5h4v7h-4z" fill="currentColor" fill-opacity=".15" stroke="none"/>
-  <path d="M8.5 8.5h4v7h-4z" fill="currentColor" fill-opacity=".35" stroke="none"/>
-  <path d="M12.5 8.5h4v7h-4z" fill="currentColor" fill-opacity=".6" stroke="none"/>
-  <path d="M16.5 8.5h3v7h-3z" fill="currentColor" fill-opacity=".9" stroke="none"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4.5 8.5h4v7h-4z" fill="#fff" fill-opacity=".15" stroke="none"/>
+  <path d="M8.5 8.5h4v7h-4z" fill="#fff" fill-opacity=".35" stroke="none"/>
+  <path d="M12.5 8.5h4v7h-4z" fill="#fff" fill-opacity=".6" stroke="none"/>
+  <path d="M16.5 8.5h3v7h-3z" fill="#fff" fill-opacity=".9" stroke="none"/>
   <rect x="3.5" y="7.5" width="17" height="9" rx="2"/>
   <path d="M8.5 6v12M16.5 6v12"/>
-  <circle cx="8.5" cy="6" r=".9" fill="currentColor" stroke="none"/>
-  <circle cx="16.5" cy="18" r=".9" fill="currentColor" stroke="none"/>
+  <circle cx="8.5" cy="6" r=".9" fill="#fff" stroke="none"/>
+  <circle cx="16.5" cy="18" r=".9" fill="#fff" stroke="none"/>
 </svg>

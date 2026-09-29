@@ -10,6 +10,7 @@
     "libjpeg-turbo",
     "libraw",
     "tiff",
+    "opencv4",
     "pkgconf",
     "qtbase",
     "qtdeclarative",

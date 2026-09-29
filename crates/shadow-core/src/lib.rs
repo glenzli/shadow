@@ -16,6 +16,7 @@ mod performance;
 mod semantic_search;
 mod smart_classification;
 mod technical_observation;
+mod vision_input;
 mod work_scheduler;
 
 pub use cached_artifact_loader::{
@@ -35,8 +36,9 @@ pub use decode_inspection::{
     recommended_decode_inspection_worker_count,
 };
 pub use derived_raster_store::{
-    DerivedRasterStoreError, FilesystemDerivedRasterStore, SHADOW_SOFT_MASK_ENCODING_VERSION,
-    SHADOW_SOFT_MASK_MEDIA_TYPE, managed_soft_mask_definition,
+    DerivedRasterStoreError, FilesystemDerivedRasterStore, SHADOW_RGBA8_ENCODING_VERSION,
+    SHADOW_RGBA8_MEDIA_TYPE, SHADOW_SOFT_MASK_ENCODING_VERSION, SHADOW_SOFT_MASK_MEDIA_TYPE,
+    managed_image_completion_region, managed_soft_mask_definition,
 };
 pub use derived_raster_workflow::{
     CurrentDerivedRasterPromotionFailure, DerivedRasterStageError, DerivedRasterStageOutcome,
@@ -78,8 +80,11 @@ pub use library_metadata::{
 };
 pub use native_path::{NativePathError, native_location, native_path_from_location};
 pub use people_analysis::{
-    DEFAULT_PEOPLE_MAXIMUM_COSINE_DISTANCE, PeopleAnalysisError, PeopleAnalysisPolicy,
-    PeopleAnalysisReport, PeopleAnalysisSkipped, analyze_review_people,
+    DEFAULT_PEOPLE_MAXIMUM_COSINE_DISTANCE, PeopleAnalysisControl, PeopleAnalysisError,
+    PeopleAnalysisInput, PeopleAnalysisPhase, PeopleAnalysisPolicy, PeopleAnalysisProgress,
+    PeopleAnalysisReport, PeopleAnalysisSelection, PeopleAnalysisSkipped, PeopleFacePreview,
+    PeopleRejectedFace, analyze_review_people, analyze_review_people_incremental,
+    analyze_review_people_with_control, people_analysis_library_membership,
 };
 pub use performance::{
     DecodePerformance, DurationStats, IMPORT_ENGINE_PERFORMANCE_SCHEMA_VERSION,
@@ -88,15 +93,15 @@ pub use performance::{
 pub use semantic_search::{
     DEFAULT_SEMANTIC_SEARCH_MAXIMUM_PHOTOS, MAX_SEMANTIC_SEARCH_PHOTOS, SemanticSearchError,
     SemanticSearchMatch, SemanticSearchPolicy, SemanticSearchReport, SemanticSearchSkipped,
-    search_review_semantics,
+    search_review_semantics, search_review_semantics_with_control,
 };
 pub use smart_classification::{
     SmartCategoryCount, SmartCategoryDefinition, SmartCategoryFeedbackDecision, SmartCategoryMatch,
-    SmartCategoryReviewItem, SmartClassificationBatch, SmartClassificationError,
-    SmartClassificationPolicy, SmartClassificationRequest, SmartClassificationSnapshot,
-    SmartClassificationStatus, classify_review_smart_categories, pause_smart_classification,
-    set_smart_category_feedback, smart_category_members, smart_category_review_queue,
-    smart_classification_snapshot,
+    SmartCategoryReviewDecision, SmartCategoryReviewItem, SmartClassificationBatch,
+    SmartClassificationError, SmartClassificationPolicy, SmartClassificationRequest,
+    SmartClassificationSnapshot, SmartClassificationStatus, classify_review_smart_categories,
+    complete_smart_category_review, pause_smart_classification, set_smart_category_feedback,
+    smart_category_members, smart_category_review_queue, smart_classification_snapshot,
 };
 pub use technical_observation::{
     TECHNICAL_ANALYSIS_MAX_EDGE, TechnicalObservationActor, TechnicalObservationError,

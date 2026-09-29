@@ -24,7 +24,7 @@ ColumnLayout {
         Layout.bottomMargin: 3
         text: qsTr("TRAVEL")
         color: Theme.textMuted
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         font.weight: Font.DemiBold
         font.letterSpacing: 1.2
     }
@@ -127,7 +127,7 @@ ColumnLayout {
                     Label {
                         text: countryGroup.expanded ? "⌄" : "›"
                         color: Theme.textMuted
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.fontSubheading
                     }
                     Label {
                         Layout.fillWidth: true

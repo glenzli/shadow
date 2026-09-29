@@ -11,6 +11,7 @@ Popup {
     required property var preferences
     required property var aiPreferences
     required property var imageUnderstandingController
+    required property var peopleAnalysisController
     required property var cachePreferences
     required property var cacheMaintenanceController
     required property var mapProviderPreferences
@@ -104,7 +105,7 @@ Popup {
                     width: parent.width
                     text: qsTr("Settings")
                     color: Theme.textPrimary
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
@@ -247,6 +248,7 @@ Popup {
                 SettingsAiPane {
                     aiPreferences: root.aiPreferences
                     imageUnderstandingController: root.imageUnderstandingController
+                    peopleAnalysisController: root.peopleAnalysisController
                     editor: root.editor
                 }
 

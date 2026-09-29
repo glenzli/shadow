@@ -5,10 +5,11 @@ use std::path::Path;
 use anyhow::{Context, Result as AnyResult, anyhow};
 use shadow_ai::InferRuntimeClient;
 use shadow_core::{
-    SmartCategoryDefinition, SmartCategoryFeedbackDecision, SmartClassificationPolicy,
-    SmartClassificationRequest, SmartClassificationSnapshot, SmartClassificationStatus,
-    classify_review_smart_categories, pause_smart_classification, set_smart_category_feedback,
-    smart_category_members, smart_category_review_queue, smart_classification_snapshot,
+    SmartCategoryDefinition, SmartCategoryFeedbackDecision, SmartCategoryReviewDecision,
+    SmartClassificationPolicy, SmartClassificationRequest, SmartClassificationSnapshot,
+    SmartClassificationStatus, classify_review_smart_categories, complete_smart_category_review,
+    pause_smart_classification, set_smart_category_feedback, smart_category_members,
+    smart_category_review_queue, smart_classification_snapshot,
 };
 use shadow_domain::{PhotoId, RepresentationId};
 
@@ -126,6 +127,41 @@ impl DesktopSession {
             decision,
         )
         .map_err(|error| anyhow!("record smart-category feedback: {error}"))
+    }
+
+    pub(crate) fn complete_smart_category_review(
+        &self,
+        photo_id: &str,
+        representation_id: &str,
+        category_ids: Vec<String>,
+        decisions: Vec<i8>,
+    ) -> AnyResult<()> {
+        if category_ids.is_empty() || category_ids.len() != decisions.len() {
+            return Err(anyhow!("smart-category review decision set is invalid"));
+        }
+        let photo_id = photo_id
+            .parse::<PhotoId>()
+            .context("parse smart-category review photo identity")?;
+        let representation_id = representation_id
+            .parse::<RepresentationId>()
+            .context("parse smart-category review representation identity")?;
+        let decisions = category_ids
+            .into_iter()
+            .zip(decisions)
+            .map(|(category_id, decision)| {
+                let decision = match decision {
+                    -1 => SmartCategoryFeedbackDecision::DoesNotBelong,
+                    1 => SmartCategoryFeedbackDecision::Belongs,
+                    _ => return Err(anyhow!("smart-category review decision is invalid")),
+                };
+                Ok(SmartCategoryReviewDecision {
+                    category_id,
+                    decision,
+                })
+            })
+            .collect::<AnyResult<Vec<_>>>()?;
+        complete_smart_category_review(&self.cache_root, photo_id, representation_id, &decisions)
+            .map_err(|error| anyhow!("complete smart-category review: {error}"))
     }
 
     pub(crate) fn pause_smart_classification(&self, generation: &str) -> AnyResult<()> {

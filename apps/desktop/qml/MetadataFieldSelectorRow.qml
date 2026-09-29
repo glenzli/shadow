@@ -47,7 +47,7 @@ Rectangle {
             Layout.fillWidth: true
             text: root.fieldValue
             color: Theme.textPrimary
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSection
             elide: Text.ElideMiddle
         }
 

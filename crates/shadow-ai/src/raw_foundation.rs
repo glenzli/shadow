@@ -19,6 +19,14 @@ pub const RAW_FOUNDATION_MEDIA_TYPE: &str = "application/x-shadow-raw-foundation
 pub const RAW_FOUNDATION_ENCODING_VERSION: u32 = 1;
 pub const MAX_RAW_FOUNDATION_IMPLEMENTATION_REVISION_BYTES: usize = 256;
 
+/// Cache/publication disposition is independent from the model executor.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum RawFoundationMaterializationDisposition {
+    ReusedVerified,
+    Published,
+    ReusedConcurrent,
+}
+
 /// Identity of the exact RAW source and decoded sensor contract.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

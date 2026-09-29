@@ -17,7 +17,7 @@ class WarmEditGpuPresentationSurface;
 }
 
 inline constexpr std::string_view edit_preview_mask_coverage_version =
-    "shadow.edit-preview-mask-coverage.v1:r8-pre-adjustment-input:inverted:paired-geometry";
+    "shadow.edit-preview-mask-coverage.v2:r8-pre-adjustment-input:layer-or-component:paired-geometry";
 
 // Optional transient selection evidence paired with one completed preview frame. Coverage belongs
 // to one authored layer, is evaluated against that layer's pre-adjustment input, includes mask
@@ -26,6 +26,7 @@ inline constexpr std::string_view edit_preview_mask_coverage_version =
 struct EditPreviewMaskCoverage final {
     std::string version;
     std::uint32_t layer_index = 0U;
+    std::optional<std::uint32_t> component_index;
     Dimensions dimensions;
     std::uint32_t row_stride_bytes = 0U;
     std::vector<std::uint8_t> samples;

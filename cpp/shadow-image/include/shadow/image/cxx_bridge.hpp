@@ -129,12 +129,22 @@ class EditPreviewHandle final {
     EditPreviewHandle& operator=(const EditPreviewHandle&) = delete;
 
     [[nodiscard]] FfiDimensions dimensions() const noexcept;
+    [[nodiscard]] FfiDimensions level_zero_dimensions() const noexcept;
     [[nodiscard]] std::uint32_t max_edge() const noexcept;
     [[nodiscard]] FfiOpticsReceipt optics_receipt() const;
     [[nodiscard]] FfiRawDevelopmentReceipt raw_development_receipt() const;
     [[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt() const;
     [[nodiscard]] FfiSensorClippingMask sensor_clipping_mask() const;
     [[nodiscard]] bool supports_raw_development_rebinding() const noexcept;
+    [[nodiscard]] bool supports_raw_white_balance_picker() const noexcept;
+    [[nodiscard]] FfiRawWhiteBalancePresentation
+    pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
+    [[nodiscard]] FfiRawWhiteBalancePresentation auto_raw_white_balance() const noexcept;
+    [[nodiscard]] FfiCurveInputMap curve_input_map(
+        const FfiAdjustmentRenderRequest& request,
+        std::uint8_t channel,
+        const EditPreviewCancellationHandle& cancellation
+    ) const;
     [[nodiscard]] std::unique_ptr<EditPreviewHandle>
     rebind_raw_development_plan(const FfiRawDevelopmentPlan& plan) const;
     [[nodiscard]] bool supports_raw_foundation_amount_rebinding() const noexcept;
@@ -205,6 +215,8 @@ class FullEditDetailHandle final {
     [[nodiscard]] FfiRawPipelineReceipt raw_pipeline_receipt() const;
     [[nodiscard]] FfiRenderedDetailTile
     render_adjustment_plan_tile(const FfiAdjustmentDetailTileRequest& request) const;
+    [[nodiscard]] FfiRenderedDetailTile16
+    render_adjustment_plan_tile16(const FfiAdjustmentDetailTileRequest& request) const;
 
   private:
     image::FullEditDetailSession session_;
@@ -212,6 +224,17 @@ class FullEditDetailHandle final {
 
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_libraw_utf8(rust::Str path);
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_photo_utf8(rust::Str path);
+// Prepares a rebindable RAW session from the isolated helper's paired
+// provider-neutral frame and metadata snapshot. This route intentionally has
+// no source path, so it cannot reopen a private RAW in the desktop process.
+[[nodiscard]] std::unique_ptr<EditPreviewHandle>
+prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+    const FfiMetadataSnapshot& metadata,
+    std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    rust::Str staging_manifest_path,
+    const FfiOpticsSettings& optics
+);
 [[nodiscard]] rust::Vec<FfiOpticsProfileCandidate>
 query_libraw_optics_profiles_utf8(rust::Str path);
 [[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(rust::Str path);
@@ -228,6 +251,12 @@ query_raw_white_balance_presentation_for_metadata(const FfiMetadataSnapshot& met
 [[nodiscard]] rust::String photo_provider_version();
 [[nodiscard]] rust::String edit_preview_generator_implementation_identity();
 [[nodiscard]] std::shared_ptr<EditPreviewCancellationHandle> new_edit_preview_cancellation();
+void validate_cube_lut_document(rust::Slice<const std::uint8_t> document);
+[[nodiscard]] FfiBakedCubeLut bake_adjustment_cube_lut(
+    const FfiAdjustmentRenderRequest& request,
+    std::uint16_t size,
+    const EditPreviewCancellationHandle& cancellation
+);
 [[nodiscard]] rust::Vec<rust::String> photo_supported_raster_extensions();
 [[nodiscard]] rust::String raw_development_plan_identity(const FfiRawDevelopmentPlan& plan);
 [[nodiscard]] FfiEncodedProxy

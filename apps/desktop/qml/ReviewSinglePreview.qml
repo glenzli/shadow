@@ -12,6 +12,41 @@ Item {
     required property var review
     required property var model
 
+    property bool selectingFromFilmstrip: false
+
+    function restoreSelection() {
+        if (!visible)
+            return
+        selectInitialPhoto()
+        filmstrip.syncCurrentSelection()
+    }
+
+    onVisibleChanged: Qt.callLater(restoreSelection)
+    onModelChanged: Qt.callLater(restoreSelection)
+
+    // Unhandled arrows bubble here from the filmstrip, preview and zoom/HUD
+    // controls, so inspecting a photo never disables continued culling.
+    Keys.onPressed: event => {
+        if (event.key === Qt.Key_Left)
+            root.navigate(-1)
+        else if (event.key === Qt.Key_Right)
+            root.navigate(1)
+        else
+            return
+        event.accepted = true
+    }
+
+    function selectFilmstripPhoto(photo, modifiers) {
+        // Keep the pointer target stationary through successive clicks and the
+        // second click of a double-click, including partially visible cards.
+        selectingFromFilmstrip = true
+        try {
+            review.selectPhoto(photo, modifiers)
+        } finally {
+            selectingFromFilmstrip = false
+        }
+    }
+
     function forceGalleryFocus() {
         filmstrip.forceActiveFocus()
     }
@@ -42,7 +77,7 @@ Item {
         color: Theme.photoCanvas
     }
 
-    Image {
+    ReviewPreviewViewport {
         id: heroImage
         anchors.left: parent.left
         anchors.right: parent.right
@@ -51,13 +86,9 @@ Item {
         anchors.margins: 20
         anchors.bottomMargin: 16
         source: root.review.selectedVisualSource
-        fillMode: Image.PreserveAspectFit
-        asynchronous: true
-        cache: true
-        smooth: true
-        mipmap: true
-        sourceSize.width: 2048
-        sourceSize.height: 2048
+        autoTransform: root.review.selectedVisualAutoTransform
+        selectionKey: root.review.selectedPhotoId.length > 0
+            ? root.review.selectedPhotoId + "/" + root.review.selectedRepresentationId : ""
     }
 
     Label {
@@ -129,6 +160,7 @@ Item {
 
         ListView {
             id: filmstrip
+            objectName: "reviewFilmstrip"
             anchors.fill: parent
             anchors.leftMargin: 14
             anchors.rightMargin: 14
@@ -140,34 +172,22 @@ Item {
             cacheBuffer: 560
             model: root.model
             focus: root.visible
-            highlightRangeMode: ListView.ApplyRange
-            preferredHighlightBegin: Math.max(0, width * 0.4)
-            preferredHighlightEnd: Math.max(0, width * 0.6)
+            keyNavigationEnabled: false
+            highlightRangeMode: ListView.NoHighlightRange
 
             function syncCurrentSelection() {
-                for (let index = 0; index < count; ++index) {
-                    const item = itemAtIndex(index)
-                    if (item && item.photoId === root.review.selectedPhotoId
-                            && item.representationId === root.review.selectedRepresentationId) {
-                        currentIndex = index
-                        positionViewAtIndex(index, ListView.Contain)
-                        return
-                    }
+                if (!root.visible || root.selectingFromFilmstrip)
+                    return
+                const index = root.model.indexOfPhoto(
+                    root.review.selectedPhotoId, root.review.selectedRepresentationId)
+                currentIndex = index
+                if (index >= 0) {
+                    positionViewAtIndex(index, ListView.Contain)
                 }
             }
 
-            Component.onCompleted: Qt.callLater(root.selectInitialPhoto)
-            onCountChanged: Qt.callLater(root.selectInitialPhoto)
-            Keys.onPressed: event => {
-                if (event.key === Qt.Key_Left)
-                    root.navigate(-1)
-                else if (event.key === Qt.Key_Right)
-                    root.navigate(1)
-                else
-                    return
-                event.accepted = true
-            }
-
+            Component.onCompleted: Qt.callLater(root.restoreSelection)
+            onCountChanged: Qt.callLater(root.restoreSelection)
             delegate: Rectangle {
                 id: filmCard
                 required property string photoId
@@ -185,6 +205,7 @@ Item {
                 required property int visualWidth
                 required property int visualHeight
                 required property string visualSource
+                required property bool visualAutoTransform
                 required property bool hasMetadata
                 required property string cameraMake
                 required property string cameraModel
@@ -198,6 +219,18 @@ Item {
                 required property real focalLength35mm
                 required property int rawWidth
                 required property int rawHeight
+                required property int imageWidth
+                required property int imageHeight
+                required property bool hasOrientation
+                required property int orientation
+                required property bool hasCoordinates
+                required property real latitude
+                required property real longitude
+                required property bool hasAltitude
+                required property real altitudeMeters
+                required property int metadataSchemaVersion
+                required property string localBackingPhotoId
+                required property string localBackingRepresentationId
                 required property int sensorBits
                 required property string cfaPattern
                 required property string dngVersion
@@ -235,6 +268,7 @@ Item {
                 ShadowRoundedImage {
                     anchors.fill: parent
                     source: filmCard.visualSource
+                    autoTransform: filmCard.visualAutoTransform
                     radius: filmCard.radius
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
@@ -312,9 +346,9 @@ Item {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: mouse =>
-                        root.review.selectPhoto(filmCard, mouse.modifiers)
+                        root.selectFilmstripPhoto(filmCard, mouse.modifiers)
                     onDoubleClicked: {
-                        root.review.selectPhoto(filmCard, 0)
+                        root.selectFilmstripPhoto(filmCard, 0)
                         root.review.openSelectedPhoto()
                     }
                 }
@@ -323,12 +357,20 @@ Item {
     }
 
     Connections {
+        target: root.model
+        function onModelReset() { Qt.callLater(root.restoreSelection) }
+        function onLayoutChanged() { Qt.callLater(root.restoreSelection) }
+    }
+
+    Connections {
         target: root.review
         function onSelectedPhotoIdChanged() {
-            Qt.callLater(filmstrip.syncCurrentSelection)
+            if (!root.selectingFromFilmstrip)
+                Qt.callLater(filmstrip.syncCurrentSelection)
         }
         function onSelectedRepresentationIdChanged() {
-            Qt.callLater(filmstrip.syncCurrentSelection)
+            if (!root.selectingFromFilmstrip)
+                Qt.callLater(filmstrip.syncCurrentSelection)
         }
     }
 }

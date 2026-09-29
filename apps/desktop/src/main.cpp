@@ -2,9 +2,12 @@
 #include "amap_place_search_service.hpp"
 #include "cache_maintenance_controller.hpp"
 #include "cache_preferences.hpp"
+#include "catalog_startup_recovery.hpp"
+#include "composition_controller.hpp"
 #include "desktop_backend.hpp"
 #include "desktop_smoke_harness.hpp"
 #include "edit_controller.hpp"
+#include "edit_interchange_controller.hpp"
 #include "edit_preview_presentation_context.hpp"
 #include "edit_preview_presentation_registry.hpp"
 #include "edit_preview_provider.hpp"
@@ -14,6 +17,7 @@
 #include "history_coordinator.hpp"
 #include "image_understanding_controller.hpp"
 #include "justified_review_layout_model.hpp"
+#include "lut_export_controller.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
 #include "map/library_web_map_controller.hpp"
@@ -22,6 +26,8 @@
 #include "people_analysis_controller.hpp"
 #include "personal_location_search.hpp"
 #include "personal_profile.hpp"
+#include "pipeline_launch.hpp"
+#include "pipeline_run_controller.hpp"
 #include "review_controller.hpp"
 #include "review_focus_detail_provider.hpp"
 #include "review_gallery_grouping_controller.hpp"
@@ -56,83 +62,6 @@
 #include <memory>
 
 namespace {
-
-[[nodiscard]] bool reset_local_development_catalog(
-    const QString& catalog_path,
-    const QString& cache_root,
-    QString* const error_message
-) {
-    const QStringList catalog_files{
-        catalog_path,
-        catalog_path + QStringLiteral("-wal"),
-        catalog_path + QStringLiteral("-shm"),
-    };
-    for (const QString& path : catalog_files) {
-        if (QFileInfo::exists(path) && !QFile::remove(path)) {
-            *error_message = QObject::tr("Could not remove %1.").arg(path);
-            return false;
-        }
-    }
-
-    QDir cache_directory(cache_root);
-    if (cache_directory.exists()) {
-        // Remote Library proxies have their own persisted mirror identity and
-        // remain valid across a local Catalog schema reset. Removing them while
-        // retaining that mirror produces offline white cards until the server
-        // next reconnects. Clear only Catalog/runtime-owned cache entries.
-        constexpr auto REMOTE_LIBRARY_PREVIEWS = "remote-library-previews";
-        const QFileInfoList entries = cache_directory.entryInfoList(
-            QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System
-        );
-        for (const QFileInfo& entry : entries) {
-            if (entry.fileName() == QString::fromLatin1(REMOTE_LIBRARY_PREVIEWS)) {
-                continue;
-            }
-            const bool removed = entry.isDir() && !entry.isSymLink()
-                                     ? QDir(entry.absoluteFilePath()).removeRecursively()
-                                     : QFile::remove(entry.absoluteFilePath());
-            if (!removed) {
-                *error_message = QObject::tr("Could not remove the local preview cache.");
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-[[nodiscard]] bool is_development_catalog_reset_error(const std::exception& error) {
-    return QString::fromUtf8(error.what())
-        .contains(QStringLiteral("development catalog reset required"));
-}
-
-[[nodiscard]] QMessageBox::StandardButton
-offer_development_catalog_reset(const std::exception& error) {
-    const QString detail = QString::fromUtf8(error.what());
-    const bool incompatible = is_development_catalog_reset_error(error);
-    const QString explanation =
-        incompatible
-            ? QObject::tr(
-                  "This local catalog belongs to an incompatible development build. "
-                  "Shadow does not migrate development schemas.\n\n"
-                  "Resetting removes the local photo index, edit history, and preview cache. "
-                  "Your original photo files, LUT library, and UI preferences are not changed."
-              )
-            : QObject::tr(
-                  "Shadow could not open its local development catalog. You can reset it "
-                  "and start again with a fresh catalog v1.\n\n"
-                  "Resetting removes the local photo index, edit history, and preview cache. "
-                  "Your original photo files, LUT library, and UI preferences are not changed.\n\n"
-                  "Technical detail: %1"
-              )
-                  .arg(detail);
-    return QMessageBox::warning(
-        nullptr,
-        QObject::tr("Reset local development catalog?"),
-        explanation,
-        QMessageBox::Reset | QMessageBox::Cancel,
-        QMessageBox::Reset
-    );
-}
 
 [[nodiscard]] QString initialScanFolder() {
     QString initial_folder = qEnvironmentVariable("SHADOW_DESKTOP_SCAN_FOLDER");
@@ -172,6 +101,16 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName(QStringLiteral("Shadow"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow"));
+    QString pipeline_error;
+    const auto pipeline_request =
+        parsePipelineLaunch(QCoreApplication::arguments(), &pipeline_error);
+    if (!pipeline_error.isEmpty()) {
+        qCritical().noquote() << "Invalid pipeline launch:" << pipeline_error;
+        return EXIT_FAILURE;
+    }
+    if (pipeline_request.has_value()) {
+        return runPipelineEdit(application, *pipeline_request);
+    }
     const QString initial_settings_section =
         requestedSettingsSection(QCoreApplication::arguments());
 
@@ -230,13 +169,20 @@ int main(int argc, char* argv[]) {
             backend = std::make_shared<DesktopBackend>(catalog_path, cache_root);
         } catch (const std::exception& error) {
             qCritical() << "Cannot start Shadow's local backend:" << error.what();
-            const bool reset_for_smoke =
-                headless_startup_smoke && is_development_catalog_reset_error(error);
+            const bool reset_for_smoke = headless_startup_smoke
+                                         && qEnvironmentVariableIsSet("SHADOW_DESKTOP_DATA_ROOT")
+                                         && is_development_catalog_reset_error(error);
             if (!reset_for_smoke && headless_startup_smoke) {
                 return EXIT_FAILURE;
             }
-            if (!reset_for_smoke && offer_development_catalog_reset(error) != QMessageBox::Reset) {
-                return EXIT_FAILURE;
+            if (!reset_for_smoke) {
+                const auto action = offer_development_catalog_reset(error, catalog_path);
+                if (action == QMessageBox::Retry) {
+                    continue;
+                }
+                if (action != QMessageBox::Reset) {
+                    return EXIT_FAILURE;
+                }
             }
 
             QString reset_error;
@@ -271,6 +217,13 @@ int main(int argc, char* argv[]) {
         }
     );
     ExportController export_controller(backend, isolated_settings_file);
+    CompositionController composition_controller;
+    QObject::connect(
+        &composition_controller,
+        &CompositionController::saved,
+        &controller,
+        &ReviewController::scanFolder
+    );
     CacheMaintenanceController cache_maintenance_controller(backend, &cache_preferences);
     QString infer_base_url = qEnvironmentVariable("SHADOW_INFER_BASE_URL");
     QString infer_credential_file = qEnvironmentVariable("SHADOW_INFER_CREDENTIAL_FILE");
@@ -284,24 +237,66 @@ int main(int argc, char* argv[]) {
                 .filePath(QStringLiteral("Shadow/credentials/infer-runtime-shadow.token"));
     }
     PeopleAnalysisController people_analysis_controller(
-        [backend, infer_base_url, infer_credential_file]() {
-            return backend->analyzePeople(infer_base_url, infer_credential_file);
-        }
+        PeopleAnalysisController::Operations{
+            .load = [backend]() { return backend->peopleLibrarySnapshot(); },
+            .begin = [backend](
+                         const bool authorized
+                     ) { return backend->beginPeopleAnalysisJob(authorized); },
+            .execute =
+                [backend,
+                 infer_base_url,
+                 infer_credential_file](const std::uint64_t job_token, const bool authorized) {
+                    return backend->executePeopleAnalysisJob(
+                        job_token,
+                        infer_base_url,
+                        infer_credential_file,
+                        authorized
+                    );
+                },
+            .progress = [backend](
+                            const std::uint64_t job_token
+                        ) { return backend->peopleAnalysisJobStatus(job_token); },
+            .cancel = [backend](
+                          const std::uint64_t job_token
+                      ) { return backend->cancelPeopleAnalysisJob(job_token); },
+            .retire = [backend](
+                          const std::uint64_t job_token
+                      ) { backend->retirePeopleAnalysisJob(job_token); },
+            .merge = [backend](
+                         const QStringList& person_ids
+                     ) { return backend->mergePeople(person_ids); },
+            .rename =
+                [backend](const QString& person_id, const QString& display_name) {
+                    return backend->renamePerson(person_id, display_name);
+                },
+            .undo_merge = [backend]() { return backend->undoPeopleMerge(); },
+            .clear = [backend]() { backend->clearPeopleData(); },
+            .split =
+                [backend](const QString& id, const QStringList& photos) {
+                    return backend->splitPerson(id, photos);
+                },
+            .reset_scan = [backend]() { backend->resetPeopleAnalysisProgress(); },
+        },
+        &ai_preferences
     );
     SemanticSearchController semantic_search_controller(
         [backend, infer_base_url, infer_credential_file](
             const QString& query,
             const QString& query_revision,
-            const QString& language
+            const QString& language,
+            std::uint64_t token
         ) {
             return backend->searchSemantics(
                 infer_base_url,
                 infer_credential_file,
                 query,
                 query_revision,
-                language
+                language,
+                token
             );
-        }
+        },
+        [backend]() { return backend->beginSemanticSearch(); },
+        [backend](std::uint64_t token) { backend->cancelSemanticSearch(token); }
     );
     SmartCategoryController smart_category_controller(
         [backend, infer_base_url, infer_credential_file](
@@ -334,6 +329,11 @@ int main(int argc, char* argv[]) {
         ) {
             backend->setSmartCategoryFeedback(photo_id, representation_id, category_id, decision);
         },
+        [backend](
+            const QString& photo_id,
+            const QString& representation_id,
+            const QVector<BackendSmartCategoryFeedbackDecision>& decisions
+        ) { backend->completeSmartCategoryReview(photo_id, representation_id, decisions); },
         [backend](const QString& generation) { backend->pauseSmartClassification(generation); }
     );
     ImageUnderstandingController image_understanding_controller(
@@ -379,22 +379,16 @@ int main(int argc, char* argv[]) {
             const QString& representation_id,
             const QString& source_revision
         ) {
-            return backend->acceptAdvancedClassificationReview(
-                photo_id,
-                representation_id,
-                source_revision
-            );
+            return backend
+                ->acceptAdvancedClassificationReview(photo_id, representation_id, source_revision);
         },
         [backend](
             const QString& photo_id,
             const QString& representation_id,
             const QString& source_revision
         ) {
-            backend->dismissAdvancedClassificationReview(
-                photo_id,
-                representation_id,
-                source_revision
-            );
+            backend
+                ->dismissAdvancedClassificationReview(photo_id, representation_id, source_revision);
         },
         [backend](const QString& photo_id, const QString& representation_id) {
             return backend->imageUnderstandingProposal(photo_id, representation_id);
@@ -404,11 +398,7 @@ int main(int argc, char* argv[]) {
             const QString& representation_id,
             const QString& source_revision
         ) {
-            backend->applyImageUnderstandingKeywords(
-                photo_id,
-                representation_id,
-                source_revision
-            );
+            backend->applyImageUnderstandingKeywords(photo_id, representation_id, source_revision);
         },
         [&smart_category_controller]() {
             return smart_category_controller.enabledReviewCategories();
@@ -503,6 +493,34 @@ int main(int argc, char* argv[]) {
     );
     EditController
         editor(backend, edit_preview_store, edit_preview_presentation_context, &ai_preferences);
+    EditInterchangeController edit_interchange_controller(*backend, editor);
+    LutExportController lut_export_controller([&](bool selected_only) {
+        if (!editor.active() || editor.stateBusy()
+            || (selected_only && editor.selectedRecipeNodeKind() != QStringLiteral("grade"))) {
+            return BackendLutExportSnapshot{};
+        }
+        auto snapshot = backend->prepareLutExport(
+            editor.gradeStackForInterchange(),
+            selected_only ? editor.selectedGradeNodeId() : QString{}
+        );
+        const auto display_nodes = editor.gradeNodes();
+        const auto display_label = [&display_nodes](const QString& raw_label) {
+            for (const auto& value : display_nodes) {
+                const auto node = value.toMap();
+                if (node.value(QStringLiteral("rawLabel")).toString() == raw_label) {
+                    return node.value(QStringLiteral("label")).toString();
+                }
+            }
+            return raw_label;
+        };
+        for (auto& label : snapshot.included_nodes) {
+            label = display_label(label);
+        }
+        for (auto& omission : snapshot.omissions) {
+            omission.node_label = display_label(omission.node_label);
+        }
+        return snapshot;
+    });
     HistoryCoordinator history({
         .photo_page = [backend](
                           const QString& photo_id,
@@ -569,6 +587,8 @@ int main(int argc, char* argv[]) {
     );
     engine.setInitialProperties({
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
+        {QStringLiteral("lutExportController"), QVariant::fromValue(&lut_export_controller)},
+        {QStringLiteral("compositionController"), QVariant::fromValue(&composition_controller)},
         {
             QStringLiteral("justifiedReviewLayout"),
             QVariant::fromValue(&justified_review_layout),
@@ -578,6 +598,10 @@ int main(int argc, char* argv[]) {
             QVariant::fromValue(&review_gallery_grouping),
         },
         {QStringLiteral("editor"), QVariant::fromValue(&editor)},
+        {
+            QStringLiteral("editInterchangeController"),
+            QVariant::fromValue(&edit_interchange_controller),
+        },
         {
             QStringLiteral("editPreviewPresentation"),
             QVariant::fromValue(&edit_preview_presentation),

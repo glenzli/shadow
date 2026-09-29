@@ -1,8 +1,9 @@
+#include "../src/raw/bayer_sampling.hpp"
 #include "../src/raw/raw_frame_development_plan.hpp"
 #include "../src/raw/raw_frame_source_development.hpp"
 #include "raw_pipeline_routing_test_support.hpp"
-#include "scoped_environment.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <string_view>
@@ -20,9 +21,28 @@ static_assert(
 );
 static_assert(!std::is_move_assignable_v<image::raw_pipeline_detail::PreparedRawFrameDevelopment>);
 
-using image::test_support::ScopedEnvironment;
-
 namespace {
+
+[[nodiscard]] image::RawFrame highlight_model_frame() {
+    auto frame = synthetic_bayer_frame();
+    constexpr std::uint32_t extent = 384U;
+    frame.descriptor.storage_dimensions = {extent, extent};
+    frame.descriptor.active_dimensions = frame.descriptor.storage_dimensions;
+    frame.samples.resize(static_cast<std::size_t>(extent) * extent);
+    for (std::uint32_t y = 0U; y < extent; ++y) {
+        for (std::uint32_t x = 0U; x < extent; ++x) {
+            const auto site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+            const auto color = frame.descriptor.bayer_2x2[site];
+            std::uint16_t value = color == image::RawCfaColor::red ? 500U : 800U;
+            if (color == image::RawCfaColor::red && x >= 96U && x <= 288U && y >= 96U
+                && y <= 288U) {
+                value = 1'000U;
+            }
+            frame.samples[static_cast<std::size_t>(y) * extent + x] = value;
+        }
+    }
+    return frame;
+}
 
 void prepared_plan_binds_source_policy_and_calibration_once() {
     const auto frame = synthetic_bayer_frame();
@@ -50,7 +70,7 @@ void prepared_plan_binds_source_policy_and_calibration_once() {
     );
     expect(
         preview.linear_transform().valid() && preview.camera_profile() == nullptr
-            && !preview.neural_raw_denoise().requested() && !preview.raw_denoise().applied()
+            && !preview.raw_denoise().applied()
             && preview.reconstruction_dimensions() == image::Dimensions{2U, 2U}
             && preview.diagnostic_dimensions() == image::Dimensions{2U, 2U},
         "prepared RAW development owns transform, preview dimensions, and preview-aware denoise"
@@ -105,6 +125,61 @@ void prepared_plan_applies_absolute_temperature_tint_before_every_downstream_gra
     );
 }
 
+void prepared_plan_reuses_bounded_highlight_support_during_white_balance_rebind() {
+    const auto frame = highlight_model_frame();
+    auto initial_plan = image::default_raw_development_plan();
+    const auto prepared = image::raw_pipeline_detail::prepare_raw_frame_development(
+        frame,
+        initial_plan,
+        128U,
+        std::nullopt,
+        0.0
+    );
+    const auto& initial_transform = prepared.linear_transform();
+    expect(
+        std::any_of(
+            initial_transform.opposed_highlight_chrominance_offsets.begin(),
+            initial_transform.opposed_highlight_chrominance_offsets.end(),
+            [](const float offset) { return std::abs(offset) > 1.0e-4F; }
+        ),
+        "source preparation must compile a useful opposed chrominance residual when support exists"
+    );
+
+    auto manual_plan = initial_plan;
+    manual_plan.white_balance = image::RawWhiteBalance{
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 4'200U,
+        .tint = 18,
+    };
+    auto manual_transform = image::raw_pipeline_detail::prepare_raw_frame_linear_transform(
+        frame.descriptor,
+        manual_plan.white_balance,
+        nullptr
+    );
+    const auto direct_policy = image::detail::editable_raw_cfa_sampling_policy(manual_transform);
+    const auto direct = image::detail::estimate_opposed_highlight_chrominance_correction(
+        frame,
+        &manual_transform,
+        direct_policy,
+        4U
+    );
+    const auto rebound = prepared.rebind_color(
+        manual_plan,
+        manual_transform,
+        std::nullopt,
+        prepared.source_scene_luminance_percentile()
+    );
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        expect(
+            std::abs(
+                rebound.linear_transform().opposed_highlight_chrominance_offsets[channel]
+                - direct.offsets[channel]
+            ) < 1.0e-6F,
+            "white-balance rebind must evaluate cached support without changing oracle maths"
+        );
+    }
+}
+
 void prepared_plan_owns_the_compiled_camera_profile() {
     const auto frame = synthetic_bayer_frame(false);
     auto catalog = exact_dcp_catalog();
@@ -133,14 +208,105 @@ void prepared_plan_owns_the_compiled_camera_profile() {
     );
 
     const auto* owned_profile = prepared.camera_profile();
+    const auto& bound_transform = prepared.linear_transform();
     expect(
         owned_profile != nullptr
             && owned_profile->receipt.profile_content_identity == expected_identity
             && owned_profile->hue_sat_map.has_value()
             && owned_profile->hue_sat_map->entries.size() == 2U
-            && prepared.linear_transform().camera_to_linear_srgb_d65
-                   == owned_profile->camera_to_linear_srgb_d65,
-        "prepared RAW development owns the complete compiled DCP and its camera transform"
+            && bound_transform.apply_cfa_white_balance
+            && bound_transform.cfa_white_balance[0] == 2.0
+            && bound_transform.cfa_white_balance[1] == 1.0
+            && bound_transform.cfa_white_balance[2] == 1.0
+            && bound_transform.cfa_white_balance[3] == 4.0,
+        "prepared DCP development keeps its calibration stages while sharing RawFrame's "
+        "pre-demosaic photographic white balance"
+    );
+    for (std::size_t output = 0U; output < 3U; ++output) {
+        expect(
+            std::abs(
+                bound_transform.camera_to_linear_srgb_d65[output * 3U]
+                - owned_profile->camera_to_linear_srgb_d65[output * 3U] * 0.5
+            ) < 1.0e-12
+                && std::abs(
+                       bound_transform.camera_to_linear_srgb_d65[output * 3U + 1U]
+                       - owned_profile->camera_to_linear_srgb_d65[output * 3U + 1U]
+                   ) < 1.0e-12
+                && std::abs(
+                       bound_transform.camera_to_linear_srgb_d65[output * 3U + 2U]
+                       - owned_profile->camera_to_linear_srgb_d65[output * 3U + 2U] * 0.25
+                   ) < 1.0e-12,
+            "DCP native camera matrix is rebound to the pre-white-balanced CFA basis"
+        );
+    }
+
+    auto manual_plan = image::default_raw_development_plan();
+    manual_plan.white_balance = image::RawWhiteBalance{
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 3'200U,
+        .tint = 24,
+    };
+    auto manual_prepared = image::raw_pipeline_detail::prepare_raw_frame_development(
+        frame,
+        manual_plan,
+        std::nullopt,
+        std::optional<image::DcpColorTransform>{std::move(manual_transform)},
+        0.0
+    );
+    const auto* manual_profile = manual_prepared.camera_profile();
+    const auto& manual_bound = manual_prepared.linear_transform();
+    expect(
+        manual_profile != nullptr && manual_bound.camera_neutral == manual_profile->camera_neutral,
+        "manual DCP development shares the profile compiler's exact camera neutral"
+    );
+    for (std::size_t output = 0U; output < 3U; ++output) {
+        expect(
+            std::abs(
+                manual_bound.camera_to_linear_srgb_d65[output * 3U]
+                - manual_profile->camera_to_linear_srgb_d65[output * 3U]
+                      * manual_profile->camera_neutral[0U]
+            ) < 1.0e-12
+                && std::abs(
+                       manual_bound.camera_to_linear_srgb_d65[output * 3U + 1U]
+                       - manual_profile->camera_to_linear_srgb_d65[output * 3U + 1U]
+                             * manual_profile->camera_neutral[1U]
+                   ) < 1.0e-12
+                && std::abs(
+                       manual_bound.camera_to_linear_srgb_d65[output * 3U + 2U]
+                       - manual_profile->camera_to_linear_srgb_d65[output * 3U + 2U]
+                             * manual_profile->camera_neutral[2U]
+                   ) < 1.0e-12,
+            "manual DCP matrix and CFA basis use the same profile-calibrated neutral"
+        );
+    }
+}
+
+void decoder_matrix_keeps_dcp_output_stages_out_of_another_colour_basis() {
+    const auto frame = synthetic_bayer_frame();
+    const auto catalog = exact_dcp_catalog();
+    auto transform = image::compile_dcp_color_transform(catalog.profiles.front(), frame.descriptor);
+    const auto expected_neutral = transform.camera_neutral;
+    auto prepared = image::raw_pipeline_detail::prepare_raw_frame_development(
+        frame,
+        image::default_raw_development_plan(),
+        std::nullopt,
+        std::optional<image::DcpColorTransform>{std::move(transform)},
+        0.0
+    );
+
+    const auto* profile = prepared.camera_profile();
+    expect(
+        profile != nullptr && !profile->has_post_matrix_stages()
+            && !profile->receipt.hue_sat_map_applied
+            && !profile->receipt.look_table_applied
+            && !profile->receipt.tone_curve_applied,
+        "a decoder camera matrix disables DCP output-space tables rather than mixing bases"
+    );
+    expect(
+        prepared.linear_transform().camera_to_linear_srgb_d65
+                == frame.descriptor.camera_to_linear_srgb_d65
+            && prepared.linear_transform().camera_neutral == expected_neutral,
+        "the decoder matrix remains authoritative while DCP retains its native camera neutral"
     );
 }
 
@@ -255,62 +421,15 @@ void preparation_preserves_validation_order() {
     );
 }
 
-void neural_raw_fallback_flows_through_the_current_developer() {
-    auto frame = synthetic_bayer_frame();
-    frame.descriptor.sensor_noise = image::RawSensorNoiseCalibration{
-        .schema_version = image::raw_sensor_noise_calibration_schema_version,
-        .model = image::RawSensorNoiseModel::poisson_gaussian_per_cfa,
-        .source = image::RawSensorNoiseCalibrationSource::embedded_metadata,
-        .iso_sensitivity = 3'200.0,
-        .read_noise_stddev_dn = {1.0, 1.1, 1.2, 1.3},
-        .shot_noise_variance_per_dn = {0.1, 0.11, 0.12, 0.13},
-    };
-    constexpr std::string_view model_identity =
-        "sha256-tree-v1:"
-        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const ScopedEnvironment model(
-        "SHADOW_AI_RAW_DENOISE_MODEL",
-        "/nonexistent/shadow-integration-neural-raw.mlmodelc"
-    );
-    const ScopedEnvironment identity("SHADOW_AI_RAW_DENOISE_MODEL_IDENTITY", model_identity);
-    const ScopedEnvironment tile("SHADOW_AI_RAW_DENOISE_TILE_EDGE", "4");
-    const ScopedEnvironment halo("SHADOW_AI_RAW_DENOISE_HALO", "1");
-    const ScopedEnvironment acceleration("SHADOW_IMAGE_ACCELERATION", "cpu");
-
-    SyntheticRawSession session(frame);
-    const auto developed = image::develop_source_reference(
-        session,
-        image::default_raw_development_plan(),
-        std::nullopt,
-        image::RawPipelinePolicy{
-            .mode = image::RawPipelineMode::require_shadow_raw_frame,
-        }
-    );
-    const auto& signature = developed.raw_development_receipt.development_settings_signature;
-    expect(
-        std::holds_alternative<image::SceneLinearRgbFrame>(developed.source)
-            && signature.find("neural-raw-denoise=fallback-runtime-failure") != std::string::npos
-            && signature.find(model_identity) != std::string::npos
-            && signature.find("raw-denoise=cfa-bilateral-conservative-v1") != std::string::npos
-            && developed.pipeline_receipt.pipeline_identity.find(
-                   "neural-raw-denoise=fallback-runtime-failure"
-               ) != std::string::npos
-            && developed.pipeline_receipt.pipeline_identity.find(
-                   "raw-denoise=cfa-bilateral-conservative-v1"
-               ) != std::string::npos,
-        "the neural RAW stage executes before conventional denoise and current demosaic while "
-        "its fallback remains cache-visible"
-    );
-}
-
 } // namespace
 
 int main() {
     prepared_plan_binds_source_policy_and_calibration_once();
     prepared_plan_applies_absolute_temperature_tint_before_every_downstream_grade();
+    prepared_plan_reuses_bounded_highlight_support_during_white_balance_rebind();
     prepared_plan_owns_the_compiled_camera_profile();
+    decoder_matrix_keeps_dcp_output_stages_out_of_another_colour_basis();
     full_materializer_consumes_the_prepared_contract();
     preparation_preserves_validation_order();
-    neural_raw_fallback_flows_through_the_current_developer();
     return failures == 0 ? 0 : 1;
 }

@@ -7,6 +7,7 @@
 #include <QStringList>
 #include <QVariantList>
 
+#include <cstdint>
 #include <functional>
 
 struct SemanticSearchTaskResult final {
@@ -43,10 +44,17 @@ class SemanticSearchController final : public QObject {
     Q_PROPERTY(bool truncated READ truncated NOTIFY resultsChanged)
 
   public:
-    using Runner =
-        std::function<BackendSemanticSearchReport(const QString&, const QString&, const QString&)>;
+    using Runner = std::function<
+        BackendSemanticSearchReport(const QString&, const QString&, const QString&, std::uint64_t)>;
+    using Begin = std::function<std::uint64_t()>;
+    using Cancel = std::function<void(std::uint64_t)>;
 
-    explicit SemanticSearchController(Runner runner, QObject* parent = nullptr);
+    explicit SemanticSearchController(
+        Runner runner,
+        Begin begin = {},
+        Cancel cancel = {},
+        QObject* parent = nullptr
+    );
     ~SemanticSearchController() override;
 
     [[nodiscard]] bool busy() const noexcept;
@@ -86,6 +94,12 @@ class SemanticSearchController final : public QObject {
     void finishSearch();
 
     Runner runner_;
+    Begin begin_;
+    Cancel cancel_;
+    std::uint64_t active_token_ = 0;
+    bool discard_result_ = false;
+    bool request_in_flight_ = false;
+    QString pending_query_;
     QFutureWatcher<SemanticSearchTaskResult> watcher_;
     BackendSemanticSearchReport report_;
     QString active_query_;

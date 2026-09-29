@@ -12,6 +12,9 @@ pub const EXECUTION_PLAN_IDENTITY_CONTRACT_VERSION: u32 = 1;
 #[serde(rename_all = "snake_case")]
 pub enum ProviderExecutionClass {
     LocalModel,
+    /// A loopback-only local service owns model installation and scheduling;
+    /// the consumer receives a typed, attested result rather than model bytes.
+    LocalService,
     SystemFramework,
     RemoteService,
 }
@@ -227,7 +230,10 @@ pub(super) fn validate_route(route: &ExecutionRouteIdentity) -> Result<(), Runti
             validate_text(model_id, "model.model_id")?;
             validate_text(model_revision, "model.model_revision")?;
             validate_text(api_contract_revision, "model.api_contract_revision")?;
-            if route.provider.execution_class != ProviderExecutionClass::RemoteService {
+            if !matches!(
+                route.provider.execution_class,
+                ProviderExecutionClass::LocalService | ProviderExecutionClass::RemoteService
+            ) {
                 return Err(RuntimeContractError::ProviderModelClassMismatch);
             }
         }

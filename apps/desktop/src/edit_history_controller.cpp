@@ -1,4 +1,6 @@
 #include "edit_controller.hpp"
+#include "edit_paint_controller.hpp"
+#include "edit_targeted_curve_controller.hpp"
 
 #include "edit_history_restore_projection.hpp"
 #include "edit_point_color_model.hpp"
@@ -20,23 +22,6 @@ constexpr int EDIT_PREVIEW_THROTTLE_MS = 16;
     return {"EditController", source, arguments};
 }
 
-[[nodiscard]] QVector<ToneCurvePoint>
-tone_curve_model_points(const BackendGradeNode* const grade_node) {
-    if (grade_node == nullptr) {
-        return {{0.0, 0.0}, {1.0, 1.0}};
-    }
-    const auto& source = grade_node->fine.oklab_lightness_curve_points;
-    if (source.isEmpty() || source.size() % 2 != 0) {
-        return {{0.0, 0.0}, {1.0, 1.0}};
-    }
-    QVector<ToneCurvePoint> points;
-    points.reserve(source.size() / 2);
-    for (qsizetype index = 0; index < source.size(); index += 2) {
-        points.push_back({.x = source[index], .y = source[index + 1]});
-    }
-    return points;
-}
-
 } // namespace
 
 void EditController::beginParameterEdit(const QString& parameter_key) {
@@ -46,10 +31,11 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
     const bool photo_local_foundation = parameter_key.startsWith(QStringLiteral("foundation/"));
     const bool photo_local_raw_denoise =
         parameter_key.startsWith(QStringLiteral("raw_ai_denoise/"));
+    const bool photo_local_paint = parameter_key.startsWith(QStringLiteral("paint/"));
     const bool photo_local_liquify = parameter_key.startsWith(QStringLiteral("liquify/"));
     if (!active_ || interactionLocked()
         || (!photo_local_retouch && !photo_local_geometry && !photo_local_foundation
-            && !photo_local_raw_denoise && !photo_local_liquify
+            && !photo_local_raw_denoise && !photo_local_liquify && !photo_local_paint
             && (grade_node == nullptr || !grade_node->enabled))
         || parameter_key.isEmpty()) {
         return;
@@ -60,7 +46,10 @@ void EditController::beginParameterEdit(const QString& parameter_key) {
         first_interactive_frame_presented_ = false;
     }
     active_parameter_gestures_.insert(parameter_key);
-    history_.beginGesture(gradeNodeHistoryKey(parameter_key).toStdString(), grade_stack_);
+    history_.beginGesture(
+        gradeNodeHistoryKey(parameter_key).toStdString(),
+        {grade_stack_, base_commit_id_}
+    );
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
@@ -72,7 +61,10 @@ void EditController::endParameterEdit(const QString& parameter_key) {
     }
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.endGesture(gradeNodeHistoryKey(parameter_key).toStdString(), grade_stack_);
+    history_.endGesture(
+        gradeNodeHistoryKey(parameter_key).toStdString(),
+        {grade_stack_, base_commit_id_}
+    );
     const bool ended_active_gesture = active_parameter_gestures_.remove(parameter_key) > 0;
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
@@ -90,21 +82,28 @@ void EditController::undo() {
     if (!active_ || interactionLocked()) {
         return;
     }
+    if (targeted_curve_controller_)
+        targeted_curve_controller_->finish(true);
+    if (paint_controller_ && paint_controller_->strokeActive()) {
+        paint_controller_->cancelStroke();
+        return; // Undo the live stroke only, preserving the previous completed stroke.
+    }
     std::string history_key;
-    const auto restored = history_.undo(grade_stack_, &history_key);
+    const auto restored = history_.undo({grade_stack_, base_commit_id_}, &history_key);
     emit historyChanged();
     if (!restored) {
         return;
     }
     const QString preferred_id = EditHistoryRestoreProjection::preferredGradeNodeForRestore(
         history_key,
-        *restored,
+        restored->stack,
         selected_grade_node_index_
     );
     persistence_state_.requestAutosave();
     clearAutosaveFailure();
     ++working_revision_;
-    setGradeStack(*restored, preferred_id);
+    setEditBaseCommitId(restored->base_commit_id);
+    setGradeStack(restored->stack, preferred_id);
     schedulePreview(0);
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Undid the last session adjustment"))
@@ -115,8 +114,12 @@ void EditController::redo() {
     if (!active_ || interactionLocked()) {
         return;
     }
+    if (targeted_curve_controller_)
+        targeted_curve_controller_->finish(true);
+    if (paint_controller_)
+        paint_controller_->cancelStroke();
     std::string history_key;
-    const auto restored = history_.redo(grade_stack_, &history_key);
+    const auto restored = history_.redo({grade_stack_, base_commit_id_}, &history_key);
     emit historyChanged();
     if (!restored) {
         return;
@@ -124,11 +127,12 @@ void EditController::redo() {
     persistence_state_.requestAutosave();
     clearAutosaveFailure();
     ++working_revision_;
+    setEditBaseCommitId(restored->base_commit_id);
     setGradeStack(
-        *restored,
+        restored->stack,
         EditHistoryRestoreProjection::preferredGradeNodeForRestore(
             history_key,
-            *restored,
+            restored->stack,
             selected_grade_node_index_
         )
     );
@@ -214,6 +218,9 @@ void EditController::setGradeStack(
     const QString old_selected_id = selectedGradeNodeId();
     const int old_selected_index = selected_grade_node_index_;
     const BackendGradeNode* const old_selected = selectedGradeNode();
+    const BackendMaskComponent* const old_mask_component = selectedLocalMaskComponent();
+    const QString old_mask_component_id =
+        old_mask_component == nullptr ? QString{} : old_mask_component->component_id;
     const bool had_old_selection = old_selected != nullptr;
     const BackendGradeNode old_selected_value =
         had_old_selection ? *old_selected : BackendGradeNode{};
@@ -247,16 +254,19 @@ void EditController::setGradeStack(
             && EditHistoryRestoreProjection::localMaskChanged(old_selected_value, *new_selected));
     const bool photo_local_changed = grade_stack_.retouch_spots != grade_stack.retouch_spots
                                      || grade_stack_.retouch_strokes != grade_stack.retouch_strokes
+                                     || grade_stack_.paint_layers != grade_stack.paint_layers
                                      || grade_stack_.liquify_enabled != grade_stack.liquify_enabled
                                      || grade_stack_.liquify_strokes != grade_stack.liquify_strokes
                                      || grade_stack_.geometry != grade_stack.geometry;
     const bool curve_changed = selection_changed || had_old_selection != has_new_selection
                                || (had_old_selection && has_new_selection
-                                   && old_selected_value.fine.oklab_lightness_curve_points
-                                          != new_selected->fine.oklab_lightness_curve_points);
+                                   && (old_selected_value.fine.oklab_lightness_curve_points
+                                           != new_selected->fine.oklab_lightness_curve_points
+                                       || old_selected_value.fine.rgb_curve_points
+                                              != new_selected->fine.rgb_curve_points));
     const bool list_changed =
         EditHistoryRestoreProjection::gradeNodeListChanged(grade_stack_, grade_stack);
-    const auto model_points = tone_curve_model_points(new_selected);
+    const auto model_points = toneCurveModelPoints(new_selected);
     if (tone_curve_points_.points() != model_points && !tone_curve_points_.replace(model_points)) {
         setStatusMessage(edit_message(
             QT_TRANSLATE_NOOP("EditController", "The saved Tone Curve cannot be represented safely")
@@ -265,11 +275,34 @@ void EditController::setGradeStack(
     }
     grade_stack_ = std::move(grade_stack);
     selected_grade_node_index_ = new_selected_index;
+    if (selection_changed) {
+        selected_local_mask_component_index_ = 0;
+    } else if (!old_mask_component_id.isEmpty()) {
+        const auto* const selected = selectedGradeNode();
+        if (selected != nullptr) {
+            const auto preserved = std::find_if(
+                selected->local_mask_components.cbegin(),
+                selected->local_mask_components.cend(),
+                [&old_mask_component_id](const BackendMaskComponent& component) {
+                    return component.component_id == old_mask_component_id;
+                }
+            );
+            if (preserved != selected->local_mask_components.cend()) {
+                selected_local_mask_component_index_ = static_cast<int>(
+                    std::distance(selected->local_mask_components.cbegin(), preserved)
+                );
+            }
+        }
+    }
+    clampSelectedLocalMaskComponent();
     if (structural_selection_changed) {
         selected_recipe_node_kind_ = QStringLiteral("grade");
     }
     if (local_mask_changed && !selection_changed) {
-        handleSelectedLocalMaskMutation();
+        // Autosave may canonicalize a mask without a subsequent user edit.
+        // Refresh its invalidated coverage too; undo/redo's scheduled preview
+        // is coalesced by the deferred selection refresh.
+        handleMaskSelectionChanged();
     }
     const int new_point_color_count =
         selectedGradeNode() == nullptr ? 0 : PointColorModel::count(selectedGradeNode()->fine);
@@ -323,7 +356,7 @@ QString EditController::gradeNodeHistoryKey(const QString& key) const {
     if (key.startsWith(QStringLiteral("retouch/")) || key.startsWith(QStringLiteral("geometry/"))
         || key.startsWith(QStringLiteral("foundation/"))
         || key.startsWith(QStringLiteral("raw_ai_denoise/"))
-        || key.startsWith(QStringLiteral("liquify/"))) {
+        || key.startsWith(QStringLiteral("liquify/")) || key.startsWith(QStringLiteral("paint/"))) {
         return QStringLiteral("photo/%1").arg(key);
     }
     const auto* const grade_node = selectedGradeNode();
@@ -333,6 +366,10 @@ QString EditController::gradeNodeHistoryKey(const QString& key) const {
 }
 
 void EditController::finishActiveGesture() {
+    if (targeted_curve_controller_)
+        targeted_curve_controller_->finish(false);
+    if (paint_controller_)
+        paint_controller_->cancelStroke();
     if (liquify_live_before_.has_value()) {
         cancelLiquifyLiveStroke();
     }
@@ -341,7 +378,7 @@ void EditController::finishActiveGesture() {
     cancelActivePreview(true);
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.finishGesture(grade_stack_);
+    history_.finishGesture({grade_stack_, base_commit_id_});
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }
@@ -358,7 +395,7 @@ void EditController::clearSessionHistory() {
 void EditController::recordWorkingTransition(const QString& key, const BackendGradeStack& before) {
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
-    history_.record(key.toStdString(), before, grade_stack_);
+    history_.record(key.toStdString(), {before, base_commit_id_}, {grade_stack_, base_commit_id_});
     if (could_undo != canUndo() || could_redo != canRedo()) {
         emit historyChanged();
     }

@@ -35,6 +35,7 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
         source_flip_vertical: false,
         feather: 0.28,
         strength: 0.75,
+        frequency_radius: 8,
     }];
     incoming.retouch_strokes = vec![ffi::FfiRetouchStroke {
         points: vec![
@@ -51,6 +52,7 @@ fn continuous_retouch_strokes_round_trip_through_desktop_ffi_and_recipe_v1() {
         source_flip_vertical: false,
         feather: 0.4,
         strength: 0.65,
+        frequency_radius: 8,
     }];
 
     let draft = decode_grade_stack_draft_recipe_v1(&incoming)
@@ -200,4 +202,30 @@ fn recipe_v1_rejects_an_operation_level_mask_reference() {
             .contains("unsupported contract")
     );
     assert!(compile_recipe_render_plan(&operation_masked).is_err());
+}
+
+#[test]
+fn frequency_modes_and_scale_survive_desktop_recipe_round_trip() {
+    let mut incoming = ffi_parameters(0.0, 1.0, [0.0; 2], 1.0);
+    incoming.retouch_spots = vec![ffi::FfiRetouchSpot {
+        center_x: 0.4,
+        center_y: 0.5,
+        radius_level_zero_pixels: 24,
+        mode: 3,
+        source_offset_x_radii: 2.0,
+        source_offset_y_radii: 0.0,
+        source_rotation_degrees: 0.0,
+        source_scale: 1.0,
+        source_flip_horizontal: false,
+        source_flip_vertical: false,
+        feather: 0.3,
+        strength: 0.6,
+        frequency_radius: 12,
+    }];
+    let draft = decode_grade_stack_draft_recipe_v1(&incoming).unwrap();
+    assert_eq!(draft.retouch_spots[0].mode(), RetouchMode::Tone);
+    assert_eq!(draft.retouch_spots[0].frequency_radius(), 12);
+    let outgoing = encode_grade_stack_draft_recipe_v1(draft).unwrap();
+    assert_eq!(outgoing.retouch_spots[0].mode, 3);
+    assert_eq!(outgoing.retouch_spots[0].frequency_radius, 12);
 }

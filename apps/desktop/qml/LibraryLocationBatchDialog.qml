@@ -165,7 +165,7 @@ Window {
                     Layout.fillWidth: true
                     text: qsTr("Set Photo Location")
                     color: Theme.textPrimary
-                    font.pixelSize: 20
+                    font.pixelSize: Theme.fontHero
                     font.weight: Font.DemiBold
                 }
 
@@ -209,7 +209,7 @@ Window {
                 font.weight: Font.DemiBold
             }
 
-            TextField {
+            ShadowTextField {
                 id: latitudeField
                 objectName: "locationBatchLatitudeField"
                 Layout.fillWidth: true
@@ -218,7 +218,7 @@ Window {
                 enabled: !locationState.busy
             }
 
-            TextField {
+            ShadowTextField {
                 id: longitudeField
                 objectName: "locationBatchLongitudeField"
                 Layout.fillWidth: true
@@ -227,7 +227,7 @@ Window {
                 enabled: !locationState.busy
             }
 
-            TextField {
+            ShadowTextField {
                 id: placeField
                 objectName: "locationBatchPlaceField"
                 Layout.fillWidth: true
@@ -251,7 +251,7 @@ Window {
                 font.weight: Font.DemiBold
             }
 
-            ComboBox {
+            ShadowComboBox {
                 id: policyBox
                 objectName: "locationBatchPolicyBox"
                 Layout.fillWidth: true

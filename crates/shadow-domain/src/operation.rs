@@ -29,14 +29,19 @@ pub const CONTRAST_OPERATION_ID: &str = "shadow.contrast";
 pub const CONTRAST_FACTOR_PARAMETER_KEY: &str = "factor";
 pub const CONTRAST_PIVOT_PARAMETER_KEY: &str = "pivot";
 
-/// The sole authored point curve: perceptual Oklab lightness. It keeps hue and
-/// chroma stable while changing brightness, rather than exposing RGB channels
-/// whose output depends on the working-space primaries.
+/// Perceptual Oklab lightness curve; keeps opponent axes unchanged.
 pub const OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID: &str = "shadow.oklab_lightness_tone_curve";
 pub const OKLAB_LIGHTNESS_TONE_CURVE_POINTS_PARAMETER_KEY: &str = "lightness_points";
 pub const OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION: u32 = 1;
 pub const OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION: &str =
     "shadow-cpu-oklab-lightness-tone-curve-v1";
+
+/// Master then per-channel PCHIP in signed sRGB-encoded working RGB. No clipping.
+pub const RGB_TONE_CURVES_OPERATION_ID: &str = "shadow.rgb_tone_curves";
+pub const RGB_TONE_CURVES_PARAMETER_SCHEMA_VERSION: u32 = 1;
+pub const RGB_TONE_CURVES_IMPLEMENTATION_VERSION: &str = "shadow-working-rgb-srgb-curves-v1";
+pub const RGB_TONE_CURVES_PARAMETER_KEYS: [&str; 4] =
+    ["master_points", "red_points", "green_points", "blue_points"];
 
 /// Processed-RGB creative white-balance offset owned by a Grade Node.
 ///
@@ -51,8 +56,9 @@ pub const SATURATION_OPERATION_ID: &str = "shadow.saturation";
 pub const SATURATION_FACTOR_PARAMETER_KEY: &str = "factor";
 
 pub const SELECTIVE_TONE_OPERATION_ID: &str = "shadow.selective_tone";
-/// The current Selective Tone evaluator uses a complete self-guided log-luminance filter. It
-/// keeps the four slider values and averages the local a/b coefficients in a second box pass.
+/// The current Selective Tone evaluator uses a complete self-guided log-luminance filter and a
+/// source-risk-gated, lightness-preserving per-channel highlight correction subpath. It keeps the
+/// four tonal values spatially guided while channel-only correction remains pixel-local.
 /// Until Shadow makes its first compatibility promise this implementation replaces earlier
 /// development experiments in the sole v1 contract.
 pub const SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION: u32 = 1;
@@ -61,6 +67,9 @@ pub const HIGHLIGHTS_PARAMETER_KEY: &str = "highlights";
 pub const SHADOWS_PARAMETER_KEY: &str = "shadows";
 pub const WHITES_PARAMETER_KEY: &str = "whites";
 pub const BLACKS_PARAMETER_KEY: &str = "blacks";
+pub const HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY: &str = "highlight_red_suppression";
+pub const HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY: &str = "highlight_green_suppression";
+pub const HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY: &str = "highlight_blue_suppression";
 
 pub const PERCEPTUAL_COLOR_OPERATION_ID: &str = "shadow.perceptual_color";
 /// Broad Oklab opponent-axis balance. Positive `a` moves toward red and

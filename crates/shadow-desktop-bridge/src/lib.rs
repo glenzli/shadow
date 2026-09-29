@@ -13,6 +13,8 @@ mod library_server_service;
 mod library_service;
 mod location_reference_service;
 mod native_path_ffi;
+mod people_analysis_service;
+mod people_library_store;
 mod photo_inspection_service;
 mod relink_service;
 mod remote_library_service;
@@ -47,17 +49,30 @@ mod session_preview_store;
 
 // Non-destructive edit contracts and shared Grade Node application.
 mod edit_version_diff;
+mod image_completion_runtime;
+mod image_completion_service;
+mod infer_runtime_credentials;
+mod lut_export;
 mod raw_foundation_noise_assessment;
 mod raw_foundation_render_source;
 mod raw_foundation_runtime;
 mod raw_foundation_service;
+mod recipe_import_plan;
+mod recipe_import_service;
+mod recipe_interchange;
+mod recipe_lut_resources;
 mod recipe_v1;
+mod session_auto_start;
 mod session_edit_history;
+mod session_image_completion;
 mod session_raw_foundation;
+mod session_recipe_import;
 mod session_shared_grade;
+mod session_subject_emphasis;
 mod session_subject_mask;
 mod shared_grade_application;
 mod shared_grade_library;
+mod subject_mask_people;
 mod subject_mask_runtime;
 mod subject_mask_service;
 
@@ -65,8 +80,10 @@ mod subject_mask_service;
 mod cache_maintenance_service;
 mod export_queue_service;
 mod export_service;
+mod raw_dng_export;
 mod session_cache_maintenance;
 mod session_export;
+mod session_pipeline;
 
 pub use isolated_proxy::{ProviderHostInventory, inspect_provider_host};
 pub use library_server_service::{
@@ -95,6 +112,10 @@ use edit_preview::{OwnedEditedPreview, WarmEditPreviewSessionCache};
 use history_service::HistoryService;
 use library_server_host::{LibraryServerHost, open_library_server_host_ffi};
 use location_reference_service::LocationReferenceService;
+use lut_export::{
+    LutExportCancellation, LutExportPlan, bake_lut_export, cancel_lut_export, lut_export_preview,
+    new_lut_export_cancellation, prepare_lut_export,
+};
 use photo_inspection_service::PhotoInspectionService;
 use preview_render_registry::PreviewRenderRegistry;
 use recipe_v1::new_basic_grade_node;
@@ -262,7 +283,9 @@ mod ffi {
         preview_role: String,
         preview_width: u32,
         preview_height: u32,
+        preview_auto_transform: bool,
         preview_unavailable_reason: String,
+        metadata_schema_version: u32,
         has_captured_at: bool,
         captured_at_unix_seconds: i64,
         camera_make: String,
@@ -277,9 +300,21 @@ mod ffi {
         aperture_f_number: f64,
         has_focal_length: bool,
         focal_length_mm: f64,
+        has_focal_length_35mm: bool,
+        focal_length_35mm: f64,
         has_raw_dimensions: bool,
         raw_width: u32,
         raw_height: u32,
+        has_image_dimensions: bool,
+        image_width: u32,
+        image_height: u32,
+        has_orientation: bool,
+        orientation: i32,
+        has_coordinates: bool,
+        latitude_degrees: f64,
+        longitude_degrees: f64,
+        has_altitude: bool,
+        altitude_meters: f64,
         decision_flag: FfiDecisionFlag,
         decision_rating: u8,
         liked: bool,
@@ -306,7 +341,30 @@ mod ffi {
         page_count: u64,
         photo_count: u64,
         downloaded_previews: u64,
+        preview_failures: u64,
         removed: u64,
+    }
+
+    #[derive(Debug)]
+    struct FfiRemoteLibrarySyncStart {
+        job_id: u64,
+        snapshot: FfiRemoteLibrarySnapshot,
+    }
+
+    #[derive(Debug)]
+    struct FfiRemoteLibrarySyncStep {
+        job_id: u64,
+        snapshot: FfiRemoteLibrarySnapshot,
+        stage: String,
+        page_count: u64,
+        photo_count: u64,
+        preview_completed_count: u64,
+        downloaded_previews: u64,
+        preview_failures: u64,
+        removed: u64,
+        manifest_complete: bool,
+        complete: bool,
+        diagnostic: String,
     }
 
     /// Verified local edit admission for one remote original.
@@ -317,6 +375,37 @@ mod ffi {
         local_source_path: String,
         title: String,
         reused_existing: bool,
+        inspection_diagnostic: String,
+        metadata_schema_version: u32,
+        has_captured_at: bool,
+        captured_at_unix_seconds: i64,
+        camera_make: String,
+        camera_model: String,
+        lens_make: String,
+        lens_model: String,
+        has_iso_speed: bool,
+        iso_speed: f64,
+        has_exposure_time: bool,
+        exposure_time_seconds: f64,
+        has_aperture: bool,
+        aperture_f_number: f64,
+        has_focal_length: bool,
+        focal_length_mm: f64,
+        has_focal_length_35mm: bool,
+        focal_length_35mm: f64,
+        has_raw_dimensions: bool,
+        raw_width: u32,
+        raw_height: u32,
+        has_image_dimensions: bool,
+        image_width: u32,
+        image_height: u32,
+        has_orientation: bool,
+        orientation: i32,
+        has_coordinates: bool,
+        latitude_degrees: f64,
+        longitude_degrees: f64,
+        has_altitude: bool,
+        altitude_meters: f64,
     }
 
     /// Device-local configuration for the managed remote-Library listener.
@@ -342,6 +431,11 @@ mod ffi {
         cache_byte_len: u64,
         shared_root_count: u64,
         serves_originals: bool,
+        index_state: String,
+        discovered_file_count: u64,
+        inspection_completed_count: u64,
+        published_preview_count: u64,
+        index_diagnostic: String,
     }
 
     /// Low-frequency details for one exact selected `{photo, representation}`.
@@ -429,6 +523,18 @@ mod ffi {
         cancelled: bool,
     }
 
+    /// One exact source admitted into an isolated pipeline-edit session.
+    /// This is deliberately not a Review projection: its identifiers are
+    /// usable by the existing Recipe/edit services, but it carries no Library
+    /// navigation or curation state.
+    #[derive(Debug)]
+    struct FfiPipelineInput {
+        photo_id: String,
+        representation_id: String,
+        source_path: String,
+        title: String,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum FfiScanPhase {
         Idle,
@@ -486,6 +592,8 @@ mod ffi {
 
     #[derive(Debug, Clone)]
     struct FfiLibraryPhotoFilter {
+        has_photo_ids: bool,
+        photo_ids: Vec<String>,
         has_capture_start: bool,
         capture_start_unix_seconds: i64,
         has_capture_end: bool,
@@ -995,18 +1103,29 @@ mod ffi {
         reclaimed_byte_len: u64,
     }
 
-    /// One anonymous review proposal. The opaque group id is stable only for
-    /// the exact transient analysis inputs; it is not a named-person identity.
+    /// One durable anonymous person in the device-local People Store.
     #[derive(Debug)]
     struct FfiPeopleGroup {
         group_id: String,
+        /// User-authored local label. An empty value means the presentation
+        /// should use its localized anonymous-person fallback.
+        display_name: String,
         member_count: u32,
+        /// Logical photo identities only. Face geometry and embeddings remain
+        /// inside Rust; the desktop uses these ids solely to reject an
+        /// impossible merge of two faces that co-occur in one photo.
+        photo_ids: Vec<String>,
+        /// Bounded representative face crop held only by the independently
+        /// clearable local People Store.
+        thumbnail_jpeg: Vec<u8>,
+        manually_merged: bool,
     }
 
-    /// Session-only projection of local face analysis. No embeddings or face
-    /// observations cross the desktop ABI.
+    /// Device-local projection of people organization. No embeddings or face
+    /// geometry cross the desktop ABI or enter the Catalog.
     #[derive(Debug)]
     struct FfiPeopleAnalysisReport {
+        has_data: bool,
         analyzed_photos: u32,
         detected_faces: u32,
         embedded_faces: u32,
@@ -1014,6 +1133,31 @@ mod ffi {
         ungrouped_faces: u32,
         truncated: bool,
         groups: Vec<FfiPeopleGroup>,
+        can_undo_merge: bool,
+    }
+
+    /// Pollable session-local progress for one bounded people-analysis job.
+    #[derive(Debug)]
+    struct FfiPeopleAnalysisJobStatus {
+        job_token: u64,
+        phase: String,
+        analyzed_photos: u32,
+        maximum_photos: u32,
+        detected_faces: u32,
+        compared_faces: u32,
+        cancellation_requested: bool,
+        terminal: bool,
+    }
+
+    /// Terminal worker result. Provider diagnostics stay out of QML and are
+    /// consumed by the controller's safe recovery presentation.
+    #[derive(Debug)]
+    struct FfiPeopleAnalysisExecution {
+        made_progress: bool,
+        job_token: u64,
+        cancelled: bool,
+        diagnostic: String,
+        report: FfiPeopleAnalysisReport,
     }
 
     /// One session-only semantic match. The visual handle authorizes exactly
@@ -1186,6 +1330,9 @@ mod ffi {
         shadows: f64,
         whites: f64,
         blacks: f64,
+        highlight_red_suppression: f64,
+        highlight_green_suppression: f64,
+        highlight_blue_suppression: f64,
         global_a_balance: f64,
         global_b_balance: f64,
         vibrance: f64,
@@ -1210,6 +1357,11 @@ mod ffi {
         /// Optional Oklab-L perceptual curve, flattened as x/y pairs. An empty
         /// vector is the canonical neutral/no-node representation.
         oklab_lightness_curve_points: Vec<f64>,
+        rgb_curve_master_points: Vec<f64>,
+        rgb_curve_red_points: Vec<f64>,
+        rgb_curve_green_points: Vec<f64>,
+        rgb_curve_blue_points: Vec<f64>,
+
         /// Fixed 5×5 Oklab Color Warper lattice, flattened row-major as
         /// `(a_offset, b_offset)` pairs. The desktop boundary always carries
         /// all 25 points; Recipe v1 elides the all-zero lattice.
@@ -1258,6 +1410,34 @@ mod ffi {
         vignette_highlights: f64,
     }
 
+    /// One typed leaf inside the node-bound local mask. Operation values are
+    /// 0 = Base, 1 = Add, 2 = Subtract, and 3 = Intersect. The first component
+    /// is always Base; the remaining authored order is semantically relevant.
+    #[derive(Debug, Clone)]
+    struct FfiMaskComponent {
+        /// Bounded domain condition JSON; empty for every legacy mask kind.
+        condition_expression: String,
+        component_id: String,
+        operation: u8,
+        enabled: bool,
+        /// 1 = linear gradient, 2 = radial gradient, 3 = brush,
+        /// 4 = luminance range, 5 = color range, 6 = opaque managed raster.
+        kind: u8,
+        x0: f64,
+        y0: f64,
+        x1: f64,
+        y1: f64,
+        radius_x: f64,
+        radius_y: f64,
+        feather: f64,
+        leaf_invert: bool,
+        /// Flattened brush triples: x, y, begins-stroke (0 or 1).
+        brush_points: Vec<f64>,
+        semantic_query: String,
+        semantic_maximum_regions: u8,
+        semantic_score_threshold_percent: u8,
+    }
+
     /// One user-managed Grade Node. All current Recipe adapter identities are
     /// explicit: persisted Recipes may contain legal non-derived ids, and a
     /// Qt round trip must return those exact values. They are not user-facing
@@ -1269,21 +1449,9 @@ mod ffi {
         shared_layer_id: String,
         /// Empty for a photo-local node; shared nodes always pin one revision.
         shared_revision_id: String,
-        /// 0 = none, 1 = linear gradient, 2 = radial gradient, 3 = brush,
-        /// 4 = luminance range, 5 = color range, 6 = opaque managed raster.
-        /// The common normalized fields keep this CXX DTO stable while the
-        /// domain owns authoritative shape validation.
-        local_mask_kind: u8,
-        local_mask_x0: f64,
-        local_mask_y0: f64,
-        local_mask_x1: f64,
-        local_mask_y1: f64,
-        local_mask_radius_x: f64,
-        local_mask_radius_y: f64,
-        local_mask_feather: f64,
+        local_mask_components: Vec<FfiMaskComponent>,
+        /// Applied after the complete ordered component composition.
         local_mask_invert: bool,
-        /// Flattened brush triples: x, y, begins-stroke (0 or 1).
-        local_mask_brush_points: Vec<f64>,
         label: String,
         /// Complete Grade Node strength in [0, 1].
         opacity: f64,
@@ -1317,7 +1485,7 @@ mod ffi {
         center_x: f64,
         center_y: f64,
         radius_level_zero_pixels: u16,
-        /// 0 = heal, 1 = clone, 2 = structure-preserving heal.
+        /// 0 = heal, 1 = clone, 2 = structure-preserving heal, 3 = tone, 4 = texture.
         mode: u8,
         source_offset_x_radii: f64,
         source_offset_y_radii: f64,
@@ -1327,6 +1495,7 @@ mod ffi {
         source_flip_vertical: bool,
         feather: f64,
         strength: f64,
+        frequency_radius: u16,
     }
 
     /// One normalized centerline point for a photo-local continuous repair
@@ -1345,7 +1514,7 @@ mod ffi {
     struct FfiRetouchStroke {
         points: Vec<FfiRetouchPoint>,
         radius_level_zero_pixels: u16,
-        /// 0 = heal, 1 = clone, 2 = structure-preserving heal.
+        /// 0 = heal, 1 = clone, 2 = structure-preserving heal, 3 = tone, 4 = texture.
         mode: u8,
         source_offset_x_radii: f64,
         source_offset_y_radii: f64,
@@ -1354,6 +1523,35 @@ mod ffi {
         source_flip_horizontal: bool,
         source_flip_vertical: bool,
         feather: f64,
+        strength: f64,
+        frequency_radius: u16,
+    }
+
+    /// One accepted immutable RGBA8 AI-completion patch. The desktop never
+    /// transports its pixel payload; this DTO carries only the verified store
+    /// authority and editable placement/strength state.
+    #[derive(Debug, Clone)]
+    struct FfiImageCompletionRegion {
+        store_object_id: String,
+        storage_revision: u32,
+        content_blake3: String,
+        byte_len: u64,
+        raster_width: u32,
+        raster_height: u32,
+        coordinate_width: u32,
+        coordinate_height: u32,
+        bounds_left: f64,
+        bounds_top: f64,
+        bounds_right: f64,
+        bounds_bottom: f64,
+        source_recipe_blake3: String,
+        provider: String,
+        deployment: String,
+        model_build: String,
+        postprocessing_identity: String,
+        api_contract_revision: String,
+        actual_execution_provider: String,
+        enabled: bool,
         strength: f64,
     }
 
@@ -1423,6 +1621,8 @@ mod ffi {
     struct FfiPhotoFoundationSettings {
         /// Bypasses optional Foundation interpretation while preserving it.
         enabled: bool,
+        /// Opt-in camera-domain neutralization for clipped CFA colour.
+        raw_highlight_repair_enabled: bool,
         optics: FfiOpticsSettings,
         /// Whether the user explicitly added the singleton AI RAW denoise node.
         raw_ai_denoise_present: bool,
@@ -1430,7 +1630,7 @@ mod ffi {
         raw_ai_denoise_enabled: bool,
         /// Whether the fixed node is hidden while preserving AI result intent.
         raw_ai_denoise_bypassed: bool,
-        /// 0 = RawNIND public Bayer release 5.6.0.
+        /// 0 = Infer Runtime RawNIND Bayer capability.
         raw_ai_denoise_model: u8,
         /// Fast camera-linear blend between original RAW and cached AI output.
         raw_ai_denoise_amount_percent: u8,
@@ -1448,16 +1648,100 @@ mod ffi {
     /// Complete editable photo stack. Foundation is evaluated first, followed
     /// by Grade Node zero through the final output-nearest Grade Node.
     #[derive(Debug, Clone)]
+    struct FfiPaintPoint {
+        x: f64,
+        y: f64,
+        pressure: f64,
+    }
+    #[derive(Debug, Clone)]
+    struct FfiPaintStroke {
+        roundness: f64,
+        angle_degrees: f64,
+        spacing: f64,
+        texture: u8,
+        texture_strength: f64,
+        pressure_size: bool,
+        pressure_flow: bool,
+
+        points: Vec<FfiPaintPoint>,
+        radius: f64,
+        hardness: f64,
+        opacity: f64,
+        flow: f64,
+        red: f64,
+        green: f64,
+        blue: f64,
+        erase: bool,
+    }
+    #[derive(Debug, Clone)]
+    struct FfiPaintLayer {
+        id: String,
+        label: String,
+        enabled: bool,
+        opacity: f64,
+        blend: u8,
+        coordinate_width: u32,
+        coordinate_height: u32,
+        strokes: Vec<FfiPaintStroke>,
+    }
+    #[derive(Debug, Clone)]
     struct FfiEditSettings {
         foundation: FfiPhotoFoundationSettings,
         grade_nodes: Vec<FfiGradeNode>,
         retouch_spots: Vec<FfiRetouchSpot>,
         retouch_strokes: Vec<FfiRetouchStroke>,
+        /// Node-level bypass for the complete photo-local repair stage.
+        retouch_enabled: bool,
+        paint_layers: Vec<FfiPaintLayer>,
+        image_completions: Vec<FfiImageCompletionRegion>,
+        image_completion_enabled: bool,
         /// False with an empty stroke vector is the canonical absent node.
         /// A non-empty vector retains this value while bypassed.
         liquify_enabled: bool,
         liquify_strokes: Vec<FfiLiquifyStroke>,
         geometry: FfiPhotoGeometry,
+    }
+
+    struct FfiLutExportOmission {
+        node_label: String,
+        reason: String,
+    }
+
+    struct FfiLutExportPreview {
+        included_nodes: Vec<String>,
+        omissions: Vec<FfiLutExportOmission>,
+        can_bake: bool,
+    }
+
+    struct FfiLutExportResult {
+        document: Vec<u8>,
+        maximum_absolute_error: f64,
+        root_mean_square_error: f64,
+        probe_count: u32,
+    }
+
+    /// A validated, destination-safe projection of one Shadow Recipe file.
+    ///
+    /// The file retains its complete immutable Recipe snapshot, but desktop
+    /// import deliberately projects only reusable Grade Nodes. Photo-private
+    /// source development, repair, completion, Liquify, and Canvas state are
+    /// reported here and never silently transplanted onto another photo.
+    #[derive(Debug, Clone)]
+    struct FfiShadowRecipeImportPreview {
+        label: String,
+        portable_settings: FfiEditSettings,
+        grade_node_count: u32,
+        portable_mask_count: u32,
+        managed_mask_node_count: u32,
+        semantic_mask_intent_count: u32,
+        detached_shared_node_count: u32,
+        removed_lut_count: u32,
+        excluded_retouch_region_count: u32,
+        excluded_completion_region_count: u32,
+        excluded_liquify_stroke_count: u32,
+        foundation_omitted: bool,
+        raw_denoise_omitted: bool,
+        canvas_omitted: bool,
     }
 
     #[derive(Debug, Clone)]
@@ -1512,13 +1796,38 @@ mod ffi {
         /// target and selection revision must use their zero sentinels.
         mask_coverage_requested: bool,
         mask_coverage_target_layer_index: u32,
+        mask_coverage_component_requested: bool,
+        mask_coverage_target_component_index: u32,
         /// UI transaction metadata returned unchanged with available coverage.
         /// It never enters native mask math or durable preview identity.
         mask_selection_revision: u64,
     }
 
-    /// One include/exclude click in the currently displayed final-canvas
-    /// coordinate space.
+    /// A calibrated RAW white point sampled from the already-retained CFA
+    /// source. `available = false` is an expected capability result for RGB
+    /// compatibility previews and never triggers a new decode from the UI.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiRawWhiteBalancePickerResult {
+        available: bool,
+        temperature_kelvin: u32,
+        tint: i16,
+    }
+
+    #[derive(Debug)]
+    struct FfiCurveInputMap {
+        width: u32,
+        height: u32,
+        values: Vec<f32>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FfiAutoStartMask {
+        proposal_token: u64,
+        generation: u64,
+        node_id: String,
+    }
+
+    /// One include/exclude click in final-canvas coordinates.
     #[derive(Debug, Clone, Copy)]
     struct FfiSubjectMaskPoint {
         x: f64,
@@ -1526,21 +1835,50 @@ mod ffi {
         foreground: bool,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiSubjectMaskKind {
+        PromptedSubject,
+        PeopleDiscovery,
+        PeopleRegions,
+        SemanticQuery,
+        SubjectAnalysis,
+        SubjectEmphasis,
+    }
+
+    #[derive(Debug)]
+    struct FfiSubjectMaskPerson {
+        index: u32,
+        confidence: f64,
+        thumbnail_jpeg: Vec<u8>,
+        regions_analyzed: bool,
+        available_region_mask: u32,
+    }
+
     /// Immutable input captured before the desktop queues one SAM worker.
     #[derive(Debug)]
     struct FfiSubjectMaskRequest {
+        /// Opaque prompt-lifecycle authority for one reusable rendered input.
+        input_session_token: u64,
         job_token: u64,
         generation: u64,
         base_commit_id: String,
         settings: FfiEditSettings,
         target_grade_node_index: u32,
         target_grade_node_id: String,
+        kind: FfiSubjectMaskKind,
+        person_index: u32,
+        face_region_mask: u32,
+        semantic_query: String,
+        semantic_maximum_regions: u8,
+        semantic_score_threshold_percent: u8,
         points: Vec<FfiSubjectMaskPoint>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum FfiSubjectMaskTerminal {
         Staged,
+        PeopleReady,
+        AnalysisReady,
         Unavailable,
         Cancelled,
         Failed,
@@ -1560,6 +1898,68 @@ mod ffi {
         preview_width: u32,
         preview_height: u32,
         preview_samples: Vec<u8>,
+        people: Vec<FfiSubjectMaskPerson>,
+        description: String,
+        subject_queries: Vec<String>,
+        analysis_preview_jpeg: Vec<u8>,
+        analysis_model: String,
+        emphasis_exposure: f64,
+        emphasis_saturation: f64,
+        emphasis_background: bool,
+        emphasis_reason: u8,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiRecipeImportItemTerminal {
+        Pending,
+        Running,
+        Staged,
+        Completed,
+        NotFound,
+        Unavailable,
+        Cancelled,
+        Failed,
+    }
+
+    #[derive(Debug)]
+    struct FfiRecipeImportItem {
+        item_id: String,
+        grade_node_id: String,
+        component_id: String,
+        operation: u8,
+        enabled: bool,
+        expansion_percent: i8,
+        feather_percent: u8,
+        leaf_invert: bool,
+        semantic_query: String,
+        semantic_maximum_regions: u8,
+        semantic_score_threshold_percent: u8,
+        terminal: FfiRecipeImportItemTerminal,
+        generation: u64,
+        progress_percent: u8,
+        detail: String,
+        proposal_token: u64,
+        preview_width: u32,
+        preview_height: u32,
+        preview_samples: Vec<u8>,
+    }
+
+    #[derive(Debug)]
+    struct FfiRecipeImportNode {
+        grade_node_id: String,
+        label: String,
+        semantic_leaf_count: u32,
+        unsupported_managed_leaf_count: u32,
+        excluded: bool,
+    }
+
+    #[derive(Debug)]
+    struct FfiRecipeImportPlan {
+        plan_token: u64,
+        generation: u64,
+        label: String,
+        items: Vec<FfiRecipeImportItem>,
+        nodes: Vec<FfiRecipeImportNode>,
     }
 
     /// Apply-time identity and working-ref expectations captured after the UI
@@ -1573,7 +1973,64 @@ mod ffi {
         settings: FfiEditSettings,
         target_grade_node_index: u32,
         target_grade_node_id: String,
+        /// 0 = Base for an empty node, 1 = Add, 2 = Subtract, 3 = Intersect.
+        target_mask_operation: u8,
         invert: bool,
+        semantic_query: String,
+        semantic_maximum_regions: u8,
+        semantic_score_threshold_percent: u8,
+    }
+
+    /// One ordered brush sample in the displayed final-canvas coordinate
+    /// space. Samples sharing a stroke id are connected; erase samples clear
+    /// the transient selection and never enter the Recipe directly.
+    #[derive(Debug, Clone, Copy)]
+    struct FfiImageCompletionBrushPoint {
+        x: f64,
+        y: f64,
+        radius: f64,
+        erase: bool,
+        stroke_id: u32,
+    }
+
+    #[derive(Debug)]
+    struct FfiImageCompletionRequest {
+        job_token: u64,
+        generation: u64,
+        base_commit_id: String,
+        settings: FfiEditSettings,
+        points: Vec<FfiImageCompletionBrushPoint>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiImageCompletionTerminal {
+        Staged,
+        Unavailable,
+        Cancelled,
+        Failed,
+    }
+
+    /// One full-canvas transient RGBA8 candidate. Empty for every non-staged
+    /// terminal; durable bytes remain behind the opaque proposal token.
+    #[derive(Debug)]
+    struct FfiImageCompletionResult {
+        terminal: FfiImageCompletionTerminal,
+        job_token: u64,
+        generation: u64,
+        proposal_token: u64,
+        detail: String,
+        preview_width: u32,
+        preview_height: u32,
+        preview_rgba8: Vec<u8>,
+    }
+
+    #[derive(Debug)]
+    struct FfiImageCompletionApplyRequest {
+        proposal_token: u64,
+        generation: u64,
+        base_commit_id: String,
+        expected_working_commit_id: String,
+        settings: FfiEditSettings,
     }
 
     /// Session-local state for one model-pinned AI RAW foundation job.
@@ -1654,6 +2111,7 @@ mod ffi {
         base_commit_id: String,
         settings: FfiEditSettings,
         use_working_recipe: bool,
+        bit_depth: u8,
     }
 
     /// One immutable version in newest-first order.
@@ -1815,6 +2273,9 @@ mod ffi {
         terminal: FfiEditPreviewTerminal,
         width: u32,
         height: u32,
+        /// Current geometry's level-zero output dimensions used by pixel-sized Recipe parameters.
+        level_zero_width: u32,
+        level_zero_height: u32,
         /// Zero for an encoded JPEG; `width * 3` for tightly packed
         /// display-sRGB RGB8 interactive pixels.
         row_stride_bytes: u32,
@@ -1824,6 +2285,8 @@ mod ffi {
         mask_coverage_available: bool,
         mask_coverage_version: u32,
         mask_coverage_target_layer_index: u32,
+        mask_coverage_component_selected: bool,
+        mask_coverage_target_component_index: u32,
         mask_selection_revision: u64,
         mask_coverage_width: u32,
         mask_coverage_height: u32,
@@ -1896,13 +2359,16 @@ mod ffi {
         tiles: Vec<FfiEditedDetailTile>,
     }
 
-    /// Tightly packed display-sRGB RGB8 pixels prepared with ExportImage RAW intent.
+    /// Tightly packed display-sRGB RGB8 or host-endian RGB16 pixels prepared
+    /// with ExportImage RAW intent. Exactly one payload matches `bit_depth`.
     #[derive(Debug)]
     struct FfiEditedExportRaster {
         width: u32,
         height: u32,
         row_stride_bytes: u32,
+        bit_depth: u8,
         bytes: Vec<u8>,
+        samples16: Vec<u16>,
     }
 
     /// A user-selected photo plus its already-resolved output destination.
@@ -1934,6 +2400,23 @@ mod ffi {
         source_path: String,
         output_path: FfiNativePath,
         settings_json: String,
+    }
+
+    /// Product RAW DNG is encoded and atomically published in Rust so the
+    /// exact staged CFA never crosses the CXX boundary as a giant vector.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiRawDngExportStatus {
+        Published,
+        OutputConflict,
+    }
+
+    #[derive(Debug)]
+    struct FfiRawDngExportReceipt {
+        status: FfiRawDngExportStatus,
+        width: u32,
+        height: u32,
+        byte_length: u64,
+        receipt_json: String,
     }
 
     /// The only nonterminal item states that the desktop encoder may own.
@@ -1974,6 +2457,21 @@ mod ffi {
         type DesktopSession;
         type LibraryServerHost;
         type OwnedEditedPreview;
+        type LutExportPlan;
+        type LutExportCancellation;
+
+        fn prepare_lut_export(
+            settings: &FfiEditSettings,
+            selected_node_id: &str,
+        ) -> Result<Box<LutExportPlan>>;
+        fn lut_export_preview(plan: &LutExportPlan) -> FfiLutExportPreview;
+        fn new_lut_export_cancellation() -> Result<Box<LutExportCancellation>>;
+        fn cancel_lut_export(cancellation: &LutExportCancellation);
+        fn bake_lut_export(
+            plan: &LutExportPlan,
+            size: u16,
+            cancellation: &LutExportCancellation,
+        ) -> Result<FfiLutExportResult>;
 
         /// Descriptor projection for one retained edit-preview owner.
         ///
@@ -2020,6 +2518,10 @@ mod ffi {
         ) -> Result<FfiScanReport>;
         fn scan_progress(self: &DesktopSession, scan_id: u64) -> Result<FfiScanProgress>;
         fn cancel_folder_scan(self: &DesktopSession, scan_id: u64) -> Result<bool>;
+        fn admit_pipeline_input(
+            self: &DesktopSession,
+            source_path: &FfiNativePath,
+        ) -> Result<FfiPipelineInput>;
         fn review_page(
             self: &DesktopSession,
             cursor_path: &str,
@@ -2036,6 +2538,17 @@ mod ffi {
             server_address: &str,
             authorization: &str,
         ) -> Result<FfiRemoteLibrarySyncResult>;
+        fn begin_remote_library_sync(
+            self: &DesktopSession,
+            connection_id: &str,
+            server_address: &str,
+            authorization: &str,
+        ) -> Result<FfiRemoteLibrarySyncStart>;
+        fn step_remote_library_sync(
+            self: &DesktopSession,
+            job_id: u64,
+        ) -> Result<FfiRemoteLibrarySyncStep>;
+        fn cancel_remote_library_sync(self: &DesktopSession, job_id: u64) -> Result<bool>;
         #[allow(clippy::too_many_arguments)]
         fn set_remote_library_review_state(
             self: &DesktopSession,
@@ -2294,11 +2807,42 @@ mod ffi {
             self: &DesktopSession,
             dry_run: bool,
         ) -> Result<FfiCacheMaintenanceSweep>;
-        fn analyze_people(
+        fn people_library_snapshot(self: &DesktopSession) -> Result<FfiPeopleAnalysisReport>;
+        fn begin_people_analysis_job(self: &DesktopSession, authorized: bool) -> Result<u64>;
+        fn people_analysis_job_status(
             self: &DesktopSession,
+            job_token: u64,
+        ) -> Result<FfiPeopleAnalysisJobStatus>;
+        /// True only when cancellation won before the worker published a
+        /// terminal result.
+        fn cancel_people_analysis_job(self: &DesktopSession, job_token: u64) -> Result<bool>;
+        fn execute_people_analysis_job(
+            self: &DesktopSession,
+            job_token: u64,
             infer_base_url: &str,
             credential_file: &str,
+            authorized: bool,
+        ) -> Result<FfiPeopleAnalysisExecution>;
+        fn retire_people_analysis_job(self: &DesktopSession, job_token: u64) -> Result<()>;
+        fn merge_people(
+            self: &DesktopSession,
+            person_ids: Vec<String>,
         ) -> Result<FfiPeopleAnalysisReport>;
+        fn rename_person(
+            self: &DesktopSession,
+            person_id: &str,
+            display_name: &str,
+        ) -> Result<FfiPeopleAnalysisReport>;
+        fn split_person(
+            self: &DesktopSession,
+            person_id: &str,
+            photo_ids: Vec<String>,
+        ) -> Result<FfiPeopleAnalysisReport>;
+        fn undo_people_merge(self: &DesktopSession) -> Result<FfiPeopleAnalysisReport>;
+        fn reset_people_analysis_progress(self: &DesktopSession) -> Result<()>;
+        fn clear_people_data(self: &DesktopSession) -> Result<()>;
+        fn begin_semantic_search(self: &DesktopSession) -> Result<u64>;
+        fn cancel_semantic_search(self: &DesktopSession, token: u64);
         fn search_semantics(
             self: &DesktopSession,
             infer_base_url: &str,
@@ -2306,6 +2850,7 @@ mod ffi {
             query: &str,
             query_revision: &str,
             language: &str,
+            token: u64,
         ) -> Result<FfiSemanticSearchReport>;
         fn classify_smart_categories_batch(
             self: &DesktopSession,
@@ -2330,6 +2875,13 @@ mod ffi {
             representation_id: &str,
             category_id: &str,
             decision: i8,
+        ) -> Result<()>;
+        fn complete_smart_category_review(
+            self: &DesktopSession,
+            photo_id: &str,
+            representation_id: &str,
+            category_ids: Vec<String>,
+            decisions: Vec<i8>,
         ) -> Result<()>;
         fn pause_smart_classification(self: &DesktopSession, generation: &str) -> Result<()>;
         fn process_image_understanding_batch(
@@ -2387,6 +2939,10 @@ mod ffi {
             source_revision: &str,
         ) -> Result<()>;
         fn load_review_visual(self: &DesktopSession, ticket: &str) -> Result<FfiVisualPayload>;
+        fn refresh_selected_review_previews(
+            self: &DesktopSession,
+            tickets: Vec<String>,
+        ) -> Result<u32>;
         fn prepare_review_comparison(
             self: &DesktopSession,
             left_grid_handle: &str,
@@ -2435,6 +2991,18 @@ mod ffi {
             photo_id: &str,
             source_path: &str,
         ) -> Result<FfiPhotoEditState>;
+        fn export_shadow_recipe_document(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            settings: &FfiEditSettings,
+            label: &str,
+        ) -> Result<Vec<u8>>;
+        fn preview_shadow_recipe_document(
+            self: &DesktopSession,
+            bytes: &[u8],
+        ) -> Result<FfiShadowRecipeImportPreview>;
         /// Discards this photo's obsolete development Recipe history after an
         /// explicit UI confirmation, then returns a neutral current-v1 state.
         fn reset_incompatible_photo_edit_history(
@@ -2497,12 +3065,43 @@ mod ffi {
             source_path: &str,
             request: &FfiEditPreviewRequest,
         ) -> Result<Box<OwnedEditedPreview>>;
+        fn pick_raw_white_balance(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditPreviewRequest,
+            normalized_x: f64,
+            normalized_y: f64,
+        ) -> Result<FfiRawWhiteBalancePickerResult>;
+        fn curve_input_map(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditPreviewRequest,
+            grade_node_index: u32,
+            channel: u8,
+        ) -> Result<FfiCurveInputMap>;
+        fn auto_raw_white_balance(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditPreviewRequest,
+        ) -> Result<FfiRawWhiteBalancePickerResult>;
         /// Registers a preview and its native stop handle before Qt queues its
         /// worker. Zero means registration failed.
         fn begin_basic_edit_preview(self: &DesktopSession) -> u64;
         /// Returns true only when cancellation won the unique terminal claim
         /// and the native cooperative stop signal was issued.
         fn cancel_basic_edit_preview(self: &DesktopSession, render_token: u64) -> bool;
+        /// Allocates one bounded AI-mask job before Qt queues preview/model
+        /// work. The token owns provider cancellation and proposal completion.
+        fn begin_subject_mask_input_session(self: &DesktopSession) -> Result<u64>;
+        /// Retires the rendered input shared by one completed or cancelled
+        /// prompt lifecycle.
+        fn finish_subject_mask_input_session(
+            self: &DesktopSession,
+            subject_mask_input_session_token: u64,
+        ) -> Result<()>;
         /// Allocates one bounded AI-mask job before Qt queues preview/model
         /// work. The token owns provider cancellation and proposal completion.
         fn begin_subject_mask_job(self: &DesktopSession) -> Result<u64>;
@@ -2514,6 +3113,22 @@ mod ffi {
         /// Renders an identity-geometry JPEG, projects final-canvas prompts
         /// back to original space, runs the admitted local provider, and
         /// returns one opaque staged proposal.
+        fn render_auto_start_preview(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiEditPreviewRequest,
+            masks: &[FfiAutoStartMask],
+        ) -> Result<FfiEditedPreview>;
+        fn apply_auto_start(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            settings: &FfiEditSettings,
+            masks: &[FfiAutoStartMask],
+        ) -> Result<FfiPhotoEditState>;
         fn execute_subject_mask_job(
             self: &DesktopSession,
             photo_id: &str,
@@ -2531,8 +3146,83 @@ mod ffi {
         /// Explicitly retires a staged proposal that lost the UI generation
         /// race or was abandoned by the user.
         fn discard_subject_mask_proposal(self: &DesktopSession, proposal_token: u64) -> Result<()>;
-        /// Verifies the exact side-loaded RawNIND model/runtime without
-        /// decoding a source or starting inference.
+        fn prepare_semantic_recipe_import(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            settings: &FfiEditSettings,
+            document_bytes: &[u8],
+        ) -> Result<FfiRecipeImportPlan>;
+        fn semantic_recipe_import_plan(
+            self: &DesktopSession,
+            plan_token: u64,
+        ) -> Result<FfiRecipeImportPlan>;
+        fn begin_semantic_recipe_import_item(
+            self: &DesktopSession,
+            plan_token: u64,
+            item_id: &str,
+        ) -> Result<u64>;
+        fn execute_semantic_recipe_import_item(
+            self: &DesktopSession,
+            plan_token: u64,
+            item_id: &str,
+            job_token: u64,
+        ) -> Result<FfiRecipeImportItem>;
+        fn cancel_semantic_recipe_import_item(
+            self: &DesktopSession,
+            plan_token: u64,
+            item_id: &str,
+            job_token: u64,
+        ) -> Result<FfiRecipeImportItem>;
+        fn accept_semantic_recipe_import_item(
+            self: &DesktopSession,
+            plan_token: u64,
+            item_id: &str,
+            proposal_token: u64,
+            generation: u64,
+        ) -> Result<FfiRecipeImportItem>;
+        fn exclude_semantic_recipe_import_node(
+            self: &DesktopSession,
+            plan_token: u64,
+            grade_node_id: &str,
+        ) -> Result<FfiRecipeImportPlan>;
+        fn finalize_semantic_recipe_import(
+            self: &DesktopSession,
+            plan_token: u64,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            settings: &FfiEditSettings,
+        ) -> Result<FfiEditSettings>;
+        fn close_semantic_recipe_import(self: &DesktopSession, plan_token: u64) -> Result<()>;
+        /// Allocates one cancellable completion job before Qt submits its
+        /// input render and Infer Runtime work.
+        fn begin_image_completion_job(self: &DesktopSession) -> Result<u64>;
+        fn cancel_image_completion_job(
+            self: &DesktopSession,
+            image_completion_job_token: u64,
+        ) -> Result<()>;
+        fn execute_image_completion_job(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiImageCompletionRequest,
+        ) -> Result<FfiImageCompletionResult>;
+        fn apply_image_completion_proposal(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            request: &FfiImageCompletionApplyRequest,
+        ) -> Result<FfiPhotoEditState>;
+        fn discard_image_completion_proposal(
+            self: &DesktopSession,
+            proposal_token: u64,
+        ) -> Result<()>;
+        /// Probes Infer Runtime's RawNIND capability without decoding a source
+        /// or starting inference.
         fn probe_raw_foundation_runtime(self: &DesktopSession) -> FfiRawFoundationRuntimeStatus;
         fn assess_raw_foundation_noise(
             self: &DesktopSession,
@@ -2596,7 +3286,12 @@ mod ffi {
         fn render_durable_export_item(
             self: &DesktopSession,
             item: &FfiDurableExportItem,
+            bit_depth: u8,
         ) -> Result<FfiEditedExportRaster>;
+        fn execute_durable_raw_dng_item(
+            self: &DesktopSession,
+            item: &FfiDurableExportItem,
+        ) -> Result<FfiRawDngExportReceipt>;
         fn begin_durable_export_encoding(self: &DesktopSession, item_id: &str) -> Result<()>;
         fn begin_durable_export_write(self: &DesktopSession, item_id: &str) -> Result<()>;
         fn pause_durable_export_conflict(self: &DesktopSession, item_id: &str) -> Result<()>;
@@ -2682,8 +3377,14 @@ struct DesktopSession {
     edit_preview_render_tokens: PreviewRenderRegistry,
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
+    semantic_search_token: AtomicU64,
+    people_analyses: people_analysis_service::PeopleAnalysisService,
+    people_library: people_library_store::PeopleLibraryStore,
     subject_masks: subject_mask_service::SubjectMaskService,
     subject_mask_runtime: subject_mask_runtime::SubjectMaskRuntime,
+    recipe_imports: recipe_import_service::RecipeImportService,
+    image_completions: image_completion_service::ImageCompletionService,
+    image_completion_runtime: image_completion_runtime::ImageCompletionRuntime,
     raw_foundations: raw_foundation_service::RawFoundationService,
     raw_foundation_runtime: raw_foundation_runtime::RawFoundationRuntime,
     library: LibraryService,
@@ -2739,15 +3440,20 @@ fn open_desktop_session_at(
         &subject_mask_paths.derived_raster_store_root,
     )?;
     let subject_mask_runtime = subject_mask_runtime::SubjectMaskRuntime::new(
-        subject_mask_paths.provider_executable,
-        subject_mask_paths.model_directory,
-        subject_mask_paths.manifest_path,
-        subject_mask_paths.scratch_root,
+        subject_mask_paths.scratch_root.clone(),
+        subject_mask_paths.infer_base_url_override.clone(),
+        subject_mask_paths.infer_credential_file.clone(),
     )?;
-    let raw_foundation_paths = raw_foundation_runtime::config::RawFoundationRuntimePaths::discover(
-        &std::env::current_exe().context("resolve desktop executable path")?,
-        &cache_root,
+    let image_completions = image_completion_service::ImageCompletionService::open(
+        &subject_mask_paths.derived_raster_store_root,
     )?;
+    let image_completion_runtime = image_completion_runtime::ImageCompletionRuntime::new(
+        subject_mask_paths.scratch_root.join("image-completion"),
+        subject_mask_paths.infer_base_url_override,
+        subject_mask_paths.infer_credential_file,
+    )?;
+    let raw_foundation_paths =
+        raw_foundation_runtime::config::RawFoundationRuntimePaths::discover(&cache_root)?;
     let raw_foundation_runtime =
         raw_foundation_runtime::RawFoundationRuntime::open(raw_foundation_paths)?;
     let session_previews = Arc::new(SessionPreviewStore::default());
@@ -2760,6 +3466,10 @@ fn open_desktop_session_at(
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("location-references");
+    let people_library_root = catalog_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("people");
     Ok(Box::new(DesktopSession {
         _actor: actor,
         library: LibraryService::new(catalog.clone()),
@@ -2786,8 +3496,14 @@ fn open_desktop_session_at(
         edit_preview_render_tokens: PreviewRenderRegistry::default(),
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
+        semantic_search_token: AtomicU64::new(0),
+        people_analyses: people_analysis_service::PeopleAnalysisService::new(),
+        people_library: people_library_store::PeopleLibraryStore::open(people_library_root)?,
         subject_masks,
         subject_mask_runtime,
+        recipe_imports: recipe_import_service::RecipeImportService::default(),
+        image_completions,
+        image_completion_runtime,
         raw_foundations: raw_foundation_service::RawFoundationService::new(),
         raw_foundation_runtime,
     }))

@@ -26,6 +26,7 @@ void bind_warm_gpu_adjustment(
     const WarmGpuResidentLayout& layout,
     const WarmGpuSlotBuffers& slot,
     id<MTLBuffer> input,
+    id<MTLBuffer> highlight_clipping,
     const PreparedWarmTransaction& transaction
 );
 

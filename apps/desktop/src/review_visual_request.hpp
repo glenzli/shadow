@@ -31,6 +31,7 @@ struct ReviewVisualRequest final {
 };
 
 /// Produces the one canonical URL grammar consumed by ThumbnailProvider.
+/// Grid URLs use generation zero so unchanged tickets reuse Qt's image cache.
 [[nodiscard]] QString reviewVisualSource(
     const QString& ticket,
     quint64 generation,

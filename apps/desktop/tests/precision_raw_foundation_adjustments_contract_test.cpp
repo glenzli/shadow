@@ -56,6 +56,9 @@ class FoundationEditorStub final : public QObject {
     )
     Q_PROPERTY(bool foundationSelected MEMBER foundation_selected NOTIFY valuesChanged)
     Q_PROPERTY(
+        bool rawWhiteBalancePickerActive MEMBER raw_white_balance_picker_active NOTIFY valuesChanged
+    )
+    Q_PROPERTY(
         bool whiteBalancePickerActive MEMBER white_balance_picker_active NOTIFY valuesChanged
     )
     Q_PROPERTY(double whiteBalanceTemperature MEMBER white_balance_temperature NOTIFY valuesChanged)
@@ -105,11 +108,21 @@ class FoundationEditorStub final : public QObject {
     Q_INVOKABLE void beginParameterEdit(const QString&) {}
     Q_INVOKABLE void endParameterEdit(const QString&) {}
     Q_INVOKABLE void setParameterValue(const QString&, double) {}
-    Q_INVOKABLE void setWhiteBalancePickerActive(bool) {}
+    Q_INVOKABLE void setRawWhiteBalancePickerActive(const bool active) {
+        raw_white_balance_picker_active = active;
+        emit valuesChanged();
+    }
+    Q_INVOKABLE void setWhiteBalancePickerActive(const bool active) {
+        white_balance_picker_active = active;
+        emit valuesChanged();
+    }
     Q_INVOKABLE void resetFoundationWhiteBalance() {
         ++white_balance_reset_count;
         foundation_at_camera = true;
         emit valuesChanged();
+    }
+    Q_INVOKABLE void autoFoundationWhiteBalance() {
+        ++automatic_white_balance_count;
     }
 
     void setAiState(
@@ -158,6 +171,7 @@ class FoundationEditorStub final : public QObject {
     bool foundation_at_camera = true;
     bool foundation_camera_value_available = true;
     bool foundation_selected = false;
+    bool raw_white_balance_picker_active = false;
     bool white_balance_picker_active = false;
     double white_balance_temperature = 0.0;
     double white_balance_tint = 0.0;
@@ -169,6 +183,7 @@ class FoundationEditorStub final : public QObject {
     int start_count = 0;
     int cancel_count = 0;
     int white_balance_reset_count = 0;
+    int automatic_white_balance_count = 0;
 
   signals:
     void aiChanged();
@@ -259,6 +274,20 @@ int main(int argc, char* argv[]) {
     auto* const white_balance_reset = foundation_root->findChild<QQuickItem*>(
         QStringLiteral("foundationWhiteBalanceResetButton")
     );
+    auto* const automatic_white_balance = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("foundationAutoWhiteBalanceButton")
+    );
+    auto* const highlight_repair =
+        foundation_root->findChild<QQuickItem*>(QStringLiteral("foundationHighlightRepairSwitch"));
+    auto* const highlight_red_suppression = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("highlightChannelCorrectionSlider_highlight_red_suppression")
+    );
+    auto* const highlight_green_suppression = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("highlightChannelCorrectionSlider_highlight_green_suppression")
+    );
+    auto* const highlight_blue_suppression = foundation_root->findChild<QQuickItem*>(
+        QStringLiteral("highlightChannelCorrectionSlider_highlight_blue_suppression")
+    );
     if (!require(amount != nullptr, "cached-result amount control is packaged")
         || !require(progress != nullptr, "progress surface is packaged")
         || !require(enable != nullptr, "explicit enable checkbox is packaged")
@@ -269,6 +298,25 @@ int main(int argc, char* argv[]) {
         || !require(temperature != nullptr, "absolute Kelvin control is packaged")
         || !require(tint != nullptr, "absolute tint control is packaged")
         || !require(white_balance_reset != nullptr, "camera-value reset is packaged")
+        || !require(
+            automatic_white_balance != nullptr,
+            "one-shot automatic RAW white-balance action is packaged"
+        )
+        || !require(
+            highlight_repair == nullptr,
+            "default clipped-highlight continuity exposes no implementation switch"
+        )
+        || !require(
+            highlight_red_suppression != nullptr && highlight_green_suppression != nullptr
+                && highlight_blue_suppression != nullptr,
+            "advanced RAW highlight channel correction exposes all three source-gated controls"
+        )
+        || !require(
+            highlight_red_suppression->property("from").toDouble() == 0.0
+                && highlight_red_suppression->property("to").toDouble() == 1.0
+                && highlight_red_suppression->property("value").toDouble() == 0.0,
+            "highlight channel correction is neutral by default and remains bounded"
+        )
         || !require(
             std::abs(temperature->property("value").toDouble() - 6'200.0) < 0.0001,
             "camera white balance is presented as Kelvin"
@@ -297,6 +345,53 @@ int main(int argc, char* argv[]) {
             "available state exposes an unchecked enable choice"
         )
         || !require(!progress->property("visible").toBool(), "idle state hides progress")) {
+        return EXIT_FAILURE;
+    }
+
+    editor.foundation_temperature = 5'500;
+    editor.foundation_tint = 0;
+    editor.foundation_at_camera = true;
+    editor.foundation_camera_value_available = false;
+    emit editor.valuesChanged();
+    drainBindings();
+    if (!require(
+            !temperature->property("visible").toBool() && !tint->property("visible").toBool(),
+            "an unavailable camera white balance exposes no placeholder absolute values"
+        )
+        || !require(
+            !temperature->property("enabled").toBool() && !tint->property("enabled").toBool(),
+            "an unavailable camera white balance cannot author placeholder Kelvin or tint"
+        )) {
+        return EXIT_FAILURE;
+    }
+    editor.foundation_at_camera = false;
+    emit editor.valuesChanged();
+    drainBindings();
+    if (!require(
+            temperature->property("visible").toBool() && tint->property("visible").toBool()
+                && temperature->property("enabled").toBool() && tint->property("enabled").toBool(),
+            "an existing authored absolute white balance remains editable without camera metadata"
+        )) {
+        return EXIT_FAILURE;
+    }
+    editor.foundation_temperature = 6'200;
+    editor.foundation_tint = -8;
+    editor.foundation_at_camera = true;
+    editor.foundation_camera_value_available = true;
+    emit editor.valuesChanged();
+    drainBindings();
+
+    if (!require(
+            QMetaObject::invokeMethod(automatic_white_balance, "clicked"),
+            "automatic RAW white-balance button can be activated"
+        )) {
+        return EXIT_FAILURE;
+    }
+    drainBindings();
+    if (!require(
+            editor.automatic_white_balance_count == 1,
+            "automatic RAW white balance remains a one-shot action"
+        )) {
         return EXIT_FAILURE;
     }
     if (!require(

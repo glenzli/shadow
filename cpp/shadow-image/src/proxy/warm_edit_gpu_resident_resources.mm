@@ -146,8 +146,16 @@ struct ResidentSideTable final {
 } // namespace
 
 struct WarmGpuResidentResources::Impl final {
+    std::vector<ResidentSideTable> paint_tables;
     id<MTLDevice> device = nil;
     id<MTLBuffer> source = nil;
+    // One byte per output pixel, copied once from source-domain physical-white evidence. This
+    // stays immutable beside the scene-linear source and is consumed only by selective tone.
+    id<MTLBuffer> highlight_clipping = nil;
+    // The buffer is always valid because Metal requires a binding even for non-RAW sources.
+    // Preserve whether it came from a real source evidence plane separately from its bytes: an
+    // all-zero RAW plane still authorizes the pixel-local broad-highlight luminance gate.
+    bool highlight_evidence_available = false;
     // A valid non-null binding is required even when one side table is empty. One immutable
     // zero buffer safely serves every empty table without treating emptiness as a cache upload.
     id<MTLBuffer> empty_side_table = nil;
@@ -193,11 +201,13 @@ struct WarmGpuResidentResources::Impl final {
             [slot.adjusted release];
         }
         [empty_side_table release];
+        [highlight_clipping release];
         [source release];
         brush_index_tables.clear();
         retouch_geometry_tables.clear();
         liquify_geometry_tables.clear();
         selective_color_tables.clear();
+        paint_tables.clear();
         perceptual_range_tables.clear();
         perceptual_mixer_tables.clear();
         lut_tables.clear();
@@ -225,7 +235,8 @@ struct WarmGpuResidentResources::Impl final {
             || std::is_same_v<Element, MetalPerceptualMixerEntry>
             || std::is_same_v<Element, MetalPerceptualRange>
             || std::is_same_v<Element, MetalSelectiveColorEntry>
-            || std::is_same_v<Element, std::uint32_t> || std::is_same_v<Element, WarmRetouchWord>
+            || std::is_same_v<Element, MetalPaintPixel> || std::is_same_v<Element, std::uint32_t>
+            || std::is_same_v<Element, WarmRetouchWord>
             || std::is_same_v<Element, WarmPhotoLiquifyWord>
         );
         if (cancellation.stop_requested()) {
@@ -241,7 +252,9 @@ struct WarmGpuResidentResources::Impl final {
         const std::span<const std::byte> bytes = std::as_bytes(values);
         const std::uint64_t content_hash = side_table_content_hash(bytes);
         auto& cache = [&]() -> std::vector<ResidentSideTable>& {
-            if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
+            if constexpr (std::is_same_v<Element, MetalPaintPixel>) {
+                return paint_tables;
+            } else if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
                 return curve_tables;
             } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
                 return lut_tables;
@@ -260,7 +273,9 @@ struct WarmGpuResidentResources::Impl final {
             }
         }();
         constexpr std::size_t capacity = [] {
-            if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
+            if constexpr (std::is_same_v<Element, MetalPaintPixel>) {
+                return 2U;
+            } else if constexpr (std::is_same_v<Element, MetalCurveSegment>) {
                 return maximum_resident_curve_tables;
             } else if constexpr (std::is_same_v<Element, MetalLutEntry>) {
                 return maximum_resident_lut_tables;
@@ -358,7 +373,7 @@ struct WarmGpuResidentResources::Impl final {
         } else if constexpr (std::is_same_v<Element, WarmPhotoLiquifyWord>) {
             // The generic allocation/cache-hit counters are the public
             // observability contract for this structural side table.
-        } else {
+        } else if constexpr (std::is_same_v<Element, MetalSelectiveColorEntry>) {
             ++stats.selective_color_resource_upload_count;
         }
         return SideBufferAttempt{
@@ -440,6 +455,16 @@ struct WarmGpuResidentResources::Impl final {
             return result;
         }
         result.buffers.selective_color = std::move(selective_color.buffer);
+        auto paint = acquire_side_buffer(program.paint_entries, cancellation);
+        if (paint.cancelled) {
+            result.cancelled = true;
+            return result;
+        }
+        if (!paint.buffer) {
+            result.diagnostic = paint.diagnostic;
+            return result;
+        }
+        result.buffers.paint = std::move(paint.buffer);
         return result;
     }
 
@@ -859,6 +884,14 @@ id<MTLBuffer> WarmGpuResidentResources::source_buffer() const noexcept {
     return impl_->source;
 }
 
+id<MTLBuffer> WarmGpuResidentResources::highlight_clipping_buffer() const noexcept {
+    return impl_->highlight_clipping;
+}
+
+bool WarmGpuResidentResources::highlight_evidence_available() const noexcept {
+    return impl_->highlight_evidence_available;
+}
+
 std::size_t WarmGpuResidentResources::operation_capacity() const noexcept {
     return maximum_warm_adjustment_operations;
 }
@@ -1044,14 +1077,20 @@ void WarmGpuSlotLease::mark_completed() noexcept {
     completed_ = true;
 }
 
-WarmGpuResidentPreparation
-prepare_warm_gpu_resident_resources(const FloatRgbImage& source, id<MTLDevice> device) {
+WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
+    const FloatRgbImage& source,
+    id<MTLDevice> device,
+    const SensorClippingMask* sensor_clipping_mask,
+    const HighlightChromaRiskMap* highlight_chroma_risk_map
+) {
     return prepare_warm_gpu_resident_resources(
         source,
         device,
         nil,
         0U,
-        static_cast<std::uint64_t>(default_resident_allowance(device))
+        static_cast<std::uint64_t>(default_resident_allowance(device)),
+        sensor_clipping_mask,
+        highlight_chroma_risk_map
     );
 }
 
@@ -1060,7 +1099,9 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     id<MTLDevice> device,
     id<MTLBuffer> adopted_source,
     const std::uint64_t external_resident_bytes,
-    const std::uint64_t requested_resident_allowance_bytes
+    const std::uint64_t requested_resident_allowance_bytes,
+    const SensorClippingMask* sensor_clipping_mask,
+    const HighlightChromaRiskMap* highlight_chroma_risk_map
 ) {
     if (device == nil) {
         return WarmGpuResidentPreparation{
@@ -1069,6 +1110,22 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
         };
     }
     const bool adopting = adopted_source != nil;
+    if (sensor_clipping_mask != nullptr
+        && (!sensor_clipping_mask->valid()
+            || sensor_clipping_mask->dimensions != source.dimensions)) {
+        return WarmGpuResidentPreparation{
+            .resources = nullptr,
+            .diagnostic = "warm-preview sensor-clipping evidence does not match its source",
+        };
+    }
+    if (highlight_chroma_risk_map != nullptr
+        && (!highlight_chroma_risk_map->valid()
+            || highlight_chroma_risk_map->dimensions != source.dimensions)) {
+        return WarmGpuResidentPreparation{
+            .resources = nullptr,
+            .diagnostic = "warm-preview highlight-chroma evidence does not match its source",
+        };
+    }
     if (adopting
         && (adopted_source.device == nil
             || static_cast<std::uint64_t>(adopted_source.device.registryID)
@@ -1123,10 +1180,16 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     }
 
     std::size_t source_bytes = 0U;
+    std::size_t highlight_evidence_bytes = 0U;
     std::size_t adjusted_sample_count = 0U;
     std::size_t adjusted_bytes = 0U;
     std::size_t rgb8_bytes = 0U;
     if (!checked_multiply(sample_count, sizeof(float), source_bytes)
+        || !checked_multiply(
+            static_cast<std::size_t>(source.dimensions.pixel_count()),
+            sizeof(std::uint8_t),
+            highlight_evidence_bytes
+        )
         || !checked_multiply(
             static_cast<std::size_t>(source.dimensions.pixel_count()),
             3U,
@@ -1138,7 +1201,8 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
             3U,
             rgb8_bytes
         )
-        || source_bytes == 0U || adjusted_bytes == 0U || rgb8_bytes == 0U) {
+        || source_bytes == 0U || highlight_evidence_bytes == 0U || adjusted_bytes == 0U
+        || rgb8_bytes == 0U) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
             .diagnostic = "warm-preview resident Metal buffer size overflowed",
@@ -1158,8 +1222,9 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
         maximum_warm_adjustment_operations * sizeof(MetalAdjustmentOp);
     constexpr std::size_t empty_side_table_bytes = sizeof(MetalCurveSegment);
     const std::size_t maximum_buffer_bytes = static_cast<std::size_t>(device.maxBufferLength);
-    if (source_bytes > maximum_buffer_bytes || adjusted_bytes > maximum_buffer_bytes
-        || rgb8_bytes > maximum_buffer_bytes || operation_buffer_bytes > maximum_buffer_bytes
+    if (source_bytes > maximum_buffer_bytes || highlight_evidence_bytes > maximum_buffer_bytes
+        || adjusted_bytes > maximum_buffer_bytes || rgb8_bytes > maximum_buffer_bytes
+        || operation_buffer_bytes > maximum_buffer_bytes
         || empty_side_table_bytes > maximum_buffer_bytes) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
@@ -1180,7 +1245,8 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
         || !checked_add(per_slot_bytes, operation_buffer_bytes, per_slot_bytes)
         || !checked_add(per_slot_bytes, sizeof(WarmStatus), per_slot_bytes)
         || !checked_multiply(per_slot_bytes, warm_slot_count, slots_bytes)
-        || !checked_add(source_bytes, slots_bytes, resident_bytes)
+        || !checked_add(source_bytes, highlight_evidence_bytes, resident_bytes)
+        || !checked_add(resident_bytes, slots_bytes, resident_bytes)
         || !checked_add(resident_bytes, empty_side_table_bytes, resident_bytes)) {
         return WarmGpuResidentPreparation{
             .resources = nullptr,
@@ -1215,6 +1281,8 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     auto impl = std::make_unique<WarmGpuResidentResources::Impl>();
     impl->device = device;
     [impl->device retain];
+    impl->highlight_evidence_available =
+        sensor_clipping_mask != nullptr || highlight_chroma_risk_map != nullptr;
     impl->layout = WarmGpuResidentLayout{
         .dimensions = source.dimensions,
         .source_row_stride_bytes = source.row_stride_bytes,
@@ -1244,7 +1312,7 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     impl->stats = WarmEditPreviewGpuStats{
         .resident = true,
         .source_upload_count = adopting ? 0U : 1U,
-        .gpu_buffer_allocation_count = (adopting ? 1U : 2U) + warm_slot_count * 4U,
+        .gpu_buffer_allocation_count = (adopting ? 0U : 1U) + 1U + warm_slot_count * 4U,
         .resident_bytes = resident_bytes,
     };
 
@@ -1259,6 +1327,37 @@ WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
                 .diagnostic =
                     adopting ? "Metal could not retain the adopted immutable warm-preview source"
                              : "Metal could not upload the immutable warm-preview source",
+            };
+        }
+        if (sensor_clipping_mask != nullptr || highlight_chroma_risk_map != nullptr) {
+            const auto pixel_count = static_cast<std::size_t>(source.dimensions.pixel_count());
+            std::vector<std::uint8_t> encoded_evidence(highlight_evidence_bytes, 0U);
+            for (std::size_t index = 0U; index < pixel_count; ++index) {
+                const std::uint8_t continuous = highlight_chroma_risk_map != nullptr
+                                                    ? highlight_chroma_risk_map->samples[index]
+                                                    : 0U;
+                const bool source_surface_reconstructed =
+                    highlight_chroma_risk_map != nullptr
+                    && highlight_chroma_risk_map->source_surface_reconstructed;
+                const bool physical =
+                    !source_surface_reconstructed && sensor_clipping_mask != nullptr
+                    && (sensor_clipping_mask->samples[index] & sensor_highlight_clipped) != 0U;
+                encoded_evidence[index] = physical ? 255U : continuous;
+            }
+            impl->highlight_clipping = [device newBufferWithBytes:encoded_evidence.data()
+                                                           length:highlight_evidence_bytes
+                                                          options:MTLResourceStorageModeShared];
+        } else {
+            impl->highlight_clipping = [device newBufferWithLength:highlight_evidence_bytes
+                                                           options:MTLResourceStorageModeShared];
+            if (impl->highlight_clipping != nil) {
+                std::memset(impl->highlight_clipping.contents, 0, highlight_evidence_bytes);
+            }
+        }
+        if (impl->highlight_clipping == nil) {
+            return WarmGpuResidentPreparation{
+                .resources = nullptr,
+                .diagnostic = "Metal could not retain warm-preview highlight source evidence",
             };
         }
         const MetalCurveSegment empty_side_table{};

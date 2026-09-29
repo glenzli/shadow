@@ -102,7 +102,7 @@ Rectangle {
                         "Capture metadata unavailable")
             color: metadata.metadataAvailable
                 ? metadata.textPrimary : metadata.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             font.weight: metadata.metadataAvailable
                 ? Font.Medium : Font.Normal
             elide: Text.ElideRight
@@ -117,7 +117,7 @@ Rectangle {
                 text: metadata.metadataAvailable
                     ? metadata.captureSettingSummary() : ""
                 color: metadata.textSecondary
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight
             }
 
@@ -128,7 +128,7 @@ Rectangle {
                     metadata.captureMetadata.lensMake,
                     metadata.captureMetadata.lensModel)
                 color: metadata.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight
             }
         }

@@ -40,7 +40,8 @@ void canonical_sources_round_trip_opaque_tickets() {
             QUrl(source).scheme() == QStringLiteral("image")
                 && QUrl(source).host() == QStringLiteral("shadow")
                 && QUrl(source).path() == QStringLiteral("/visual") && request
-                && request->ticket == ticket && request->generation == 42
+                && request->ticket == ticket
+                && request->generation == (lifetime == ReviewVisualLifetime::Grid ? 0 : 42)
                 && request->lifetime == lifetime,
             "the canonical URL must preserve its exact ticket, generation, and lifetime"
         );

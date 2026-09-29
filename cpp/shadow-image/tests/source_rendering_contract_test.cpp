@@ -1,5 +1,6 @@
 #include "processed_rgb_session_fixture.hpp"
 
+#include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/edited_proxy_rendering.hpp>
 #include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/proxy_rendering.hpp>
@@ -38,8 +39,8 @@ void expect_close(
     const std::string_view message
 ) {
     if (std::abs(actual - expected) > tolerance) {
-        std::cerr << "FAILED: " << message << " (actual=" << actual
-                  << ", expected=" << expected << ")\n";
+        std::cerr << "FAILED: " << message << " (actual=" << actual << ", expected=" << expected
+                  << ")\n";
         ++failures;
     }
 }
@@ -77,15 +78,14 @@ void test_dng_baseline_exposure_is_consistent_across_source_outputs() {
         .primaries = image::RgbPrimaries::srgb_rec709_d65,
         .transfer_function = image::RgbTransferFunction::linear,
         .reference = image::RgbBufferReference::processed_raw,
-        .samples =
-            {
-                49'152U,
-                49'152U,
-                49'152U,
-                57'344U,
-                53'248U,
-                49'152U,
-            },
+        .samples = {
+            49'152U,
+            49'152U,
+            49'152U,
+            57'344U,
+            53'248U,
+            49'152U,
+        },
     };
     const image::ProxyRequest request{.max_edge = 2U, .jpeg_quality = 100U};
     const std::array<image::AdjustmentNode, 0U> no_nodes{};
@@ -139,13 +139,13 @@ void test_dng_baseline_exposure_is_consistent_across_source_outputs() {
     non_dng_metadata.dng_version.clear();
     const RetainedRgbSession non_dng_source(source, non_dng_metadata);
     expect(
-        image::render_reference_proxy_jpeg(non_dng_source, request).bytes
-            == neutral_proxy.bytes,
+        image::render_reference_proxy_jpeg(non_dng_source, request).bytes == neutral_proxy.bytes,
         "non-DNG RAW files never inherit a guessed DNG baseline exposure"
     );
 }
 
-[[nodiscard]] image::FloatRgbImage working_rgb(const float red, const float green, const float blue) {
+[[nodiscard]] image::FloatRgbImage
+working_rgb(const float red, const float green, const float blue) {
     return image::FloatRgbImage{
         .dimensions = {1U, 1U},
         .row_stride_bytes = 3U * sizeof(float),
@@ -183,17 +183,14 @@ void test_dng_baseline_exposure_is_consistent_across_source_outputs() {
     receipt.camera_profile_catalog_identity = "test-camera-profile-catalog";
     receipt.camera_profile_identity = "sha256:test-dcp";
     receipt.camera_profile_name = "Test DCP";
-    receipt.camera_profile_developer_version = 1U;
+    receipt.camera_profile_developer_version = image::dcp_color_developer_version;
     return receipt;
 }
 
 void test_standard_normalizes_non_dng_raw() {
     const auto source = raw_rgb(16'384U);
-    const image::SourceRenderingReceipt receipt = image::resolve_source_rendering(
-        source,
-        {},
-        empty_catalog()
-    );
+    const image::SourceRenderingReceipt receipt =
+        image::resolve_source_rendering(source, {}, empty_catalog());
     expect(
         receipt.kind == image::SourceRenderingKind::shadow_standard,
         "processed RAW resolves through Shadow Standard"
@@ -225,7 +222,7 @@ void test_standard_normalizes_non_dng_raw() {
     expect(
         receipt.profile_identity == "shadow-standard-v1"
             && image::source_rendering_identity(receipt)
-                == image::source_rendering_identity(receipt),
+                   == image::source_rendering_identity(receipt),
         "profile and complete source-render identities are stable and cache-safe"
     );
 }
@@ -235,11 +232,8 @@ void test_dng_baseline_wins_over_generic_normalization() {
     image::AssetMetadata metadata;
     metadata.dng_version = "1.6.0.0";
     metadata.baseline_exposure = -0.5;
-    const image::SourceRenderingReceipt receipt = image::resolve_source_rendering(
-        source,
-        metadata,
-        empty_catalog()
-    );
+    const image::SourceRenderingReceipt receipt =
+        image::resolve_source_rendering(source, metadata, empty_catalog());
     expect_close(
         receipt.camera_baseline_exposure_stops,
         -0.5,
@@ -260,11 +254,8 @@ void test_dng_baseline_wins_over_generic_normalization() {
 void test_rendered_raster_remains_untouched() {
     auto source = raw_rgb(16'384U);
     source.reference = image::RgbBufferReference::decoded_raster;
-    const image::SourceRenderingReceipt receipt = image::resolve_source_rendering(
-        source,
-        {},
-        empty_catalog()
-    );
+    const image::SourceRenderingReceipt receipt =
+        image::resolve_source_rendering(source, {}, empty_catalog());
     expect(
         receipt.kind == image::SourceRenderingKind::embedded_rendering,
         "JPEG and HEIF keep their embedded rendering"
@@ -276,8 +267,8 @@ void test_rendered_raster_remains_untouched() {
 }
 
 void test_public_profile_document_matches_exact_camera_without_vendor_data() {
-    const std::filesystem::path directory = std::filesystem::temp_directory_path()
-        / "shadow-source-profile-contract-v1";
+    const std::filesystem::path directory =
+        std::filesystem::temp_directory_path() / "shadow-source-profile-contract-v1";
     std::error_code cleanup_error;
     std::filesystem::remove_all(directory, cleanup_error);
     std::filesystem::create_directories(directory, cleanup_error);
@@ -294,7 +285,10 @@ void test_public_profile_document_matches_exact_camera_without_vendor_data() {
     }
 
     const image::SourceProfileCatalog catalog = image::load_source_profile_catalog(directory);
-    expect(catalog.profiles.size() == 1U, "public source profile document loads from one directory");
+    expect(
+        catalog.profiles.size() == 1U,
+        "public source profile document loads from one directory"
+    );
     image::AssetMetadata metadata;
     metadata.make = "Open   Camera";
     metadata.model = "MK i";
@@ -303,11 +297,8 @@ void test_public_profile_document_matches_exact_camera_without_vendor_data() {
         matched.has_value() && matched->id == "open-camera-standard",
         "profile matching is exact but whitespace/case normalized"
     );
-    const image::SourceRenderingReceipt receipt = image::resolve_source_rendering(
-        raw_rgb(16'384U),
-        metadata,
-        catalog
-    );
+    const image::SourceRenderingReceipt receipt =
+        image::resolve_source_rendering(raw_rgb(16'384U), metadata, catalog);
     expect(
         receipt.kind == image::SourceRenderingKind::public_profile
             && receipt.profile_id == "open-camera-standard",
@@ -335,11 +326,8 @@ void test_bundled_darktable_camera_looks_match_make_and_preserve_chroma() {
     image::AssetMetadata metadata;
     metadata.normalized_make = "Nikon";
     metadata.normalized_model = "Z 9";
-    const image::SourceRenderingReceipt receipt = image::resolve_source_rendering(
-        raw_rgb(16'384U),
-        metadata,
-        catalog
-    );
+    const image::SourceRenderingReceipt receipt =
+        image::resolve_source_rendering(raw_rgb(16'384U), metadata, catalog);
     expect(
         receipt.kind == image::SourceRenderingKind::public_profile
             && receipt.profile_id == "darktable-nikon-like",
@@ -360,10 +348,7 @@ void test_bundled_darktable_camera_looks_match_make_and_preserve_chroma() {
     const double prior_red_to_green = static_cast<double>(working.samples[0]) / working.samples[1];
     const double prior_green_to_blue = static_cast<double>(working.samples[1]) / working.samples[2];
     image::apply_source_rendering(working, receipt);
-    expect(
-        working.samples[1] > 0.40F,
-        "Nikon-like base curve raises a mid-tone luminance sample"
-    );
+    expect(working.samples[1] > 0.40F, "Nikon-like base curve raises a mid-tone luminance sample");
     expect_close(
         static_cast<double>(working.samples[0]) / working.samples[1],
         prior_red_to_green,
@@ -387,12 +372,8 @@ void test_applied_dcp_suppresses_generic_camera_look_but_keeps_dng_baseline() {
     metadata.baseline_exposure = 0.25;
     const auto pipeline = applied_dcp_pipeline();
     expect(pipeline.valid(), "synthetic DCP pipeline receipt is valid");
-    const image::SourceRenderingReceipt receipt = image::resolve_source_rendering(
-        raw_rgb(16'384U),
-        metadata,
-        pipeline,
-        catalog
-    );
+    const image::SourceRenderingReceipt receipt =
+        image::resolve_source_rendering(raw_rgb(16'384U), metadata, pipeline, catalog);
     expect(
         receipt.kind == image::SourceRenderingKind::shadow_standard
             && receipt.profile_id == "shadow-standard-dcp",
@@ -416,12 +397,8 @@ void test_applied_dcp_suppresses_generic_camera_look_but_keeps_dng_baseline() {
     auto rejected = pipeline;
     rejected.camera_profile_status = image::RawCameraProfileStatus::matched_not_applied;
     rejected.camera_profile_diagnostic = "unsupported profile table";
-    const auto generic = image::resolve_source_rendering(
-        raw_rgb(16'384U),
-        metadata,
-        rejected,
-        catalog
-    );
+    const auto generic =
+        image::resolve_source_rendering(raw_rgb(16'384U), metadata, rejected, catalog);
     expect(
         generic.kind == image::SourceRenderingKind::public_profile
             && generic.profile_id == "darktable-nikon-like",
@@ -432,11 +409,8 @@ void test_applied_dcp_suppresses_generic_camera_look_but_keeps_dng_baseline() {
 void test_scene_linear_raw_keeps_super_white_samples_before_output_mapping() {
     const auto pipeline = applied_dcp_pipeline();
     const auto source = scene_linear_rgb(1.5F);
-    const image::SourceRenderingReceipt receipt = image::resolve_source_rendering(
-        source,
-        {},
-        pipeline
-    );
+    const image::SourceRenderingReceipt receipt =
+        image::resolve_source_rendering(source, {}, pipeline);
     expect_close(
         receipt.standard_exposure_normalization_stops,
         0.0,
@@ -459,7 +433,9 @@ void test_source_profile_curve_handoffs_smoothly_to_scene_linear_highlights() {
     receipt.profile_identity = "test-hdr-handoff-v1";
     receipt.kind = image::SourceRenderingKind::public_profile;
     receipt.luminance_tone_curve = {
-        {0.0, 0.0}, {0.5, 0.72}, {1.0, 1.0},
+        {0.0, 0.0},
+        {0.5, 0.72},
+        {1.0, 1.0},
     };
 
     auto just_below_white = working_rgb(0.999F);
@@ -472,14 +448,14 @@ void test_source_profile_curve_handoffs_smoothly_to_scene_linear_highlights() {
     image::apply_source_rendering(retained_highlight, receipt);
 
     expect(
-        std::isfinite(just_above_white.samples.front())
-            && just_above_white.samples.front() > 1.0F,
+        std::isfinite(just_above_white.samples.front()) && just_above_white.samples.front() > 1.0F,
         "a profile curve keeps immediately super-white scene-linear detail finite and recoverable"
     );
     expect(
         just_above_white.samples.front() >= just_below_white.samples.front()
             && just_above_white.samples.front() - just_below_white.samples.front() < 0.01F,
-        "profile curve hands off continuously around display white instead of introducing a highlight seam"
+        "profile curve hands off continuously around display white instead of introducing a "
+        "highlight seam"
     );
     expect_close(
         handoff_end.samples.front(),

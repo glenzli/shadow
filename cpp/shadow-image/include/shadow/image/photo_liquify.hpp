@@ -101,10 +101,13 @@ struct PreparedPhotoLiquify final {
 void validate_photo_liquify(const PhotoLiquify& liquify);
 
 /// Deterministically resamples authored paths into bounded pixel-space stamps.
-[[nodiscard]] PreparedPhotoLiquify prepare_photo_liquify(
-    Dimensions source_dimensions,
-    const PhotoLiquify& liquify
-);
+[[nodiscard]] PreparedPhotoLiquify
+prepare_photo_liquify(Dimensions source_dimensions, const PhotoLiquify& liquify);
+
+/// Maps an output image-edge point back to the pre-Liquify image. Used by
+/// spatial authoring tools so pointer placement shares the final sampler.
+[[nodiscard]] PhotoLiquifyPoint
+photo_liquify_source_point(const PreparedPhotoLiquify& liquify, PhotoLiquifyPoint output) noexcept;
 
 /// Applies all prepared gestures through one inverse-map bilinear sample.
 [[nodiscard]] FloatRgbImage apply_photo_liquify(

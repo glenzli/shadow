@@ -112,15 +112,27 @@ pub(super) fn run_scan_session(
     };
     publish_progress(&report, ScanPhase::Discovering, progress, profiler);
     let scan_result = {
+        // Persist the exact file as the resumable session root; grouping still uses
+        // its containing directory so a later ordinary folder scan is idempotent.
+        let single_file = fs::symlink_metadata(root).is_ok_and(|metadata| metadata.is_file());
+        let grouping_root = if single_file {
+            root.parent().unwrap_or(root)
+        } else {
+            root
+        };
         let mut runtime = ScanRuntime {
             session_id,
-            root,
+            root: grouping_root,
             scheduler,
             cancellation,
             progress,
             profiler,
         };
-        scan_directory(catalog, root, &mut runtime, &mut report)
+        if single_file {
+            scan_file(catalog, root, &mut runtime, &mut report)
+        } else {
+            scan_directory(catalog, root, &mut runtime, &mut report)
+        }
     };
     if let Err(error) = scan_result {
         let message = error.to_string();
@@ -234,7 +246,7 @@ fn scan_directory(
             );
             continue;
         }
-        scan_file(catalog, &entry, &path, runtime, report)?;
+        scan_file(catalog, &path, runtime, report)?;
     }
 
     Ok(())
@@ -242,7 +254,6 @@ fn scan_directory(
 
 fn scan_file(
     catalog: &mut (impl CatalogStore + ?Sized),
-    entry: &fs::DirEntry,
     path: &Path,
     runtime: &mut ScanRuntime<'_, '_>,
     report: &mut ScanReport,
@@ -281,7 +292,7 @@ fn scan_file(
     let metadata = match measure_if(
         runtime.profiler.performance.profiled,
         &mut runtime.profiler.performance.metadata_stat,
-        || entry.metadata(),
+        || fs::symlink_metadata(path),
     ) {
         Ok(metadata) => metadata,
         Err(error) => {

@@ -1,7 +1,9 @@
+#include "../src/decoder/libraw_raw_geometry.hpp"
 #include "contract_test_assertions.hpp"
 #include "processed_rgb_session_fixture.hpp"
 
 #include <shadow/image/decoder.hpp>
+#include <shadow/image/display_output.hpp>
 #include <shadow/image/edited_proxy_rendering.hpp>
 #include <shadow/image/libraw_development_settings.hpp>
 #include <shadow/image/proxy_rendering.hpp>
@@ -37,31 +39,32 @@ void provider_identity_versions_shadow_pixel_contracts() {
         "provider identity remains valid for catalog content identities"
     );
     expect(
-        version.find("linear=1") != std::string_view::npos,
+        version.find(";l=1") != std::string_view::npos,
         "provider identity versions the processed-linear reference RGB contract"
     );
     expect(
-        version.find("receipt=1") != std::string_view::npos,
+        version.find(";r=2026082101") != std::string_view::npos,
         "provider identity versions RAW-development provenance semantics"
     );
     expect(
-        version.find("plan=1") != std::string_view::npos,
+        version.find(";p=2026082101") != std::string_view::npos,
         "provider identity versions the RAW development plan contract"
     );
     expect(
-        version.find("frame=2026080601-n1") != std::string_view::npos,
-        "provider identity versions the owned RAW frame contract"
+        version.find(";f=2026082201-n1-g2") != std::string_view::npos,
+        "provider identity versions the owned RAW frame and active-area contracts"
     );
     expect(
-        version.find("-n1;preview=") != std::string_view::npos,
+        version.find("-n1-g2;v=") != std::string_view::npos,
         "provider identity versions embedded DNG sensor-noise calibration"
     );
     expect(
-        version.find("preview=1") != std::string_view::npos,
+        version.find(";v=1") != std::string_view::npos,
         "provider identity versions display-oriented embedded-preview geometry"
     );
     expect(
-        version.find("display=1") != std::string_view::npos,
+        version.find(";d=" + std::to_string(image::display_srgb8_output_transform_version) + ";")
+            != std::string_view::npos,
         "provider identity versions the display output transform for cache "
         "invalidation"
     );
@@ -69,6 +72,47 @@ void provider_identity_versions_shadow_pixel_contracts() {
         version.find(";s=s1-w1-m1-a0-e0-") != std::string_view::npos,
         "provider identity includes a compact complete LibRaw development "
         "profile"
+    );
+}
+
+void libraw_standard_raw_inset_overrides_legacy_margins() {
+    const image::detail::LibRawRawFrameGeometryInput input{
+        8'280U,
+        5'520U,
+        8'280U,
+        5'520U,
+        0U,
+        0U,
+        {12U, 8U, 8'256U, 5'504U},
+    };
+
+    const auto geometry = image::detail::raw_frame_geometry(input);
+    expect(
+        geometry.active_dimensions == image::Dimensions{8'256U, 5'504U},
+        "standard raw inset defines RawFrame active dimensions before legacy image dimensions"
+    );
+    expect(
+        geometry.active_margins == image::Margins{12U, 8U, 12U, 8U},
+        "standard raw inset retains the exact stored-sensor margins"
+    );
+}
+
+void invalid_libraw_standard_raw_inset_falls_back_to_legacy_margins() {
+    const image::detail::LibRawRawFrameGeometryInput input{
+        8'280U,
+        5'520U,
+        8'256U,
+        5'504U,
+        12U,
+        8U,
+        {8'000U, 5'000U, 1'000U, 1'000U},
+    };
+
+    const auto geometry = image::detail::raw_frame_geometry(input);
+    expect(
+        geometry.active_dimensions == image::Dimensions{8'256U, 5'504U}
+            && geometry.active_margins == image::Margins{12U, 8U, 12U, 8U},
+        "invalid standard raw inset cannot replace valid legacy active geometry"
     );
 }
 
@@ -166,6 +210,16 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
         const auto frame = decoder->decode_raw_frame();
         expect(frame.valid(), "real LibRaw RAW frame preserves a complete owned sample plane");
         known_canon_black_level_fixture_keeps_common_and_component_terms(fixture, frame);
+        expect(
+            std::ranges::all_of(
+                frame.descriptor.white_levels,
+                [&decoder](const std::uint32_t white_level) {
+                    return white_level == decoder->metadata().white_level;
+                }
+            ),
+            "RawFrame uses LibRaw's calibrated coding white at every CFA site instead of "
+            "truncating a channel at linear_max"
+        );
         expect(
             frame.descriptor.provider_id == provider->info().id
                 && frame.descriptor.provider_version == provider->info().version,
@@ -332,6 +386,8 @@ void real_libraw_boundary_and_neutral_preview_when_configured() {
 
 int main() {
     provider_identity_versions_shadow_pixel_contracts();
+    libraw_standard_raw_inset_overrides_legacy_margins();
+    invalid_libraw_standard_raw_inset_falls_back_to_legacy_margins();
     libraw_development_settings_are_explicit_and_cache_visible();
     real_libraw_boundary_and_neutral_preview_when_configured();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

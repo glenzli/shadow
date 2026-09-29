@@ -47,22 +47,37 @@ struct ResidentRawDevelopmentParameters final {
     std::uint32_t cfa_channels[4]{};
     float black_levels[4]{};
     float white_minus_black[4]{};
+    float linear_response_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
     float cfa_white_balance[4]{};
+    float opposed_highlight_chrominance_offsets[4]{};
     std::uint32_t apply_cfa_white_balance = 0U;
-    std::uint32_t clamp_cfa_white_balance = 0U;
+    float cfa_white_balance_scale = 1.0F;
+    std::uint32_t cap_physical_sensor_white = 0U;
+    std::uint32_t feather_highlight_chroma_neutralization = 0U;
+    std::uint32_t has_linear_response_limits = 0U;
 };
 
-static_assert(sizeof(ResidentRawDevelopmentParameters) == 168U);
+static_assert(sizeof(ResidentRawDevelopmentParameters) == 212U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, orientation) == 40U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, project_sensor_clipping) == 52U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, reconstruction_quality) == 56U);
 static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_channels) == 60U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, camera_to_linear_srgb) == 108U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance) == 144U);
-static_assert(offsetof(ResidentRawDevelopmentParameters, apply_cfa_white_balance) == 160U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, linear_response_minus_black) == 108U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, camera_to_linear_srgb) == 124U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance) == 160U);
+static_assert(
+    offsetof(ResidentRawDevelopmentParameters, opposed_highlight_chrominance_offsets) == 176U
+);
+static_assert(offsetof(ResidentRawDevelopmentParameters, apply_cfa_white_balance) == 192U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, cfa_white_balance_scale) == 196U);
+static_assert(offsetof(ResidentRawDevelopmentParameters, cap_physical_sensor_white) == 200U);
+static_assert(
+    offsetof(ResidentRawDevelopmentParameters, feather_highlight_chroma_neutralization) == 204U
+);
+static_assert(offsetof(ResidentRawDevelopmentParameters, has_linear_response_limits) == 208U);
 
 [[nodiscard]] bool environment_enabled(const char* name) noexcept {
     const char* value = std::getenv(name);
@@ -173,6 +188,11 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.black_levels[site] = static_cast<float>(descriptor.black_levels[site]);
         parameters.white_minus_black[site] =
             static_cast<float>(descriptor.white_levels[site] - descriptor.black_levels[site]);
+        parameters.linear_response_minus_black[site] = static_cast<float>(
+            (descriptor.has_linear_response_limits ? descriptor.linear_response_limits[site]
+                                                   : descriptor.white_levels[site])
+            - descriptor.black_levels[site]
+        );
     }
     for (std::size_t index = 0U; index < 9U; ++index) {
         parameters.camera_to_linear_srgb[index] =
@@ -181,12 +201,25 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     for (std::size_t site = 0U; site < 4U; ++site) {
         parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
     }
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        parameters.opposed_highlight_chrominance_offsets[channel] =
+            transform.opposed_highlight_chrominance_offsets[channel];
+    }
     parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
-    parameters.clamp_cfa_white_balance =
-        transform.apply_cfa_white_balance
-                && plan.highlight_recovery == RawHighlightRecoveryIntent::provider_default
-            ? 1U
-            : 0U;
+    if (plan.highlight_recovery == RawHighlightRecoveryIntent::provider_default
+        || plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive) {
+        parameters.cap_physical_sensor_white = 1U;
+        if (transform.apply_cfa_white_balance) {
+            const auto minimum = *std::min_element(
+                transform.cfa_white_balance.begin(),
+                transform.cfa_white_balance.end()
+            );
+            parameters.cfa_white_balance_scale = static_cast<float>(1.0 / minimum);
+        }
+    }
+    parameters.feather_highlight_chroma_neutralization =
+        plan.highlight_recovery == RawHighlightRecoveryIntent::aggressive ? 1U : 0U;
+    parameters.has_linear_response_limits = descriptor.has_linear_response_limits ? 1U : 0U;
     return parameters;
 }
 
@@ -368,6 +401,7 @@ struct MetalResidentRawSource::Impl final {
     RawFrameLinearTransform transform;
     RawDevelopmentPlan development_plan;
     RawBayerDenoiseReceipt raw_denoise_receipt;
+    bool camera_profile_applied = false;
     std::unique_ptr<detail::MetalDcpColorEncoding> dcp_encoding;
     std::size_t dcp_resource_bytes = 0U;
     id<MTLDevice> device = nil;
@@ -555,7 +589,7 @@ RawDemosaicReceipt MetalResidentRawSource::demosaic_receipt() const noexcept {
 }
 
 bool MetalResidentRawSource::dcp_applied() const noexcept {
-    return implementation_->dcp_encoding != nullptr;
+    return implementation_->camera_profile_applied;
 }
 
 bool MetalResidentRawSource::valid() const noexcept {
@@ -816,24 +850,9 @@ ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
             .diagnostic = std::move(diagnostic),
         };
     };
-    if (development.neural_raw_denoise().execution_requested()) {
-        // Core ML is a whole-frame RAW-to-RAW transaction in v0. Hand the still-owned source back
-        // to the normal materializer even for a forced Metal reconstruction request; that path
-        // runs Core ML first and can still select Metal for conventional CFA denoise/demosaic.
-        return ResidentRawSourceAttempt{
-            .source = nullptr,
-            .fallback_source = std::optional<PreparedRawFrameSource>(std::move(prepared)),
-            .diagnostic = "neural RAW denoise requires the materialized source transaction",
-        };
-    }
     if (!frame.valid() || !frame.is_bayer_2x2()) {
         return fail("Metal resident RAW source requires a valid Bayer two-by-two RawFrame");
     }
-    detail::NeuralRawDenoiseResult neural_denoised = detail::execute_prepared_neural_raw_denoise(
-        std::move(frame),
-        development.neural_raw_denoise()
-    );
-    frame = std::move(neural_denoised.frame);
     if (development.preview_max_edge().has_value()
         || development.reconstruction_dimensions() != frame.descriptor.active_dimensions) {
         return fail("Metal resident RAW source only accepts native-size development plans");
@@ -975,6 +994,9 @@ ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
                                                 : RawBayerDenoiseBackend::cpu
         );
         implementation->dcp_resource_bytes = dcp_resource_bytes;
+        // Matrix-only DCPs are fused into the Bayer transform and need no
+        // post-matrix encoder, but their profile still executes on Metal.
+        implementation->camera_profile_applied = camera_profile != nullptr;
         implementation->dcp_encoding = std::move(dcp_encoding);
         implementation->device = [device retain];
         implementation->queue = [static_cast<id<MTLCommandQueue>>(queue.get()) retain];
@@ -1007,7 +1029,6 @@ ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
             metal_source->dimensions(),
             metal_source->demosaic_receipt(),
             RawDevelopmentBackend::metal,
-            neural_denoised.receipt,
             metal_source->raw_denoise_receipt(),
             metal_source->dcp_applied() ? DcpColorExecutionBackend::metal
                                         : DcpColorExecutionBackend::cpu
@@ -1023,10 +1044,7 @@ ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
             std::move(pipeline),
             RawDevelopmentBackend::metal,
             development.development_plan().highlight_recovery,
-            detail::combined_raw_denoise_cache_identity(
-                neural_denoised.receipt,
-                metal_source->raw_denoise_receipt()
-            )
+            metal_source->raw_denoise_receipt().cache_identity
         );
 
         return ResidentRawSourceAttempt{

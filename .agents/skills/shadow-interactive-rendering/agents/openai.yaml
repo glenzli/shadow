@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shadow Interactive Rendering"
+  short_description: "Preserve minimal-path responsive editing"
+  default_prompt: "Use $shadow-interactive-rendering to plan a responsive Shadow edit-pipeline change."

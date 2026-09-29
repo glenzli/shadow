@@ -155,7 +155,16 @@ impl DecodeInspector for PhotoInspector {
 
     fn inspect(&mut self, path: &Path) -> Result<DecoderSnapshot, String> {
         match self.inspection_route(path) {
-            InspectionRoute::Direct => inspect_photo(path).map_err(|error| error.to_string()),
+            InspectionRoute::Direct => inspect_photo(path)
+                .map(|mut snapshot| {
+                    // Raster inspection runs directly, but its Catalog snapshot must use the
+                    // same outer inspector identity as the worker and generated proxy. When
+                    // isolation is enabled that identity also includes the helper graph digest.
+                    snapshot.provider.id = self.provider_id().to_owned();
+                    snapshot.provider.version.clone_from(&self.version);
+                    snapshot
+                })
+                .map_err(|error| error.to_string()),
             InspectionRoute::IsolatedRaw => {
                 let runtime_cache_root = self
                     .isolated_proxy_runtime_cache

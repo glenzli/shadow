@@ -39,7 +39,7 @@ ColumnLayout {
             Label {
                 text: qsTranslate("ReviewWorkspace", "COMPARE EVIDENCE")
                 color: evidence.workspace.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 font.weight: Font.DemiBold
             }
 
@@ -49,7 +49,7 @@ ColumnLayout {
                     "ReviewWorkspace", "%L1 active this session").arg(
                         evidence.workspace.controller.sessionEvidenceCount)
                 color: evidence.workspace.textPrimary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
             }
         }
 
@@ -81,6 +81,6 @@ ColumnLayout {
         color: evidence.workspace.controller.comparisonBusy
             ? evidence.workspace.accent : evidence.workspace.textMuted
         wrapMode: Text.WordWrap
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
     }
 }

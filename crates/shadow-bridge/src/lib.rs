@@ -14,6 +14,7 @@ mod decoder;
 mod detail_session;
 mod display_luma;
 mod error;
+mod lut_baking;
 mod one_shot;
 mod optics;
 mod preview_analysis;
@@ -34,6 +35,9 @@ pub use display_luma::{
     decode_jpeg_display_luma,
 };
 pub use error::BridgeError;
+pub use lut_baking::{
+    BakedCubeLut, LutBakeCancellation, bake_adjustment_lut, validate_cube_lut_document,
+};
 pub use one_shot::*;
 pub use optics::*;
 pub use preview_analysis::*;
@@ -60,6 +64,13 @@ mod ffi {
         Native,
         LittleEndian,
         BigEndian,
+    }
+
+    #[derive(Debug)]
+    struct FfiCurveInputMap {
+        width: u32,
+        height: u32,
+        values: Vec<f32>,
     }
 
     #[derive(Debug)]
@@ -472,6 +483,8 @@ mod ffi {
         available: bool,
         version: String,
         layer_index: u32,
+        component_selected: bool,
+        component_index: u32,
         dimensions: FfiDimensions,
         row_stride_bytes: u32,
         samples: Vec<u8>,
@@ -526,6 +539,9 @@ mod ffi {
         Lut3D,
         Sharpen,
         SpotHeal,
+        ImageCompletion,
+        PaintLayer,
+        RgbToneCurves,
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -533,6 +549,19 @@ mod ffi {
         TechnicalDetail,
         ColorGrading,
         FinishingEffects,
+    }
+
+    /// One leaf record in a bounded composite local mask. `parameters` uses
+    /// the legacy leaf slots without layer opacity: kind, x0, y0, x1, y1,
+    /// radius_x, radius_y, feather, invert, followed by optional brush triples.
+    #[derive(Debug)]
+    struct FfiAdjustmentMaskComponent {
+        /// 0 = Base, 1 = Add, 2 = Subtract, 3 = Intersect.
+        operation: u8,
+        enabled: bool,
+        parameters: Vec<f64>,
+        payload: Vec<u8>,
+        parameter_group_lengths: Vec<u32>,
     }
 
     #[derive(Debug)]
@@ -551,6 +580,11 @@ mod ffi {
         /// stores the number of additional sampled color ranges; Spot Heal
         /// stores its target count.
         parameter_group_lengths: Vec<u32>,
+        /// Empty for every legacy operation and every single-leaf local mask.
+        mask_components: Vec<FfiAdjustmentMaskComponent>,
+        /// Applied once after ordered component composition. Legacy leaf
+        /// inversion remains in the fixed parameter record above.
+        mask_final_invert: bool,
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -598,6 +632,8 @@ mod ffi {
         jpeg_quality: u8,
         mask_coverage_requested: bool,
         mask_coverage_target_layer_index: u32,
+        mask_coverage_component_requested: bool,
+        mask_coverage_target_component_index: u32,
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -636,6 +672,26 @@ mod ffi {
         diagnostic: String,
     }
 
+    #[derive(Debug)]
+    struct FfiRenderedDetailTile16 {
+        rect: FfiDetailTileRect,
+        full_dimensions: FfiDimensions,
+        row_stride_bytes: u32,
+        samples: Vec<u16>,
+        execution_backend: u8,
+        execution_backend_version: u32,
+        source_cache_hit: bool,
+        fell_back: bool,
+        diagnostic: String,
+    }
+
+    struct FfiBakedCubeLut {
+        document: Vec<u8>,
+        maximum_absolute_error: f64,
+        root_mean_square_error: f64,
+        probe_count: u32,
+    }
+
     unsafe extern "C++" {
         include!("shadow/image/cxx_bridge.hpp");
 
@@ -645,8 +701,22 @@ mod ffi {
         type InteractiveEditPreviewFrameHandle;
         type FullEditDetailHandle;
 
+        fn validate_cube_lut_document(document: &[u8]) -> Result<()>;
+        fn bake_adjustment_cube_lut(
+            request: &FfiAdjustmentRenderRequest,
+            size: u16,
+            cancellation: &EditPreviewCancellationHandle,
+        ) -> Result<FfiBakedCubeLut>;
+
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
         fn open_photo_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
+        fn prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+            metadata: &FfiMetadataSnapshot,
+            max_edge: u32,
+            plan: &FfiRawDevelopmentPlan,
+            staging_manifest_path: &str,
+            optics: &FfiOpticsSettings,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
         fn query_libraw_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn query_photo_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn query_optics_profiles_for_metadata(
@@ -754,12 +824,26 @@ mod ffi {
             requirements: &FfiDetailSessionRequirements,
         ) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;
+        fn level_zero_dimensions(self: &EditPreviewHandle) -> FfiDimensions;
         fn max_edge(self: &EditPreviewHandle) -> u32;
         fn optics_receipt(self: &EditPreviewHandle) -> FfiOpticsReceipt;
         fn raw_development_receipt(self: &EditPreviewHandle) -> Result<FfiRawDevelopmentReceipt>;
         fn raw_pipeline_receipt(self: &EditPreviewHandle) -> Result<FfiRawPipelineReceipt>;
         fn sensor_clipping_mask(self: &EditPreviewHandle) -> FfiSensorClippingMask;
         fn supports_raw_development_rebinding(self: &EditPreviewHandle) -> bool;
+        fn supports_raw_white_balance_picker(self: &EditPreviewHandle) -> bool;
+        fn pick_raw_white_balance(
+            self: &EditPreviewHandle,
+            normalized_x: f64,
+            normalized_y: f64,
+        ) -> FfiRawWhiteBalancePresentation;
+        fn auto_raw_white_balance(self: &EditPreviewHandle) -> FfiRawWhiteBalancePresentation;
+        fn curve_input_map(
+            self: &EditPreviewHandle,
+            request: &FfiAdjustmentRenderRequest,
+            channel: u8,
+            cancellation: &EditPreviewCancellationHandle,
+        ) -> Result<FfiCurveInputMap>;
         fn rebind_raw_development_plan(
             self: &EditPreviewHandle,
             plan: &FfiRawDevelopmentPlan,
@@ -809,6 +893,8 @@ mod ffi {
         fn mask_coverage_available(self: &InteractiveEditPreviewFrameHandle) -> bool;
         fn mask_coverage_version(self: &InteractiveEditPreviewFrameHandle) -> String;
         fn mask_coverage_layer_index(self: &InteractiveEditPreviewFrameHandle) -> u32;
+        fn mask_coverage_component_selected(self: &InteractiveEditPreviewFrameHandle) -> bool;
+        fn mask_coverage_component_index(self: &InteractiveEditPreviewFrameHandle) -> u32;
         fn mask_coverage_width(self: &InteractiveEditPreviewFrameHandle) -> u32;
         fn mask_coverage_height(self: &InteractiveEditPreviewFrameHandle) -> u32;
         fn mask_coverage_row_stride_bytes(self: &InteractiveEditPreviewFrameHandle) -> u32;
@@ -829,6 +915,10 @@ mod ffi {
             self: &FullEditDetailHandle,
             request: &FfiAdjustmentDetailTileRequest,
         ) -> Result<FfiRenderedDetailTile>;
+        fn render_adjustment_plan_tile16(
+            self: &FullEditDetailHandle,
+            request: &FfiAdjustmentDetailTileRequest,
+        ) -> Result<FfiRenderedDetailTile16>;
     }
 }
 

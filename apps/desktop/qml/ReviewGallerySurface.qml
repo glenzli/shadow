@@ -26,7 +26,7 @@ Rectangle {
             justifiedGrid.forceActiveFocus()
     }
 
-    function navigateGrid(horizontalDelta, verticalDelta) {
+    function navigateGrid(horizontalDelta, verticalDelta, modifiers) {
         const target = gallery.workspace.justifiedReviewLayout.navigationTarget(
             gallery.workspace.selectedPhotoId,
             gallery.workspace.selectedRepresentationId,
@@ -34,7 +34,7 @@ Rectangle {
             verticalDelta)
         if (!target || String(target.photoId || "").length === 0)
             return
-        gallery.workspace.selectPhoto(target, 0)
+        gallery.workspace.selectPhoto(target, Number(modifiers || 0))
         justifiedGrid.positionViewAtIndex(
             Number(target.layoutRow), ListView.Contain)
     }
@@ -73,8 +73,8 @@ Rectangle {
             if (semantic.possibleRepresentationKeys.length > 0) {
                 sections.push({
                     key: "semantic-possible",
-                    title: qsTr("Possibly related"),
-                    subtitle: qsTr("Broader matches worth reviewing"),
+                    title: qsTr("Similarity order"),
+                    subtitle: qsTr("Relative similarity for your query; review the photos to confirm"),
                     representationKeys: semantic.possibleRepresentationKeys
                 })
             }
@@ -146,7 +146,7 @@ Rectangle {
                 vertical = 1
             else
                 return
-            gallery.navigateGrid(horizontal, vertical)
+            gallery.navigateGrid(horizontal, vertical, event.modifiers)
             event.accepted = true
         }
 
@@ -190,7 +190,7 @@ Rectangle {
                 Label {
                     text: justifiedRow.sectionTitle
                     color: gallery.workspace.textPrimary
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
 
@@ -198,14 +198,14 @@ Rectangle {
                     text: qsTr("%L1 photos").arg(
                         justifiedRow.sectionItemCount)
                     color: gallery.workspace.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                 }
 
                 Label {
                     Layout.fillWidth: true
                     text: justifiedRow.sectionSubtitle
                     color: gallery.workspace.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMeta
                     elide: Text.ElideRight
                 }
             }
@@ -252,6 +252,7 @@ Rectangle {
     }
 
     Label {
+        id: emptyState
         objectName: "reviewEmptyStateText"
         anchors.centerIn: justifiedGrid
         width: Math.min(420, justifiedGrid.width - 60)
@@ -261,11 +262,24 @@ Rectangle {
             ? qsTranslate("ReviewWorkspace", "Searching the folder for supported photos…\nNew RAW files will appear here as they are catalogued.")
             : gallery.workspace.controller.scanProgress.phase === "failed"
             ? qsTranslate("ReviewWorkspace", "Import stopped, and no RAW files are currently visible.\nAlready catalogued files remain safely stored.")
+            : gallery.workspace.hasActiveLibraryFilter
+            ? qsTranslate("ReviewWorkspace", "No photos match the current filters.")
             : qsTranslate("ReviewWorkspace", "Add a folder to the local Library.\nShadow will show embedded previews immediately, then replace them with locally generated proxies.")
         color: gallery.workspace.textMuted
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap
         lineHeight: 1.4
+        z: 2
+    }
+
+    ShadowButton {
+        objectName: "clearEmptyLibraryFiltersButton"
+        anchors.top: emptyState.bottom
+        anchors.topMargin: 12
+        anchors.horizontalCenter: emptyState.horizontalCenter
+        visible: emptyState.visible && gallery.workspace.hasActiveLibraryFilter
+        text: qsTranslate("Main", "Clear all Library filters")
+        onClicked: gallery.workspace.controller.clearFilters()
         z: 2
     }
 
@@ -322,7 +336,7 @@ Rectangle {
                     ? qsTr("Finding the first photos")
                     : qsTr("Loading local Library")
                 color: gallery.workspace.textPrimary
-                font.pixelSize: 14
+                font.pixelSize: Theme.fontSubheading
             }
         }
     }

@@ -41,11 +41,12 @@ ColumnLayout {
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             Layout.topMargin: 8
-            spacing: 6
+            Layout.bottomMargin: 6
+            spacing: 8
 
             ShadowButton {
-                Layout.fillWidth: true
                 compact: true
+                variant: ShadowButton.Ghost
                 selected:
                     liquify.inspector.editor.liquifyBrushMode === 0
                     || !liquify.inspector.editor.liquifyCanReconstruct
@@ -56,8 +57,8 @@ ColumnLayout {
             }
 
             ShadowButton {
-                Layout.fillWidth: true
                 compact: true
+                variant: ShadowButton.Ghost
                 selected:
                     liquify.inspector.editor.liquifyBrushMode === 1
                     && liquify.inspector.editor.liquifyCanReconstruct
@@ -67,6 +68,15 @@ ColumnLayout {
                 toolTipText: qsTr("Restore deformation toward the original image mapping.")
                 onClicked:
                     liquify.inspector.editor.liquifyBrushMode = 1
+            }
+            Item { Layout.fillWidth: true }
+            ShadowIconButton {
+                Layout.leftMargin: 4
+                source: "qrc:/icons/undo.svg"
+                accessibleName: qsTr("Undo")
+                toolTipText: qsTr("Undo the last session adjustment")
+                enabled: liquify.inspector.editor.canUndo
+                onClicked: liquify.inspector.editor.undo()
             }
         }
 
@@ -125,25 +135,6 @@ ColumnLayout {
                 liquify.inspector.editor.liquifyBrushHardness = value
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            Layout.topMargin: 6
-            spacing: 8
-
-            ShadowButton {
-                Layout.fillWidth: true
-                compact: true
-                variant: ShadowButton.Ghost
-                text: qsTr("Undo")
-                enabled: liquify.inspector.editor.canUndo
-                toolTipText: qsTr("Undo the last session adjustment")
-                onClicked: liquify.inspector.editor.undo()
-            }
-
-        }
-
         Label {
             Layout.fillWidth: true
             Layout.leftMargin: 14
@@ -154,7 +145,7 @@ ColumnLayout {
                 ? qsTr("Paint over a deformed area to restore its original mapping. The authoritative preview updates while you drag, then commits as one undoable stroke.")
                 : qsTr("Drag on the image to push pixels. The path stays local while dragging, then commits as one undoable stroke.")
             color: Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             wrapMode: Text.WordWrap
             lineHeight: 1.25
         }

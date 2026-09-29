@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use shadow_domain::ImageDimensions;
+use shadow_domain::{ImageDimensions, RawMetadataSnapshot};
 
 use super::{
     BridgeError,
@@ -12,7 +12,9 @@ use super::{
     },
     decoder::{dimensions, open_photo},
     ffi,
-    optics::{OpticsReceipt, OpticsSettings, ffi_optics_settings, optics_receipt},
+    optics::{
+        OpticsReceipt, OpticsSettings, ffi_metadata_snapshot, ffi_optics_settings, optics_receipt,
+    },
     preview_analysis::{
         AnalyzedEditPreview, EditPreviewMaskCoverageRequest, RenderedEditPreview,
         SensorClippingMask, validate_analyzed_edit_preview, validate_mask_coverage,
@@ -52,6 +54,13 @@ pub const BASIC_EDIT_PREVIEW_RECIPE_VERSION: u32 = 1;
 /// float32. The intended UI values are 1600 and 2048.
 pub const MAX_WARM_EDIT_PREVIEW_EDGE: u32 = 4_096;
 
+#[derive(Debug, Clone)]
+pub struct CurveInputMap {
+    pub width: u32,
+    pub height: u32,
+    pub values: Vec<f32>,
+}
+
 /// A reusable, bounded processed linear-light RGB working proxy for interactive edits.
 ///
 /// [`Self::open`] asks Shadow's source router for processed linear-light sRGB-primary RGB once.
@@ -62,6 +71,7 @@ pub const MAX_WARM_EDIT_PREVIEW_EDGE: u32 = 4_096;
 pub struct LibRawEditPreviewSession {
     handle: cxx::UniquePtr<ffi::EditPreviewHandle>,
     dimensions: ImageDimensions,
+    level_zero_dimensions: ImageDimensions,
     max_edge: u32,
     sensor_clipping_mask: SensorClippingMask,
     raw_development_receipt: RawDevelopmentReceipt,
@@ -128,6 +138,7 @@ impl std::fmt::Debug for LibRawEditPreviewSession {
         formatter
             .debug_struct("LibRawEditPreviewSession")
             .field("dimensions", &self.dimensions)
+            .field("level_zero_dimensions", &self.level_zero_dimensions)
             .field("max_edge", &self.max_edge)
             .field(
                 "sensor_clipping_available",
@@ -320,6 +331,42 @@ impl LibRawEditPreviewSession {
         Self::from_prepared_handle(handle)
     }
 
+    /// Opens a rebindable RAW preview from the isolated decoder helper's
+    /// paired `RawFrame` and metadata snapshot. Unlike the legacy staged entry
+    /// point, this never reopens the original source path in the desktop
+    /// process.
+    ///
+    /// # Errors
+    ///
+    /// Returns a staging, metadata, plan, optics, resource, admission, or
+    /// invalid-output error.
+    pub fn open_with_staged_raw_development_plan_from_metadata(
+        metadata: &RawMetadataSnapshot,
+        staging_manifest_path: &Path,
+        max_edge: u32,
+        raw_development_plan: RawDevelopmentPlan,
+        optics: &OpticsSettings,
+    ) -> Result<Self, BridgeError> {
+        validate_warm_edit_max_edge(max_edge)?;
+        raw_development_plan.validate()?;
+        if raw_development_plan.intent != RawDevelopmentIntent::Preview {
+            return Err(BridgeError::InvalidRawDevelopmentPlan(
+                "staged RAW warm previews require preview RAW-development intent",
+            ));
+        }
+        let staging_manifest = staging_manifest_path
+            .to_str()
+            .ok_or_else(|| BridgeError::NonUtf8Path(staging_manifest_path.to_path_buf()))?;
+        let handle = ffi::prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+            &ffi_metadata_snapshot(metadata),
+            max_edge,
+            &ffi_raw_development_plan(raw_development_plan),
+            staging_manifest,
+            &ffi_optics_settings(optics),
+        )?;
+        Self::from_prepared_handle(handle)
+    }
+
     /// Opens a preview from one verified foundation and the exact
     /// provider-neutral `RawFrame` staged by the isolated decoder transaction.
     /// The staging files are borrowed only during synchronous native
@@ -369,6 +416,7 @@ impl LibRawEditPreviewSession {
     ) -> Result<Self, BridgeError> {
         let prepared = handle.as_ref().ok_or(BridgeError::NullHandle)?;
         let prepared_dimensions = dimensions(&prepared.dimensions());
+        let level_zero_dimensions = dimensions(&prepared.level_zero_dimensions());
         let prepared_max_edge = prepared.max_edge();
         // This is optional inspection data prepared alongside the immutable source raster. It
         // must never reopen or unpack a RAW file merely to drive a zebra overlay.
@@ -389,11 +437,37 @@ impl LibRawEditPreviewSession {
         Ok(Self {
             handle,
             dimensions: prepared_dimensions,
+            level_zero_dimensions,
             max_edge: prepared_max_edge,
             sensor_clipping_mask,
             raw_development_receipt,
             raw_pipeline_receipt,
             optics_receipt,
+        })
+    }
+
+    /// Reads a bounded, transient map from an already compiled curve-input prefix.
+    pub fn curve_input_map(
+        &self,
+        plan: &AdjustmentRenderPlan,
+        channel: u8,
+        cancellation: &EditPreviewCancellation,
+    ) -> Result<CurveInputMap, BridgeError> {
+        plan.validate()?;
+        let handle = self.handle.as_ref().ok_or(BridgeError::NullHandle)?;
+        let cancel = cancellation
+            .handle
+            .as_ref()
+            .ok_or(BridgeError::NullHandle)?;
+        let map = handle.curve_input_map(
+            &ffi_render_request(plan, self.max_edge, 90),
+            channel,
+            cancel,
+        )?;
+        Ok(CurveInputMap {
+            width: map.width,
+            height: map.height,
+            values: map.values,
         })
     }
 
@@ -405,6 +479,46 @@ impl LibRawEditPreviewSession {
         self.handle
             .as_ref()
             .is_some_and(ffi::EditPreviewHandle::supports_raw_development_rebinding)
+    }
+
+    /// Reports whether this session retained a sensor-domain basis suitable
+    /// for a true RAW neutral picker. Compatibility RGB sources deliberately
+    /// return false rather than inferring a camera white point from display
+    /// pixels.
+    #[must_use]
+    pub fn supports_raw_white_balance_picker(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_some_and(ffi::EditPreviewHandle::supports_raw_white_balance_picker)
+    }
+
+    /// Samples the retained CFA source at a normalized display coordinate and
+    /// returns the calibrated photographic RAW white point when available.
+    #[must_use]
+    pub fn pick_raw_white_balance(
+        &self,
+        normalized_x: f64,
+        normalized_y: f64,
+    ) -> Option<(u32, i16)> {
+        if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
+            return None;
+        }
+        let handle = self.handle.as_ref()?;
+        let presentation = handle.pick_raw_white_balance(normalized_x, normalized_y);
+        presentation
+            .available
+            .then_some((presentation.temperature_kelvin, presentation.tint))
+    }
+
+    /// Estimates one neutral white point from a bounded grid over the exact
+    /// retained CFA source. This never prepares or decodes another source.
+    #[must_use]
+    pub fn auto_raw_white_balance(&self) -> Option<(u32, i16)> {
+        let handle = self.handle.as_ref()?;
+        let presentation = handle.auto_raw_white_balance();
+        presentation
+            .available
+            .then_some((presentation.temperature_kelvin, presentation.tint))
     }
 
     /// Creates a new immutable preview session over the same decoded/denoised RAW basis.
@@ -478,6 +592,12 @@ impl LibRawEditPreviewSession {
     #[must_use]
     pub const fn dimensions(&self) -> ImageDimensions {
         self.dimensions
+    }
+
+    /// Returns the oriented level-zero source dimensions used by pixel-sized edit parameters.
+    #[must_use]
+    pub const fn level_zero_dimensions(&self) -> ImageDimensions {
+        self.level_zero_dimensions
     }
 
     /// Returns the requested longest-edge bound used during preparation.

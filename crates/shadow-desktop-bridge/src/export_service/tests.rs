@@ -59,13 +59,16 @@ fn real_raw_export_renders_a_tightly_packed_full_resolution_raster() {
                 base_commit_id: state.working_commit_id,
                 settings: state.settings,
                 use_working_recipe: true,
+                bit_depth: 8,
             },
         )
         .expect("render full-resolution export");
 
     assert!(raster.width > 0);
     assert!(raster.height > 0);
+    assert_eq!(raster.bit_depth, 8);
     assert_eq!(raster.row_stride_bytes, raster.width * 3);
+    assert!(raster.samples16.is_empty());
     assert_eq!(
         raster.bytes.len(),
         usize::try_from(u64::from(raster.row_stride_bytes) * u64::from(raster.height))
@@ -74,4 +77,33 @@ fn real_raw_export_renders_a_tightly_packed_full_resolution_raster() {
 
     drop(session);
     std::fs::remove_dir_all(root).expect("remove export smoke root");
+}
+
+#[test]
+fn rgb16_tile_copy_uses_sample_strides_and_exact_offsets() {
+    let rect = DetailTileRect {
+        x: 1,
+        y: 1,
+        width: 2,
+        height: 2,
+    };
+    let source = vec![
+        101_u16, 102, 103, 111, 112, 113, 201, 202, 203, 211, 212, 213,
+    ];
+    let mut destination = vec![0_u16; 4 * 3 * 3];
+    copy_export_tile16(
+        &mut destination,
+        4 * 3,
+        &ExportTileCopy16 {
+            origin_x: rect.x,
+            origin_y: rect.y,
+            rect,
+            source: &source,
+            source_row_stride_bytes: 2 * 3 * 2,
+        },
+    )
+    .expect("copy packed RGB16 tile");
+    assert_eq!(&destination[15..21], &source[0..6]);
+    assert_eq!(&destination[27..33], &source[6..12]);
+    assert!(destination[..15].iter().all(|sample| *sample == 0));
 }

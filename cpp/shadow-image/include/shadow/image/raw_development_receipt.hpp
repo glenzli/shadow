@@ -22,9 +22,9 @@ namespace shadow::image {
 // warning bits into a lossy boolean set.
 //
 // The provider-neutral development plan identity and per-list DNG opcode
-// outcome belong to the sole pre-release v1 receipt. Incompatible development
+// outcome belong to the dated local receipt. Incompatible development
 // data is regenerated rather than migrated.
-inline constexpr std::uint32_t raw_development_receipt_schema_version = 1U;
+inline constexpr std::uint32_t raw_development_receipt_schema_version = 2'026'082'101U;
 
 enum class DngOpcodeExecutionStatus : std::uint8_t {
     not_declared,

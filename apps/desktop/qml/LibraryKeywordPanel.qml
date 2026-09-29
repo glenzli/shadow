@@ -17,6 +17,7 @@ Item {
     property bool allowAssignment: false
     property bool allowFiltering: true
     property bool manageTaxonomy: false
+    property bool allowCreation: manageTaxonomy
     property bool showHeading: true
     property string searchText: ""
 
@@ -129,7 +130,7 @@ Item {
             }
 
             ShadowButton {
-                visible: root.manageTaxonomy
+                visible: root.allowCreation
                 compact: true
                 variant: ShadowButton.Ghost
                 text: qsTr("New keyword")
@@ -138,7 +139,7 @@ Item {
             }
         }
 
-        TextField {
+        ShadowTextField {
             id: searchInput
             Layout.fillWidth: true
             placeholderText: qsTr("Search keywords")
@@ -307,22 +308,22 @@ Item {
                             accessibleName: toolTipText
                             onClicked: manageMenu.open()
 
-                            Menu {
+                            ShadowMenu {
                                 id: manageMenu
 
-                                MenuItem {
+                                ShadowMenuItem {
                                     text: qsTr("Create child")
                                     onTriggered: dialogs.openCreateChild(
                                         keywordRow.keywordId,
                                         String(keywordRow.modelData.name))
                                 }
-                                MenuItem {
+                                ShadowMenuItem {
                                     text: qsTr("Rename")
                                     onTriggered: dialogs.openRename(
                                         keywordRow.keywordId,
                                         String(keywordRow.modelData.name))
                                 }
-                                MenuItem {
+                                ShadowMenuItem {
                                     text: qsTr("Move")
                                     onTriggered: dialogs.openMove(
                                         keywordRow.keywordId,
@@ -331,7 +332,7 @@ Item {
                                         Number(keywordRow.modelData.depth))
                                 }
                                 MenuSeparator {}
-                                MenuItem {
+                                ShadowMenuItem {
                                     text: qsTr("Delete subtree")
                                     onTriggered: dialogs.openDelete(
                                         keywordRow.keywordId,

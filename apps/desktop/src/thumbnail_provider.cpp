@@ -4,10 +4,11 @@
 #include "review_model.hpp"
 #include "review_visual_request.hpp"
 
-#include <QByteArrayView>
 #include <QBuffer>
+#include <QByteArrayView>
 #include <QCryptographicHash>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QImageReader>
 #include <QMutexLocker>
 
@@ -135,6 +136,8 @@ QImage ThumbnailProvider::requestImage(
     QSize* size,
     const QSize& requested_size
 ) {
+    QElapsedTimer clock;
+    clock.start();
     if (size != nullptr) {
         *size = {};
     }
@@ -157,6 +160,9 @@ QImage ThumbnailProvider::requestImage(
             if (size != nullptr) {
                 *size = cached->size();
             }
+            if (qEnvironmentVariableIsSet("SHADOW_INTERACTIVE_TIMING"))
+                qInfo() << "Review thumbnail" << "cached" << true << "ms" << clock.elapsed()
+                        << "size" << cached->size();
             return *cached;
         }
     }
@@ -179,6 +185,7 @@ QImage ThumbnailProvider::requestImage(
         return {};
     }
 
+    const qint64 load_ms = clock.elapsed();
     QBuffer buffer;
     buffer.setData(payload.bytes);
     buffer.open(QIODevice::ReadOnly);
@@ -239,5 +246,8 @@ QImage ThumbnailProvider::requestImage(
             imageCacheCost(image)
         );
     }
+    if (qEnvironmentVariableIsSet("SHADOW_INTERACTIVE_TIMING"))
+        qInfo() << "Review thumbnail" << "cached" << false << "load_ms" << load_ms << "decode_ms"
+                << clock.elapsed() - load_ms << "size" << image.size();
     return image;
 }

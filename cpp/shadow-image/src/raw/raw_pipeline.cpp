@@ -2,10 +2,12 @@
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/linear_raster.hpp>
 
 #include "raw_foundation_source.hpp"
 #include "raw_frame_source_development.hpp"
 #include "raw_frame_source_preparation.hpp"
+#include "raw_source_reconstruction.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -75,6 +77,22 @@ inline constexpr std::string_view raw_pipeline_environment = "SHADOW_RAW_PIPELIN
             "provider-processed RAW fallback cannot honor a manual camera neutral"
         );
     }
+    if (path == RawPipelinePath::decoded_raster) {
+        const auto* linear = dynamic_cast<const LinearRasterSource*>(&session);
+        if (linear) {
+            auto frame = linear->linear_raster(preview_max_edge);
+            if (frame) {
+                RawPipelineReceipt receipt;
+                receipt.path = path;
+                receipt.pipeline_identity = "shadow-linear-srgb-f32-v1";
+                receipt.source_provider_id = "shadow-linear-tiff";
+                receipt.source_provider_version = "1";
+                receipt.requested_plan = plan;
+                receipt.effective_plan = plan;
+                return {.source = std::move(*frame), .pipeline_receipt = std::move(receipt)};
+            }
+        }
+    }
     PixelBuffer pixels = preview_max_edge.has_value()
                              ? session.render_reference_rgb_for_preview(*preview_max_edge, plan)
                              : session.render_reference_rgb(plan);
@@ -132,7 +150,8 @@ RawDevelopmentCapabilities shadow_raw_frame_development_capabilities() noexcept 
         | raw_noise_reduction_intent_mask(RawNoiseReductionIntent::noise_robust);
     capabilities.supported_highlight_recovery_intents =
         raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::provider_default)
-        | raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::disabled);
+        | raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::disabled)
+        | raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::aggressive);
     return capabilities;
 }
 
@@ -214,7 +233,7 @@ std::string raw_pipeline_policy_identity(const RawPipelinePolicy& policy) {
     if (policy.schema_version != raw_pipeline_policy_schema_version) {
         throw std::invalid_argument("RAW pipeline policy schema is unsupported");
     }
-    return "raw-pipeline-policy-v1;mode=" + std::string(mode_name(policy.mode));
+    return "raw-pipeline-policy@20260821.1;mode=" + std::string(mode_name(policy.mode));
 }
 
 std::string raw_pipeline_receipt_identity(const RawPipelineReceipt& receipt) {
@@ -222,7 +241,7 @@ std::string raw_pipeline_receipt_identity(const RawPipelineReceipt& receipt) {
         throw std::invalid_argument("RAW pipeline receipt is invalid");
     }
     std::ostringstream identity;
-    identity << "raw-pipeline-receipt-v1;path=" << path_name(receipt.path)
+    identity << "raw-pipeline-receipt@20260821.1;path=" << path_name(receipt.path)
              << ";pipeline=" << receipt.pipeline_identity
              << ";provider=" << receipt.source_provider_id
              << ";provider-version=" << receipt.source_provider_version
@@ -393,9 +412,10 @@ DevelopedSourceReference develop_source_reference(
         );
     }
 
-    RawDevelopmentPlan effective_plan = requested_plan;
-    effective_plan.noise_reduction = RawNoiseReductionIntent::disabled;
-    effective_plan.highlight_recovery = RawHighlightRecoveryIntent::disabled;
+    const RawDevelopmentPlan effective_plan = raw_pipeline_detail::source_reconstruction_effective_plan(
+        requested_plan,
+        raw_pipeline_detail::SourceReconstructionKind::ai_camera_rgb
+    );
     auto prepared = raw_pipeline_detail::prepare_raw_frame_source(
         session,
         effective_plan,

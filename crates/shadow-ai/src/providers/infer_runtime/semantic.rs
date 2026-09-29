@@ -72,6 +72,44 @@ pub trait SemanticEmbeddingProvider {
         language: Option<&str>,
         priority: SemanticRequestPriority,
     ) -> Result<TextEmbeddingEvidence, InferRuntimeClientError>;
+    /// Encodes an image with cancellation.
+    ///
+    /// # Errors
+    ///
+    /// Provider errors are preserved.
+    fn embed_image_semantics_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        priority: SemanticRequestPriority,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<ImageEmbeddingEvidence>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        let value = self.embed_image_semantics(image, media_type, source_revision, priority)?;
+        Ok((!cancelled()).then_some(value))
+    }
+    /// Encodes text with cancellation.
+    ///
+    /// # Errors
+    ///
+    /// Provider errors are preserved.
+    fn embed_text_semantics_cancellable(
+        &self,
+        text: &str,
+        query_revision: &str,
+        language: Option<&str>,
+        priority: SemanticRequestPriority,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<TextEmbeddingEvidence>, InferRuntimeClientError> {
+        if cancelled() {
+            return Ok(None);
+        }
+        let value = self.embed_text_semantics(text, query_revision, language, priority)?;
+        Ok((!cancelled()).then_some(value))
+    }
 }
 
 impl SemanticEmbeddingProvider for InferRuntimeClient {
@@ -82,14 +120,44 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
         source_revision: &str,
         priority: SemanticRequestPriority,
     ) -> Result<ImageEmbeddingEvidence, InferRuntimeClientError> {
-        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
-        let metadata = local_metadata(priority.as_str(), None);
-        let response = self.block_on(self.sdk().embed_image(
-            staged.path(),
+        self.embed_image_semantics_cancellable(
+            image,
             media_type,
             source_revision,
-            &metadata,
-        ))?;
+            priority,
+            &|| false,
+        )?
+        .ok_or_else(|| InferRuntimeClientError::Input("semantic image cancelled".into()))
+    }
+    fn embed_text_semantics(
+        &self,
+        text: &str,
+        query_revision: &str,
+        language: Option<&str>,
+        priority: SemanticRequestPriority,
+    ) -> Result<TextEmbeddingEvidence, InferRuntimeClientError> {
+        self.embed_text_semantics_cancellable(text, query_revision, language, priority, &|| false)?
+            .ok_or_else(|| InferRuntimeClientError::Input("semantic text cancelled".into()))
+    }
+
+    fn embed_image_semantics_cancellable(
+        &self,
+        image: &[u8],
+        media_type: &str,
+        source_revision: &str,
+        priority: SemanticRequestPriority,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<ImageEmbeddingEvidence>, InferRuntimeClientError> {
+        let (staged, media_type) = Self::stage_image(image, media_type, source_revision)?;
+        let metadata = local_metadata(priority.as_str(), None);
+        let Some(response) = self.block_on_cancellable(
+            self.sdk()
+                .embed_image(staged.path(), media_type, source_revision, &metadata),
+            cancelled,
+        )?
+        else {
+            return Ok(None);
+        };
         if response.object != "vision.image_embedding"
             || response.status != "completed"
             || response.source_revision != source_revision
@@ -99,23 +167,24 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
         {
             return malformed("image embedding response violated Shadow's typed evidence contract");
         }
-        Ok(ImageEmbeddingEvidence {
+        Ok(Some(ImageEmbeddingEvidence {
             source_revision: response.source_revision,
             width: response.image.width,
             height: response.image.height,
             orientation: response.image.orientation,
             embedding: admit_embedding(response.embedding)?,
             provenance: admit_vision_provenance(response.provenance)?,
-        })
+        }))
     }
 
-    fn embed_text_semantics(
+    fn embed_text_semantics_cancellable(
         &self,
         text: &str,
         query_revision: &str,
         language: Option<&str>,
         priority: SemanticRequestPriority,
-    ) -> Result<TextEmbeddingEvidence, InferRuntimeClientError> {
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Option<TextEmbeddingEvidence>, InferRuntimeClientError> {
         validate_text_request(text, query_revision, language)?;
         let request = infer_runtime_client::TextEmbeddingRequest {
             model: "semantic.embed_text".into(),
@@ -124,7 +193,11 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
             language: language.map(str::to_owned),
             metadata: local_metadata(priority.as_str(), None),
         };
-        let response = self.block_on(self.sdk().embed_text(&request))?;
+        let Some(response) =
+            self.block_on_cancellable(self.sdk().embed_text(&request), cancelled)?
+        else {
+            return Ok(None);
+        };
         if response.object != "vision.text_embedding"
             || response.status != "completed"
             || response.query_revision != query_revision
@@ -140,12 +213,12 @@ impl SemanticEmbeddingProvider for InferRuntimeClient {
         }) {
             return malformed("text embedding tokenizer provenance is incomplete");
         }
-        Ok(TextEmbeddingEvidence {
+        Ok(Some(TextEmbeddingEvidence {
             query_revision: response.query_revision,
             language: response.language,
             embedding: admit_embedding(response.embedding)?,
             provenance,
-        })
+        }))
     }
 }
 

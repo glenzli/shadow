@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use shadow_bridge::{
     ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentGeometry,
-    AdjustmentLocalMask, AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan,
-    CancellableEditPreview, EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION, EditPreviewCancellation,
+    AdjustmentLocalMask, AdjustmentLocalMaskComponent, AdjustmentMaskComponentOperation,
+    AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan, CancellableEditPreview,
+    EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION, EditPreviewCancellation,
     EditPreviewMaskCoverageRequest, PhotoEditPreviewSession,
 };
 
@@ -71,6 +72,7 @@ fn interactive_owner_fixture() -> InteractiveOwnerFixture {
     let plan = single_masked_layer_plan();
     let request = EditPreviewMaskCoverageRequest {
         target_layer_index: 0,
+        target_component_index: Some(1),
         mask_selection_revision: 73,
     };
     let reference_cancellation =
@@ -90,6 +92,7 @@ fn interactive_owner_fixture() -> InteractiveOwnerFixture {
         panic!("active interactive render must complete");
     };
     let optics = session.optics_receipt().clone();
+    let level_zero_dimensions = session.level_zero_dimensions();
     drop(session);
 
     let storage = frame.storage();
@@ -121,7 +124,11 @@ fn interactive_owner_fixture() -> InteractiveOwnerFixture {
         .samples
         .as_ptr();
 
-    let owner = move_owner(OwnedEditedPreview::interactive(frame, &optics));
+    let owner = move_owner(OwnedEditedPreview::interactive(
+        frame,
+        level_zero_dimensions,
+        &optics,
+    ));
     InteractiveOwnerFixture {
         owner,
         storage,
@@ -135,6 +142,11 @@ fn interactive_owner_fixture() -> InteractiveOwnerFixture {
 fn assert_interactive_projection(fixture: &InteractiveOwnerFixture) {
     let projection = fixture.owner.projection();
     assert_eq!(projection.terminal, ffi::FfiEditPreviewTerminal::Completed);
+    assert_eq!(
+        (projection.level_zero_width, projection.level_zero_height),
+        (960, 640),
+        "the bounded frame retains its exact level-zero source geometry"
+    );
     assert_eq!(projection.row_stride_bytes, projection.width * 3);
     assert!(projection.bytes.is_empty());
     assert!(projection.mask_coverage_available);
@@ -143,6 +155,8 @@ fn assert_interactive_projection(fixture: &InteractiveOwnerFixture) {
         EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION
     );
     assert_eq!(projection.mask_coverage_target_layer_index, 0);
+    assert!(projection.mask_coverage_component_selected);
+    assert_eq!(projection.mask_coverage_target_component_index, 1);
     assert_eq!(projection.mask_selection_revision, 73);
     assert_eq!(projection.mask_coverage_width, projection.width);
     assert_eq!(projection.mask_coverage_height, projection.height);
@@ -260,11 +274,32 @@ fn single_masked_layer_plan() -> AdjustmentRenderPlan {
                 "layer-start",
                 AdjustmentRenderOperation::LocalMaskLayerStart {
                     opacity: 1.0,
-                    mask: Some(AdjustmentLocalMask::LinearGradient {
-                        start_x: 0.0,
-                        start_y: 0.0,
-                        end_x: 1.0,
-                        end_y: 1.0,
+                    mask: Some(AdjustmentLocalMask::Composite {
+                        components: vec![
+                            AdjustmentLocalMaskComponent {
+                                operation: AdjustmentMaskComponentOperation::Base,
+                                enabled: true,
+                                mask: AdjustmentLocalMask::LinearGradient {
+                                    start_x: 0.0,
+                                    start_y: 0.0,
+                                    end_x: 1.0,
+                                    end_y: 1.0,
+                                    invert: false,
+                                },
+                            },
+                            AdjustmentLocalMaskComponent {
+                                operation: AdjustmentMaskComponentOperation::Add,
+                                enabled: true,
+                                mask: AdjustmentLocalMask::RadialGradient {
+                                    center_x: 0.5,
+                                    center_y: 0.5,
+                                    radius_x: 0.25,
+                                    radius_y: 0.2,
+                                    feather: 0.5,
+                                    invert: false,
+                                },
+                            },
+                        ],
                         invert: false,
                     }),
                 },

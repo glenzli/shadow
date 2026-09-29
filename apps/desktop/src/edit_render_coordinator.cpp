@@ -6,6 +6,7 @@
 #include <QtConcurrent>
 
 #include <QImage>
+#include <QDebug>
 #include <QSize>
 #include <QVariantMap>
 
@@ -25,6 +26,10 @@ constexpr std::uint8_t EDIT_INTERACTIVE_PREVIEW_QUALITY = 84;
 
 [[nodiscard]] bool raw_development_unavailable(const QString& error) noexcept {
     return error.startsWith(QStringLiteral("RAW development is unavailable:"));
+}
+
+[[nodiscard]] bool interactive_timing_enabled() {
+    return qEnvironmentVariable("SHADOW_INTERACTIVE_TIMING") == QStringLiteral("1");
 }
 
 
@@ -60,7 +65,11 @@ edit_message(const char *const source,
 } // namespace
 
 void EditController::requestBeforePreview() {
-    if (!active_ || !before_preview_source_.isEmpty()) {
+    if (!active_) {
+        return;
+    }
+    refreshBeforePreviewContext();
+    if (!before_preview_source_.isEmpty()) {
         return;
     }
     if (!before_error_message_.isEmpty()) {
@@ -76,6 +85,22 @@ void EditController::requestBeforePreview() {
 void EditController::finishPreviewTask() {
     EditPreviewTaskResult result = preview_watcher_.result();
     const EditPreviewKind kind = result.generation.kind();
+    if (interactive_preview_timing_token_ == result.generation.render_token) {
+        qInfo().noquote()
+            << QStringLiteral("shadow.interactive-timing token=%1 component=desktop stage=task-finished elapsed_ms=%2 terminal=%3 accepted-candidate=%4")
+                   .arg(result.generation.render_token)
+                   .arg(interactive_preview_timing_.elapsed())
+                   .arg(result.terminal == EditPreviewTerminal::Completed
+                            ? QStringLiteral("completed")
+                            : QStringLiteral("cancelled"))
+                   .arg(active_ && accepts_edit_preview(
+                       result.generation,
+                       photo_generation_,
+                       render_revision_,
+                       before_preview_state_.revision()
+                   ));
+        interactive_preview_timing_token_ = 0;
+    }
     if (preview_render_token_ == result.generation.render_token) {
         preview_render_token_ = 0;
     }
@@ -106,7 +131,8 @@ void EditController::finishPreviewTask() {
     const bool accepted = active_ && accepts_edit_preview(
         result.generation,
         photo_generation_,
-        render_revision_
+        render_revision_,
+        before_preview_state_.revision()
     );
     const bool presentable_current = active_ && can_present_edit_preview(
         result.generation,
@@ -160,6 +186,12 @@ void EditController::finishPreviewTask() {
                 static_cast<int>(result.preview.width),
                 static_cast<int>(result.preview.height)
             );
+            if (level_zero_width_ != result.preview.level_zero_width
+                || level_zero_height_ != result.preview.level_zero_height) {
+                level_zero_width_ = result.preview.level_zero_width;
+                level_zero_height_ = result.preview.level_zero_height;
+                emit previewGeometryChanged();
+            }
             preview_store_->publish(
                 EditPreviewSlot::Current,
                 std::move(result.preview.bytes),
@@ -243,17 +275,17 @@ void EditController::finishPreviewTask() {
                 dimensions,
                 static_cast<qsizetype>(result.preview.row_stride_bytes),
                 std::move(result.preview.display_zebra),
-                result.generation.photo
+                result.generation.before_revision
             );
             publishHistogram(
                 EditPreviewKind::NeutralBefore,
                 result.preview.analysis,
                 display_scope,
-                result.generation.photo
+                result.generation.before_revision
             );
             before_preview_source_ = QStringLiteral(
                 "image://shadow-edit/before?generation=%1"
-            ).arg(result.generation.photo);
+            ).arg(result.generation.before_revision);
             emit beforePreviewSourceChanged();
         }
     }
@@ -312,6 +344,15 @@ void EditController::startPreviewRender() {
     const std::uint8_t jpeg_quality = interactive
         ? EDIT_INTERACTIVE_PREVIEW_QUALITY : EDIT_PREVIEW_QUALITY;
     preview_render_token_ = backend_->beginEditPreviewRequest();
+    if (interactive && interactive_timing_enabled()) {
+        interactive_preview_timing_.restart();
+        interactive_preview_timing_token_ = preview_render_token_;
+        qInfo().noquote()
+            << QStringLiteral("shadow.interactive-timing token=%1 component=desktop stage=task-dispatched")
+                   .arg(preview_render_token_);
+    } else {
+        interactive_preview_timing_token_ = 0;
+    }
     in_flight_preview_policy_ = policy;
     BackendGradeStack preview_stack = grade_stack_;
     if (auto_geometry_controller_) {
@@ -357,6 +398,7 @@ void EditController::startPreviewRender() {
 }
 
 void EditController::maybeStartBeforePreview() {
+    refreshBeforePreviewContext();
     if (detail_rendering_) {
         return;
     }
@@ -381,7 +423,7 @@ void EditController::maybeStartBeforePreview() {
         photo_id_,
         source_path_,
         QString{},
-        BackendGradeStack{},
+        before_preview_state_.stack(),
         preview_render_token_,
         EDIT_PREVIEW_EDGE,
         EDIT_PREVIEW_QUALITY,
@@ -391,8 +433,29 @@ void EditController::maybeStartBeforePreview() {
             .current_revision = 0,
             .render_token = preview_render_token_,
             .recipe_revision = 0,
+            .before_revision = before_preview_state_.revision(),
         }
     ));
+}
+
+void EditController::refreshBeforePreviewContext() {
+    if (!active_)
+        return;
+    auto geometry = grade_stack_.geometry;
+    if (auto_geometry_controller_)
+        (void)auto_geometry_controller_->applyPreviewOverride(geometry);
+    if (!before_preview_state_.observe(
+            photo_generation_, neutral_before_stack(grade_stack_, geometry, crop_tool_active_)))
+        return;
+    const bool requested = before_requested_ || before_rendering_
+                           || !before_preview_source_.isEmpty();
+    if (!before_preview_source_.isEmpty()) {
+        before_preview_source_.clear();
+        emit beforePreviewSourceChanged();
+    }
+    before_requested_ = requested;
+    if (requested)
+        markHistogramUpdating(EditPreviewKind::NeutralBefore);
 }
 
 void EditController::schedulePreview(const int delay_ms) {
@@ -401,6 +464,9 @@ void EditController::schedulePreview(const int delay_ms) {
     }
     cancelDetailWarmupForRecipeEdit();
     ++render_revision_;
+    // Mark current work unsettled before invalidating the Before URL: QML may
+    // synchronously request it again from the source-change notification.
+    refreshBeforePreviewContext();
     markHistogramUpdating(EditPreviewKind::Current);
     scheduleDetailRefreshForRecipeEdit(delay_ms);
     if (current_rendering_ || before_rendering_) {

@@ -29,7 +29,8 @@ void EditController::requestDetailViewport(
     const double center_x,
     const double center_y,
     const int viewport_width_pixels,
-    const int viewport_height_pixels
+    const int viewport_height_pixels,
+    const bool retain_pan_margin
 ) {
     if (!active_ || crop_tool_active_ || !std::isfinite(center_x) || !std::isfinite(center_y)
         || center_x < 0.0 || center_x > 1.0 || center_y < 0.0 || center_y > 1.0
@@ -37,10 +38,46 @@ void EditController::requestDetailViewport(
         || viewport_width_pixels > 8'192 || viewport_height_pixels > 8'192) {
         return;
     }
+    const bool same_request = detail_mode_ && detail_retain_pan_margin_ == retain_pan_margin
+        && detail_center_x_ == center_x
+        && detail_center_y_ == center_y
+        && detail_viewport_width_ == static_cast<std::uint32_t>(viewport_width_pixels)
+        && detail_viewport_height_ == static_cast<std::uint32_t>(viewport_height_pixels);
+    detail_retain_pan_margin_ = retain_pan_margin;
     detail_center_x_ = center_x;
     detail_center_y_ = center_y;
     detail_viewport_width_ = static_cast<std::uint32_t>(viewport_width_pixels);
     detail_viewport_height_ = static_cast<std::uint32_t>(viewport_height_pixels);
+    // A pan inside the already presented rectangle needs only a Scene Graph
+    // transform. Do not create a generation, cancel a worker, copy RGB, or
+    // restart a debounce timer when no new pixels are needed.
+    if (detail_mode_ && settled_render_revision_ == render_revision_
+        && detail_full_width_ > 0 && detail_full_height_ > 0
+        && detail_tiles_.size() == 1) {
+        const auto tile = detail_tiles_.front().toMap();
+        const double width = std::min<double>(viewport_width_pixels, detail_full_width_);
+        const double height = std::min<double>(viewport_height_pixels, detail_full_height_);
+        const double left = std::clamp(std::round(center_x * detail_full_width_ - width / 2),
+            0.0, detail_full_width_ - width);
+        const double top = std::clamp(std::round(center_y * detail_full_height_ - height / 2),
+            0.0, detail_full_height_ - height);
+        const double tile_left = tile.value(QStringLiteral("x")).toDouble();
+        const double tile_top = tile.value(QStringLiteral("y")).toDouble();
+        if (left >= tile_left && top >= tile_top
+            && left + width <= tile_left + tile.value(QStringLiteral("width")).toDouble()
+            && top + height <= tile_top + tile.value(QStringLiteral("height")).toDouble()) {
+            if (detail_queued_ || detail_rendering_) {
+                ++detail_viewport_revision_;
+                invalidateDetailPresentation(false);
+                detail_queued_ = false;
+                detail_debounce_.stop();
+            }
+            return;
+        }
+    }
+    if (same_request && (detail_queued_ || detail_rendering_)) {
+        return;
+    }
     ++detail_viewport_revision_;
     if (!detail_mode_) {
         detail_mode_ = true;
@@ -241,8 +278,15 @@ void EditController::startDetailRender() {
             detail_render_token_,
             detail_center_x_,
             detail_center_y_,
-            detail_viewport_width_,
-            detail_viewport_height_,
+            // Keep a bounded surrounding region ready for subsequent pans.
+            // At high zoom this also preserves the fixed 512px tile grid,
+            // instead of rendering an uncacheable tiny crop at every position.
+            detail_retain_pan_margin_
+                ? std::min(8'192U, std::max(1'025U, detail_viewport_width_ + 512U))
+                : detail_viewport_width_,
+            detail_retain_pan_margin_
+                ? std::min(8'192U, std::max(1'025U, detail_viewport_height_ + 512U))
+                : detail_viewport_height_,
             EditDetailGeneration{
                 .photo = photo_generation_,
                 .recipe_revision = render_revision_,

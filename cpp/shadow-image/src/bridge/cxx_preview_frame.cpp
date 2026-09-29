@@ -96,6 +96,17 @@ InteractiveEditPreviewFrameHandle::mask_coverage_layer_index() const noexcept {
     return coverage == nullptr ? 0U : coverage->layer_index;
 }
 
+bool InteractiveEditPreviewFrameHandle::mask_coverage_component_selected() const noexcept {
+    const auto* const coverage = frame_.mask_coverage();
+    return coverage != nullptr && coverage->component_index.has_value();
+}
+
+std::uint32_t
+InteractiveEditPreviewFrameHandle::mask_coverage_component_index() const noexcept {
+    const auto* const coverage = frame_.mask_coverage();
+    return coverage == nullptr ? 0U : coverage->component_index.value_or(0U);
+}
+
 std::uint32_t
 InteractiveEditPreviewFrameHandle::mask_coverage_width() const noexcept {
     const auto* const coverage = frame_.mask_coverage();

@@ -158,6 +158,16 @@ parse_u32_values(const std::string& text, const char* const label) {
     return static_cast<std::uint32_t>(value);
 }
 
+[[nodiscard]] bool parse_bool01(const std::string& text, const char* const label) {
+    if (text == "0") {
+        return false;
+    }
+    if (text == "1") {
+        return true;
+    }
+    throw std::runtime_error(std::string("RAW frame staging ") + label + " is invalid");
+}
+
 [[nodiscard]] std::int32_t parse_i32(const std::string& text, const char* const label) {
     std::size_t consumed = 0U;
     const auto value = std::stoll(text, &consumed);
@@ -300,6 +310,7 @@ RawFrameStagingReceipt write_raw_frame_staging(
         std::array<char, 4U> cfa{};
         std::array<std::uint32_t, 4U> black{};
         std::array<std::uint32_t, 4U> white{};
+        std::array<std::uint32_t, 4U> linear_response{};
         std::array<double, 4U> neutral{};
         for (std::uint32_t row = 0U; row < 2U; ++row) {
             for (std::uint32_t column = 0U; column < 2U; ++column) {
@@ -308,6 +319,8 @@ RawFrameStagingReceipt write_raw_frame_staging(
                 cfa[active_site] = color_code(frame.descriptor.bayer_2x2[source_site]);
                 black[active_site] = frame.descriptor.black_levels[source_site];
                 white[active_site] = frame.descriptor.white_levels[source_site];
+                linear_response[active_site] =
+                    frame.descriptor.linear_response_limits[source_site];
                 neutral[active_site] = frame.descriptor.as_shot_neutral[source_site];
             }
         }
@@ -317,11 +330,15 @@ RawFrameStagingReceipt write_raw_frame_staging(
             throw std::runtime_error("cannot create RAW frame staging manifest");
         }
         manifest << raw_frame_staging_schema
-                 << " descriptor_contract=active-camera-colour-20260806.1"
+                 << " descriptor_contract=active-camera-colour-response-20260822.1"
                  << " width=" << width << " height=" << height
                  << " cfa=" << std::string(cfa.data(), cfa.size()) << " black=" << black[0] << ','
                  << black[1] << ',' << black[2] << ',' << black[3] << " white=" << white[0] << ','
                  << white[1] << ',' << white[2] << ',' << white[3]
+                 << " linear_response=" << linear_response[0] << ',' << linear_response[1] << ','
+                 << linear_response[2] << ',' << linear_response[3]
+                 << " has_linear_response="
+                 << (frame.descriptor.has_linear_response_limits ? 1 : 0)
                  << " orientation=" << frame.descriptor.orientation
                  << " bits_per_sample=" << frame.descriptor.bits_per_sample
                  << " as_shot_neutral=" << comma_values(neutral) << " camera_to_xyz_d50="
@@ -399,12 +416,14 @@ RawFrame read_raw_frame_staging(const fs::path& manifest_path) {
             throw std::runtime_error("RAW frame staging manifest fields are malformed");
         }
     }
-    constexpr std::array<std::string_view, 16U> required{
+    constexpr std::array<std::string_view, 18U> required{
         "width",
         "height",
         "cfa",
         "black",
         "white",
+        "linear_response",
+        "has_linear_response",
         "orientation",
         "bits_per_sample",
         "as_shot_neutral",
@@ -427,7 +446,7 @@ RawFrame read_raw_frame_staging(const fs::path& manifest_path) {
             throw std::runtime_error("RAW frame staging manifest is missing a required field");
         }
     }
-    if (fields.at("descriptor_contract") != "active-camera-colour-20260806.1") {
+    if (fields.at("descriptor_contract") != "active-camera-colour-response-20260822.1") {
         throw std::runtime_error("RAW frame staging descriptor contract is unsupported");
     }
     const auto width = parse_u32(fields.at("width"), "width");
@@ -469,6 +488,10 @@ RawFrame read_raw_frame_staging(const fs::path& manifest_path) {
     frame.descriptor.bits_per_sample = parse_u32(fields.at("bits_per_sample"), "bits per sample");
     frame.descriptor.black_levels = parse_u32_values<4U>(fields.at("black"), "black levels");
     frame.descriptor.white_levels = parse_u32_values<4U>(fields.at("white"), "white levels");
+    frame.descriptor.linear_response_limits =
+        parse_u32_values<4U>(fields.at("linear_response"), "linear-response limits");
+    frame.descriptor.has_linear_response_limits =
+        parse_bool01(fields.at("has_linear_response"), "linear-response availability");
     frame.descriptor.as_shot_neutral =
         parse_double_values<4U>(fields.at("as_shot_neutral"), "as-shot neutral");
     for (std::size_t index = 0U; index < frame.descriptor.bayer_2x2.size(); ++index) {

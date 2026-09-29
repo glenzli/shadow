@@ -32,6 +32,12 @@ pub(crate) fn merge_shared_grade_node(
         // mask is photo-instance placement and must survive an update to the
         // shared look itself.
         replacement.local_mask.clone_from(&existing.local_mask);
+        replacement
+            .composite_mask
+            .clone_from(&existing.composite_mask);
+        replacement
+            .preserved_managed_raster
+            .clone_from(&existing.preserved_managed_raster);
         if *existing == replacement {
             return Ok(SharedGradeMerge::Unchanged);
         }

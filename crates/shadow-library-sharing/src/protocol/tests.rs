@@ -1,9 +1,12 @@
-use shadow_domain::{EntityId, PhotoId, RepresentationId, RepresentationKind};
+use shadow_domain::{
+    EntityId, GpsMetadataSnapshot, ImageDimensions, PhotoId, RepresentationId, RepresentationKind,
+};
 
 use super::{
-    LIBRARY_PROTOCOL_REVISION, PreviewUnavailableReason, RemoteOriginalIdentity,
-    RemotePhotoManifest, RemotePhotoMetadata, RemotePreviewAvailability,
-    RemoteRepresentationManifest, Request, RequestEnvelope,
+    LIBRARY_PROTOCOL_REVISION, PreviewUnavailableReason, REMOTE_PHOTO_METADATA_SCHEMA_VERSION,
+    RemoteOriginalIdentity, RemotePhotoManifest, RemotePhotoMetadata, RemotePreviewAvailability,
+    RemotePreviewManifest, RemotePreviewPixelOrientation, RemoteRepresentationManifest, Request,
+    RequestEnvelope,
 };
 
 #[test]
@@ -22,6 +25,52 @@ fn request_round_trip_preserves_typed_remote_identity() {
     let decoded: RequestEnvelope = serde_json::from_slice(&json).expect("deserialize request");
     assert_eq!(decoded.protocol_revision, LIBRARY_PROTOCOL_REVISION);
     assert!(matches!(decoded.request, Request::PrepareOriginal { .. }));
+}
+
+#[test]
+fn provider_neutral_metadata_round_trip_preserves_orientation_location_and_dimensions() {
+    let metadata = RemotePhotoMetadata {
+        orientation: Some(6),
+        gps: Some(GpsMetadataSnapshot {
+            latitude_degrees: 31.2304,
+            longitude_degrees: 121.4737,
+            altitude_meters: Some(18.5),
+        }),
+        image_dimensions: Some(ImageDimensions {
+            width: 5_504,
+            height: 8_256,
+        }),
+        focal_length_35mm: Some(52.0),
+        ..RemotePhotoMetadata::default()
+    };
+
+    let encoded = serde_json::to_vec(&metadata).expect("encode metadata");
+    let decoded: RemotePhotoMetadata = serde_json::from_slice(&encoded).expect("decode metadata");
+    assert_eq!(decoded, metadata);
+    assert_eq!(decoded.schema_version, REMOTE_PHOTO_METADATA_SCHEMA_VERSION);
+}
+
+#[test]
+fn older_metadata_and_preview_manifests_receive_safe_defaults() {
+    let metadata: RemotePhotoMetadata = serde_json::from_str(
+        r#"{"camera_make":"Legacy","camera_model":"Camera","lens_make":"","lens_model":"","captured_at_unix_seconds":null,"iso_speed":null,"exposure_time_seconds":null,"aperture_f_number":null,"focal_length_mm":null,"raw_dimensions":null}"#,
+    )
+    .expect("decode older metadata");
+    assert_eq!(
+        metadata.schema_version,
+        REMOTE_PHOTO_METADATA_SCHEMA_VERSION
+    );
+    assert!(metadata.orientation.is_none());
+    assert!(metadata.gps.is_none());
+
+    let preview: RemotePreviewManifest = serde_json::from_str(
+        r#"{"role":"generated_proxy","digest_blake3":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"byte_len":1,"codec":"jpeg","dimensions":{"width":1,"height":1}}"#,
+    )
+    .expect("decode older preview manifest");
+    assert_eq!(
+        preview.pixel_orientation,
+        RemotePreviewPixelOrientation::EncodedMetadata
+    );
 }
 
 #[test]

@@ -11,8 +11,18 @@ Item {
     id: menus
 
     required property var editor
+    required property var interchangeController
+    property var lutExportController: null
+
+    function openExchange(anchorItem) {
+        const point = anchorItem.mapToItem(exchangePopup.parent, 0, anchorItem.height + 5)
+        exchangePopup.x = point.x
+        exchangePopup.y = point.y
+        exchangePopup.open()
+    }
 
     signal cropGeometryRequested
+    signal repairRequested
     signal liquifyRequested
 
     function openAdd(anchorItem) {
@@ -53,7 +63,7 @@ Item {
         contentItem: Label {
             text: popupAction.text
             color: popupAction.enabled ? Theme.textPrimary : Theme.textDisabled
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSection
             font.weight: Font.Medium
             horizontalAlignment: Text.AlignLeft
             verticalAlignment: Text.AlignVCenter
@@ -84,7 +94,7 @@ Item {
                 bottomPadding: 3
                 text: qsTr("STRUCTURAL")
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.35
             }
@@ -123,6 +133,15 @@ Item {
                 }
             }
 
+            PopupAction {
+                text: qsTr("Repair")
+                onClicked: {
+                    addGradeNodePopup.close()
+                    menus.editor.selectRetouchNode()
+                    menus.repairRequested()
+                }
+            }
+
             Rectangle {
                 width: parent.width
                 height: 1
@@ -136,7 +155,7 @@ Item {
                 bottomPadding: 3
                 text: qsTr("ADJUSTMENTS")
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.35
             }
@@ -157,7 +176,7 @@ Item {
                 bottomPadding: 3
                 text: qsTr("SHARED NODES")
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.35
             }
@@ -171,7 +190,7 @@ Item {
                 bottomPadding: 8
                 text: qsTr("No shared nodes yet")
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
             }
 
             Repeater {
@@ -272,17 +291,17 @@ Item {
                 Layout.fillWidth: true
                 text: qsTr("Shared Grade Node")
                 color: Theme.textPrimary
-                font.pixelSize: 15
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
             Label {
                 Layout.fillWidth: true
                 text: qsTr("A stable library node can be linked to many photos.")
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
             }
-            TextField {
+            ShadowTextField {
                 id: sharedNodeNameField
                 Layout.fillWidth: true
                 placeholderText: qsTr("Node name")
@@ -325,5 +344,66 @@ Item {
                 }
             }
         }
+    }
+
+    Popup {
+        id: exchangePopup
+        parent: Overlay.overlay
+        width: 280
+        padding: 7
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle {
+            radius: 8
+            color: Theme.panelRaised
+            border.color: Theme.borderStrong
+        }
+        contentItem: Column {
+            spacing: 2
+            PopupAction {
+                text: qsTr("Import Shadow Recipe…")
+                onClicked: { exchangePopup.close(); shadowRecipeDialog.chooseImportFile() }
+            }
+            PopupAction {
+                text: qsTr("Import XMP adjustments…")
+                enabled: menus.editor.canAddGradeNode
+                onClicked: { exchangePopup.close(); xmpImportDialog.chooseFile() }
+            }
+            PopupAction {
+                text: qsTr("Export current Recipe…")
+                onClicked: { exchangePopup.close(); shadowRecipeDialog.chooseExportFile(false) }
+            }
+            PopupAction {
+                text: qsTr("Export selected Grade Node…")
+                enabled: menus.editor.selectedRecipeNodeKind === "grade"
+                onClicked: { exchangePopup.close(); shadowRecipeDialog.chooseExportFile(true) }
+            }
+            PopupAction {
+                text: qsTr("Export grading as LUT…")
+                enabled: menus.lutExportController !== null
+                onClicked: { exchangePopup.close(); lutExportDialog.present(false) }
+            }
+            PopupAction {
+                text: qsTr("Export selected node as LUT…")
+                enabled: menus.lutExportController !== null
+                    && menus.editor.selectedRecipeNodeKind === "grade"
+                onClicked: { exchangePopup.close(); lutExportDialog.present(true) }
+            }
+        }
+    }
+
+    LutExportDialog {
+        id: lutExportDialog
+        controller: menus.lutExportController
+    }
+
+    XmpImportDialog {
+        id: xmpImportDialog
+        interchangeController: menus.interchangeController
+    }
+
+    ShadowRecipeInterchangeDialog {
+        id: shadowRecipeDialog
+        editor: menus.editor
+        interchangeController: menus.interchangeController
     }
 }

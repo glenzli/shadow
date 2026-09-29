@@ -160,8 +160,68 @@ struct ResolvedCalibration final {
 };
 
 [[nodiscard]] ResolvedCalibration
-resolve_calibration(const DcpProfile& profile, const Vector3& camera_neutral) {
+resolve_calibration(
+    const DcpProfile& profile,
+    const Vector3& camera_neutral,
+    const RawWhiteBalance& white_balance
+) {
     const Matrix3 color1 = from_dcp(profile.calibration1.color_matrix);
+    const auto authored_white =
+        white_balance.mode == RawWhiteBalanceMode::temperature_tint
+            ? raw_white_xy_from_temperature_tint(
+                  static_cast<double>(white_balance.temperature_kelvin),
+                  static_cast<double>(white_balance.tint)
+              )
+            : std::optional<std::array<double, 2U>>{};
+
+    // A manual temperature/tint is an authored white point, not an observation to be inferred
+    // again from a profile-interpolated camera neutral.  Re-solving it below would choose a
+    // different dual-illuminant weight than the one used by raw_dcp_camera_neutral(), so tiny
+    // slider changes could produce a discontinuous colour transform.
+    if (authored_white.has_value()) {
+        const Vector3 white_xyz = xy_to_xyz((*authored_white)[0], (*authored_white)[1]);
+        const double temperature = static_cast<double>(white_balance.temperature_kelvin);
+        if (!profile.calibration2.has_value()) {
+            return ResolvedCalibration{
+                .color_matrix = color1,
+                .forward_matrix =
+                    profile.calibration1.forward_matrix.has_value()
+                        ? std::optional<Matrix3>(from_dcp(*profile.calibration1.forward_matrix))
+                        : std::nullopt,
+                .white_xyz = white_xyz,
+                .temperature = temperature,
+                .calibration1_weight = 1.0,
+            };
+        }
+
+        const auto temperature1 = illuminant_temperature(profile.calibration1.illuminant);
+        const auto temperature2 = illuminant_temperature(profile.calibration2->illuminant);
+        if (!temperature1.has_value() || !temperature2.has_value()) {
+            fail(
+                DcpColorDevelopmentErrorCode::unsupported_illuminant,
+                "dual-illuminant DCP uses a light source outside Shadow's v1 standard set"
+            );
+        }
+        const double weight = reciprocal_temperature_weight(temperature, *temperature1, *temperature2);
+        std::optional<Matrix3> forward;
+        const auto& forward1 = profile.calibration1.forward_matrix;
+        const auto& forward2 = profile.calibration2->forward_matrix;
+        if (forward1.has_value() && forward2.has_value()) {
+            forward = interpolate(from_dcp(*forward1), from_dcp(*forward2), weight);
+        } else if (forward1.has_value()) {
+            forward = from_dcp(*forward1);
+        } else if (forward2.has_value()) {
+            forward = from_dcp(*forward2);
+        }
+        return ResolvedCalibration{
+            .color_matrix = interpolate(color1, from_dcp(profile.calibration2->color_matrix), weight),
+            .forward_matrix = forward,
+            .white_xyz = white_xyz,
+            .temperature = temperature,
+            .calibration1_weight = weight,
+        };
+    }
+
     if (!profile.calibration2.has_value()) {
         const Vector3 source_xyz = multiply(invert(color1), camera_neutral);
         const auto xy = xyz_to_xy(source_xyz);
@@ -321,6 +381,11 @@ bool DcpColorDevelopmentReceipt::valid() const noexcept {
 
 bool DcpColorTransform::valid() const noexcept {
     return receipt.valid() && finite_matrix(camera_to_linear_srgb_d65)
+           && std::all_of(
+               camera_neutral.begin(),
+               camera_neutral.end(),
+               [](const double value) { return std::isfinite(value) && value > 0.0; }
+           )
            && detail::dcp_rendering_stages_valid(*this);
 }
 
@@ -331,6 +396,16 @@ DcpColorTransform::apply(const std::array<double, 3U>& camera_rgb) const noexcep
 
 bool DcpColorTransform::has_post_matrix_stages() const noexcept {
     return hue_sat_map.has_value() || look_table.has_value() || !tone_curve.empty();
+}
+
+void DcpColorTransform::clear_post_matrix_stages() noexcept {
+    hue_sat_map.reset();
+    look_table.reset();
+    tone_curve.clear();
+    tone_curve_second_derivatives.clear();
+    receipt.hue_sat_map_applied = false;
+    receipt.look_table_applied = false;
+    receipt.tone_curve_applied = false;
 }
 
 DcpColorTransform compile_dcp_color_transform(
@@ -354,7 +429,7 @@ DcpColorTransform compile_dcp_color_transform(
     }
     const DcpProfile& profile = definition.profile;
     const Vector3 neutral = canonical_camera_neutral(profile, descriptor, white_balance);
-    const ResolvedCalibration calibration = resolve_calibration(profile, neutral);
+    const ResolvedCalibration calibration = resolve_calibration(profile, neutral, white_balance);
     DcpMatrixRoute route = DcpMatrixRoute::inverse_color_matrix;
     Matrix3 camera_to_d50 = normalized_camera_to_xyz_d50(calibration, neutral, route);
     const Matrix3 d50_to_d65 = chromatic_adaptation(d50_xyz, d65_xyz);
@@ -373,6 +448,7 @@ DcpColorTransform compile_dcp_color_transform(
 
     DcpColorTransform result{
         .camera_to_linear_srgb_d65 = camera_to_srgb,
+        .camera_neutral = neutral,
         .hue_sat_map = rendering_stages.hue_sat_map,
         .look_table = rendering_stages.look_table,
         .tone_curve = rendering_stages.tone_curve,

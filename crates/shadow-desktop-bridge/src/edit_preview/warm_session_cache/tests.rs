@@ -158,6 +158,64 @@ fn only_white_balance_can_share_a_rebinding_source() {
 }
 
 #[test]
+fn raw_white_balance_picker_reuses_the_same_cfa_source_across_preview_edges() {
+    let base = key();
+    let mut another_preview_edge = base.clone();
+    another_preview_edge.max_edge = 1_536;
+    assert!(
+        !base.matches(&another_preview_edge),
+        "different presentation edges remain distinct render-cache entries"
+    );
+    assert!(
+        !base.shares_rebindable_raw_source(&another_preview_edge),
+        "render rebinding keeps its bounded presentation edge"
+    );
+    assert!(
+        base.shares_raw_white_balance_picker_source(&another_preview_edge),
+        "the picker samples normalized CFA coordinates and must not fail after a preview-size change"
+    );
+
+    let mut changed_sensor_stage = another_preview_edge;
+    changed_sensor_stage.raw_development_plan.noise_reduction =
+        shadow_bridge::RawNoiseReductionIntent::NoiseRobust;
+    assert!(
+        !base.shares_raw_white_balance_picker_source(&changed_sensor_stage),
+        "a picker may never cross a RAW sensor-stage change"
+    );
+}
+
+#[test]
+fn automatic_white_balance_uses_the_same_bounded_cfa_cache_identity() {
+    let base = key();
+    let mut another_preview_edge = base.clone();
+    another_preview_edge.max_edge = 1_536;
+    assert!(base.shares_raw_white_balance_picker_source(&another_preview_edge));
+
+    let mut changed_optics = another_preview_edge;
+    changed_optics.optics.manual_distortion = 1;
+    assert!(
+        !base.shares_raw_white_balance_picker_source(&changed_optics),
+        "the automatic estimate may not cross a source-stage optics identity"
+    );
+}
+
+#[test]
+fn persisted_manual_white_balance_prepares_an_as_shot_resident_source() {
+    let requested =
+        RawDevelopmentPlan::preview().with_white_balance(RawWhiteBalance::temperature_tint(
+            RawTemperatureTint::new(7_350, -71).expect("manual temperature/tint"),
+        ));
+
+    let base = manual_white_balance_base_plan(requested)
+        .expect("manual white balance requires an as-shot resident preparation");
+    assert!(base.white_balance.is_as_shot());
+    assert_eq!(base.noise_reduction, requested.noise_reduction);
+    assert_eq!(base.quality, requested.quality);
+    assert_eq!(base.intent, requested.intent);
+    assert!(manual_white_balance_base_plan(RawDevelopmentPlan::preview()).is_none());
+}
+
+#[test]
 fn foundation_amount_is_an_exact_output_key_but_not_a_cold_source_key() {
     let mut full = key();
     full.raw_foundation = Some(raw_foundation_identity());

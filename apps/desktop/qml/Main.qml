@@ -12,7 +12,10 @@ ApplicationWindow {
     required property var justifiedReviewLayout
     required property var reviewGalleryGrouping
     required property var editor
+    required property var editInterchangeController
+    property var lutExportController: null
     required property var editPreviewPresentation
+    required property var compositionController
     required property var exportController
     required property var cacheMaintenanceController
     required property var peopleAnalysisController
@@ -37,6 +40,10 @@ ApplicationWindow {
     readonly property int peopleWorkspacePage: 3
     readonly property int mapWorkspacePage: 4
     property int workspaceIndex: reviewWorkspacePage
+    // Precision keeps an edit-scoped snapshot. Review selection may move while
+    // the editor remains open, especially after a remote photo is materialized
+    // into a distinct local Catalog identity.
+    property var precisionCaptureMetadata: ({})
 
     width: 1480
     height: 920
@@ -90,6 +97,7 @@ ApplicationWindow {
         !applicationSettingsDialog.opened
         && !personalProfileDialog.opened
         && !exportDialog.opened
+        && !compositionDialog.opened
         && !historyDrawer.opened
     readonly property bool nativeWebMapForegroundAllowed:
         window.workspaceIndex === mapWorkspacePage
@@ -140,6 +148,7 @@ ApplicationWindow {
         id: applicationSettingsDialog
         preferences: window.preferences
         aiPreferences: window.aiPreferences
+        peopleAnalysisController: window.peopleAnalysisController
         imageUnderstandingController: window.imageUnderstandingController
         cachePreferences: window.cachePreferences
         cacheMaintenanceController: window.cacheMaintenanceController
@@ -175,6 +184,11 @@ ApplicationWindow {
         id: opticsProfileManager
         editor: window.editor
         opticsProfileLibrary: window.opticsProfileLibrary
+    }
+
+    PhotoCompositionDialog {
+        id: compositionDialog
+        compositionController: window.compositionController
     }
 
     ExportDialog {
@@ -214,13 +228,26 @@ ApplicationWindow {
         workspaceIndex = workspace
     }
 
+    Connections {
+        target: window.peopleAnalysisController
+        function onGroupOpened(groupId, name, photoIds) {
+            window.controller.openPerson(groupId, name, photoIds)
+            window.showReview()
+        }
+        function onResultsChanged() {
+            const id = window.controller.personFilterId
+            if (id.length > 0)
+                window.controller.setPersonFilter(id, window.peopleAnalysisController.groupName(id),
+                    window.peopleAnalysisController.groupPhotoIds(id))
+        }
+    }
+
     function showReview() {
         leavePrecision(reviewWorkspacePage)
     }
 
     function showPrecision() {
-        if ((workspaceIndex === reviewWorkspacePage
-                || workspaceIndex === mapWorkspacePage)
+        if (workspaceIndex !== precisionWorkspacePage
                 && reviewWorkspace.canOpenSelectedPhoto) {
             if (editor.active
                     && editor.photoId === reviewWorkspace.selectedPhotoId
@@ -254,16 +281,19 @@ ApplicationWindow {
         libraryFolderDialog.open()
     }
 
-    function openPrecision(photoId, representationId, sourcePath, photoTitle, previewSource) {
+    function openPrecision(photoId, representationId, sourcePath, photoTitle, previewSource,
+                           captureMetadata) {
         if (editor.active && editor.photoId === photoId
                 && editor.representationId === representationId
                 && editor.sourcePath === sourcePath) {
+            precisionCaptureMetadata = captureMetadata || ({})
             reviewWorkspace.precisionOpenStatus = ""
             workspaceIndex = precisionWorkspacePage
             return
         }
         if (editor.openPhoto(photoId, representationId, sourcePath, photoTitle,
                              previewSource || "")) {
+            precisionCaptureMetadata = captureMetadata || ({})
             reviewWorkspace.precisionOpenStatus = ""
             workspaceIndex = precisionWorkspacePage
         } else {
@@ -289,6 +319,7 @@ ApplicationWindow {
     header: MainTitleBar {
         hostWindow: window
         editor: window.editor
+        exportController: window.exportController
         settingsDialog: applicationSettingsDialog
         personalProfile: window.personalProfile
         personalProfileDialog: personalProfileDialog
@@ -304,6 +335,7 @@ ApplicationWindow {
         onPrecisionRequested: window.showPrecision()
         onMapRequested: window.showMap()
         onPeopleRequested: window.showPeople()
+        onExportActivityRequested: exportDialog.open()
         onHistoryRequested: {
             if (historyDrawer.opened) {
                 historyDrawer.close()
@@ -323,6 +355,10 @@ ApplicationWindow {
 
         ReviewWorkspace {
             id: reviewWorkspace
+            peopleController: window.peopleAnalysisController
+            // Preserve the last person's view while browsing people. Opening
+            // another person replaces it; All Photos explicitly leaves the scope.
+            onReturnToPeopleRequested: window.showPeople()
             Layout.fillWidth: true
             Layout.fillHeight: true
             controller: window.controller
@@ -344,11 +380,12 @@ ApplicationWindow {
                 && !window.mapNativeSurfaceBlocked
             nativeLocationDialogWebMapAllowed:
                 window.nativeLocationDialogWebMapAllowed
+            onCompositionRequested: (targets, mode) => compositionDialog.present(targets, mode)
             onExportRequested: targets => exportDialog.present(targets)
             onOpenPrecisionRequested: (photoId, representationId, sourcePath, photoTitle,
-                                        previewSource) => {
+                                        previewSource, captureMetadata) => {
                 window.openPrecision(photoId, representationId, sourcePath, photoTitle,
-                                     previewSource)
+                                     previewSource, captureMetadata)
             }
             onOpenLibraryManagementRequested: window.showLibrary()
             onOpenMapProviderSettingsRequested:
@@ -361,39 +398,11 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             editor: window.editor
+            interchangeController: window.editInterchangeController
+            lutExportController: window.lutExportController
             editPreviewPresentation: window.editPreviewPresentation
             lutLibrary: window.lutLibrary
-            captureMetadata: ({
-                representationId: reviewWorkspace.selectedRepresentationId,
-                pending: window.controller.scanning || window.controller.refreshing,
-                available: reviewWorkspace.selectedHasMetadata,
-                cameraMake: reviewWorkspace.selectedCameraMake,
-                cameraModel: reviewWorkspace.selectedCameraModel,
-                lensMake: reviewWorkspace.selectedLensMake,
-                lensModel: reviewWorkspace.selectedLensModel,
-                isoSpeed: reviewWorkspace.selectedIsoSpeed,
-                exposureTimeSeconds: reviewWorkspace.selectedExposureTimeSeconds,
-                apertureFNumber: reviewWorkspace.selectedApertureFNumber,
-                focalLengthMm: reviewWorkspace.selectedFocalLengthMm,
-                hasFocusObservation:
-                    reviewWorkspace.selectedHasFocusObservation,
-                focusObservationSchemaVersion:
-                    reviewWorkspace.selectedFocusObservationSchemaVersion,
-                focusObservationSource:
-                    reviewWorkspace.selectedFocusObservationSource,
-                focusObservationCenterX:
-                    reviewWorkspace.selectedFocusObservationCenterX,
-                focusObservationCenterY:
-                    reviewWorkspace.selectedFocusObservationCenterY,
-                focusObservationWidth:
-                    reviewWorkspace.selectedFocusObservationWidth,
-                focusObservationHeight:
-                    reviewWorkspace.selectedFocusObservationHeight,
-                focusObservationConfirmed:
-                    reviewWorkspace.selectedFocusObservationConfirmed,
-                focusObservationConfidence:
-                    reviewWorkspace.selectedFocusObservationConfidence
-            })
+            captureMetadata: window.precisionCaptureMetadata
             onOpenLutLibraryRequested: window.openLutManager()
             onOpenOpticsProfileLibraryRequested: window.openOpticsProfileManager()
             onReturnToReviewRequested: window.showReview()
@@ -410,6 +419,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             controller: window.peopleAnalysisController
+            aiPreferences: window.aiPreferences
         }
 
         LibraryMapWorkspace {

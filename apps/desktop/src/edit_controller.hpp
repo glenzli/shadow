@@ -1,7 +1,9 @@
 #pragma once
 
 #include "desktop_backend.hpp"
+#include "edit_before_preview_state.hpp"
 #include "edit_history.hpp"
+#include "edit_history_snapshot.hpp"
 #include "edit_persistence_state.hpp"
 #include "edit_preview_contract.hpp"
 #include "edit_preview_provider.hpp"
@@ -10,8 +12,10 @@
 #include "localized_ui_message.hpp"
 #include "preview_diagnostics.hpp"
 #include "tone_curve_point_model.hpp"
+#include "xmp_develop_import.hpp"
 
 #include <QAbstractItemModel>
+#include <QElapsedTimer>
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QObject>
@@ -27,7 +31,13 @@
 #include <optional>
 
 class EditPreviewPresentationContext;
+class EditAiCompletionController;
 class EditAiMaskController;
+class EditSubjectEmphasisController;
+class EditAutoStartController;
+class EditPaintController;
+class EditTargetedCurveController;
+class EditRetouchSources;
 class EditAutoGeometryController;
 class EditPersistenceTaskCoordinator;
 class EditRawFoundationController;
@@ -45,6 +55,8 @@ class EditController final : public QObject {
     Q_PROPERTY(QString detailErrorText READ detailErrorText NOTIFY detailErrorTextChanged)
     Q_PROPERTY(quint32 detailFullWidth READ detailFullWidth NOTIFY detailGeometryChanged)
     Q_PROPERTY(quint32 detailFullHeight READ detailFullHeight NOTIFY detailGeometryChanged)
+    Q_PROPERTY(quint32 levelZeroWidth READ levelZeroWidth NOTIFY previewGeometryChanged)
+    Q_PROPERTY(quint32 levelZeroHeight READ levelZeroHeight NOTIFY previewGeometryChanged)
     Q_PROPERTY(quint64 detailRetainedBytes READ detailRetainedBytes NOTIFY detailGeometryChanged)
     Q_PROPERTY(QVariantList detailTiles READ detailTiles NOTIFY detailTilesChanged)
     Q_PROPERTY(
@@ -221,15 +233,45 @@ class EditController final : public QObject {
     Q_PROPERTY(QString opticsCameraProfile READ opticsCameraProfile NOTIFY opticsChanged)
     Q_PROPERTY(QString opticsLensProfile READ opticsLensProfile NOTIFY opticsChanged)
     // A local mask belongs to the selected Grade Node instance, never to the
-    // shareable adjustment graph. The compact map keeps QML insulated from
-    // the persisted backend layout while all shape values remain normalized.
+    // shareable adjustment graph. One node owns one ordered component vector;
+    // QML edits the selected leaf while the renderer remains authoritative for
+    // the final Base/Add/Subtract/Intersect coverage.
+    Q_PROPERTY(QVariantList localMaskComponents READ localMaskComponents NOTIFY parametersChanged)
+    Q_PROPERTY(
+        QVariantMap selectedConditionMask READ selectedConditionMask NOTIFY parametersChanged
+    )
+    Q_PROPERTY(
+        int selectedLocalMaskComponentIndex READ selectedLocalMaskComponentIndex NOTIFY
+            parametersChanged
+    )
     Q_PROPERTY(QVariantMap selectedLocalMask READ selectedLocalMask NOTIFY parametersChanged)
     Q_PROPERTY(
         bool maskToolActive READ maskToolActive WRITE setMaskToolActive NOTIFY maskToolActiveChanged
     )
     Q_PROPERTY(QString maskCoverageSource READ maskCoverageSource NOTIFY maskCoverageSourceChanged)
+    Q_PROPERTY(
+        bool maskCoverageShowsSelectedComponent READ maskCoverageShowsSelectedComponent WRITE
+            setMaskCoverageShowsSelectedComponent NOTIFY maskCoverageModeChanged
+    )
+    Q_PROPERTY(QObject* paint READ paint CONSTANT)
+    Q_PROPERTY(QObject* targetedCurve READ targetedCurve CONSTANT)
+    Q_PROPERTY(QObject* autoStart READ autoStart CONSTANT)
+    Q_PROPERTY(QObject* subjectEmphasis READ subjectEmphasis CONSTANT)
     Q_PROPERTY(bool aiMaskPromptActive READ aiMaskPromptActive NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskBusy READ aiMaskBusy NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(bool aiMaskFaceRegionMode READ aiMaskFaceRegionMode NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(bool aiMaskSemanticMode READ aiMaskSemanticMode NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(QString aiMaskSemanticQuery READ aiMaskSemanticQuery NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(
+        int aiMaskFaceRegion READ aiMaskFaceRegion WRITE setAiMaskFaceRegion NOTIFY
+            aiMaskPromptChanged
+    )
+    Q_PROPERTY(QVariantList aiMaskPeople READ aiMaskPeople NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(
+        int aiMaskSelectedPerson READ aiMaskSelectedPerson WRITE setAiMaskSelectedPerson NOTIFY
+            aiMaskPromptChanged
+    )
+    Q_PROPERTY(int aiMaskFaceRegionMask READ aiMaskFaceRegionMask NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(
         bool aiMaskForegroundMode READ aiMaskForegroundMode WRITE setAiMaskForegroundMode NOTIFY
             aiMaskPromptChanged
@@ -238,6 +280,47 @@ class EditController final : public QObject {
     Q_PROPERTY(bool aiMaskCanGenerate READ aiMaskCanGenerate NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(bool aiMaskHasCandidate READ aiMaskHasCandidate NOTIFY aiMaskPromptChanged)
     Q_PROPERTY(QString aiMaskCandidateSource READ aiMaskCandidateSource NOTIFY aiMaskPromptChanged)
+    Q_PROPERTY(bool imageCompletionActive READ imageCompletionActive NOTIFY imageCompletionChanged)
+    Q_PROPERTY(bool imageCompletionBusy READ imageCompletionBusy NOTIFY imageCompletionChanged)
+    Q_PROPERTY(
+        bool imageCompletionCanGenerate READ imageCompletionCanGenerate NOTIFY
+            imageCompletionChanged
+    )
+    Q_PROPERTY(
+        bool imageCompletionExecutionAllowed READ imageCompletionExecutionAllowed WRITE
+            setImageCompletionExecutionAllowed NOTIFY imageCompletionChanged
+    )
+    Q_PROPERTY(
+        bool imageCompletionHasCandidate READ imageCompletionHasCandidate NOTIFY
+            imageCompletionChanged
+    )
+    Q_PROPERTY(
+        QString imageCompletionCandidateSource READ imageCompletionCandidateSource NOTIFY
+            imageCompletionChanged
+    )
+    Q_PROPERTY(
+        QVariantList imageCompletionBrushPoints READ imageCompletionBrushPoints NOTIFY
+            imageCompletionChanged
+    )
+    Q_PROPERTY(
+        double imageCompletionBrushRadius READ imageCompletionBrushRadius WRITE
+            setImageCompletionBrushRadius NOTIFY imageCompletionChanged
+    )
+    Q_PROPERTY(
+        bool imageCompletionEraseMode READ imageCompletionEraseMode WRITE
+            setImageCompletionEraseMode NOTIFY imageCompletionChanged
+    )
+    Q_PROPERTY(
+        QVariantList imageCompletionRegions READ imageCompletionRegions NOTIFY parametersChanged
+    )
+    Q_PROPERTY(
+        bool imageCompletionNodeMaterialized READ imageCompletionNodeMaterialized NOTIFY
+            parametersChanged
+    )
+    Q_PROPERTY(
+        bool imageCompletionNodeEnabled READ imageCompletionNodeEnabled WRITE
+            setImageCompletionNodeEnabled NOTIFY parametersChanged
+    )
     Q_PROPERTY(
         bool rawDenoiseExecutionAllowed READ rawDenoiseExecutionAllowed NOTIFY
             foundationAiDenoiseChanged
@@ -253,6 +336,10 @@ class EditController final : public QObject {
     // or disabled.
     Q_PROPERTY(QVariantList retouchSpots READ retouchSpots NOTIFY parametersChanged)
     Q_PROPERTY(QVariantList retouchStrokes READ retouchStrokes NOTIFY parametersChanged)
+    Q_PROPERTY(
+        bool retouchNodeEnabled READ retouchNodeEnabled WRITE setRetouchNodeEnabled NOTIFY
+            parametersChanged
+    )
     // Liquify is one optional photo-private structural node. The controller
     // exposes its ordered gestures, not a reusable node-list identity.
     Q_PROPERTY(QVariantList liquifyStrokes READ liquifyStrokes NOTIFY parametersChanged)
@@ -326,6 +413,7 @@ class EditController final : public QObject {
     Q_PROPERTY(
         QString selectedRecipeNodeKind READ selectedRecipeNodeKind NOTIFY selectedGradeNodeChanged
     )
+    Q_PROPERTY(bool retouchNodeMaterialized READ retouchNodeMaterialized NOTIFY parametersChanged)
     Q_PROPERTY(bool liquifyNodeMaterialized READ liquifyNodeMaterialized NOTIFY parametersChanged)
     Q_PROPERTY(bool canAddGradeNode READ canAddGradeNode NOTIFY gradeNodeActionsChanged)
     Q_PROPERTY(bool canDeleteGradeNode READ canDeleteGradeNode NOTIFY gradeNodeActionsChanged)
@@ -378,13 +466,40 @@ class EditController final : public QObject {
             retouchCreationModeChanged
     )
     Q_PROPERTY(
+        int retouchBrushRadius READ retouchBrushRadius WRITE setRetouchBrushRadius NOTIFY
+            retouchBrushChanged
+    )
+    Q_PROPERTY(
+        double retouchBrushFeather READ retouchBrushFeather WRITE setRetouchBrushFeather NOTIFY
+            retouchBrushChanged
+    )
+    Q_PROPERTY(
+        double retouchBrushStrength READ retouchBrushStrength WRITE setRetouchBrushStrength NOTIFY
+            retouchBrushChanged
+    )
+    Q_PROPERTY(
         bool retouchSourceAligned READ retouchSourceAligned WRITE setRetouchSourceAligned NOTIFY
             retouchSourceChanged
     )
+    Q_PROPERTY(bool retouchSourcePicking READ retouchSourcePicking NOTIFY retouchSourceChanged)
     Q_PROPERTY(bool retouchSourceSampled READ retouchSourceSampled NOTIFY retouchSourceChanged)
+    Q_PROPERTY(
+        QVariantMap retouchSampledSource READ retouchSampledSource NOTIFY retouchSourceChanged
+    )
     Q_PROPERTY(
         bool whiteBalancePickerActive READ whiteBalancePickerActive NOTIFY
             whiteBalancePickerActiveChanged
+    )
+    Q_PROPERTY(
+        bool rawWhiteBalancePickerActive READ rawWhiteBalancePickerActive NOTIFY
+            rawWhiteBalancePickerActiveChanged
+    )
+    Q_PROPERTY(
+        int toneCurveChannel READ toneCurveChannel WRITE setToneCurveChannel NOTIFY toneCurveChanged
+    )
+    Q_PROPERTY(
+        QVariantList toneCurveModifiedChannels READ toneCurveModifiedChannels NOTIFY
+            toneCurveChanged
     )
     Q_PROPERTY(bool hasToneCurve READ hasToneCurve NOTIFY toneCurveChanged)
     Q_PROPERTY(bool toneCurveEditable READ toneCurveEditable NOTIFY toneCurveChanged)
@@ -414,6 +529,8 @@ class EditController final : public QObject {
     [[nodiscard]] QString detailErrorText() const;
     [[nodiscard]] quint32 detailFullWidth() const noexcept;
     [[nodiscard]] quint32 detailFullHeight() const noexcept;
+    [[nodiscard]] quint32 levelZeroWidth() const noexcept;
+    [[nodiscard]] quint32 levelZeroHeight() const noexcept;
     [[nodiscard]] quint64 detailRetainedBytes() const noexcept;
     [[nodiscard]] QVariantList detailTiles() const;
     [[nodiscard]] bool fullResolutionPreparing() const noexcept;
@@ -425,15 +542,27 @@ class EditController final : public QObject {
     [[nodiscard]] QString autosaveErrorText() const;
     [[nodiscard]] bool versionDraft() const noexcept;
     [[nodiscard]] QString editBaseCommitId() const;
+    [[nodiscard]] QString durableWorkingCommitId() const;
     [[nodiscard]] QString activeVariantId() const;
     [[nodiscard]] QVariantList photoVariants() const;
     [[nodiscard]] bool variantActionsEnabled() const noexcept;
     [[nodiscard]] bool canUndo() const noexcept;
     [[nodiscard]] bool canRedo() const noexcept;
+    [[nodiscard]] bool applyXmpDevelopImport(
+        const XmpDevelopImport& imported,
+        const QString& label,
+        QString* error_text
+    );
     [[nodiscard]] QString photoId() const;
     [[nodiscard]] QString representationId() const;
     [[nodiscard]] QString title() const;
     [[nodiscard]] QString sourcePath() const;
+    /// Read-only interchange projection. Format controllers may serialize the
+    /// current stack but remain unable to mutate edit authority directly.
+    [[nodiscard]] const BackendGradeStack& gradeStackForInterchange() const noexcept;
+    [[nodiscard]] bool
+    applyShadowRecipeGradeNodes(const BackendGradeStack& portable_grade_stack, QString* error_text);
+    void reportShadowRecipeExported(const QString& file_name);
     [[nodiscard]] QString previewSource() const;
     [[nodiscard]] QString provisionalPreviewSource() const;
     [[nodiscard]] QString beforePreviewSource() const;
@@ -481,20 +610,51 @@ class EditController final : public QObject {
     [[nodiscard]] QString opticsCameraProfile() const;
     [[nodiscard]] QString opticsLensProfile() const;
     [[nodiscard]] QVariantMap selectedLocalMask() const;
+    [[nodiscard]] QVariantList localMaskComponents() const;
+    [[nodiscard]] QVariantMap selectedConditionMask() const;
+    Q_INVOKABLE void setSelectedConditionMask(const QString& json);
+    [[nodiscard]] int selectedLocalMaskComponentIndex() const noexcept;
     [[nodiscard]] bool maskToolActive() const noexcept;
     [[nodiscard]] QString maskCoverageSource() const;
+    [[nodiscard]] bool maskCoverageShowsSelectedComponent() const noexcept;
+    [[nodiscard]] QObject* autoStart() const noexcept;
+    [[nodiscard]] QObject* subjectEmphasis() const noexcept;
+    QObject* paint() const noexcept;
+    QObject* targetedCurve() const noexcept;
+    Q_PROPERTY(QObject* retouchSources READ retouchSources CONSTANT)
+    QObject* retouchSources() const noexcept;
     [[nodiscard]] bool aiMaskPromptActive() const noexcept;
     [[nodiscard]] bool aiMaskBusy() const noexcept;
+    [[nodiscard]] bool aiMaskFaceRegionMode() const noexcept;
+    [[nodiscard]] bool aiMaskSemanticMode() const noexcept;
+    [[nodiscard]] QString aiMaskSemanticQuery() const;
+    [[nodiscard]] int aiMaskFaceRegion() const noexcept;
+    [[nodiscard]] QVariantList aiMaskPeople() const;
+    [[nodiscard]] int aiMaskSelectedPerson() const noexcept;
+    [[nodiscard]] int aiMaskFaceRegionMask() const noexcept;
     [[nodiscard]] bool aiMaskForegroundMode() const noexcept;
     [[nodiscard]] QVariantList aiMaskPromptPoints() const;
     [[nodiscard]] bool aiMaskCanGenerate() const noexcept;
     [[nodiscard]] bool aiMaskHasCandidate() const noexcept;
     [[nodiscard]] QString aiMaskCandidateSource() const;
+    [[nodiscard]] bool imageCompletionActive() const noexcept;
+    [[nodiscard]] bool imageCompletionBusy() const noexcept;
+    [[nodiscard]] bool imageCompletionCanGenerate() const noexcept;
+    [[nodiscard]] bool imageCompletionExecutionAllowed() const noexcept;
+    [[nodiscard]] bool imageCompletionHasCandidate() const noexcept;
+    [[nodiscard]] QString imageCompletionCandidateSource() const;
+    [[nodiscard]] QVariantList imageCompletionBrushPoints() const;
+    [[nodiscard]] double imageCompletionBrushRadius() const noexcept;
+    [[nodiscard]] bool imageCompletionEraseMode() const noexcept;
+    [[nodiscard]] QVariantList imageCompletionRegions() const;
+    [[nodiscard]] bool imageCompletionNodeMaterialized() const noexcept;
+    [[nodiscard]] bool imageCompletionNodeEnabled() const noexcept;
     [[nodiscard]] bool rawDenoiseExecutionAllowed() const noexcept;
     [[nodiscard]] bool subjectMaskExecutionAllowed() const noexcept;
     [[nodiscard]] bool hasCopiedNodeMask() const noexcept;
     [[nodiscard]] QVariantList retouchSpots() const;
     [[nodiscard]] QVariantList retouchStrokes() const;
+    [[nodiscard]] bool retouchNodeEnabled() const noexcept;
     [[nodiscard]] QVariantList liquifyStrokes() const;
     [[nodiscard]] bool liquifyNodeEnabled() const noexcept;
     [[nodiscard]] double liquifyBrushRadius() const noexcept;
@@ -524,6 +684,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool foundationSelected() const noexcept;
     [[nodiscard]] bool rawDenoiseSelected() const noexcept;
     [[nodiscard]] QString selectedRecipeNodeKind() const;
+    [[nodiscard]] bool retouchNodeMaterialized() const noexcept;
     [[nodiscard]] bool liquifyNodeMaterialized() const noexcept;
     [[nodiscard]] bool canAddGradeNode() const noexcept;
     [[nodiscard]] bool canDeleteGradeNode() const noexcept;
@@ -546,9 +707,20 @@ class EditController final : public QObject {
     [[nodiscard]] bool pointColorPickerActive() const noexcept;
     [[nodiscard]] bool retouchPickerActive() const noexcept;
     [[nodiscard]] int retouchCreationMode() const noexcept;
+    [[nodiscard]] int retouchBrushRadius() const noexcept;
+    [[nodiscard]] double retouchBrushFeather() const noexcept;
+    [[nodiscard]] double retouchBrushStrength() const noexcept;
     [[nodiscard]] bool retouchSourceAligned() const noexcept;
+    [[nodiscard]] bool retouchSourcePicking() const noexcept;
     [[nodiscard]] bool retouchSourceSampled() const noexcept;
+    [[nodiscard]] QVariantMap retouchSampledSource() const;
     [[nodiscard]] bool whiteBalancePickerActive() const noexcept;
+    [[nodiscard]] bool rawWhiteBalancePickerActive() const noexcept;
+    [[nodiscard]] int toneCurveChannel() const noexcept {
+        return tone_curve_channel_;
+    }
+    void setToneCurveChannel(int channel);
+    [[nodiscard]] QVariantList toneCurveModifiedChannels() const;
     [[nodiscard]] bool hasToneCurve() const noexcept;
     [[nodiscard]] bool toneCurveEditable() const noexcept;
     [[nodiscard]] QString lutResourceId() const;
@@ -604,6 +776,11 @@ class EditController final : public QObject {
     // The new-node path creates, attaches, selects, and records one undo step
     // inside the controller rather than asking QML to chain mutations.
     Q_INVOKABLE bool createLocalMask(int kind, int destination);
+    Q_INVOKABLE bool addLocalMaskComponent(int kind, int operation);
+    Q_INVOKABLE void selectLocalMaskComponent(int index);
+    Q_INVOKABLE void setSelectedLocalMaskComponentEnabled(bool enabled);
+    Q_INVOKABLE void setSelectedLocalMaskComponentOperation(int operation);
+    Q_INVOKABLE void removeSelectedLocalMaskComponent();
     Q_INVOKABLE void setSelectedLocalMask(int kind);
     Q_INVOKABLE void copySelectedLocalMask();
     Q_INVOKABLE void pasteSelectedLocalMask();
@@ -613,10 +790,21 @@ class EditController final : public QObject {
     Q_INVOKABLE void appendSelectedLocalMaskBrushStroke(const QVariantList& points);
     Q_INVOKABLE void clearSelectedLocalMaskBrush();
     Q_INVOKABLE void resetSelectedLocalMask();
+    Q_INVOKABLE void setSelectedLocalMaskLeafInverted(bool inverted);
     Q_INVOKABLE void setSelectedLocalMaskInverted(bool inverted);
     Q_INVOKABLE void setMaskToolActive(bool active);
+    void setMaskCoverageShowsSelectedComponent(bool selected_component);
     Q_INVOKABLE bool beginAiMaskPrompt();
+    Q_INVOKABLE bool beginAiFaceMaskPrompt();
+    Q_INVOKABLE bool beginAiSemanticMask(const QString& query);
+    Q_INVOKABLE bool beginAiMaskPromptForOperation(int operation, bool prefer_current_node);
+    Q_INVOKABLE bool beginAiFaceMaskPromptForOperation(int operation, bool prefer_current_node);
+    Q_INVOKABLE bool
+    beginAiSemanticMaskForOperation(const QString& query, int operation, bool prefer_current_node);
     Q_INVOKABLE void setAiMaskForegroundMode(bool foreground);
+    Q_INVOKABLE void setAiMaskFaceRegion(int region);
+    Q_INVOKABLE void setAiMaskSelectedPerson(int person_index);
+    Q_INVOKABLE void toggleAiMaskFaceRegion(int region, bool selected);
     Q_INVOKABLE void
     addAiMaskPromptPoint(double normalized_x, double normalized_y, bool foreground);
     Q_INVOKABLE void undoAiMaskPromptPoint();
@@ -624,12 +812,35 @@ class EditController final : public QObject {
     Q_INVOKABLE void generateAiMask();
     Q_INVOKABLE void applyAiMaskCandidate();
     Q_INVOKABLE void cancelAiMaskPrompt();
+    Q_INVOKABLE bool beginImageCompletion();
+    Q_INVOKABLE quint32 beginImageCompletionStroke();
+    Q_INVOKABLE void
+    addImageCompletionBrushPoint(double normalized_x, double normalized_y, quint32 stroke_id);
+    Q_INVOKABLE void undoImageCompletionStroke();
+    Q_INVOKABLE void clearImageCompletionSelection();
+    Q_INVOKABLE void generateImageCompletion();
+    Q_INVOKABLE void retryImageCompletion();
+    Q_INVOKABLE void applyImageCompletionCandidate();
+    Q_INVOKABLE void cancelImageCompletion();
+    Q_INVOKABLE void setImageCompletionBrushRadius(double radius);
+    Q_INVOKABLE void setImageCompletionEraseMode(bool erase);
+    Q_INVOKABLE void setImageCompletionExecutionAllowed(bool allowed);
+    Q_INVOKABLE void setImageCompletionNodeEnabled(bool enabled);
+    Q_INVOKABLE void setImageCompletionRegionEnabled(int index, bool enabled);
+    Q_INVOKABLE void setImageCompletionRegionStrength(int index, double strength);
+    Q_INVOKABLE void removeImageCompletionRegion(int index);
     Q_INVOKABLE void startFoundationAiDenoise();
     Q_INVOKABLE void cancelFoundationAiDenoise();
     Q_INVOKABLE void setRetouchPickerActive(bool active);
     Q_INVOKABLE void setRetouchCreationMode(int mode);
+    Q_INVOKABLE void setRetouchBrushRadius(int radius_level_zero_pixels);
+    Q_INVOKABLE void setRetouchBrushFeather(double feather);
+    Q_INVOKABLE void setRetouchBrushStrength(double strength);
+    Q_INVOKABLE void adjustRetouchBrushRadius(int direction);
     Q_INVOKABLE void setRetouchSourceAligned(bool aligned);
+    Q_INVOKABLE void setRetouchSourcePicking(bool picking);
     Q_INVOKABLE void setRetouchSourceFromPreview(double normalized_x, double normalized_y);
+    Q_INVOKABLE void moveRetouchSourceFromPreview(double normalized_x, double normalized_y);
     Q_INVOKABLE void clearRetouchSource();
     Q_INVOKABLE void addRetouchSpotFromPreview(
         double normalized_x,
@@ -675,6 +886,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void translateRetouchStroke(int index, double normalized_dx, double normalized_dy);
     Q_INVOKABLE void removeRetouchStroke(int index);
     Q_INVOKABLE void clearRetouch();
+    void setRetouchNodeEnabled(bool enabled);
     void setLiquifyBrushRadius(double radius);
     void setLiquifyBrushStrength(double strength);
     void setLiquifyBrushHardness(double hardness);
@@ -737,6 +949,9 @@ class EditController final : public QObject {
     Q_INVOKABLE void removeSelectedPointColor();
     Q_INVOKABLE void setPointColorPickerActive(bool active);
     Q_INVOKABLE void setWhiteBalancePickerActive(bool active);
+    Q_INVOKABLE void setRawWhiteBalancePickerActive(bool active);
+    Q_INVOKABLE void setFoundationWhiteBalanceFromSource(double normalized_x, double normalized_y);
+    Q_INVOKABLE void autoFoundationWhiteBalance();
     Q_INVOKABLE void setWhiteBalanceFromPreview(
         double normalized_x,
         double normalized_y,
@@ -753,6 +968,7 @@ class EditController final : public QObject {
     Q_INVOKABLE void addToneCurvePoint(double x, double y);
     Q_INVOKABLE void removeToneCurvePoint(int index);
     Q_INVOKABLE void resetToneCurve();
+    Q_INVOKABLE void resetAllToneCurves();
     Q_INVOKABLE void resetFoundationWhiteBalance();
     Q_INVOKABLE void addRawDenoiseNode();
     Q_INVOKABLE void removeRawDenoiseNode();
@@ -760,6 +976,8 @@ class EditController final : public QObject {
     Q_INVOKABLE void removeCanvasNode();
     Q_INVOKABLE void selectFoundationNode();
     Q_INVOKABLE void selectRawDenoiseNode();
+    Q_INVOKABLE void selectRetouchNode();
+    Q_INVOKABLE void selectImageCompletionNode();
     Q_INVOKABLE void selectLiquifyNode();
     Q_INVOKABLE void selectCanvasNode();
     Q_INVOKABLE void undo();
@@ -773,7 +991,8 @@ class EditController final : public QObject {
         double center_x,
         double center_y,
         int viewport_width_pixels,
-        int viewport_height_pixels
+        int viewport_height_pixels,
+        bool retain_pan_margin = false
     );
     Q_INVOKABLE void leaveDetailMode();
     Q_INVOKABLE void saveVersion(const QString& version_name);
@@ -804,6 +1023,7 @@ class EditController final : public QObject {
     void detailRenderingChanged();
     void detailErrorTextChanged();
     void detailGeometryChanged();
+    void previewGeometryChanged();
     void detailTilesChanged();
     void fullResolutionStateChanged();
     void dirtyChanged();
@@ -846,15 +1066,19 @@ class EditController final : public QObject {
     void nodeMaskClipboardChanged();
     void maskToolActiveChanged();
     void maskCoverageSourceChanged();
+    void maskCoverageModeChanged();
     void aiMaskPromptChanged();
+    void imageCompletionChanged();
     void toneCurveChanged();
     void pointColorScopeChanged();
     void pointColorPickerActiveChanged();
     void retouchPickerActiveChanged();
     void retouchCreationModeChanged();
+    void retouchBrushChanged();
     void retouchSourceChanged();
     void liquifyBrushChanged();
     void whiteBalancePickerActiveChanged();
+    void rawWhiteBalancePickerActiveChanged();
     void cropToolActiveChanged();
     void autoGeometryChanged();
 
@@ -869,29 +1093,27 @@ class EditController final : public QObject {
 
   private:
     struct NodeMaskClipboard final {
-        std::uint8_t kind = 0;
-        double x0 = 0.0;
-        double y0 = 0.0;
-        double x1 = 0.0;
-        double y1 = 0.0;
-        double radius_x = 0.0;
-        double radius_y = 0.0;
-        double feather = 0.0;
-        bool inverted = false;
-        QVector<double> brush_points;
+        QVector<BackendMaskComponent> components;
+        bool final_invert = false;
     };
 
     void applyState(BackendPhotoEditState state);
     void applySubjectMaskState(
         BackendPhotoEditState state,
         const BackendGradeStack& before,
-        const QString& target_grade_node_id
+        const QString& target_grade_node_id,
+        const QString& transaction_key = {}
     );
+    void applyImageCompletionState(BackendPhotoEditState state, const BackendGradeStack& before);
     void setGradeStack(BackendGradeStack grade_stack, const QString& preferred_grade_node_id = {});
     [[nodiscard]] const BackendGradeNode* selectedGradeNode() const noexcept;
     [[nodiscard]] QString gradeNodeHistoryKey(const QString& key) const;
     [[nodiscard]] QString uniqueGradeNodeLabel(const QString& base) const;
-    static void initializeLocalMask(BackendGradeNode& grade_node, int kind);
+    static void
+    initializeLocalMaskComponent(BackendMaskComponent& component, int kind, int operation);
+    [[nodiscard]] BackendMaskComponent* selectedLocalMaskComponent() noexcept;
+    [[nodiscard]] const BackendMaskComponent* selectedLocalMaskComponent() const noexcept;
+    void clampSelectedLocalMaskComponent();
     void finishActiveGesture();
     void cancelActivePreview(bool force);
     void clearSessionHistory();
@@ -900,6 +1122,7 @@ class EditController final : public QObject {
     void requestPresentationCommit();
     void finalizePhotoClose();
     void maybeStartBeforePreview();
+    void refreshBeforePreviewContext();
     void maybeStartDetailRender();
     void cancelDetailWarmupForRecipeEdit();
     void scheduleDetailRefreshForRecipeEdit(int delay_ms);
@@ -974,7 +1197,13 @@ class EditController final : public QObject {
     [[nodiscard]] bool
     acceptParameter(double value, double minimum, double maximum, const char* label_source);
 
+    friend class EditAiCompletionController;
     friend class EditAiMaskController;
+    friend class EditSubjectEmphasisController;
+    friend class EditAutoStartController;
+    friend class EditPaintController;
+    friend class EditTargetedCurveController;
+    friend class EditRetouchSources;
     friend class EditAutoGeometryController;
     friend class EditRawFoundationController;
 
@@ -983,19 +1212,27 @@ class EditController final : public QObject {
     std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context_;
     AiPreferences* ai_preferences_ = nullptr;
     EditPersistenceState persistence_state_;
+    std::unique_ptr<EditAiCompletionController> image_completion_controller_;
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
+    std::unique_ptr<EditAutoStartController> auto_start_controller_;
+    std::unique_ptr<EditSubjectEmphasisController> subject_emphasis_controller_;
+    std::unique_ptr<EditPaintController> paint_controller_;
+    std::unique_ptr<EditTargetedCurveController> targeted_curve_controller_;
+    std::unique_ptr<EditRetouchSources> retouch_sources_;
     std::unique_ptr<EditAutoGeometryController> auto_geometry_controller_;
     std::unique_ptr<EditPersistenceTaskCoordinator> persistence_task_coordinator_;
     std::unique_ptr<EditRawFoundationController> raw_foundation_controller_;
     EditVersionModel versions_;
     ToneCurvePointModel tone_curve_points_;
+    int tone_curve_channel_ = 0;
+    [[nodiscard]] QVector<ToneCurvePoint> toneCurveModelPoints(const BackendGradeNode* node) const;
     QFutureWatcher<EditPreviewTaskResult> preview_watcher_;
     QFutureWatcher<EditDetailTaskResult> detail_watcher_;
     QFutureWatcher<EditDetailWarmupTaskResult> detail_warmup_watcher_;
     QTimer preview_debounce_;
     QTimer detail_debounce_;
     QTimer detail_warmup_debounce_;
-    SessionEditHistory<BackendGradeStack> history_;
+    SessionEditHistory<EditHistorySnapshot> history_;
     // Slider/curve gestures render a deliberately smaller proxy so the first
     // useful frame wins over pixel-perfect fidelity. Once every gesture ends,
     // the controller queues the normal edit preview for the settled recipe.
@@ -1015,6 +1252,7 @@ class EditController final : public QObject {
     QString preview_source_;
     QString provisional_preview_source_;
     QString before_preview_source_;
+    EditBeforePreviewState before_preview_state_;
     QString mask_coverage_source_;
     QVariantMap histogram_;
     QVariantMap before_histogram_;
@@ -1037,14 +1275,20 @@ class EditController final : public QObject {
     quint64 detail_render_token_ = 0;
     quint64 detail_warmup_token_ = 0;
     quint64 preview_render_token_ = 0;
+    QElapsedTimer interactive_preview_timing_;
+    quint64 interactive_preview_timing_token_ = 0;
     quint64 mask_selection_revision_ = 0;
+    int selected_local_mask_component_index_ = 0;
     quint32 detail_full_width_ = 0;
     quint32 detail_full_height_ = 0;
+    quint32 level_zero_width_ = 0;
+    quint32 level_zero_height_ = 0;
     quint64 detail_retained_bytes_ = 0;
     quint64 full_resolution_retained_bytes_ = 0;
     QVariantList detail_tiles_;
     double detail_center_x_ = 0.5;
     double detail_center_y_ = 0.5;
+    bool detail_retain_pan_margin_ = false;
     std::uint32_t detail_viewport_width_ = 1;
     std::uint32_t detail_viewport_height_ = 1;
     bool active_ = false;
@@ -1076,7 +1320,11 @@ class EditController final : public QObject {
     bool point_color_picker_active_ = false;
     bool retouch_picker_active_ = false;
     int retouch_creation_mode_ = 0;
+    int retouch_brush_radius_ = 18;
+    double retouch_brush_feather_ = 0.28;
+    double retouch_brush_strength_ = 1.0;
     bool retouch_source_aligned_ = true;
+    bool retouch_source_picking_ = false;
     std::optional<QPointF> retouch_source_anchor_;
     std::optional<QPointF> retouch_aligned_source_offset_radii_;
     double liquify_brush_radius_ = 0.08;
@@ -1090,8 +1338,10 @@ class EditController final : public QObject {
     qsizetype liquify_live_index_ = -1;
     int liquify_live_kind_ = -1;
     bool white_balance_picker_active_ = false;
+    bool raw_white_balance_picker_active_ = false;
     bool crop_tool_active_ = false;
     bool mask_tool_active_ = false;
+    bool mask_coverage_shows_selected_component_ = true;
     bool mask_coverage_refresh_pending_ = false;
     quint64 parameter_revision_ = 0;
 };

@@ -288,7 +288,7 @@ Drawer {
                             Layout.fillWidth: true
                             spacing: 8
 
-                            TextField {
+                            ShadowTextField {
                                 id: versionNameInput
                                 objectName: "historyVersionNameInput"
                                 Layout.fillWidth: true
@@ -401,7 +401,7 @@ Drawer {
                                         : photoRow.isNamed ? qsTr("VERSION") : qsTr("AUTO")
                                     color: photoRow.loaded || photoRow.isWorking
                                         ? Theme.accent : Theme.textMuted
-                                    font.pixelSize: 9
+                                    font.pixelSize: Theme.fontCaption
                                     font.weight: Font.Bold
                                     font.letterSpacing: 0.6
                                 }
@@ -434,7 +434,7 @@ Drawer {
                                     .arg(drawer.dateText(photoRow.createdAtMs))
                                     .arg(photoRow.parentCommitIds.length)
                                 color: Theme.textMuted
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.fontCaption
                                 elide: Text.ElideRight
                             }
                         }
@@ -568,7 +568,7 @@ Drawer {
                                         : libraryRow.isRoot ? qsTr("ROOT") : ""
                                     visible: text.length > 0
                                     color: libraryRow.isHead ? Theme.accent : Theme.textMuted
-                                    font.pixelSize: 9
+                                    font.pixelSize: Theme.fontCaption
                                     font.weight: Font.Bold
                                     font.letterSpacing: 0.6
                                 }
@@ -596,7 +596,7 @@ Drawer {
                                     .arg(libraryRow.refs.length)
                                     .arg(libraryRow.parentCommitIds.length)
                                 color: Theme.textMuted
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.fontCaption
                                 elide: Text.ElideRight
                             }
                         }
@@ -705,7 +705,7 @@ Drawer {
                                     : String(modelData.kind) === "tag" ? qsTr("TAG")
                                     : qsTr("VERSION")
                                 color: Theme.accent
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.fontCaption
                                 font.weight: Font.Bold
                                 font.letterSpacing: 0.5
                             }

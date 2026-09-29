@@ -10,36 +10,66 @@ Item {
 
     required property var editor
 
-    implicitWidth: 152
+    implicitWidth: Math.min(140, Math.max(86, variantName.implicitWidth + 38))
     implicitHeight: 30
+
+    function displayName(variant) {
+        return variant.name.trim().length > 0 ? variant.name : qsTr("Original")
+    }
+
+    function menuName(variant) {
+        const name = root.displayName(variant)
+        return variant.isDefault && variant.name.trim().length > 0
+            ? name + qsTr(" · Original") : name
+    }
 
     function activeName() {
         const variants = root.editor.photoVariants
         for (let index = 0; index < variants.length; ++index) {
             if (variants[index].isActive)
-                return variants[index].name
+                return root.displayName(variants[index])
         }
         return qsTr("Original")
     }
 
     ShadowButton {
+        objectName: "precisionVariantSelectorButton"
         anchors.fill: parent
         compact: true
-        variant: ShadowButton.Secondary
+        variant: ShadowButton.Ghost
         text: root.activeName()
-        toolTipText: qsTr("Photo variants")
+        toolTipText: qsTr("Photo variants") + " · " + root.activeName()
         enabled: root.editor.active
         onClicked: variantMenu.open()
+        contentItem: RowLayout {
+            spacing: 6
+            Label {
+                id: variantName
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: root.activeName()
+                elide: Text.ElideRight
+                font.pixelSize: Theme.fontSection
+                color: root.editor.active ? Theme.textSecondary : Theme.textDisabled
+            }
+            ShadowIcon {
+                source: "qrc:/icons/chevron-down.svg"
+                size: 12
+                color: root.editor.active ? Theme.textSecondary : Theme.textDisabled
+            }
+        }
     }
 
     Popup {
         id: variantMenu
+        objectName: "precisionVariantMenu"
         parent: root
         x: root.width - width
         y: root.height + 6
         width: 270
         padding: 8
         modal: false
+        focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         background: Rectangle {
@@ -59,7 +89,7 @@ Item {
                 Layout.bottomMargin: 4
                 text: qsTr("Photo variants")
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 font.weight: Font.Medium
             }
 
@@ -77,9 +107,7 @@ Item {
                         compact: true
                         variant: ShadowButton.Ghost
                         selected: variantRow.modelData.isActive
-                        text: variantRow.modelData.name
-                            + (variantRow.modelData.isDefault
-                                ? qsTr(" · Original") : "")
+                        text: root.menuName(variantRow.modelData)
                         enabled: root.editor.variantActionsEnabled
                             || variantRow.modelData.isActive
                         onClicked: {
@@ -98,7 +126,7 @@ Item {
                         enabled: root.editor.variantActionsEnabled
                         onClicked: namePopup.beginRename(
                             variantRow.modelData.variantId,
-                            variantRow.modelData.name)
+                            root.displayName(variantRow.modelData))
                     }
 
                     ShadowIconButton {
@@ -183,6 +211,7 @@ Item {
         width: 270
         padding: 12
         modal: false
+        focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         background: Rectangle {
@@ -202,7 +231,7 @@ Item {
                 font.weight: Font.Medium
             }
 
-            TextField {
+            ShadowTextField {
                 id: nameField
                 Layout.fillWidth: true
                 color: Theme.textPrimary

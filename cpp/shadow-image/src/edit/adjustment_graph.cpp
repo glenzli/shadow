@@ -13,6 +13,8 @@ AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentOperation::exposure;
             } else if constexpr (std::is_same_v<Parameters, ContrastAdjustment>) {
                 return AdjustmentOperation::contrast;
+            } else if constexpr (std::is_same_v<Parameters, RgbToneCurves>) {
+                return AdjustmentOperation::rgb_tone_curves;
             } else if constexpr (std::is_same_v<Parameters, OklabLightnessToneCurve>) {
                 return AdjustmentOperation::oklab_lightness_tone_curve;
             } else if constexpr (std::is_same_v<Parameters, OklabOpponentToneCurves>) {
@@ -31,6 +33,10 @@ AdjustmentOperation operation(const AdjustmentParameters& parameters) noexcept {
                 return AdjustmentOperation::lut_3d;
             } else if constexpr (std::is_same_v<Parameters, SpotHealAdjustment>) {
                 return AdjustmentOperation::spot_heal;
+            } else if constexpr (std::is_same_v<Parameters, PaintLayerAdjustment>) {
+                return AdjustmentOperation::paint_layer;
+            } else if constexpr (std::is_same_v<Parameters, ImageCompletionAdjustment>) {
+                return AdjustmentOperation::image_completion;
             } else {
                 static_assert(std::is_same_v<Parameters, SharpenAdjustment>);
                 return AdjustmentOperation::sharpen;
@@ -46,6 +52,8 @@ std::string_view operation_id(const AdjustmentOperation operation) noexcept {
         return "shadow.exposure";
     case AdjustmentOperation::contrast:
         return "shadow.contrast";
+    case AdjustmentOperation::rgb_tone_curves:
+        return "shadow.rgb_tone_curves";
     case AdjustmentOperation::oklab_lightness_tone_curve:
         return "shadow.oklab_lightness_tone_curve";
     case AdjustmentOperation::oklab_opponent_tone_curves:
@@ -66,6 +74,10 @@ std::string_view operation_id(const AdjustmentOperation operation) noexcept {
         return "shadow.sharpen";
     case AdjustmentOperation::spot_heal:
         return "shadow.spot_heal";
+    case AdjustmentOperation::paint_layer:
+        return "shadow.paint_layer";
+    case AdjustmentOperation::image_completion:
+        return "shadow.image_completion";
     }
     return "shadow.unknown";
 }

@@ -26,9 +26,10 @@ namespace shadow::image::raw_pipeline_detail {
 );
 
 // Consumes one source-bound RawFrame preparation with one verified, borrowed
-// linear-camera-RGB foundation. The source frame remains available until
-// clipping diagnostics are projected; the foundation pixels are copied only
-// into the final owned scene-linear output.
+// linear-camera-RGB foundation. The stage first creates the common owned AI
+// camera-RGB source basis together with immutable sensor evidence, then
+// develops that basis into the final scene-linear output. The source frame is
+// retained only while preparing the basis; no second camera-RGB copy is made.
 [[nodiscard]] DevelopedSourceReference materialize_prepared_raw_foundation_source(
     PreparedRawFrameSource prepared,
     const RawFoundationCameraRgbView& foundation,

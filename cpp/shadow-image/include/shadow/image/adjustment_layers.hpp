@@ -4,6 +4,8 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -23,6 +25,7 @@ enum class LocalMaskKind : std::uint8_t {
     luminance_range,
     color_range,
     managed_raster,
+    condition_expression,
 };
 
 // Persisted managed-mask samples use a portable byte contract rather than a
@@ -32,6 +35,16 @@ enum class LocalMaskKind : std::uint8_t {
 enum class ManagedRasterMaskEncoding : std::uint8_t {
     gray8,
     gray16_float,
+};
+
+inline constexpr std::size_t maximum_composite_local_mask_components = 8U;
+inline constexpr std::size_t maximum_composite_local_mask_raster_bytes = 64U * 1024U * 1024U;
+
+enum class LocalMaskComponentOperation : std::uint8_t {
+    base,
+    add,
+    subtract,
+    intersect,
 };
 
 struct ManagedRasterMask final {
@@ -49,6 +62,8 @@ struct LocalMaskPoint final {
     double y = 0.0;
     bool begins_stroke = false;
 };
+
+struct LocalMaskComponent;
 
 struct LocalMask final {
     LocalMaskKind kind = LocalMaskKind::linear_gradient;
@@ -68,6 +83,19 @@ struct LocalMask final {
     bool invert = false;
     std::vector<LocalMaskPoint> points;
     std::optional<ManagedRasterMask> managed_raster;
+    // Empty preserves the exact legacy single-leaf contract. A non-empty
+    // vector is one bounded ordered composition; this outer mask's `invert`
+    // applies once after composition and all other outer leaf slots are ignored.
+    std::vector<LocalMaskComponent> components;
+    // Bounded postfix scalar program: opcode + seven double parameters.
+    // 0 lightness, 1 hue, 2 chroma; 4 min, 5 max, 6 complement.
+    std::vector<std::array<double, 8U>> condition_program;
+};
+
+struct LocalMaskComponent final {
+    LocalMaskComponentOperation operation = LocalMaskComponentOperation::base;
+    bool enabled = true;
+    LocalMask mask;
 };
 
 // A sequential Grade Node layer. The first implementation supports only

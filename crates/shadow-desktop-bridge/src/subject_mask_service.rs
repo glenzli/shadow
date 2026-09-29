@@ -9,7 +9,7 @@ use std::{
     io::Read,
     path::PathBuf,
     sync::{
-        Mutex,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -23,11 +23,21 @@ use shadow_core::{
     DerivedRasterStoreError, FilesystemDerivedRasterStore, StagedDerivedRasterProposal,
     managed_soft_mask_definition, promote_staged_derived_raster_if_current,
 };
-use shadow_domain::MaskDefinition;
+use shadow_domain::{MaskDefinition, RecipeValidationError, SemanticMaskIntent};
 use thiserror::Error;
 
+use crate::{
+    recipe_v1::GradeStackDraft,
+    subject_mask_people::{
+        FaceRegionSet, MAX_SUBJECT_MASK_PEOPLE, ParsedSubjectMaskPerson, SubjectMaskPersonCandidate,
+    },
+};
+
 const MAX_ACTIVE_SUBJECT_MASK_JOBS: usize = 16;
+const MAX_ACTIVE_SUBJECT_MASK_INPUT_SESSIONS: usize = 16;
 const MAX_STAGED_SUBJECT_MASK_PROPOSALS: usize = 32;
+const MAX_SUBJECT_MASK_INPUT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_SUBJECT_MASK_SESSION_RESIDENT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SUBJECT_MASK_PREVIEW_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug)]
@@ -35,6 +45,8 @@ pub(crate) struct SubjectMaskService {
     store: FilesystemDerivedRasterStore,
     next_job_token: AtomicU64,
     jobs: Mutex<BTreeMap<u64, SubjectMaskJob>>,
+    next_input_session_token: AtomicU64,
+    input_sessions: Mutex<BTreeMap<u64, SubjectMaskInputSession>>,
     next_proposal_token: AtomicU64,
     proposals: Mutex<BTreeMap<u64, StagedDerivedRasterProposal>>,
 }
@@ -64,12 +76,65 @@ pub(crate) struct SubjectMaskProposalPreview {
     pub(crate) samples: Vec<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SubjectMaskRefinement {
+    pub(crate) expansion_percent: i8,
+    pub(crate) feather_percent: u8,
+    pub(crate) leaf_invert: bool,
+    pub(crate) semantic_intent: Option<SemanticMaskIntent>,
+}
+
+impl SubjectMaskRefinement {
+    fn validate(&self) -> Result<(), RecipeValidationError> {
+        if !(-100..=100).contains(&self.expansion_percent) {
+            return Err(RecipeValidationError::InvalidManagedRasterMaskExpansion(
+                self.expansion_percent,
+            ));
+        }
+        if self.feather_percent > 100 {
+            return Err(RecipeValidationError::InvalidManagedRasterMaskFeather(
+                self.feather_percent,
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SubjectMaskRenderInputIdentity {
+    pub(crate) photo_id: String,
+    pub(crate) source_path: String,
+    pub(crate) base_commit_id: String,
+    pub(crate) grade_stack: GradeStackDraft,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedSubjectMaskInput {
+    pub(crate) bytes: Arc<[u8]>,
+    pub(crate) content_hash: String,
+    pub(crate) coordinate_extent: RasterExtent,
+}
+
+#[derive(Debug)]
+pub(crate) enum SubjectMaskInputAdmission {
+    Prepare,
+    Reuse(PreparedSubjectMaskInput),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SubjectMaskPersonSnapshot {
+    pub(crate) candidate: SubjectMaskPersonCandidate,
+    pub(crate) available_regions: Option<FaceRegionSet>,
+}
+
 impl SubjectMaskService {
     pub(crate) fn open(store_root: impl Into<PathBuf>) -> Result<Self, SubjectMaskServiceError> {
         Ok(Self {
             store: FilesystemDerivedRasterStore::open(store_root.into())?,
             next_job_token: AtomicU64::new(0),
             jobs: Mutex::new(BTreeMap::new()),
+            next_input_session_token: AtomicU64::new(0),
+            input_sessions: Mutex::new(BTreeMap::new()),
             next_proposal_token: AtomicU64::new(0),
             proposals: Mutex::new(BTreeMap::new()),
         })
@@ -96,6 +161,320 @@ impl SubjectMaskService {
             },
         );
         Ok(token)
+    }
+
+    pub(crate) fn begin_input_session(&self) -> Result<u64, SubjectMaskServiceError> {
+        let mut sessions = self
+            .input_sessions
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?;
+        if sessions.len() >= MAX_ACTIVE_SUBJECT_MASK_INPUT_SESSIONS {
+            return Err(SubjectMaskServiceError::TooManyActiveInputSessions);
+        }
+        let token = next_token(&self.next_input_session_token)?;
+        sessions.insert(token, SubjectMaskInputSession::Vacant);
+        Ok(token)
+    }
+
+    pub(crate) fn finish_input_session(
+        &self,
+        input_session_token: u64,
+    ) -> Result<(), SubjectMaskServiceError> {
+        self.input_sessions
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?
+            .remove(&input_session_token)
+            .map(|_| ())
+            .ok_or(SubjectMaskServiceError::UnknownInputSession(
+                input_session_token,
+            ))
+    }
+
+    /// Reserves preparation exactly once, or returns the immutable input
+    /// already prepared for the same photo and render-input identity.
+    pub(crate) fn admit_original_space_input(
+        &self,
+        input_session_token: u64,
+        identity: &SubjectMaskRenderInputIdentity,
+    ) -> Result<SubjectMaskInputAdmission, SubjectMaskServiceError> {
+        let mut sessions = self
+            .input_sessions
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?;
+        let session = sessions.get_mut(&input_session_token).ok_or(
+            SubjectMaskServiceError::UnknownInputSession(input_session_token),
+        )?;
+        match session {
+            SubjectMaskInputSession::Vacant => {
+                *session = SubjectMaskInputSession::Preparing(identity.clone());
+                Ok(SubjectMaskInputAdmission::Prepare)
+            }
+            SubjectMaskInputSession::Preparing(current) => {
+                if current == identity {
+                    Err(SubjectMaskServiceError::InputPreparationInFlight(
+                        input_session_token,
+                    ))
+                } else {
+                    Err(SubjectMaskServiceError::InputIdentityChanged(
+                        input_session_token,
+                    ))
+                }
+            }
+            SubjectMaskInputSession::Ready {
+                identity: current,
+                input,
+                ..
+            } => {
+                if current != identity {
+                    return Err(SubjectMaskServiceError::InputIdentityChanged(
+                        input_session_token,
+                    ));
+                }
+                Ok(SubjectMaskInputAdmission::Reuse(input.clone()))
+            }
+        }
+    }
+
+    pub(crate) fn complete_original_space_input_preparation(
+        &self,
+        input_session_token: u64,
+        identity: &SubjectMaskRenderInputIdentity,
+        bytes: Vec<u8>,
+        coordinate_extent: RasterExtent,
+    ) -> Result<PreparedSubjectMaskInput, SubjectMaskServiceError> {
+        if bytes.is_empty() || bytes.len() > MAX_SUBJECT_MASK_INPUT_BYTES {
+            return Err(SubjectMaskServiceError::InvalidInputSize(bytes.len()));
+        }
+        let mut sessions = self
+            .input_sessions
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?;
+        let resident_bytes = resident_input_session_bytes(&sessions)?;
+        if resident_bytes
+            .checked_add(bytes.len())
+            .is_none_or(|total| total > MAX_SUBJECT_MASK_SESSION_RESIDENT_BYTES)
+        {
+            return Err(SubjectMaskServiceError::InputBudgetExceeded);
+        }
+        let session = sessions.get_mut(&input_session_token).ok_or(
+            SubjectMaskServiceError::UnknownInputSession(input_session_token),
+        )?;
+        match session {
+            SubjectMaskInputSession::Preparing(current) if current == identity => {}
+            SubjectMaskInputSession::Preparing(_) | SubjectMaskInputSession::Ready { .. } => {
+                return Err(SubjectMaskServiceError::InputIdentityChanged(
+                    input_session_token,
+                ));
+            }
+            SubjectMaskInputSession::Vacant => {
+                return Err(SubjectMaskServiceError::InputPreparationNotReserved(
+                    input_session_token,
+                ));
+            }
+        }
+        let bytes: Arc<[u8]> = bytes.into();
+        let input = PreparedSubjectMaskInput {
+            content_hash: blake3::hash(&bytes).to_hex().to_string(),
+            bytes,
+            coordinate_extent,
+        };
+        *session = SubjectMaskInputSession::Ready {
+            identity: identity.clone(),
+            input: input.clone(),
+            people: None,
+            parsed_people: BTreeMap::new(),
+        };
+        Ok(input)
+    }
+
+    pub(crate) fn people_snapshot(
+        &self,
+        input_session_token: u64,
+        identity: &SubjectMaskRenderInputIdentity,
+    ) -> Result<Option<Vec<SubjectMaskPersonSnapshot>>, SubjectMaskServiceError> {
+        let sessions = self
+            .input_sessions
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?;
+        let session = ready_input_session(&sessions, input_session_token, identity)?;
+        let Some(people) = session.people.as_ref() else {
+            return Ok(None);
+        };
+        Ok(Some(
+            people
+                .iter()
+                .enumerate()
+                .map(|(index, candidate)| SubjectMaskPersonSnapshot {
+                    candidate: candidate.clone(),
+                    available_regions: session
+                        .parsed_people
+                        .get(&(index as u32))
+                        .map(|parsed| parsed.available_regions),
+                })
+                .collect(),
+        ))
+    }
+
+    pub(crate) fn cache_people(
+        &self,
+        input_session_token: u64,
+        identity: &SubjectMaskRenderInputIdentity,
+        people: Vec<SubjectMaskPersonCandidate>,
+    ) -> Result<Vec<SubjectMaskPersonSnapshot>, SubjectMaskServiceError> {
+        if people.len() > MAX_SUBJECT_MASK_PEOPLE {
+            return Err(SubjectMaskServiceError::TooManyDetectedPeople(people.len()));
+        }
+        let mut sessions = self
+            .input_sessions
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?;
+        {
+            let session = ready_input_session(&sessions, input_session_token, identity)?;
+            if let Some(cached) = &session.people {
+                return Ok(cached
+                    .iter()
+                    .enumerate()
+                    .map(|(index, candidate)| SubjectMaskPersonSnapshot {
+                        candidate: candidate.clone(),
+                        available_regions: session
+                            .parsed_people
+                            .get(&(index as u32))
+                            .map(|parsed| parsed.available_regions),
+                    })
+                    .collect());
+            }
+        }
+        let added_bytes = people
+            .iter()
+            .map(SubjectMaskPersonCandidate::resident_byte_len)
+            .try_fold(0_usize, usize::checked_add)
+            .ok_or(SubjectMaskServiceError::InputBudgetExceeded)?;
+        if resident_input_session_bytes(&sessions)?
+            .checked_add(added_bytes)
+            .is_none_or(|total| total > MAX_SUBJECT_MASK_SESSION_RESIDENT_BYTES)
+        {
+            return Err(SubjectMaskServiceError::InputBudgetExceeded);
+        }
+        let session = ready_input_session_mut(&mut sessions, input_session_token, identity)?;
+        if session.people.is_none() {
+            *session.people = Some(people.into());
+        }
+        Ok(session
+            .people
+            .as_ref()
+            .expect("people cache was just initialized")
+            .iter()
+            .enumerate()
+            .map(|(index, candidate)| SubjectMaskPersonSnapshot {
+                candidate: candidate.clone(),
+                available_regions: session
+                    .parsed_people
+                    .get(&(index as u32))
+                    .map(|parsed| parsed.available_regions),
+            })
+            .collect())
+    }
+
+    pub(crate) fn person_candidate(
+        &self,
+        input_session_token: u64,
+        identity: &SubjectMaskRenderInputIdentity,
+        person_index: u32,
+    ) -> Result<SubjectMaskPersonCandidate, SubjectMaskServiceError> {
+        let sessions = self
+            .input_sessions
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?;
+        let session = ready_input_session(&sessions, input_session_token, identity)?;
+        session
+            .people
+            .as_ref()
+            .ok_or(SubjectMaskServiceError::PeopleNotDiscovered(
+                input_session_token,
+            ))?
+            .get(person_index as usize)
+            .cloned()
+            .ok_or(SubjectMaskServiceError::UnknownPerson(person_index))
+    }
+
+    pub(crate) fn parsed_person(
+        &self,
+        input_session_token: u64,
+        identity: &SubjectMaskRenderInputIdentity,
+        person_index: u32,
+    ) -> Result<Option<Arc<ParsedSubjectMaskPerson>>, SubjectMaskServiceError> {
+        let sessions = self
+            .input_sessions
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?;
+        let session = ready_input_session(&sessions, input_session_token, identity)?;
+        Ok(session.parsed_people.get(&person_index).cloned())
+    }
+
+    pub(crate) fn cache_parsed_person(
+        &self,
+        input_session_token: u64,
+        identity: &SubjectMaskRenderInputIdentity,
+        person_index: u32,
+        parsed: ParsedSubjectMaskPerson,
+    ) -> Result<Arc<ParsedSubjectMaskPerson>, SubjectMaskServiceError> {
+        let mut sessions = self
+            .input_sessions
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?;
+        {
+            let session = ready_input_session(&sessions, input_session_token, identity)?;
+            if let Some(cached) = session.parsed_people.get(&person_index) {
+                return Ok(cached.clone());
+            }
+        }
+        let added_bytes = parsed.resident_byte_len();
+        if resident_input_session_bytes(&sessions)?
+            .checked_add(added_bytes)
+            .is_none_or(|total| total > MAX_SUBJECT_MASK_SESSION_RESIDENT_BYTES)
+        {
+            return Err(SubjectMaskServiceError::InputBudgetExceeded);
+        }
+        let session = ready_input_session_mut(&mut sessions, input_session_token, identity)?;
+        let people =
+            session
+                .people
+                .as_ref()
+                .ok_or(SubjectMaskServiceError::PeopleNotDiscovered(
+                    input_session_token,
+                ))?;
+        if people.get(person_index as usize).is_none() {
+            return Err(SubjectMaskServiceError::UnknownPerson(person_index));
+        }
+        Ok(session
+            .parsed_people
+            .entry(person_index)
+            .or_insert_with(|| Arc::new(parsed))
+            .clone())
+    }
+
+    pub(crate) fn abort_original_space_input_preparation(
+        &self,
+        input_session_token: u64,
+        identity: &SubjectMaskRenderInputIdentity,
+    ) -> Result<(), SubjectMaskServiceError> {
+        let mut sessions = self
+            .input_sessions
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?;
+        let session = sessions.get_mut(&input_session_token).ok_or(
+            SubjectMaskServiceError::UnknownInputSession(input_session_token),
+        )?;
+        match session {
+            SubjectMaskInputSession::Preparing(current) if current == identity => {
+                *session = SubjectMaskInputSession::Vacant;
+                Ok(())
+            }
+            SubjectMaskInputSession::Preparing(_) | SubjectMaskInputSession::Ready { .. } => Err(
+                SubjectMaskServiceError::InputIdentityChanged(input_session_token),
+            ),
+            SubjectMaskInputSession::Vacant => Ok(()),
+        }
     }
 
     pub(crate) fn cancellation(
@@ -295,8 +674,9 @@ impl SubjectMaskService {
         &self,
         proposal_token: u64,
         current_generation: u64,
-        invert: bool,
+        refinement: SubjectMaskRefinement,
     ) -> Result<MaskDefinition, SubjectMaskServiceError> {
+        refinement.validate()?;
         let staged = self
             .proposals
             .lock()
@@ -306,7 +686,9 @@ impl SubjectMaskService {
         let mut store = self.store.clone();
         let managed =
             promote_staged_derived_raster_if_current(&mut store, current_generation, staged)?;
-        managed_soft_mask_definition(&managed, invert).map_err(SubjectMaskServiceError::Store)
+        let definition = managed_soft_mask_definition(&managed, refinement.leaf_invert)
+            .map_err(SubjectMaskServiceError::Store)?;
+        definition_with_refinement(definition, refinement)
     }
 
     fn take_job(&self, job_token: u64) -> Result<Option<SubjectMaskJob>, SubjectMaskServiceError> {
@@ -318,10 +700,142 @@ impl SubjectMaskService {
     }
 }
 
+fn definition_with_refinement(
+    definition: MaskDefinition,
+    refinement: SubjectMaskRefinement,
+) -> Result<MaskDefinition, SubjectMaskServiceError> {
+    let MaskDefinition::ManagedRaster { raster, .. } = definition else {
+        return Err(SubjectMaskServiceError::ExpectedSoftMaskProposal);
+    };
+    Ok(
+        MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
+            raster,
+            refinement.semantic_intent,
+            refinement.expansion_percent,
+            refinement.feather_percent,
+            refinement.leaf_invert,
+        )?,
+    )
+}
+
 #[derive(Debug)]
 struct SubjectMaskJob {
     cancellation: CancellationToken,
     preview_render_token: Option<u64>,
+}
+
+#[derive(Debug)]
+enum SubjectMaskInputSession {
+    Vacant,
+    Preparing(SubjectMaskRenderInputIdentity),
+    Ready {
+        identity: SubjectMaskRenderInputIdentity,
+        input: PreparedSubjectMaskInput,
+        people: Option<Arc<[SubjectMaskPersonCandidate]>>,
+        parsed_people: BTreeMap<u32, Arc<ParsedSubjectMaskPerson>>,
+    },
+}
+
+#[derive(Debug)]
+struct ReadySubjectMaskInputSession<'a> {
+    people: &'a Option<Arc<[SubjectMaskPersonCandidate]>>,
+    parsed_people: &'a BTreeMap<u32, Arc<ParsedSubjectMaskPerson>>,
+}
+
+#[derive(Debug)]
+struct ReadySubjectMaskInputSessionMut<'a> {
+    people: &'a mut Option<Arc<[SubjectMaskPersonCandidate]>>,
+    parsed_people: &'a mut BTreeMap<u32, Arc<ParsedSubjectMaskPerson>>,
+}
+
+fn ready_input_session<'a>(
+    sessions: &'a BTreeMap<u64, SubjectMaskInputSession>,
+    input_session_token: u64,
+    identity: &SubjectMaskRenderInputIdentity,
+) -> Result<ReadySubjectMaskInputSession<'a>, SubjectMaskServiceError> {
+    match sessions.get(&input_session_token) {
+        Some(SubjectMaskInputSession::Ready {
+            identity: current,
+            people,
+            parsed_people,
+            ..
+        }) if current == identity => Ok(ReadySubjectMaskInputSession {
+            people,
+            parsed_people,
+        }),
+        Some(SubjectMaskInputSession::Ready { .. })
+        | Some(SubjectMaskInputSession::Preparing(_)) => Err(
+            SubjectMaskServiceError::InputIdentityChanged(input_session_token),
+        ),
+        Some(SubjectMaskInputSession::Vacant) => Err(
+            SubjectMaskServiceError::InputPreparationNotReserved(input_session_token),
+        ),
+        None => Err(SubjectMaskServiceError::UnknownInputSession(
+            input_session_token,
+        )),
+    }
+}
+
+fn ready_input_session_mut<'a>(
+    sessions: &'a mut BTreeMap<u64, SubjectMaskInputSession>,
+    input_session_token: u64,
+    identity: &SubjectMaskRenderInputIdentity,
+) -> Result<ReadySubjectMaskInputSessionMut<'a>, SubjectMaskServiceError> {
+    match sessions.get_mut(&input_session_token) {
+        Some(SubjectMaskInputSession::Ready {
+            identity: current,
+            people,
+            parsed_people,
+            ..
+        }) if current == identity => Ok(ReadySubjectMaskInputSessionMut {
+            people,
+            parsed_people,
+        }),
+        Some(SubjectMaskInputSession::Ready { .. })
+        | Some(SubjectMaskInputSession::Preparing(_)) => Err(
+            SubjectMaskServiceError::InputIdentityChanged(input_session_token),
+        ),
+        Some(SubjectMaskInputSession::Vacant) => Err(
+            SubjectMaskServiceError::InputPreparationNotReserved(input_session_token),
+        ),
+        None => Err(SubjectMaskServiceError::UnknownInputSession(
+            input_session_token,
+        )),
+    }
+}
+
+fn resident_input_session_bytes(
+    sessions: &BTreeMap<u64, SubjectMaskInputSession>,
+) -> Result<usize, SubjectMaskServiceError> {
+    sessions
+        .values()
+        .filter_map(|session| match session {
+            SubjectMaskInputSession::Ready {
+                input,
+                people,
+                parsed_people,
+                ..
+            } => Some(
+                std::iter::once(input.bytes.len())
+                    .chain(
+                        people
+                            .iter()
+                            .flat_map(|people| people.iter())
+                            .map(SubjectMaskPersonCandidate::resident_byte_len),
+                    )
+                    .chain(
+                        parsed_people
+                            .values()
+                            .map(|parsed| parsed.resident_byte_len()),
+                    )
+                    .try_fold(0_usize, usize::checked_add),
+            ),
+            SubjectMaskInputSession::Vacant | SubjectMaskInputSession::Preparing(_) => None,
+        })
+        .try_fold(0_usize, |total, session_bytes| {
+            session_bytes.and_then(|session_bytes| total.checked_add(session_bytes))
+        })
+        .ok_or(SubjectMaskServiceError::InputBudgetExceeded)
 }
 
 fn next_token(sequence: &AtomicU64) -> Result<u64, SubjectMaskServiceError> {
@@ -339,12 +853,32 @@ pub(crate) enum SubjectMaskServiceError {
     StatePoisoned,
     #[error("too many subject-mask jobs are active")]
     TooManyActiveJobs,
+    #[error("too many subject-mask input sessions are active")]
+    TooManyActiveInputSessions,
     #[error("too many subject-mask proposals are awaiting an apply decision")]
     TooManyStagedProposals,
     #[error("subject-mask token space is exhausted")]
     TokenExhausted,
     #[error("subject-mask job {0} is unknown")]
     UnknownJob(u64),
+    #[error("subject-mask input session {0} is unknown")]
+    UnknownInputSession(u64),
+    #[error("subject-mask input session {0} already has preparation in flight")]
+    InputPreparationInFlight(u64),
+    #[error("subject-mask input session {0} identity changed")]
+    InputIdentityChanged(u64),
+    #[error("subject-mask input session {0} did not reserve preparation")]
+    InputPreparationNotReserved(u64),
+    #[error("subject-mask input JPEG size {0} is outside the bounded contract")]
+    InvalidInputSize(usize),
+    #[error("subject-mask input sessions exceed the aggregate resident byte budget")]
+    InputBudgetExceeded,
+    #[error("subject-mask people discovery returned {0} people, exceeding the session bound")]
+    TooManyDetectedPeople(usize),
+    #[error("subject-mask people were not discovered for input session {0}")]
+    PeopleNotDiscovered(u64),
+    #[error("subject-mask person {0} is unknown")]
+    UnknownPerson(u32),
     #[error("subject-mask proposal {0} is unknown or was already consumed")]
     UnknownProposal(u64),
     #[error("subject-mask preview render token must be non-zero")]
@@ -367,6 +901,8 @@ pub(crate) enum SubjectMaskServiceError {
     Store(#[from] DerivedRasterStoreError),
     #[error(transparent)]
     Promotion(#[from] CurrentDerivedRasterPromotionFailure),
+    #[error(transparent)]
+    Recipe(#[from] RecipeValidationError),
 }
 
 #[cfg(test)]

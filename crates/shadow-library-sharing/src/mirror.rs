@@ -1,8 +1,14 @@
 use std::{
-    collections::HashMap,
     fs::{self, OpenOptions},
     io::{self, Write},
     path::PathBuf,
+};
+
+mod sync;
+
+pub use sync::{
+    RemoteMirrorSyncProgress, RemoteMirrorSyncSession, RemoteMirrorSyncStep,
+    RemoteMirrorSyncStepKind,
 };
 
 use serde::{Deserialize, Serialize};
@@ -65,89 +71,13 @@ impl RemoteLibraryMirror {
         client: &LibraryClient,
         preview_store: &ContentAddressedStore,
     ) -> Result<RemoteMirrorSyncReport, RemoteLibraryMirrorError> {
-        let server = client.server_info()?;
-        if let Some(existing) = &self.snapshot.server
-            && existing.server_id != server.server_id
-        {
-            return Err(RemoteLibraryMirrorError::ServerIdentityChanged {
-                expected: existing.server_id,
-                actual: server.server_id,
-            });
-        }
-        let previous = self
-            .snapshot
-            .photos
-            .drain(..)
-            .map(|photo| {
-                (
-                    (photo.manifest.photo_id, photo.manifest.representation_id),
-                    photo,
-                )
-            })
-            .collect::<HashMap<_, _>>();
-        let mut previous = previous;
-        let mut photos = Vec::new();
-        let mut cursor = None;
-        let mut page_count = 0_usize;
-        let mut downloaded_previews = 0_u64;
+        let mut session = RemoteMirrorSyncSession::begin(self, client)?;
         loop {
-            if page_count >= MAXIMUM_SYNC_PAGES {
-                return Err(RemoteLibraryMirrorError::PageLimitExceeded(
-                    MAXIMUM_SYNC_PAGES,
-                ));
-            }
-            let page = client.list_photos(cursor.take(), server.capabilities.maximum_page_size)?;
-            if page.server_id != server.server_id {
-                return Err(RemoteLibraryMirrorError::ServerIdentityChanged {
-                    expected: server.server_id,
-                    actual: page.server_id,
-                });
-            }
-            for manifest in page.items {
-                let key = (manifest.photo_id, manifest.representation_id);
-                let old = previous.remove(&key);
-                let cached_preview = cache_preview(client, preview_store, &manifest.preview)?;
-                if old.as_ref().and_then(|photo| photo.cached_preview.as_ref())
-                    != cached_preview.as_ref()
-                    && cached_preview.is_some()
-                {
-                    downloaded_previews = downloaded_previews.saturating_add(1);
-                }
-                let local_source = old
-                    .as_ref()
-                    .and_then(|photo| photo.local_source.as_ref())
-                    .filter(|source| source.matches_remote_source(&manifest))
-                    .cloned();
-                photos.push(RemotePhotoMirror {
-                    manifest,
-                    cached_preview,
-                    review_state: old
-                        .as_ref()
-                        .map_or_else(RemoteReviewState::default, |photo| {
-                            photo.review_state.clone()
-                        }),
-                    local_source,
-                });
-            }
-            page_count += 1;
-            cursor = page.next_cursor;
-            if cursor.is_none() {
-                break;
+            let step = session.step(self, client, preview_store, 16)?;
+            if step.progress.complete {
+                return Ok(step.progress.report());
             }
         }
-        let removed = u64::try_from(previous.len()).unwrap_or(u64::MAX);
-        let photo_count = u64::try_from(photos.len()).unwrap_or(u64::MAX);
-        self.snapshot = RemoteLibraryMirrorSnapshot {
-            server: Some(server),
-            photos,
-        };
-        self.persist()?;
-        Ok(RemoteMirrorSyncReport {
-            page_count: u64::try_from(page_count).unwrap_or(u64::MAX),
-            photo_count,
-            downloaded_previews,
-            removed,
-        })
     }
 
     /// Binds one remote identity to the verified local Catalog source created for editing.
@@ -376,6 +306,7 @@ pub struct RemoteMirrorSyncReport {
     pub page_count: u64,
     pub photo_count: u64,
     pub downloaded_previews: u64,
+    pub preview_failures: u64,
     pub removed: u64,
 }
 
@@ -400,6 +331,8 @@ pub enum RemoteLibraryMirrorError {
     },
     #[error("remote Library sync exceeded the {0} page safety limit")]
     PageLimitExceeded(usize),
+    #[error("remote Library sync was cancelled")]
+    SyncCancelled,
     #[error("remote photo {photo_id}/{representation_id} is not present in the mirror")]
     PhotoNotFound {
         photo_id: PhotoId,
@@ -411,7 +344,7 @@ pub enum RemoteLibraryMirrorError {
     PreviewIdentityMismatch,
 }
 
-fn cache_preview(
+pub(super) fn cache_preview(
     client: &LibraryClient,
     preview_store: &ContentAddressedStore,
     availability: &RemotePreviewAvailability,

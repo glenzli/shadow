@@ -26,8 +26,7 @@ struct PreparedEditPreviewPixels final {
     Dimensions dimensions;
     std::optional<FloatRgbImage> edited;
     std::vector<std::uint8_t> rgb;
-    std::shared_ptr<const detail::WarmEditGpuPresentationSurface>
-        presentation_surface;
+    std::shared_ptr<const detail::WarmEditGpuPresentationSurface> presentation_surface;
     std::string presentation_fallback_diagnostic;
     EditPreviewExecutionReceipt execution;
     std::optional<EditPreviewMaskCoverage> mask_coverage;
@@ -40,6 +39,8 @@ struct PreparedEditPreviewPixels final {
     std::span<const AdjustmentNode> nodes,
     const PhotoGeometry& geometry,
     const PhotoLiquify* liquify,
+    const SensorClippingMask* sensor_clipping_mask,
+    const HighlightChromaRiskMap* highlight_chroma_risk_map,
     bool retain_linear_for_analysis,
     std::stop_token cancellation,
     detail::WarmEditGpuOutputIntent output_intent
@@ -52,10 +53,13 @@ struct PreparedEditPreviewPixels final {
     std::span<const AdjustmentLayer> layers,
     const PhotoGeometry& geometry,
     const PhotoLiquify* liquify,
+    const SensorClippingMask* sensor_clipping_mask,
+    const HighlightChromaRiskMap* highlight_chroma_risk_map,
     bool retain_linear_for_analysis,
     std::stop_token cancellation,
     std::optional<std::uint32_t> target_layer_index,
-    detail::WarmEditGpuOutputIntent output_intent
+    detail::WarmEditGpuOutputIntent output_intent,
+    std::optional<std::uint32_t> target_component_index = std::nullopt
 );
 
 [[nodiscard]] std::optional<EditPreviewAnalysis> analyze_edit_preview(

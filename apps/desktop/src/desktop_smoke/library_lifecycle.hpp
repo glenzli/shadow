@@ -19,5 +19,10 @@ void startReopenLibraryLifecycle(
     QQmlApplicationEngine& engine,
     ReviewController& controller
 );
+void startRemoteLibraryLifecycle(
+    QApplication& application,
+    QQmlApplicationEngine& engine,
+    ReviewController& controller
+);
 
 } // namespace DesktopSmoke

@@ -6,7 +6,7 @@ void role_names_and_types_are_stable();
 void library_state_is_catalog_authoritative_and_photo_scoped();
 void decision_updates_project_to_the_single_photo_row();
 void visual_sources_use_encoded_tickets_and_current_generation();
-void generation_advance_reissues_retained_visual_sources();
+void generation_advance_reuses_immutable_grid_visuals();
 void absence_and_legitimate_zero_are_distinct();
 void replace_and_append_keep_their_items_intact();
 void snapshot_reconciliation_updates_visual_and_technical_roles_in_place();
@@ -30,7 +30,7 @@ int main() {
     library_state_is_catalog_authoritative_and_photo_scoped();
     decision_updates_project_to_the_single_photo_row();
     visual_sources_use_encoded_tickets_and_current_generation();
-    generation_advance_reissues_retained_visual_sources();
+    generation_advance_reuses_immutable_grid_visuals();
     absence_and_legitimate_zero_are_distinct();
     replace_and_append_keep_their_items_intact();
     snapshot_reconciliation_updates_visual_and_technical_roles_in_place();

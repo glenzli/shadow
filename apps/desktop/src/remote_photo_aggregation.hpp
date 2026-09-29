@@ -3,8 +3,10 @@
 #include "backend/remote_library_types.hpp"
 
 #include <QHash>
+#include <QSet>
 #include <QString>
 #include <QVector>
+#include <optional>
 
 #include <cstdint>
 
@@ -39,5 +41,6 @@ using RemotePhotoAggregateMap = QHash<QString, RemotePhotoAggregate>;
 /// snapshots. The result owns copies of its source choices and is safe to keep
 /// after the input snapshots change.
 [[nodiscard]] RemotePhotoAggregateMap aggregateRemotePhotos(
-    const QHash<QString, BackendRemoteLibrarySnapshot>& snapshots
+    const QHash<QString, BackendRemoteLibrarySnapshot>& snapshots,
+    const std::optional<QSet<QString>>& online_connections = std::nullopt
 );

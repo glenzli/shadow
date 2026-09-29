@@ -44,7 +44,7 @@ Popup {
                 Layout.fillWidth: true
                 text: qsTr("EDIT RECIPE NEEDS RESET")
                 color: root.errorText
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
                 font.letterSpacing: 1.1
             }
@@ -53,7 +53,7 @@ Popup {
                 Layout.fillWidth: true
                 text: root.editor.recipeRecoveryErrorText
                 color: root.textPrimary
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 wrapMode: Text.WordWrap
                 lineHeight: 1.35
             }

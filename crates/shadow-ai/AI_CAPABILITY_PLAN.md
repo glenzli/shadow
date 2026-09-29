@@ -241,7 +241,7 @@ Initial upstream classification:
 
 | Candidate | Upstream terms to verify | Planning decision |
 | --- | --- | --- |
-| [SAM 2](https://github.com/facebookresearch/sam2/blob/main/LICENSE) / [Apple Core ML SAM 2.1](https://huggingface.co/apple/coreml-sam2.1-tiny) | Apache-2.0 is declared by upstream model repositories | Candidate after exact checkpoint audit |
+| [SAM 2](https://github.com/facebookresearch/sam2/blob/main/LICENSE) | Apache-2.0 is declared by the upstream repository | Infer Runtime capability; exact deployed checkpoint remains its responsibility |
 | [Depth Anything V2 Small](https://github.com/DepthAnything/Depth-Anything-V2#license) | Apache-2.0 | Candidate |
 | [Depth Anything V2 Base/Large/Giant](https://github.com/DepthAnything/Depth-Anything-V2#license) | CC-BY-NC-4.0 in the upstream repository | Deferred for commercial distribution |
 | [Grounding DINO](https://github.com/IDEA-Research/GroundingDINO/blob/main/LICENSE) | Apache-2.0 | Candidate after checkpoint/data audit |

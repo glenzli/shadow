@@ -3,6 +3,7 @@
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/photo_liquify.hpp>
 #include <shadow/image/photo_structural_rendering.hpp>
+#include <shadow/image/decoder_error.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -86,6 +87,47 @@ void geometry_only_plan_matches_the_existing_canvas_sampler() {
     expect(actual.samples == expected.samples, "geometry-only structural sampling is exact parity");
 }
 
+void identity_tiles_preserve_exact_hdr_samples_metadata_and_apron_offsets() {
+    auto source = gradient(11U);
+    for (auto& sample : source.samples) {
+        sample = sample * 7.0F - 2.0F;
+    }
+    source.working_space = linear_rec2020();
+    source.level_zero_to_raster_scale_x = 0.5;
+    source.level_zero_to_raster_scale_y = 0.25;
+    const auto structural = image::prepare_photo_structural_rendering(source.dimensions, {});
+    const image::GeometryPixelRect source_rect{2U, 1U, 9U, 10U};
+    const auto tile_source = crop_source_tile(source, source_rect);
+    for (const auto output_rect : {
+             source_rect,
+             image::GeometryPixelRect{4U, 3U, 4U, 5U},
+             image::GeometryPixelRect{10U, 10U, 1U, 1U},
+         }) {
+        const auto expected = crop_source_tile(source, output_rect);
+        const auto actual = image::apply_photo_structural_rendering_tile(
+            tile_source, source_rect, structural, output_rect
+        );
+        expect(actual.samples == expected.samples, "identity tile copies exact HDR RGB samples");
+        expect(actual.dimensions == expected.dimensions, "identity tile keeps requested extent");
+        expect(actual.row_stride_bytes == expected.row_stride_bytes, "identity tile is tightly packed");
+        expect(actual.working_space == expected.working_space, "identity tile retains working space");
+        expect(actual.reference == expected.reference, "identity tile retains image reference");
+        expect(actual.transfer_function == expected.transfer_function, "identity tile retains transfer");
+        expect(actual.level_zero_to_raster_scale_x == 0.5
+                   && actual.level_zero_to_raster_scale_y == 0.25,
+               "identity tile retains anisotropic sampling density");
+    }
+    bool rejected = false;
+    try {
+        static_cast<void>(image::apply_photo_structural_rendering_tile(
+            tile_source, source_rect, structural, image::GeometryPixelRect{1U, 1U, 2U, 2U}
+        ));
+    } catch (const image::DecodeError&) {
+        rejected = true;
+    }
+    expect(rejected, "identity copy still rejects missing source preimage");
+}
+
 void identity_canvas_fuses_to_the_same_single_liquify_sample() {
     const auto source = gradient();
     const auto liquify = horizontal_push();
@@ -162,6 +204,7 @@ void conservative_preimage_makes_detail_tiles_match_the_full_fused_render() {
 } // namespace
 
 int main() {
+    identity_tiles_preserve_exact_hdr_samples_metadata_and_apron_offsets();
     geometry_only_plan_matches_the_existing_canvas_sampler();
     identity_canvas_fuses_to_the_same_single_liquify_sample();
     conservative_preimage_makes_detail_tiles_match_the_full_fused_render();

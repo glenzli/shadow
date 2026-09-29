@@ -43,6 +43,8 @@ class RustOwnedEditPreviewFrame final : public BackendEditPreviewFrame {
         if (!projection.mask_coverage_available) {
             if (projection.mask_coverage_version != 0U
                 || projection.mask_coverage_target_layer_index != 0U
+                || projection.mask_coverage_component_selected
+                || projection.mask_coverage_target_component_index != 0U
                 || projection.mask_selection_revision != 0U || projection.mask_coverage_width != 0U
                 || projection.mask_coverage_height != 0U
                 || projection.mask_coverage_row_stride_bytes != 0U
@@ -88,8 +90,10 @@ class RustOwnedEditPreviewFrame final : public BackendEditPreviewFrame {
                        != expected_pixel_bytes + mask_bytes) {
                 throw std::invalid_argument("owned host edit preview descriptor is inconsistent");
             }
-        } else if (storage_kind
-                   == static_cast<std::uint8_t>(BackendEditPreviewStorage::AppleMetalRgba8Srgb)) {
+        } else if (
+            storage_kind
+            == static_cast<std::uint8_t>(BackendEditPreviewStorage::AppleMetalRgba8Srgb)
+        ) {
             storage_kind_ = BackendEditPreviewStorage::AppleMetalRgba8Srgb;
             const auto native_row_stride = owner_->interactive_native_texture_row_stride_bytes();
             const std::uint64_t minimum_native_stride =
@@ -166,6 +170,10 @@ class RustOwnedEditPreviewFrame final : public BackendEditPreviewFrame {
             .samples = {samples.data(), samples.size()},
             .version = projection.mask_coverage_version,
             .target_layer_index = projection.mask_coverage_target_layer_index,
+            .target_component_index =
+                projection.mask_coverage_component_selected
+                    ? static_cast<std::int32_t>(projection.mask_coverage_target_component_index)
+                    : -1,
             .selection_revision = projection.mask_selection_revision,
             .dimensions = dimensions_,
             .row_stride_bytes = projection.mask_coverage_row_stride_bytes,

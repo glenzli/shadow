@@ -32,7 +32,7 @@ fn write_fixture(root: &std::path::Path, extra: &str) -> std::path::PathBuf {
     let sample_path = root.join("frame.shadowrawi.u16le");
     fs::write(&sample_path, [0_u8, 1, 2, 3].repeat(8)).expect("sample fixture");
     let manifest = format!(
-        "{PROTOCOL} descriptor_contract=active-camera-colour-20260806.1 width=4 height=4 cfa=RGGB black=64,64,64,64 white=16383,16383,16383,16383 orientation=0 bits_per_sample=14 as_shot_neutral=1,1,1,1 camera_to_xyz_d50=1,0,0,0,1,0,0,0,1 xyz_to_camera_d65=- camera_to_linear_srgb_d65=- pending_dng_opcode_bytes=0,0,0 provider_id_hex=736861646f772e746573742e726177 provider_version_hex=7631 sample_bytes=32{extra}\n"
+        "{PROTOCOL} descriptor_contract=active-camera-colour-response-20260822.1 width=4 height=4 cfa=RGGB black=64,64,64,64 white=16383,16383,16383,16383 linear_response=15100,15101,15102,15103 has_linear_response=1 orientation=0 bits_per_sample=14 as_shot_neutral=1,1,1,1 camera_to_xyz_d50=1,0,0,0,1,0,0,0,1 xyz_to_camera_d65=- camera_to_linear_srgb_d65=- pending_dng_opcode_bytes=0,0,0 provider_id_hex=736861646f772e746573742e726177 provider_version_hex=7631 sample_bytes=32{extra}\n"
     );
     fs::write(&manifest_path, manifest).expect("manifest fixture");
     manifest_path
@@ -51,6 +51,21 @@ fn opens_one_strict_owner_only_descriptor_and_exact_sample_handle() {
     assert_eq!(descriptor.cfa, "RGGB");
     assert_eq!(descriptor.black_levels, [64; 4]);
     assert_eq!(descriptor.white_levels, [16_383; 4]);
+    assert_eq!(
+        descriptor.linear_response_limits,
+        [15_100, 15_101, 15_102, 15_103]
+    );
+    assert!(descriptor.has_linear_response_limits);
+    assert_eq!(descriptor.orientation, 0);
+    assert_eq!(descriptor.bits_per_sample, 14);
+    assert_eq!(descriptor.as_shot_neutral, [1.0; 4]);
+    assert_eq!(
+        descriptor.camera_to_xyz_d50,
+        Some([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+    );
+    assert_eq!(descriptor.xyz_to_camera_d65, None);
+    assert_eq!(descriptor.camera_to_linear_srgb_d65, None);
+    assert_eq!(descriptor.pending_dng_opcode_bytes, [0; 3]);
     assert_eq!(descriptor.sample_bytes, 32);
     assert_eq!(descriptor.decoded_samples_sha256, SAMPLE_SHA256);
     assert_eq!(descriptor.decoder_provider_id, "shadow.test.raw");
@@ -72,6 +87,21 @@ fn opens_one_strict_owner_only_descriptor_and_exact_sample_handle() {
             0o600
         );
     }
+}
+
+#[test]
+fn retains_distinct_cfa_white_levels_for_lossless_interchange() {
+    let root = FixtureRoot::new();
+    let manifest_path = write_fixture(root.path(), "");
+    let manifest = fs::read_to_string(&manifest_path).unwrap().replace(
+        "white=16383,16383,16383,16383",
+        "white=16383,16200,16100,16000",
+    );
+    fs::write(&manifest_path, manifest).unwrap();
+
+    let (_, _, descriptor) = open_staged_frame(&manifest_path).unwrap();
+
+    assert_eq!(descriptor.white_levels, [16_383, 16_200, 16_100, 16_000]);
 }
 
 #[test]

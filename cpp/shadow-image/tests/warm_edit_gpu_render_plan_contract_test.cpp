@@ -5,6 +5,7 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/working_rgb.hpp>
 
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <span>
@@ -69,7 +70,8 @@ detail_recipe(image::SharpenAdjustment adjustment, const std::uint32_t implement
         linear_srgb(),
         raster_scale,
         raster_scale,
-        {}
+        {},
+        false
     );
 }
 
@@ -177,10 +179,63 @@ void planner_handles_empty_and_combined_neighbourhood_contracts() {
     );
 }
 
+void planner_binds_resident_raw_evidence_even_when_every_risk_sample_is_zero() {
+    const std::array nodes{
+        image::AdjustmentNode{
+            .node_id = "raw-highlight-channel-repair",
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{
+                .highlights = -1.0,
+                .highlight_red_suppression = 1.0,
+            },
+        },
+    };
+    const auto execution = image::compile_edit_execution_plan(nodes, 0.25, 0.25);
+    const auto prepare = [&](const bool resident_highlight_evidence_available) {
+        return image::detail::prepare_warm_gpu_render_plan(
+            nodes,
+            execution,
+            image::Dimensions{160U, 90U},
+            linear_srgb(),
+            0.25,
+            0.25,
+            {},
+            resident_highlight_evidence_available
+        );
+    };
+    const auto raw_plan = prepare(true);
+    const auto ordinary_plan = prepare(false);
+    expect_stage<image::detail::WarmSelectiveToneStage>(
+        raw_plan,
+        "resident RAW evidence selects the Selective Tone stage"
+    );
+    expect_stage<image::detail::WarmSelectiveToneStage>(
+        ordinary_plan,
+        "ordinary sources still select the shared Selective Tone stage"
+    );
+    const auto* raw_stage = std::get_if<image::detail::WarmSelectiveToneStage>(
+        &raw_plan.passes.front().neighbourhood
+    );
+    const auto* ordinary_stage = std::get_if<image::detail::WarmSelectiveToneStage>(
+        &ordinary_plan.passes.front().neighbourhood
+    );
+    expect(
+        raw_stage != nullptr && raw_stage->parameters.highlight_evidence_available == 1U,
+        "an all-zero but real resident RAW evidence plane authorizes the luminance selection gate"
+    );
+    expect(
+        ordinary_stage != nullptr
+            && ordinary_stage->parameters.highlight_evidence_available == 0U,
+        "a synthetic zero binding is not reinterpreted as RAW highlight evidence"
+    );
+}
+
 } // namespace
 
 int main() {
     planner_selects_each_supported_neighbourhood_contract();
     planner_handles_empty_and_combined_neighbourhood_contracts();
+    planner_binds_resident_raw_evidence_even_when_every_risk_sample_is_zero();
     return failures == 0 ? 0 : 1;
 }

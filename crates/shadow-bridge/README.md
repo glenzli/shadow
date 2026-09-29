@@ -11,6 +11,8 @@ that same private wire representation:
 - [`src/decoder.rs`](src/decoder.rs) owns source-neutral inspection, embedded-preview extraction,
   and shared decoder wire mappings.
 - [`src/display_luma.rs`](src/display_luma.rs) owns bounded, versioned display-proxy analysis.
+- [`src/lut_baking.rs`](src/lut_baking.rs) owns bounded color-only LUT sampling, shared cancellation,
+  production-parser admission, and measured interpolation-error results.
 - [`src/optics.rs`](src/optics.rs) owns optical settings, profile discovery, and execution
   receipts.
 - [`src/raw_development.rs`](src/raw_development.rs) owns RAW plan values, wire conversion,
@@ -121,10 +123,16 @@ individual tiles, avoiding independent chroma/block
 boundaries at tile seams. The detail wrapper is also `Send + Sync`; concurrent calls read the
 retained source and own all crop/edit/output memory independently.
 
+`render_plan_tile16` is the export-only counterpart. It forces CPU replay through the same
+full-detail plan and returns tightly packed display-encoded RGB16 samples for true 16-bit TIFF
+assembly. The caller validates the direct-execution receipt and stitches only bounded tiles; this
+path is not used by interactive preview or presentation.
+
 Compressed embedded previews and durable generated proxies are small enough to cross as owned
 bytes. Interactive RGB8 and R8 coverage instead stay in one immutable native frame owner and cross
 as borrowed slices. Large mosaic and full-resolution u16 RGB buffers remain in C++; detail
-requests copy only bounded RGB8 tiles across FFI rather than exposing `Vec<u16>`.
+requests copy only bounded RGB8 tiles across FFI. RGB16 crosses the boundary only for explicit
+high-bit-depth export tiles.
 
 AI RAW foundations use a separate, explicit large-payload contract in
 [`src/raw_foundation.rs`](src/raw_foundation.rs). The verified artifact/cache owner supplies
@@ -155,7 +163,7 @@ The first implementation is Mac-first and accepts a UTF-8 path. This limitation 
 ## Build
 
 Cargo uses CXX 1.0.198 and compiles the same `shadow-image` translation units used by CMake.
-[`build.rs`](build.rs) reads the canonical portable, Apple/Core ML, Metal, and fallback manifests
+[`build.rs`](build.rs) reads the canonical portable, Metal, and fallback manifests
 from [`cpp/shadow-image/cmake/source-manifests/`](../../cpp/shadow-image/cmake/source-manifests/);
 CMake consumes the same files. Adding or extracting a native implementation therefore updates
 one source index, and both build graphs fail closed on malformed, duplicate, missing, or empty

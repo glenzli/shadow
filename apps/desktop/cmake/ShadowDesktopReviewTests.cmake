@@ -982,6 +982,8 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowComboBox.qml
+            qml/ShadowTextField.qml
             qml/LibraryLocationBatchDialog.qml
             qml/LibraryLocationBatchState.qml
             qml/LibraryMapPlaceSearch.qml
@@ -1042,6 +1044,7 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowTextField.qml
             qml/LibraryLocationCompletionGallery.qml
             qml/ShadowIconButton.qml
             qml/ShadowIcon.qml
@@ -1277,6 +1280,8 @@
         RESOURCE_PREFIX "/qt/qml"
         NO_PLUGIN
         QML_FILES
+            qml/ShadowComboBox.qml
+            qml/ShadowTextField.qml
             qml/PersonalProfileDialog.qml
             qml/PersonalLocationSearchField.qml
             qml/PersonalLivingPlacesEditor.qml
@@ -1404,3 +1409,59 @@
         shadow-desktop-review-travel-collections
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+
+# Filmstrip preview interaction uses the same packaged view/gesture owners as Precision.
+add_executable(shadow-review-preview-viewport-contract-test
+    tests/review_preview_viewport_contract_test.cpp)
+target_compile_features(shadow-review-preview-viewport-contract-test PRIVATE cxx_std_20)
+target_link_libraries(shadow-review-preview-viewport-contract-test
+    PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+qt_add_qml_module(shadow-review-preview-viewport-contract-test
+    URI Shadow.ReviewPreviewContract
+    VERSION 1.0
+    RESOURCE_PREFIX "/qt/qml"
+    NO_PLUGIN
+    QML_FILES
+        qml/ReviewPreviewViewport.qml
+        qml/ShadowIcon.qml
+        qml/ShadowIconButton.qml
+        qml/PrecisionViewportState.qml
+        qml/PrecisionCanvasZoomInput.qml
+        qml/ShadowButton.qml
+        qml/Theme.qml)
+qt_add_resources(shadow-review-preview-viewport-contract-test review-preview-icons
+    PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+    FILES icons/zoom-in.svg icons/zoom-out.svg icons/fit-view.svg)
+add_test(NAME shadow-desktop-review-preview-viewport-contract
+    COMMAND shadow-review-preview-viewport-contract-test)
+set_tests_properties(shadow-desktop-review-preview-viewport-contract
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(shadow-review-filmstrip-selection-contract-test
+    tests/review_filmstrip_selection_contract_test.cpp
+    src/review_filter_model.cpp src/review_filter_model.hpp
+    src/review_model.cpp src/review_model.hpp
+    src/review_visual_request.cpp src/review_visual_request.hpp
+    src/justified_review_layout_model.cpp src/justified_review_layout_model.hpp)
+target_compile_features(shadow-review-filmstrip-selection-contract-test PRIVATE cxx_std_20)
+target_include_directories(shadow-review-filmstrip-selection-contract-test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(shadow-review-filmstrip-selection-contract-test
+    PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+qt_add_qml_module(shadow-review-filmstrip-selection-contract-test
+    URI Shadow.ReviewFilmstripContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+    QML_FILES
+        qml/ReviewSinglePreview.qml qml/ReviewPreviewViewport.qml
+        qml/ReviewDecisionToolbar.qml qml/ReviewPhotoAffinity.qml
+        qml/ShadowRoundedImage.qml qml/ShadowColorLabelButton.qml
+        qml/ShadowIcon.qml qml/ShadowIconButton.qml qml/ShadowButton.qml
+        qml/PrecisionViewportState.qml qml/PrecisionCanvasZoomInput.qml qml/Theme.qml)
+qt_add_resources(shadow-review-filmstrip-selection-contract-test review-filmstrip-icons
+    PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+    FILES icons/zoom-in.svg icons/zoom-out.svg icons/fit-view.svg
+        icons/source-missing.svg icons/pick.svg icons/reject.svg icons/star.svg
+        icons/star-filled.svg icons/heart.svg icons/heart-filled.svg icons/candidate.svg)
+add_test(NAME shadow-desktop-review-filmstrip-selection-contract
+    COMMAND shadow-review-filmstrip-selection-contract-test)
+set_tests_properties(shadow-desktop-review-filmstrip-selection-contract
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)

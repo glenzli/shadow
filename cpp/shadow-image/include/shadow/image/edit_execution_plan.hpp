@@ -13,6 +13,9 @@
 
 namespace shadow::image {
 
+struct SensorClippingMask;
+struct HighlightChromaRiskMap;
+
 enum class AdjustmentLocality : std::uint8_t {
     pixel_local,
     neighborhood,
@@ -99,6 +102,12 @@ struct AdjustmentExecutionContext final {
     std::uint32_t origin_x = 0;
     std::uint32_t origin_y = 0;
     Dimensions full_dimensions{};
+    // Immutable source evidence, borrowed only for this synchronous execution.  It is not a
+    // Recipe parameter: RAW preparation owns the physical sensor-white observation and may
+    // omit it for non-RAW sources.  Selective tone uses it only when a negative highlight/white
+    // recovery would otherwise expose chroma that the sensor did not measure.
+    const SensorClippingMask* sensor_clipping_mask = nullptr;
+    const HighlightChromaRiskMap* highlight_chroma_risk_map = nullptr;
 };
 
 } // namespace shadow::image

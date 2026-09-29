@@ -4,6 +4,13 @@
 //! infer-runtime supplies typed YuNet/SFace evidence, and this owner rejects
 //! stale results before producing an in-memory grouping proposal.
 
+mod quality;
+mod selection;
+mod thumbnail;
+pub use selection::{
+    PeopleAnalysisInput, PeopleAnalysisSelection, people_analysis_library_membership,
+};
+
 use std::fmt::Write as _;
 
 use serde::Serialize;
@@ -69,16 +76,74 @@ pub struct PeopleAnalysisSkipped {
     pub stale_input: usize,
     pub low_detection_confidence: usize,
     pub ineligible_embedding: usize,
+    pub low_face_quality: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PeopleAnalysisReport {
+    pub completed_inputs: Vec<PeopleAnalysisInput>,
     pub analyzed_photos: usize,
     pub detected_faces: usize,
     pub embedded_faces: usize,
     pub truncated: bool,
     pub skipped: PeopleAnalysisSkipped,
     pub grouping: AnonymousPeopleGroupingPlan,
+    /// Per-occurrence crops let the store choose a current, clear representative
+    /// after a source change, merge or split. Image payloads never serialize.
+    #[serde(skip_serializing)]
+    pub face_previews: Vec<PeopleFacePreview>,
+    /// Only quality rejections from completed, source-verified photos. These
+    /// suppress old automatic discoveries without erasing authored organization.
+    pub rejected_faces: Vec<PeopleRejectedFace>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PeopleFacePreview {
+    pub occurrence_id: String,
+    pub thumbnail_jpeg: Vec<u8>,
+    pub quality: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PeopleRejectedFace {
+    pub photo_id: String,
+    pub representation_id: String,
+    pub bounds: [f32; 4],
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum PeopleAnalysisPhase {
+    Reviewing,
+    Grouping,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct PeopleAnalysisProgress {
+    pub phase: PeopleAnalysisPhase,
+    pub analyzed_photos: usize,
+    pub maximum_photos: usize,
+    pub detected_faces: usize,
+    pub compared_faces: usize,
+}
+
+/// Cooperative lifecycle boundary for one bounded people-analysis job.
+///
+/// The Infer Runtime provider drops an in-flight request on cancellation. Other
+/// providers retain a default before/after cooperative boundary.
+pub trait PeopleAnalysisControl: Send + Sync {
+    fn cancellation_requested(&self) -> bool;
+    fn publish(&self, progress: PeopleAnalysisProgress);
+}
+
+#[derive(Debug)]
+struct UnobservedPeopleAnalysis;
+
+impl PeopleAnalysisControl for UnobservedPeopleAnalysis {
+    fn cancellation_requested(&self) -> bool {
+        false
+    }
+
+    fn publish(&self, _progress: PeopleAnalysisProgress) {}
 }
 
 /// Analyzes a bounded, stable Review ordering without persisting embeddings.
@@ -96,26 +161,96 @@ pub fn analyze_review_people(
     provider: &impl FaceAnalysisProvider,
     policy: PeopleAnalysisPolicy,
 ) -> Result<PeopleAnalysisReport, PeopleAnalysisError> {
+    analyze_review_people_with_control(
+        catalog,
+        cache_root,
+        provider,
+        policy,
+        &UnobservedPeopleAnalysis,
+    )
+}
+
+/// Runs the same transient analysis with observable progress and cooperative
+/// cancellation owned by the caller's session-local job lifecycle.
+pub fn analyze_review_people_with_control(
+    catalog: &CatalogHandle,
+    cache_root: impl Into<std::path::PathBuf>,
+    provider: &impl FaceAnalysisProvider,
+    policy: PeopleAnalysisPolicy,
+    control: &(impl PeopleAnalysisControl + ?Sized),
+) -> Result<PeopleAnalysisReport, PeopleAnalysisError> {
+    analyze_review_people_incremental(catalog, cache_root, provider, policy, control, None)
+}
+
+/// Analyzes only new/changed inputs plus bounded reference photos. The caller
+/// persists completed identities, never the transient biometric embeddings.
+pub fn analyze_review_people_incremental(
+    catalog: &CatalogHandle,
+    cache_root: impl Into<std::path::PathBuf>,
+    provider: &impl FaceAnalysisProvider,
+    policy: PeopleAnalysisPolicy,
+    control: &(impl PeopleAnalysisControl + ?Sized),
+    selection: Option<&PeopleAnalysisSelection>,
+) -> Result<PeopleAnalysisReport, PeopleAnalysisError> {
     let policy = policy.validate()?;
+    let library = selection::library_membership(catalog, control)?;
+    let selected = selection
+        .map(|state| {
+            selection::select_inputs(catalog, state, policy.maximum_photos, &library, control)
+        })
+        .transpose()?;
     let cache = ContentAddressedStore::open(cache_root.into())?;
     let mut occurrences = Vec::new();
     let mut cursor: Option<ReviewCursor> = None;
     let mut analyzed_photos = 0;
     let mut detected_faces = 0;
+    let mut compared_faces = 0;
     let mut skipped = PeopleAnalysisSkipped::default();
-    let mut truncated = false;
+    let mut truncated = selected.as_ref().is_some_and(|(_, remaining)| *remaining);
+    let mut completed_inputs = Vec::new();
+    let mut face_previews = Vec::new();
+    let mut rejected_faces = Vec::new();
+    let mut resident_thumbnail_bytes = 0_usize;
+
+    publish_progress(
+        control,
+        PeopleAnalysisPhase::Reviewing,
+        analyzed_photos,
+        policy.maximum_photos,
+        detected_faces,
+        compared_faces,
+    )?;
 
     'pages: loop {
+        ensure_active(control)?;
         let page = catalog.review_page(cursor.as_ref(), REVIEW_PAGE_SIZE)?;
         if page.items.is_empty() {
             break;
         }
         for item in page.items {
+            ensure_active(control)?;
+            if library.get(&item.photo_id.to_string()) != Some(&item.representation_id) {
+                continue;
+            }
+            if selected
+                .as_ref()
+                .is_some_and(|(ids, _)| !ids.contains(&item.representation_id))
+            {
+                continue;
+            }
             if analyzed_photos == policy.maximum_photos {
                 truncated = true;
                 break 'pages;
             }
             analyzed_photos += 1;
+            publish_progress(
+                control,
+                PeopleAnalysisPhase::Reviewing,
+                analyzed_photos,
+                policy.maximum_photos,
+                detected_faces,
+                compared_faces,
+            )?;
             let Some(record) = item.visual else {
                 skipped.no_current_visual += 1;
                 continue;
@@ -125,15 +260,41 @@ pub fn analyze_review_people(
                 continue;
             }
             let image = read_verified_visual(&cache, &record)?;
-            let source_revision = source_revision(item.photo_id, &record);
-            let detection = provider.detect_faces(&image, "image/jpeg", &source_revision)?;
-            if detection.width != record.artifact.dimensions.width
-                || detection.height != record.artifact.dimensions.height
+            let source_revision = format!(
+                "{}/input:{}",
+                source_revision(item.photo_id, &record),
+                quality::ANALYSIS_REVISION
+            );
+            let prepared =
+                crate::vision_input::bounded_jpeg(&image, record.artifact.dimensions, 4096)
+                    .map_err(PeopleAnalysisError::InputPreparation)?;
+            let image = prepared.bytes;
+            ensure_active(control)?;
+            let detection = provider
+                .detect_faces_cancellable(&image, "image/jpeg", &source_revision, &|| {
+                    control.cancellation_requested()
+                })?
+                .ok_or(PeopleAnalysisError::Cancelled)?;
+            ensure_active(control)?;
+            if detection.width != prepared.dimensions.width
+                || detection.height != prepared.dimensions.height
             {
                 return Err(PeopleAnalysisError::ProviderGeometryMismatch);
             }
             detected_faces += detection.detections.len();
+            publish_progress(
+                control,
+                PeopleAnalysisPhase::Reviewing,
+                analyzed_photos,
+                policy.maximum_photos,
+                detected_faces,
+                compared_faces,
+            )?;
             let mut current_occurrences = Vec::new();
+            let mut current_previews = Vec::new();
+            let mut current_rejections = Vec::new();
+            let mut thumbnail_source = None;
+            let mut thumbnail_decode_attempted = false;
             for (ordinal, face) in detection.detections.into_iter().enumerate() {
                 if face.confidence < policy.minimum_detection_confidence {
                     skipped.low_detection_confidence += 1;
@@ -143,19 +304,56 @@ pub fn analyze_review_people(
                     truncated = true;
                     break 'pages;
                 }
-                let embedded = match provider.embed_face(
+                if !thumbnail_decode_attempted {
+                    thumbnail_decode_attempted = true;
+                    if thumbnail::source_dimensions_admitted(
+                        prepared.dimensions.width,
+                        prepared.dimensions.height,
+                    ) {
+                        thumbnail_source = image::load_from_memory(&image).ok();
+                    }
+                }
+                let Some(source) = thumbnail_source.as_ref() else {
+                    return Err(PeopleAnalysisError::InputPreparation(
+                        "could not decode people visual".into(),
+                    ));
+                };
+                let Some(quality) = quality::portrait_quality(source, face.bounding_box) else {
+                    skipped.low_face_quality += 1;
+                    let b = face.bounding_box;
+                    current_rejections.push(PeopleRejectedFace {
+                        photo_id: item.photo_id.to_string(),
+                        representation_id: item.representation_id.to_string(),
+                        bounds: [b.x, b.y, b.width, b.height],
+                    });
+                    continue;
+                };
+                ensure_active(control)?;
+                let embedded = match provider.embed_face_cancellable(
                     &image,
                     "image/jpeg",
                     &source_revision,
                     face.landmarks,
+                    &|| control.cancellation_requested(),
                 ) {
-                    Ok(embedded) => embedded,
+                    Ok(Some(embedded)) => embedded,
+                    Ok(None) => return Err(PeopleAnalysisError::Cancelled),
                     Err(InferRuntimeClientError::Api { status, .. }) if status.as_u16() == 400 => {
                         skipped.ineligible_embedding += 1;
                         continue;
                     }
                     Err(error) => return Err(error.into()),
                 };
+                ensure_active(control)?;
+                compared_faces += 1;
+                publish_progress(
+                    control,
+                    PeopleAnalysisPhase::Reviewing,
+                    analyzed_photos,
+                    policy.maximum_photos,
+                    detected_faces,
+                    compared_faces,
+                )?;
                 let occurrence_id = occurrence_id(
                     &source_revision,
                     ordinal,
@@ -163,6 +361,26 @@ pub fn analyze_review_people(
                     &detection.provenance,
                     &embedded.provenance,
                 )?;
+                let thumbnail_jpeg = thumbnail::face_thumbnail_jpeg(source, face.bounding_box)
+                    .ok_or_else(|| {
+                        PeopleAnalysisError::InputPreparation(
+                            "could not prepare people portrait".into(),
+                        )
+                    })?;
+                if resident_thumbnail_bytes.saturating_add(thumbnail_jpeg.len())
+                    > thumbnail::MAX_RESIDENT_PEOPLE_THUMBNAIL_BYTES
+                {
+                    // Do not publish a face without its representative crop. The
+                    // incomplete photo receives no checkpoint and is retried.
+                    truncated = true;
+                    break 'pages;
+                }
+                resident_thumbnail_bytes += thumbnail_jpeg.len();
+                current_previews.push(PeopleFacePreview {
+                    occurrence_id: occurrence_id.to_string(),
+                    thumbnail_jpeg,
+                    quality,
+                });
                 current_occurrences.push(FaceOccurrenceEvidence {
                     occurrence_id,
                     photo_id: item.photo_id,
@@ -176,7 +394,14 @@ pub fn analyze_review_people(
                 skipped.stale_input += 1;
                 continue;
             }
+            completed_inputs.push(PeopleAnalysisInput {
+                photo_id: item.photo_id.to_string(),
+                representation_id: item.representation_id.to_string(),
+                source_revision,
+            });
             occurrences.extend(current_occurrences);
+            face_previews.extend(current_previews);
+            rejected_faces.extend(current_rejections);
         }
         cursor = page.next_cursor;
         if cursor.is_none() {
@@ -184,15 +409,55 @@ pub fn analyze_review_people(
         }
     }
 
+    publish_progress(
+        control,
+        PeopleAnalysisPhase::Grouping,
+        analyzed_photos,
+        policy.maximum_photos,
+        detected_faces,
+        compared_faces,
+    )?;
     let grouping = propose_anonymous_people(&occurrences, policy.grouping)?;
+    ensure_active(control)?;
     Ok(PeopleAnalysisReport {
+        completed_inputs,
         analyzed_photos,
         detected_faces,
         embedded_faces: occurrences.len(),
         truncated,
         skipped,
         grouping,
+        face_previews,
+        rejected_faces,
     })
+}
+
+fn ensure_active(
+    control: &(impl PeopleAnalysisControl + ?Sized),
+) -> Result<(), PeopleAnalysisError> {
+    if control.cancellation_requested() {
+        return Err(PeopleAnalysisError::Cancelled);
+    }
+    Ok(())
+}
+
+fn publish_progress(
+    control: &(impl PeopleAnalysisControl + ?Sized),
+    phase: PeopleAnalysisPhase,
+    analyzed_photos: usize,
+    maximum_photos: usize,
+    detected_faces: usize,
+    compared_faces: usize,
+) -> Result<(), PeopleAnalysisError> {
+    ensure_active(control)?;
+    control.publish(PeopleAnalysisProgress {
+        phase,
+        analyzed_photos,
+        maximum_photos,
+        detected_faces,
+        compared_faces,
+    });
+    ensure_active(control)
 }
 
 fn read_verified_visual(
@@ -278,10 +543,14 @@ fn hash_field(hasher: &mut blake3::Hasher, value: &[u8]) {
 
 #[derive(Debug, Error)]
 pub enum PeopleAnalysisError {
+    #[error("anonymous-person analysis was cancelled")]
+    Cancelled,
     #[error("anonymous-person analysis policy is invalid")]
     InvalidPolicy,
     #[error("infer-runtime image geometry disagrees with the selected Catalog artifact")]
     ProviderGeometryMismatch,
+    #[error("could not prepare local vision input: {0}")]
+    InputPreparation(String),
     #[error("unsupported cached blob algorithm: {0}")]
     UnsupportedBlobAlgorithm(String),
     #[error("cached visual byte length disagrees with Catalog metadata")]

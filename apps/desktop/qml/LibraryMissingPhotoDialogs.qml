@@ -88,7 +88,7 @@ Item {
                         anchors.centerIn: parent
                         text: "!"
                         color: Theme.warningText
-                        font.pixelSize: 18
+                        font.pixelSize: Theme.fontHeading
                         font.weight: Font.Bold
                     }
                 }
@@ -101,7 +101,7 @@ Item {
                         Layout.fillWidth: true
                         text: qsTr("Original file not found")
                         color: Theme.textPrimary
-                        font.pixelSize: 16
+                        font.pixelSize: Theme.fontTitle
                         font.weight: Font.DemiBold
                     }
 

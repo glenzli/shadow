@@ -25,6 +25,22 @@ class AiPreferences final : public QObject {
             setSubjectMaskExecutionAllowed NOTIFY subjectMaskExecutionAllowedChanged
     )
     Q_PROPERTY(
+        bool imageCompletionExecutionAllowed READ imageCompletionExecutionAllowed WRITE
+            setImageCompletionExecutionAllowed NOTIFY imageCompletionExecutionAllowedChanged
+    )
+    Q_PROPERTY(
+        bool peopleAnalysisExecutionAllowed READ peopleAnalysisExecutionAllowed NOTIFY
+            peopleAnalysisConsentChanged
+    )
+    Q_PROPERTY(
+        bool peopleAnalysisConsentDecided READ peopleAnalysisConsentDecided NOTIFY
+            peopleAnalysisConsentChanged
+    )
+    Q_PROPERTY(
+        QString peopleAnalysisConsentState READ peopleAnalysisConsentState NOTIFY
+            peopleAnalysisConsentChanged
+    )
+    Q_PROPERTY(
         bool imageUnderstandingExecutionAllowed READ imageUnderstandingExecutionAllowed WRITE
             setImageUnderstandingExecutionAllowed NOTIFY imageUnderstandingExecutionAllowedChanged
     )
@@ -48,6 +64,10 @@ class AiPreferences final : public QObject {
         int rawDenoiseDefaultAmount READ rawDenoiseDefaultAmount WRITE setRawDenoiseDefaultAmount
             NOTIFY rawDenoiseDefaultAmountChanged
     )
+    Q_PROPERTY(
+        bool autoStartEnabled READ autoStartEnabled WRITE setAutoStartEnabled NOTIFY
+            autoStartEnabledChanged
+    )
     Q_PROPERTY(QString modelStoragePath READ modelStoragePath CONSTANT)
     Q_PROPERTY(QUrl modelStorageUrl READ modelStorageUrl CONSTANT)
 
@@ -64,17 +84,29 @@ class AiPreferences final : public QObject {
 
     [[nodiscard]] bool rawDenoiseExecutionAllowed() const noexcept;
     [[nodiscard]] bool subjectMaskExecutionAllowed() const noexcept;
+    [[nodiscard]] bool imageCompletionExecutionAllowed() const noexcept;
+    [[nodiscard]] bool peopleAnalysisExecutionAllowed() const noexcept;
+    [[nodiscard]] bool peopleAnalysisConsentDecided() const noexcept;
+    [[nodiscard]] QString peopleAnalysisConsentState() const;
     [[nodiscard]] bool imageUnderstandingExecutionAllowed() const noexcept;
     [[nodiscard]] bool imageUnderstandingBackgroundEnabled() const noexcept;
     [[nodiscard]] QString imageUnderstandingScanScope() const;
     [[nodiscard]] int imageUnderstandingMinimumRating() const noexcept;
     [[nodiscard]] bool imageUnderstandingAutoApplyKeywords() const noexcept;
     [[nodiscard]] int rawDenoiseDefaultAmount() const noexcept;
+    bool autoStartEnabled() const noexcept {
+        return auto_start_enabled_;
+    }
+    void setAutoStartEnabled(bool enabled);
     [[nodiscard]] QString modelStoragePath() const;
     [[nodiscard]] QUrl modelStorageUrl() const;
 
     void setRawDenoiseExecutionAllowed(bool allowed);
     void setSubjectMaskExecutionAllowed(bool allowed);
+    void setImageCompletionExecutionAllowed(bool allowed);
+    Q_INVOKABLE void grantPeopleAnalysisConsent();
+    Q_INVOKABLE void denyPeopleAnalysisConsent();
+    Q_INVOKABLE void revokePeopleAnalysisConsent();
     void setImageUnderstandingExecutionAllowed(bool allowed);
     void setImageUnderstandingBackgroundEnabled(bool enabled);
     void setImageUnderstandingScanScope(const QString& scope);
@@ -83,8 +115,11 @@ class AiPreferences final : public QObject {
     void setRawDenoiseDefaultAmount(int amount_percent);
 
   signals:
+    void autoStartEnabledChanged();
     void rawDenoiseExecutionAllowedChanged();
     void subjectMaskExecutionAllowedChanged();
+    void imageCompletionExecutionAllowedChanged();
+    void peopleAnalysisConsentChanged();
     void imageUnderstandingExecutionAllowedChanged();
     void imageUnderstandingBackgroundEnabledChanged();
     void imageUnderstandingScanScopeChanged();
@@ -97,8 +132,11 @@ class AiPreferences final : public QObject {
 
     std::unique_ptr<QSettings> settings_;
     QString model_storage_path_;
+    bool auto_start_enabled_ = false;
     bool raw_denoise_execution_allowed_ = true;
     bool subject_mask_execution_allowed_ = true;
+    bool image_completion_execution_allowed_ = false;
+    QString people_analysis_consent_state_ = QStringLiteral("not_asked");
     bool image_understanding_execution_allowed_ = true;
     bool image_understanding_background_enabled_ = false;
     QString image_understanding_scan_scope_ = QStringLiteral("liked");

@@ -211,6 +211,28 @@ Popup {
 
         MenuRow {
             text: root.hasWorkspace && root.workspace.selectedPhotoCount > 1
+                ? qsTr("Refresh selected previews")
+                : qsTr("Refresh preview")
+            iconSource: "qrc:/icons/refresh.svg"
+            actionEnabled: root.hasWorkspace
+                && root.workspace.selectedPhotoCount > 0
+                && root.photoSourceAvailable
+                && !root.photoIsRemote
+                && !root.workspace.selectionContainsRemote()
+                && !root.workspace.controller.busy
+            onActivated: {
+                if (!root.hasWorkspace)
+                    return
+                root.workspace.controller.refreshSelectedPreviews(
+                    root.workspace.batchSelectionTargets())
+                root.close()
+            }
+        }
+
+        Divider {}
+
+        MenuRow {
+            text: root.hasWorkspace && root.workspace.selectedPhotoCount > 1
                 ? qsTr("Set location for selected photos…")
                 : qsTr("Set photo location…")
             iconSource: "qrc:/icons/location-pin.svg"
@@ -462,12 +484,12 @@ Popup {
             text: qsTr("Export photo")
             iconSource: "qrc:/icons/export.svg"
             actionEnabled: root.hasWorkspace
-                && !root.workspace.selectionContainsRemote()
                 && root.workspace.selectedPhotoCount > 0
+                && !root.workspace.controller.remoteLibraryBusy
             onActivated: {
                 if (!root.hasWorkspace)
                     return
-                root.workspace.exportRequested(root.workspace.batchSelectionTargets())
+                root.workspace.requestExport(root.workspace.batchSelectionTargets())
                 root.close()
             }
         }

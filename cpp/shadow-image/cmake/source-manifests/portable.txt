@@ -10,6 +10,7 @@ src/decoder/libraw_reference_development.cpp
 src/decoder/libraw_decoder.cpp
 src/decoder/raster_exif.cpp
 src/decoder/raster_decoder.cpp
+src/decoder/linear_raster.cpp
 src/decoder/heif_decoder.cpp
 src/decoder/decode_session_isolation.cpp
 src/decoder/photo_decoder_router.cpp
@@ -22,12 +23,15 @@ src/edit/adjustment_graph.cpp
 src/edit/adjustment_node_diagnostics.cpp
 src/edit/adjustment_execution.cpp
 src/edit/cube_lut.cpp
+src/edit/lut_baking.cpp
 src/edit/cpu_reference.cpp
 src/edit/creative_detail_grading.cpp
 src/edit/edit_execution_validation.cpp
 src/edit/edit_error.cpp
 src/edit/finishing_effects_cpu.cpp
 src/edit/guided_selective_tone.cpp
+src/edit/image_completion.cpp
+src/edit/paint.cpp
 src/edit/local_mask.cpp
 src/edit/local_mask_coverage.cpp
 src/edit/local_mask_validation.cpp
@@ -41,6 +45,8 @@ src/edit/photo_geometry.cpp
 src/edit/photo_liquify.cpp
 src/edit/photo_structural_rendering.cpp
 src/edit/retouch.cpp
+src/edit/retouch_frequency.cpp
+src/edit/retouch_dependency_reach.cpp
 src/edit/retouch_heal_blending.cpp
 src/edit/retouch_source_transform.cpp
 src/edit/scalar_neighborhood_filters.cpp
@@ -50,11 +56,11 @@ src/edit/working_color_math.cpp
 src/raw/bayer_demosaic.cpp
 src/raw/bayer_sampling.cpp
 src/raw/camera_profile_catalog.cpp
+src/raw/clipped_highlight_reconstruction.cpp
 src/raw/dcp_color_development.cpp
 src/raw/dcp_color_rendering.cpp
 src/raw/dcp_parser.cpp
 src/raw/fused_raw_development.cpp
-src/raw/neural_raw_denoise/neural_raw_denoise.cpp
 src/raw/raw_denoise.cpp
 src/raw/raw_denoise_plan.cpp
 src/raw/raw_foundation.cpp
@@ -98,3 +104,4 @@ src/proxy/warm_edit_gpu_neighbourhood_plan.cpp
 src/proxy/warm_edit_gpu_retouch_plan.cpp
 src/proxy/warm_edit_gpu_render_plan.cpp
 src/proxy/warm_edit_preview.cpp
+src/proxy/curve_input_map.cpp

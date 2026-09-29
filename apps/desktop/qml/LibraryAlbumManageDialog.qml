@@ -63,7 +63,7 @@ Popup {
             font.pixelSize: Theme.fontMeta
         }
 
-        TextField {
+        ShadowTextField {
             id: albumRenameInput
             Layout.fillWidth: true
             selectByMouse: true

@@ -105,6 +105,8 @@ struct EditPreviewGeneration final {
     std::uint64_t recipe_revision = 0;
     std::optional<EditMaskCoverageRequest> mask_coverage_request;
     EditPreviewPresentationBinding presentation_binding;
+    /// Framing/optics identity, independent from ordinary colour edits.
+    std::uint64_t before_revision = 0;
 
     [[nodiscard]] constexpr EditPreviewKind kind() const noexcept {
         return edit_preview_kind(policy);
@@ -142,30 +144,29 @@ struct EditPreviewCancellationState final {
     bool first_interactive_frame_presented = false;
 };
 
-/// Repeated samples protect the first interactive frame in a gesture. Every
-/// other stale overview is cancellable, including a forced gesture end,
-/// photo/window transition, settled frame, or Neutral Before frame.
+/// Interactive preview is strictly latest-wins. A source-stage change may
+/// take materially longer than a Grade-only render, so protecting the first
+/// gesture sample would turn subsequent slider values into an unbounded queue.
+/// Every stale overview is therefore cancellable, including the first
+/// interactive sample before it presents.
 [[nodiscard]] constexpr bool
 should_cancel_edit_preview(const EditPreviewCancellationState state) noexcept {
-    if (state.force) {
-        return true;
-    }
-    const bool protected_first_interactive =
-        state.current_rendering && state.in_flight_policy == EditPreviewPolicy::Interactive
-        && state.gesture_active && !state.first_interactive_frame_presented;
-    return !protected_first_interactive;
+    static_cast<void>(state);
+    return true;
 }
 
 [[nodiscard]] constexpr bool accepts_edit_preview(
     const EditPreviewGeneration result,
     const std::uint64_t current_photo,
-    const std::uint64_t current_revision
+    const std::uint64_t current_revision,
+    const std::uint64_t current_before_revision = 0
 ) noexcept {
     if (result.photo != current_photo) {
         return false;
     }
     return result.kind() == EditPreviewKind::NeutralBefore
-           || result.current_revision == current_revision;
+               ? result.before_revision == current_before_revision
+               : result.current_revision == current_revision;
 }
 
 // A completed current-preview frame can still improve visual feedback while a

@@ -108,37 +108,86 @@ ShadowAdjustmentSection {
         Item { Layout.fillWidth: true }
     }
 
-    TabBar {
-        id: methodTabs
+    RowLayout {
         Layout.fillWidth: true
         Layout.leftMargin: 14
         Layout.rightMargin: 14
-        Layout.topMargin: 3
-        Layout.preferredHeight: 28
-        currentIndex: selectiveColor.relativeMethod() ? 0 : 1
-        background: Rectangle {
-            radius: Theme.controlRadius
-            color: Theme.surfaceSubtle
-            border.color: selectiveColor.panelBorder
+        Layout.topMargin: 6
+        Layout.bottomMargin: 4
+        spacing: 18
+
+        MethodChoice {
+            objectName: "selectiveColorRelativeMethod"
+            text: qsTr("RELATIVE")
+            relative: true
+            toolTipText: qsTr("Scale the existing CMYK component")
         }
-        onCurrentIndexChanged: {
-            const relative = currentIndex === 0
+        MethodChoice {
+            objectName: "selectiveColorAbsoluteMethod"
+            text: qsTr("ABSOLUTE")
+            relative: false
+            toolTipText: qsTr("Add or remove a fixed CMYK amount")
+        }
+        Item { Layout.fillWidth: true }
+    }
+
+    component MethodChoice: RadioButton {
+        id: choice
+        required property bool relative
+        property string toolTipText
+
+        checked: selectiveColor.relativeMethod() === relative
+        implicitHeight: 28
+        implicitWidth: contentItem.implicitWidth + leftPadding + rightPadding
+        leftPadding: 2
+        rightPadding: 8
+        spacing: 6
+        hoverEnabled: true
+        Accessible.name: text
+        Accessible.description: toolTipText
+        onClicked: {
             if (relative === selectiveColor.relativeMethod())
                 return
             selectiveColor.editor.beginParameterEdit("selective_color/method")
             selectiveColor.editor.setSelectiveColorRelative(relative)
             selectiveColor.editor.endParameterEdit("selective_color/method")
         }
-        ShadowTabButton {
-            text: qsTr("RELATIVE")
-            compact: true
-            toolTipText: qsTr("Scale the existing CMYK component")
+
+        indicator: Rectangle {
+            x: choice.leftPadding
+            y: (choice.height - height) / 2
+            width: 12
+            height: 12
+            radius: width / 2
+            color: Theme.transparent
+            border.color: choice.checked ? Theme.accent : Theme.textMuted
+            Rectangle {
+                anchors.centerIn: parent
+                width: 6
+                height: 6
+                radius: width / 2
+                color: Theme.accent
+                visible: choice.checked
+            }
         }
-        ShadowTabButton {
-            text: qsTr("ABSOLUTE")
-            compact: true
-            toolTipText: qsTr("Add or remove a fixed CMYK amount")
+        contentItem: Label {
+            text: choice.text
+            leftPadding: choice.indicator.width + choice.spacing
+            verticalAlignment: Text.AlignVCenter
+            color: choice.checked || choice.hovered ? Theme.textPrimary : Theme.textMuted
+            font.pixelSize: Theme.fontSection
+            font.weight: choice.checked ? Font.DemiBold : Font.Medium
         }
+        background: Rectangle {
+            radius: Theme.compactControlRadius
+            color: choice.down ? Theme.buttonGhostPressed
+                : choice.hovered ? Theme.buttonGhostHover : Theme.transparent
+            border.width: choice.visualFocus ? 1 : 0
+            border.color: Theme.focusRing
+        }
+        ToolTip.visible: hovered
+        ToolTip.text: toolTipText
+        ToolTip.delay: 450
     }
 
     ShadowSlider {

@@ -144,8 +144,38 @@ using shadow::desktop::EditAiMaskPromptState;
            );
 }
 
+[[nodiscard]] bool selectionContract() {
+    EditAiMaskPromptState state;
+    if (!require(
+            !state.begin_request(91).has_value(),
+            "ordinary subject requests still require a point"
+        )) {
+        return false;
+    }
+    const auto people = state.begin_request(92, true);
+    if (!require(
+            people.has_value() && people->points.empty(),
+            "people discovery admits an explicitly point-free request"
+        )
+        || !require(
+            state.complete_request(people->job_token, people->generation)
+                == AiMaskPromptCompletion::Current,
+            "point-free people discovery retains generation authority"
+        )) {
+        return false;
+    }
+    const auto before = state.generation();
+    return require(
+        state.invalidate_selection() == AiMaskPromptMutationResult::Applied
+            && state.generation() > before,
+        "person or detail changes invalidate an older candidate without fake points"
+    );
+}
+
 } // namespace
 
 int main() {
-    return pointContract() && generationContract() && staleContract() ? EXIT_SUCCESS : EXIT_FAILURE;
+    return pointContract() && generationContract() && staleContract() && selectionContract()
+               ? EXIT_SUCCESS
+               : EXIT_FAILURE;
 }

@@ -24,7 +24,7 @@ ColumnLayout {
     Label {
         text: qsTranslate("ReviewWorkspace", "PHOTO")
         color: summary.review.textMuted
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
         font.weight: Font.DemiBold
         font.letterSpacing: 1.6
     }
@@ -35,7 +35,7 @@ ColumnLayout {
             ? summary.review.selectedTitle
             : qsTranslate("ReviewWorkspace", "Nothing selected")
         color: summary.review.textPrimary
-        font.pixelSize: 16
+        font.pixelSize: Theme.fontTitle
         font.weight: Font.Medium
         elide: Text.ElideRight
     }
@@ -44,7 +44,7 @@ ColumnLayout {
         Layout.fillWidth: true
         text: summary.review.selectedPath
         color: summary.review.textMuted
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
         wrapMode: Text.NoWrap
         maximumLineCount: 1
         elide: Text.ElideMiddle
@@ -65,7 +65,7 @@ ColumnLayout {
                 ? summary.localizedVisualRole(summary.review.selectedRole)
                 : qsTranslate("ReviewWorkspace", "PENDING")
             color: summary.review.textPrimary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             font.weight: Font.Medium
         }
 
@@ -84,7 +84,7 @@ ColumnLayout {
                     .arg(summary.review.selectedHeight)
                 : "—"
             color: summary.review.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
     }
 

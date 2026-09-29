@@ -60,6 +60,24 @@ void validate_image(const FloatRgbImage& image) {
 
 } // namespace
 
+PhotoLiquifyPoint photo_liquify_source_point(
+    const PreparedPhotoLiquify& liquify,
+    const PhotoLiquifyPoint output
+) noexcept {
+    if (liquify.source_dimensions.width == 0 || liquify.source_dimensions.height == 0)
+        return output;
+    const auto point = detail::inverse_photo_liquify_coordinate(
+        liquify,
+        output.x * liquify.source_dimensions.width - 0.5,
+        output.y * liquify.source_dimensions.height - 0.5
+    );
+    return {
+        (point.x + 0.5) / liquify.source_dimensions.width,
+        (point.y + 0.5) / liquify.source_dimensions.height,
+        output.pressure
+    };
+}
+
 bool PreparedPhotoLiquify::valid() const noexcept {
     if (
         source_dimensions.width == 0U || source_dimensions.height == 0U || stamps.empty()

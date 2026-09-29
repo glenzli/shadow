@@ -8,6 +8,7 @@
 #undef shadow
 
 #include <shadow/image/decoder_types.hpp>
+#include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/working_rgb.hpp>
 
 #include <cstddef>
@@ -67,6 +68,7 @@ struct WarmProgramBuffers final {
     RetainedMetalBuffer perceptual_mixer;
     RetainedMetalBuffer perceptual_range;
     RetainedMetalBuffer selective_color;
+    RetainedMetalBuffer paint;
 };
 
 struct WarmProgramBufferAttempt final {
@@ -154,6 +156,8 @@ class WarmGpuResidentResources final {
 
     [[nodiscard]] const WarmGpuResidentLayout& layout() const noexcept;
     [[nodiscard]] id<MTLBuffer> source_buffer() const noexcept;
+    [[nodiscard]] id<MTLBuffer> highlight_clipping_buffer() const noexcept;
+    [[nodiscard]] bool highlight_evidence_available() const noexcept;
     [[nodiscard]] std::size_t operation_capacity() const noexcept;
 
     [[nodiscard]] WarmProgramBufferAttempt
@@ -194,14 +198,20 @@ class WarmGpuResidentResources final {
     std::unique_ptr<Impl> impl_;
 
     friend class WarmGpuSlotLease;
-    friend WarmGpuResidentPreparation
-    prepare_warm_gpu_resident_resources(const FloatRgbImage& source, id<MTLDevice> device);
+    friend WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
+        const FloatRgbImage& source,
+        id<MTLDevice> device,
+        const SensorClippingMask* sensor_clipping_mask,
+        const HighlightChromaRiskMap* highlight_chroma_risk_map
+    );
     friend WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
         const FloatRgbImage& source,
         id<MTLDevice> device,
         id<MTLBuffer> adopted_source,
         std::uint64_t external_resident_bytes,
-        std::uint64_t resident_allowance_bytes
+        std::uint64_t resident_allowance_bytes,
+        const SensorClippingMask* sensor_clipping_mask,
+        const HighlightChromaRiskMap* highlight_chroma_risk_map
     );
 };
 
@@ -210,14 +220,20 @@ struct WarmGpuResidentPreparation final {
     std::string diagnostic;
 };
 
-[[nodiscard]] WarmGpuResidentPreparation
-prepare_warm_gpu_resident_resources(const FloatRgbImage& source, id<MTLDevice> device);
+[[nodiscard]] WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
+    const FloatRgbImage& source,
+    id<MTLDevice> device,
+    const SensorClippingMask* sensor_clipping_mask,
+    const HighlightChromaRiskMap* highlight_chroma_risk_map
+);
 [[nodiscard]] WarmGpuResidentPreparation prepare_warm_gpu_resident_resources(
     const FloatRgbImage& source,
     id<MTLDevice> device,
     id<MTLBuffer> adopted_source,
     std::uint64_t external_resident_bytes,
-    std::uint64_t resident_allowance_bytes
+    std::uint64_t resident_allowance_bytes,
+    const SensorClippingMask* sensor_clipping_mask,
+    const HighlightChromaRiskMap* highlight_chroma_risk_map
 );
 
 } // namespace shadow::image::detail

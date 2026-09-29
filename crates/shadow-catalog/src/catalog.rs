@@ -25,9 +25,10 @@ pub struct CatalogStats {
 }
 
 impl Catalog {
-    /// Opens or creates a file-backed catalog using the one current development
-    /// schema. A catalog from an earlier development shape is rejected rather
-    /// than migrated.
+    /// Opens or creates a file-backed catalog using the current schema. Exact
+    /// supported dated predecessors are migrated transactionally; unknown or
+    /// structurally incompatible development shapes remain untouched and are
+    /// rejected.
     ///
     /// # Errors
     ///

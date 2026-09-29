@@ -172,6 +172,111 @@ void validate_detail_tile_rect(const DetailTileRect rect, const Dimensions full_
     return receipt;
 }
 
+[[nodiscard]] FloatRgbImage load_cpu_working_tile(
+    const DevelopedSourcePixels& reference_source,
+    raw_pipeline_detail::ResidentRawSource* const resident_raw_source,
+    const SourceRenderingReceipt& source_rendering,
+    const Dimensions full_dimensions,
+    const DetailTileRect working_rect
+) {
+    const GeometryPixelRect working_geometry{
+        .x = working_rect.x,
+        .y = working_rect.y,
+        .width = working_rect.width,
+        .height = working_rect.height,
+    };
+    FloatRgbImage tile;
+    if (resident_raw_source != nullptr) {
+        auto developed = resident_raw_source->develop_region(working_geometry);
+        tile = proxy_detail::take_scene_linear_region_to_working(
+            std::move(developed.scene_linear),
+            full_dimensions
+        );
+    } else {
+        tile = proxy_detail::crop_developed_source_to_working(reference_source, working_geometry);
+    }
+    apply_source_rendering(tile, source_rendering);
+    return tile;
+}
+
+[[nodiscard]] FloatRgbImage render_cpu_node_tile(
+    const DevelopedSourcePixels& reference_source,
+    raw_pipeline_detail::ResidentRawSource* const resident_raw_source,
+    const SourceRenderingReceipt& source_rendering,
+    const std::span<const AdjustmentNode> nodes,
+    const Dimensions full_dimensions,
+    const DetailTileRect working_rect,
+    const PreparedPhotoStructuralRendering& structural,
+    const GeometryPixelRect output_rect
+) {
+    const FloatRgbImage tile = load_cpu_working_tile(
+        reference_source,
+        resident_raw_source,
+        source_rendering,
+        full_dimensions,
+        working_rect
+    );
+    const FloatRgbImage edited_working = execute_adjustment_nodes(
+        tile,
+        nodes,
+        AdjustmentExecutionContext{
+            .origin_x = working_rect.x,
+            .origin_y = working_rect.y,
+            .full_dimensions = full_dimensions,
+        }
+    );
+    return apply_photo_structural_rendering_tile(
+        edited_working,
+        GeometryPixelRect{
+            .x = working_rect.x,
+            .y = working_rect.y,
+            .width = working_rect.width,
+            .height = working_rect.height,
+        },
+        structural,
+        output_rect
+    );
+}
+
+[[nodiscard]] FloatRgbImage render_cpu_layer_tile(
+    const DevelopedSourcePixels& reference_source,
+    raw_pipeline_detail::ResidentRawSource* const resident_raw_source,
+    const SourceRenderingReceipt& source_rendering,
+    const std::span<const AdjustmentLayer> layers,
+    const Dimensions full_dimensions,
+    const DetailTileRect working_rect,
+    const PreparedPhotoStructuralRendering& structural,
+    const GeometryPixelRect output_rect
+) {
+    const FloatRgbImage tile = load_cpu_working_tile(
+        reference_source,
+        resident_raw_source,
+        source_rendering,
+        full_dimensions,
+        working_rect
+    );
+    const FloatRgbImage edited_working = execute_adjustment_layers(
+        tile,
+        layers,
+        AdjustmentExecutionContext{
+            .origin_x = working_rect.x,
+            .origin_y = working_rect.y,
+            .full_dimensions = full_dimensions,
+        }
+    );
+    return apply_photo_structural_rendering_tile(
+        edited_working,
+        GeometryPixelRect{
+            .x = working_rect.x,
+            .y = working_rect.y,
+            .width = working_rect.width,
+            .height = working_rect.height,
+        },
+        structural,
+        output_rect
+    );
+}
+
 } // namespace
 
 bool DetailTileExecutionReceipt::valid() const noexcept {
@@ -346,40 +451,13 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
             "a published Metal-resident RAW source cannot be replayed through the CPU tile path"
         );
     }
-    const GeometryPixelRect working_geometry{
-        .x = working_rect.x,
-        .y = working_rect.y,
-        .width = working_rect.width,
-        .height = working_rect.height,
-    };
-    FloatRgbImage tile;
-    if (resident_raw_source_ != nullptr) {
-        auto developed = resident_raw_source_->develop_region(working_geometry);
-        tile = proxy_detail::take_scene_linear_region_to_working(
-            std::move(developed.scene_linear),
-            full_dimensions
-        );
-    } else {
-        tile = proxy_detail::crop_developed_source_to_working(reference_source_, working_geometry);
-    }
-    apply_source_rendering(tile, source_rendering_);
-    const FloatRgbImage edited_working = execute_adjustment_nodes(
-        tile,
+    const FloatRgbImage edited = render_cpu_node_tile(
+        reference_source_,
+        resident_raw_source_.get(),
+        source_rendering_,
         nodes,
-        AdjustmentExecutionContext{
-            .origin_x = working_rect.x,
-            .origin_y = working_rect.y,
-            .full_dimensions = full_dimensions,
-        }
-    );
-    const FloatRgbImage edited = apply_photo_structural_rendering_tile(
-        edited_working,
-        GeometryPixelRect{
-            .x = working_rect.x,
-            .y = working_rect.y,
-            .width = working_rect.width,
-            .height = working_rect.height,
-        },
+        full_dimensions,
+        working_rect,
         structural,
         output_rect
     );
@@ -498,40 +576,13 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
             "a published Metal-resident RAW source cannot be replayed through the CPU layer path"
         );
     }
-    const GeometryPixelRect working_geometry{
-        .x = working_rect.x,
-        .y = working_rect.y,
-        .width = working_rect.width,
-        .height = working_rect.height,
-    };
-    FloatRgbImage tile;
-    if (resident_raw_source_ != nullptr) {
-        auto developed = resident_raw_source_->develop_region(working_geometry);
-        tile = proxy_detail::take_scene_linear_region_to_working(
-            std::move(developed.scene_linear),
-            full_dimensions
-        );
-    } else {
-        tile = proxy_detail::crop_developed_source_to_working(reference_source_, working_geometry);
-    }
-    apply_source_rendering(tile, source_rendering_);
-    const FloatRgbImage edited_working = execute_adjustment_layers(
-        tile,
+    const FloatRgbImage edited = render_cpu_layer_tile(
+        reference_source_,
+        resident_raw_source_.get(),
+        source_rendering_,
         layers,
-        AdjustmentExecutionContext{
-            .origin_x = working_rect.x,
-            .origin_y = working_rect.y,
-            .full_dimensions = full_dimensions,
-        }
-    );
-    const FloatRgbImage edited = apply_photo_structural_rendering_tile(
-        edited_working,
-        GeometryPixelRect{
-            .x = working_rect.x,
-            .y = working_rect.y,
-            .width = working_rect.width,
-            .height = working_rect.height,
-        },
+        full_dimensions,
+        working_rect,
         structural,
         output_rect
     );
@@ -555,6 +606,134 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
             !fallback_diagnostic.empty(),
             std::move(fallback_diagnostic)
         ),
+    };
+}
+
+RenderedDetailTile16 FullEditDetailSession::render_rgb16(
+    const std::span<const AdjustmentNode> nodes,
+    const DetailTileRect rect,
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
+) const {
+    validate_adjustment_nodes(nodes);
+    const Dimensions full_dimensions = dimensions();
+    if (!cpu_replay_available()) {
+        throw EditError(
+            EditErrorCode::backend_failure,
+            std::nullopt,
+            "RGB16 detail output requires a CPU-replayable source"
+        );
+    }
+    const PreparedPhotoStructuralRendering structural =
+        prepare_photo_structural_rendering(full_dimensions, geometry, liquify);
+    const PhotoGeometryLayout& geometry_layout = structural.geometry_layout;
+    validate_detail_tile_rect(rect, geometry_layout.output_dimensions);
+    const GeometryPixelRect output_rect{rect.x, rect.y, rect.width, rect.height};
+    const GeometryPixelRect source_core =
+        photo_structural_source_rect_for_output(structural, output_rect);
+    const AdjustmentFootprint apron = required_detail_apron(nodes, full_dimensions);
+    const DetailTileRect working_rect = expanded_detail_rect(
+        DetailTileRect{
+            .x = source_core.x,
+            .y = source_core.y,
+            .width = source_core.width,
+            .height = source_core.height,
+        },
+        full_dimensions,
+        apron
+    );
+    const FloatRgbImage edited = render_cpu_node_tile(
+        reference_source_,
+        resident_raw_source_.get(),
+        source_rendering_,
+        nodes,
+        full_dimensions,
+        working_rect,
+        structural,
+        output_rect
+    );
+    auto rendered = render_linear_srgb_to_display_srgb16_cpu_reference(
+        edited,
+        DisplayOutputRequest{
+            .target_dimensions = edited.dimensions,
+            .output_origin_x = rect.x,
+            .output_origin_y = rect.y,
+        }
+    );
+    return RenderedDetailTile16{
+        .rect = rect,
+        .full_dimensions = geometry_layout.output_dimensions,
+        .row_stride_bytes = rect.width * 3U * static_cast<std::uint32_t>(sizeof(std::uint16_t)),
+        .samples = std::move(rendered.samples),
+        .execution = detail_tile_execution_receipt(DetailTileRenderBackend::cpu, false, false, {}),
+    };
+}
+
+RenderedDetailTile16 FullEditDetailSession::render_rgb16_layers(
+    const std::span<const AdjustmentLayer> layers,
+    const DetailTileRect rect,
+    const PhotoGeometry& geometry,
+    const PhotoLiquify* liquify
+) const {
+    const Dimensions full_dimensions = dimensions();
+    static_cast<void>(detail::validate_adjustment_layer_plan(
+        full_dimensions,
+        layers,
+        AdjustmentExecutionContext{.full_dimensions = full_dimensions}
+    ));
+    if (!cpu_replay_available()) {
+        throw EditError(
+            EditErrorCode::backend_failure,
+            std::nullopt,
+            "RGB16 detail output requires a CPU-replayable source"
+        );
+    }
+    const PreparedPhotoStructuralRendering structural =
+        prepare_photo_structural_rendering(full_dimensions, geometry, liquify);
+    const PhotoGeometryLayout& geometry_layout = structural.geometry_layout;
+    validate_detail_tile_rect(rect, geometry_layout.output_dimensions);
+    const GeometryPixelRect output_rect{rect.x, rect.y, rect.width, rect.height};
+    const GeometryPixelRect source_core =
+        photo_structural_source_rect_for_output(structural, output_rect);
+    std::vector<AdjustmentNode> flattened_nodes;
+    for (const auto& layer : layers) {
+        flattened_nodes.insert(flattened_nodes.end(), layer.nodes.begin(), layer.nodes.end());
+    }
+    const AdjustmentFootprint apron = required_detail_apron(flattened_nodes, full_dimensions);
+    const DetailTileRect working_rect = expanded_detail_rect(
+        DetailTileRect{
+            .x = source_core.x,
+            .y = source_core.y,
+            .width = source_core.width,
+            .height = source_core.height,
+        },
+        full_dimensions,
+        apron
+    );
+    const FloatRgbImage edited = render_cpu_layer_tile(
+        reference_source_,
+        resident_raw_source_.get(),
+        source_rendering_,
+        layers,
+        full_dimensions,
+        working_rect,
+        structural,
+        output_rect
+    );
+    auto rendered = render_linear_srgb_to_display_srgb16_cpu_reference(
+        edited,
+        DisplayOutputRequest{
+            .target_dimensions = edited.dimensions,
+            .output_origin_x = rect.x,
+            .output_origin_y = rect.y,
+        }
+    );
+    return RenderedDetailTile16{
+        .rect = rect,
+        .full_dimensions = geometry_layout.output_dimensions,
+        .row_stride_bytes = rect.width * 3U * static_cast<std::uint32_t>(sizeof(std::uint16_t)),
+        .samples = std::move(rendered.samples),
+        .execution = detail_tile_execution_receipt(DetailTileRenderBackend::cpu, false, false, {}),
     };
 }
 

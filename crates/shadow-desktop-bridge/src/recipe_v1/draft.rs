@@ -5,17 +5,38 @@ use shadow_bridge::{
     PerceptualColorParameters, SelectiveToneParameters, SharpenParameters,
 };
 use shadow_domain::{
-    LayerId, LayerRevisionId, MaskDefinition, PhotoCanvasNode, PhotoFoundationNode,
-    PhotoLiquifyNode, RawFoundationDenoise, RetouchSpot, RetouchStroke, UnitInterval,
-    operation::BASIC_LAYER_LABEL,
+    ImageCompletionRegion, LayerId, LayerRevisionId, MaskComponentId, MaskComponentOperation,
+    MaskDefinition, PhotoCanvasNode, PhotoFoundationNode, PhotoLiquifyNode, RawFoundationDenoise,
+    RetouchSpot, RetouchStroke, SemanticMaskIntent, UnitInterval, operation::BASIC_LAYER_LABEL,
 };
 
 use super::GradeNodeRecipeV1Identity;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct PreservedManagedRasterSettings {
     pub(crate) expansion_percent: i8,
     pub(crate) feather_percent: u8,
+    pub(crate) invert: bool,
+    pub(crate) semantic_intent: Option<SemanticMaskIntent>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum MaskComponentDraftDefinition {
+    Definition(MaskDefinition),
+    PreservedManagedRaster(PreservedManagedRasterSettings),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MaskComponentDraft {
+    pub(crate) id: MaskComponentId,
+    pub(crate) operation: MaskComponentOperation,
+    pub(crate) enabled: bool,
+    pub(crate) definition: MaskComponentDraftDefinition,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CompositeMaskDraft {
+    pub(crate) components: Vec<MaskComponentDraft>,
     pub(crate) invert: bool,
 }
 
@@ -26,6 +47,10 @@ pub(crate) struct GradeNodeDraft {
     /// Spatial placement is deliberately instance-local. Publishing a Grade
     /// Node shares its adjustment graph, never this photo's mask placement.
     pub(crate) local_mask: Option<MaskDefinition>,
+    /// Present only while Qt edits an authored multi-component mask. It is
+    /// materialized into one canonical MaskDefinition before compilation or
+    /// snapshot publication, so the domain remains the sole mask owner.
+    pub(crate) composite_mask: Option<CompositeMaskDraft>,
     /// The Qt DTO carries persisted managed rasters as an opaque kind-six
     /// marker plus reversible refinement controls. Snapshot encoding must
     /// recover the exact immutable raster reference from the explicit base
@@ -52,6 +77,7 @@ pub(crate) struct FineEditParameters {
     pub(crate) selective_tone: SelectiveToneParameters,
     pub(crate) perceptual_color: PerceptualColorParameters,
     pub(crate) oklab_color_warper: OklabColorWarperParameters,
+    pub(crate) rgb_tone_curves: Option<shadow_bridge::RgbToneCurves>,
     pub(crate) oklab_lightness_curve: Option<OklabLightnessToneCurve>,
     pub(crate) lut: LutEditParameters,
     pub(crate) sharpen: SharpenParameters,
@@ -82,6 +108,7 @@ impl GradeNodeDraft {
             recipe_v1_identity: GradeNodeRecipeV1Identity::new(),
             shared: None,
             local_mask: None,
+            composite_mask: None,
             preserved_managed_raster: None,
             label: label.into(),
             opacity: UnitInterval::ONE,
@@ -99,7 +126,8 @@ impl GradeNodeDraft {
             // the rendered controls but must never inherit the source link.
             shared: None,
             local_mask: self.local_mask.clone(),
-            preserved_managed_raster: self.preserved_managed_raster,
+            composite_mask: self.composite_mask.clone(),
+            preserved_managed_raster: self.preserved_managed_raster.clone(),
             label: self.label.clone(),
             opacity: self.opacity,
             basic: self.basic,
@@ -123,6 +151,14 @@ pub(crate) struct GradeStackDraft {
     /// Photo-local continuous repair/clone brush strokes. These remain
     /// separate from legacy circular spots so one drag is one durable edit.
     pub(crate) retouch_strokes: Vec<RetouchStroke>,
+    /// Node-level bypass for the complete photo-local repair stage. Authored
+    /// regions remain present and editable while this is false.
+    pub(crate) retouch_enabled: bool,
+    /// Accepted photo-local AI completion patches. These form one fixed node
+    /// after Retouch and before Liquify/Canvas.
+    pub(crate) paint_layers: Vec<shadow_domain::PaintLayer>,
+    pub(crate) image_completions: Vec<ImageCompletionRegion>,
+    pub(crate) image_completion_enabled: bool,
     /// Optional singleton photo-private Liquify node. It is structural,
     /// non-shareable, and always evaluates immediately before Canvas.
     pub(crate) liquify: Option<PhotoLiquifyNode>,
@@ -138,6 +174,10 @@ impl Default for GradeStackDraft {
             grade_nodes: vec![GradeNodeDraft::neutral(BASIC_LAYER_LABEL)],
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
+            retouch_enabled: true,
+            paint_layers: Vec::new(),
+            image_completions: Vec::new(),
+            image_completion_enabled: true,
             liquify: None,
             canvas: PhotoCanvasNode::identity(),
         }

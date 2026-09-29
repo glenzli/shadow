@@ -6,6 +6,7 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QStringList>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
@@ -60,6 +61,14 @@ class LibraryServerController final : public QObject {
     Q_PROPERTY(QString providerMode READ providerMode NOTIFY stateChanged)
     Q_PROPERTY(qulonglong photoCount READ photoCount NOTIFY stateChanged)
     Q_PROPERTY(qulonglong cacheByteLength READ cacheByteLength NOTIFY stateChanged)
+    Q_PROPERTY(QString indexState READ indexState NOTIFY stateChanged)
+    Q_PROPERTY(bool indexing READ indexing NOTIFY stateChanged)
+    Q_PROPERTY(qulonglong discoveredFileCount READ discoveredFileCount NOTIFY stateChanged)
+    Q_PROPERTY(
+        qulonglong inspectionCompletedCount READ inspectionCompletedCount NOTIFY stateChanged
+    )
+    Q_PROPERTY(qulonglong publishedPreviewCount READ publishedPreviewCount NOTIFY stateChanged)
+    Q_PROPERTY(QString indexDiagnosticText READ indexDiagnosticText NOTIFY stateChanged)
     Q_PROPERTY(QString statusCode READ statusCode NOTIFY stateChanged)
     Q_PROPERTY(QString diagnosticText READ diagnosticText NOTIFY stateChanged)
 
@@ -102,6 +111,12 @@ class LibraryServerController final : public QObject {
     [[nodiscard]] QString providerMode() const;
     [[nodiscard]] qulonglong photoCount() const noexcept;
     [[nodiscard]] qulonglong cacheByteLength() const noexcept;
+    [[nodiscard]] QString indexState() const;
+    [[nodiscard]] bool indexing() const noexcept;
+    [[nodiscard]] qulonglong discoveredFileCount() const noexcept;
+    [[nodiscard]] qulonglong inspectionCompletedCount() const noexcept;
+    [[nodiscard]] qulonglong publishedPreviewCount() const noexcept;
+    [[nodiscard]] QString indexDiagnosticText() const;
     [[nodiscard]] QString statusCode() const;
     [[nodiscard]] QString diagnosticText() const;
 
@@ -141,6 +156,7 @@ class LibraryServerController final : public QObject {
     std::unique_ptr<QSettings> settings_;
     std::unique_ptr<SecretStore> secret_store_;
     QFutureWatcher<LibraryServerTaskResult> watcher_;
+    QTimer progress_timer_;
     QString display_name_;
     QStringList shared_folders_;
     int port_ = 37'641;

@@ -15,7 +15,8 @@ use time::OffsetDateTime;
 
 use super::{
     MAXIMUM_REVIEW_QUEUE_ITEMS, SmartCategoryFeedbackDecision, SmartCategoryMatch,
-    SmartCategoryReviewItem, SmartCategoryUncertainty, SmartClassifiedPhoto,
+    SmartCategoryReviewDecision, SmartCategoryReviewItem, SmartCategoryUncertainty,
+    SmartClassifiedPhoto,
 };
 
 pub(super) const INDEX_SCHEMA_VERSION: i64 = 2026081101;
@@ -828,6 +829,117 @@ impl SemanticIndex {
         Ok(())
     }
 
+    pub fn complete_user_review(
+        &mut self,
+        photo_id: &str,
+        representation_id: &str,
+        decisions: &[SmartCategoryReviewDecision],
+    ) -> Result<(), SemanticIndexError> {
+        let transaction = self.connection.transaction()?;
+        let (generation, config_revision, source_revision): (String, String, String) = transaction
+            .query_row(
+                "SELECT published.generation, published.config_revision, photos.source_revision
+                 FROM published_classification AS published
+                 JOIN classified_photos AS photos
+                   ON photos.generation = published.generation
+                  AND photos.photo_id = ?1 AND photos.representation_id = ?2
+                 WHERE published.singleton_id = 1",
+                params![photo_id, representation_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?
+            .ok_or(SemanticIndexError::UnknownPublishedPhoto)?;
+        let uncertain_categories = {
+            let mut statement = transaction.prepare(
+                "SELECT category_id FROM category_uncertainties
+                 WHERE generation = ?1 AND photo_id = ?2 AND representation_id = ?3",
+            )?;
+            statement
+                .query_map(params![generation, photo_id, representation_id], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        if uncertain_categories.is_empty() {
+            return Err(SemanticIndexError::UnknownReviewItem);
+        }
+        if uncertain_categories.iter().any(|uncertain| {
+            !decisions
+                .iter()
+                .any(|decision| decision.category_id == *uncertain)
+        }) {
+            return Err(SemanticIndexError::IncompleteReview);
+        }
+
+        for decision in decisions {
+            let category_id = &decision.category_id;
+            transaction.execute(
+                "DELETE FROM category_feedback
+                 WHERE category_id = ?1 AND photo_id = ?2 AND representation_id = ?3
+                   AND source = 'user'",
+                params![category_id, photo_id, representation_id],
+            )?;
+            let label = if decision.decision == SmartCategoryFeedbackDecision::Belongs {
+                1
+            } else {
+                -1
+            };
+            transaction.execute(
+                "INSERT INTO category_feedback(
+                     category_id, photo_id, representation_id, source_revision,
+                     source, label, updated_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, 'user', ?5, ?6)",
+                params![
+                    category_id,
+                    photo_id,
+                    representation_id,
+                    source_revision,
+                    label,
+                    now_ms()
+                ],
+            )?;
+            if decision.decision == SmartCategoryFeedbackDecision::Belongs {
+                transaction.execute(
+                    "INSERT OR REPLACE INTO category_memberships(
+                         generation, config_revision, category_id, photo_id,
+                         representation_id, source_revision, cosine_similarity
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1.0)",
+                    params![
+                        generation,
+                        config_revision,
+                        category_id,
+                        photo_id,
+                        representation_id,
+                        source_revision
+                    ],
+                )?;
+            } else {
+                transaction.execute(
+                    "DELETE FROM category_memberships
+                     WHERE generation = ?1 AND category_id = ?2
+                       AND photo_id = ?3 AND representation_id = ?4",
+                    params![generation, category_id, photo_id, representation_id],
+                )?;
+            }
+        }
+        transaction.execute(
+            "DELETE FROM category_uncertainties
+             WHERE generation = ?1 AND photo_id = ?2 AND representation_id = ?3",
+            params![generation, photo_id, representation_id],
+        )?;
+        let changed = transaction.execute(
+            "UPDATE adaptation_state
+             SET requested_revision = requested_revision + 1, updated_at_ms = ?1
+             WHERE singleton_id = 1",
+            [now_ms()],
+        )?;
+        if changed != 1 {
+            return Err(SemanticIndexError::InvalidCheckpoint);
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     fn published_generation(&self) -> Result<Option<String>, SemanticIndexError> {
         self.connection
             .query_row(
@@ -1104,6 +1216,10 @@ pub enum SemanticIndexError {
     InvalidCount,
     #[error("smart category feedback references a photo outside the published classification")]
     UnknownPublishedPhoto,
+    #[error("smart category review references a photo with no current uncertainty")]
+    UnknownReviewItem,
+    #[error("smart category review omitted one or more current uncertainty decisions")]
+    IncompleteReview,
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]

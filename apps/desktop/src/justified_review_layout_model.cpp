@@ -30,7 +30,10 @@ constexpr qreal MAX_ASPECT_RATIO = 8.0;
 } // namespace
 
 JustifiedReviewLayoutModel::JustifiedReviewLayoutModel(QObject* const parent) :
-    QAbstractListModel(parent) {}
+    QAbstractListModel(parent) {
+    rebuild_timer_.setSingleShot(true);
+    connect(&rebuild_timer_, &QTimer::timeout, this, &JustifiedReviewLayoutModel::rebuild);
+}
 
 JustifiedReviewLayoutModel::~JustifiedReviewLayoutModel() {
     disconnectSourceModel();
@@ -91,6 +94,7 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
     if (source_model_ == source_model) {
         return;
     }
+    rebuild_timer_.stop();
     beginResetModel();
     disconnectSourceModel();
     source_model_ = source_model;
@@ -98,32 +102,35 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
     endResetModel();
 
     if (source_model_ != nullptr) {
-        const auto rebuild = [this]() { this->rebuild(); };
+        const auto request_rebuild = [this]() { this->requestRebuild(); };
         source_connections_.append(
-            connect(source_model_, &QAbstractItemModel::modelReset, this, rebuild)
+            connect(source_model_, &QAbstractItemModel::modelReset, this, request_rebuild)
         );
         source_connections_.append(
-            connect(source_model_, &QAbstractItemModel::layoutChanged, this, rebuild)
+            connect(source_model_, &QAbstractItemModel::layoutChanged, this, request_rebuild)
         );
         source_connections_.append(connect(
             source_model_,
             &QAbstractItemModel::rowsInserted,
             this,
-            [rebuild](const QModelIndex&, const int, const int) { rebuild(); }
+            [request_rebuild](const QModelIndex&, const int, const int) { request_rebuild(); }
         ));
         source_connections_.append(connect(
             source_model_,
             &QAbstractItemModel::rowsRemoved,
             this,
-            [rebuild](const QModelIndex&, const int, const int) { rebuild(); }
+            [request_rebuild](const QModelIndex&, const int, const int) { request_rebuild(); }
         ));
         source_connections_.append(connect(
             source_model_,
             &QAbstractItemModel::dataChanged,
             this,
-            [rebuild](const QModelIndex&, const QModelIndex&, const QList<int>&) { rebuild(); }
+            [request_rebuild](const QModelIndex&, const QModelIndex&, const QList<int>&) {
+                request_rebuild();
+            }
         ));
         source_connections_.append(connect(source_model_, &QObject::destroyed, this, [this]() {
+            rebuild_timer_.stop();
             beginResetModel();
             source_model_ = nullptr;
             source_connections_.clear();
@@ -392,7 +399,14 @@ void JustifiedReviewLayoutModel::disconnectSourceModel() {
     source_connections_.clear();
 }
 
+void JustifiedReviewLayoutModel::requestRebuild() {
+    if (!rebuild_timer_.isActive()) {
+        rebuild_timer_.start(0);
+    }
+}
+
 void JustifiedReviewLayoutModel::rebuild() {
+    rebuild_timer_.stop();
     QVector<Row> next_rows;
     if (source_model_ != nullptr && available_width_ >= MIN_LAYOUT_WIDTH) {
         const int source_count = source_model_->rowCount();

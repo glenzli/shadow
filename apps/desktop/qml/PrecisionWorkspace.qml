@@ -10,6 +10,8 @@ Item {
     id: precision
 
     required property var editor
+    required property var interchangeController
+    property var lutExportController: null
     required property var editPreviewPresentation
     required property var lutLibrary
     required property var captureMetadata
@@ -25,6 +27,8 @@ Item {
     readonly property int toolCrop: 2
     readonly property int toolRepair: 3
     readonly property int toolLiquify: 4
+    readonly property int toolCompletion: 5
+    readonly property int toolPaint: 6
     property int activeSpecialTool: toolNone
     property bool selectedRetouchContinuous: true
     property int selectedRetouchIndex: -1
@@ -34,10 +38,57 @@ Item {
     property string observedRecipeNodeKind: ""
     property string observedGradeNodeId: ""
     property int observedGradeNodeIndex: -1
+    property string lastAdjustmentNodeId: ""
+    property string observedVariantId: ""
+    property bool colorWarperExpanded: false
+    property real colorWarperPanelWidth: 520
+
+    function openColorWarper() {
+        if (!editor.active || !editor.gradeNodeEnabled)
+            return
+        leaveSpecialTool()
+        if (editor.targetedCurve) editor.targetedCurve.active = false
+        editor.setPointColorPickerActive(false)
+        editor.setWhiteBalancePickerActive(false)
+        colorWarperExpanded = true
+        precisionCanvas.resetView()
+    }
+
+    function closeColorWarper() {
+        if (!colorWarperExpanded)
+            return
+        colorWarperPanel.finishEditing()
+        colorWarperExpanded = false
+    }
+
+    function restoreAdjustmentSelection() {
+        if (editor.hasSelectedGradeNode || !editor.active)
+            return
+        const nodes = editor.gradeNodes
+        let index = 0
+        for (let i = 0; i < nodes.length; ++i) {
+            if (String(nodes[i].gradeNodeId) === lastAdjustmentNodeId) {
+                index = i
+                break
+            }
+        }
+        if (nodes.length > 0)
+            editor.selectGradeNode(index)
+    }
 
     readonly property bool proxyActive: editor.active
         && precisionCanvas.visiblePreviewSource.length > 0
         && !precisionCanvas.showingFullDetail
+    // Idle full-resolution source preparation is deliberately background
+    // work. It becomes foreground activity only while the user is actually
+    // waiting on a 100% viewport or the explicit detail loupe.
+    readonly property bool foregroundFullResolutionPending:
+        editor.active && editor.fullResolutionPreparing
+        && (precisionCanvas.detailLoupeVisible
+            || (!precisionCanvas.fitView
+                && precisionCanvas.zoomFactor >= 1.0
+                && !precisionCanvas.comparisonActive
+                && editor.detailMode))
     // Page-level consumers (including the headless acceptance path) need the
     // displayed frame identity, not an implementation-specific canvas id.
     // Keep the canvas as the sole owner of Image readiness while exposing its
@@ -54,8 +105,16 @@ Item {
     readonly property color accent: Theme.accent
 
     function setActiveSpecialTool(requestedTool) {
+        closeColorWarper()
+        if (editor.targetedCurve) editor.targetedCurve.active = false
         const nextTool = activeSpecialTool === requestedTool
             ? toolNone : requestedTool
+
+        if (nextTool === toolNone) {
+            leaveSpecialTool()
+            restoreAdjustmentSelection()
+            return
+        }
 
         if (nextTool === toolCrop) {
             editor.addCanvasNode()
@@ -63,9 +122,22 @@ Item {
                 return
             editor.selectCanvasNode()
         }
+        if (nextTool === toolRepair)
+            editor.selectRetouchNode()
+        if (nextTool === toolPaint)
+            editor.paint.activate()
+        if (nextTool === toolCompletion) {
+            editor.selectImageCompletionNode()
+            if (!editor.imageCompletionActive && !editor.beginImageCompletion())
+                return
+        }
+
+        if (nextTool !== toolCompletion && editor.imageCompletionActive)
+            editor.cancelImageCompletion()
 
         editor.setPointColorPickerActive(false)
         editor.setWhiteBalancePickerActive(false)
+        editor.setRawWhiteBalancePickerActive(false)
         if (nextTool !== toolRepair)
             editor.setRetouchPickerActive(false)
 
@@ -77,12 +149,19 @@ Item {
     }
 
     function leaveSpecialTool() {
-        if (activeSpecialTool === toolNone)
+        editor.paint.cancelStroke()
+        editor.paint.picking = false
+        if (activeSpecialTool === toolNone) {
+            editor.setRawWhiteBalancePickerActive(false)
             return
+        }
         activeSpecialTool = toolNone
         editor.setMaskToolActive(false)
         editor.setCropToolActive(false)
         editor.setRetouchPickerActive(false)
+        editor.setRawWhiteBalancePickerActive(false)
+        if (editor.imageCompletionActive)
+            editor.cancelImageCompletion()
     }
 
     function reconcileRecipeNodeSelection() {
@@ -99,11 +178,22 @@ Item {
         observedRecipeNodeKind = nextKind
         observedGradeNodeId = nextId
         observedGradeNodeIndex = nextIndex
+        if (editor.hasSelectedGradeNode)
+            lastAdjustmentNodeId = nextId
         if (selectionChanged)
             leaveSpecialTool()
     }
 
     function cancelTransientInteractionOrLeaveTool() {
+        if (colorWarperExpanded) {
+            closeColorWarper()
+            return
+        }
+        if (editor.targetedCurve && editor.targetedCurve.active) {
+            if (editor.targetedCurve.dragging) editor.targetedCurve.finish(true)
+            else editor.targetedCurve.active = false
+            return
+        }
         if (editor.pointColorPickerActive) {
             editor.setPointColorPickerActive(false)
             return
@@ -112,11 +202,16 @@ Item {
             editor.setWhiteBalancePickerActive(false)
             return
         }
+        if (editor.rawWhiteBalancePickerActive) {
+            editor.setRawWhiteBalancePickerActive(false)
+            return
+        }
         if (editor.retouchPickerActive) {
             editor.setRetouchPickerActive(false)
             return
         }
         leaveSpecialTool()
+        restoreAdjustmentSelection()
     }
 
     function selectRetouchRegion(continuous, index) {
@@ -128,18 +223,42 @@ Item {
         target: precision.editor
 
         function onSelectedGradeNodeChanged() {
+            precision.closeColorWarper()
             precision.reconcileRecipeNodeSelection()
         }
 
         function onSourceIdentityChanged() {
+            precision.closeColorWarper()
+            precision.lastAdjustmentNodeId = ""
+            precision.cropAspectRatioLock = 0
             precision.selectedRetouchContinuous = true
             precision.selectedRetouchIndex = -1
             precision.leaveSpecialTool()
         }
 
         function onActiveChanged() {
-            if (!precision.editor.active)
+            if (!precision.editor.active) {
+                precision.closeColorWarper()
                 precision.leaveSpecialTool()
+            }
+        }
+
+        function onPhotoVariantsChanged() {
+            const variantId = String(precision.editor.activeVariantId || "")
+            if (variantId !== precision.observedVariantId) {
+                precision.closeColorWarper()
+                precision.observedVariantId = variantId
+                precision.cropAspectRatioLock = 0
+                precision.leaveSpecialTool()
+            }
+        }
+
+        function onImageCompletionChanged() {
+            if (precision.activeSpecialTool === precision.toolCompletion
+                    && !precision.editor.imageCompletionActive
+                    && !precision.editor.imageCompletionBusy) {
+                precision.activeSpecialTool = precision.toolNone
+            }
         }
     }
 
@@ -147,6 +266,9 @@ Item {
         observedRecipeNodeKind = String(editor.selectedRecipeNodeKind || "")
         observedGradeNodeId = String(editor.selectedGradeNodeId || "")
         observedGradeNodeIndex = Number(editor.selectedGradeNodeIndex)
+        observedVariantId = String(editor.activeVariantId || "")
+        if (editor.hasSelectedGradeNode)
+            lastAdjustmentNodeId = observedGradeNodeId
     }
 
     Shortcut {
@@ -167,7 +289,9 @@ Item {
         sequence: "Escape"
         enabled: precision.visible && (precision.editor.pointColorPickerActive
             || precision.editor.whiteBalancePickerActive
+            || precision.editor.rawWhiteBalancePickerActive
             || precision.editor.retouchPickerActive
+            || precision.colorWarperExpanded
             || precision.activeSpecialTool !== precision.toolNone)
         onActivated: precision.cancelTransientInteractionOrLeaveTool()
     }
@@ -197,9 +321,13 @@ Item {
         spacing: 0
 
         PrecisionGradeNodePane {
+            objectName: "precisionGradeNodePane"
+            visible: !precision.colorWarperExpanded
             Layout.preferredWidth: Math.max(220, Math.min(252, precision.width * 0.19))
             Layout.fillHeight: true
             editor: precision.editor
+            interchangeController: precision.interchangeController
+            lutExportController: precision.lutExportController
             panel: precision.panel
             panelRaised: precision.panelRaised
             borderColor: precision.border
@@ -215,14 +343,27 @@ Item {
                 if (precision.activeSpecialTool !== precision.toolCrop)
                     precision.setActiveSpecialTool(precision.toolCrop)
             }
+            onRepairToolRequested: {
+                if (precision.activeSpecialTool !== precision.toolRepair)
+                    precision.setActiveSpecialTool(precision.toolRepair)
+            }
             onLiquifyToolRequested: {
                 if (precision.activeSpecialTool !== precision.toolLiquify)
                     precision.setActiveSpecialTool(precision.toolLiquify)
+            }
+            onPaintToolRequested: {
+                if (precision.activeSpecialTool !== precision.toolPaint)
+                    precision.setActiveSpecialTool(precision.toolPaint)
+            }
+            onCompletionToolRequested: {
+                if (precision.activeSpecialTool !== precision.toolCompletion)
+                    precision.setActiveSpecialTool(precision.toolCompletion)
             }
         }
 
         PrecisionCanvas {
             id: precisionCanvas
+            objectName: "precisionCanvas"
             Layout.fillWidth: true
             Layout.fillHeight: true
             editor: precision.editor
@@ -241,6 +382,8 @@ Item {
         }
 
         PrecisionInspector {
+            objectName: "precisionInspector"
+            visible: !precision.colorWarperExpanded
             Layout.preferredWidth: Math.max(304, Math.min(348, precision.width * 0.24))
             Layout.fillHeight: true
             editor: precision.editor
@@ -268,6 +411,7 @@ Item {
             textMuted: precision.textMuted
             accent: precision.accent
             onOpenLutLibraryRequested: precision.openLutLibraryRequested()
+            onColorWarperRequested: precision.openColorWarper()
             onOpenOpticsProfileLibraryRequested:
                 precision.openOpticsProfileLibraryRequested()
             onToolModeRequested: mode => precision.setActiveSpecialTool(mode)
@@ -278,6 +422,21 @@ Item {
             onRetouchRegionSelectionRequested:
                 (continuous, index) =>
                     precision.selectRetouchRegion(continuous, index)
+        }
+
+        PrecisionColorWarperPanel {
+            id: colorWarperPanel
+            visible: precision.colorWarperExpanded
+            // Keep at least half the workspace for the photograph, even when
+            // the editor window narrows. The hidden node pane releases space.
+            Layout.preferredWidth: Math.min(precision.width * 0.5,
+                Math.max(340, precision.colorWarperPanelWidth))
+            Layout.maximumWidth: precision.width * 0.5
+            Layout.fillHeight: true
+            editor: precision.editor
+            onCloseRequested: precision.closeColorWarper()
+            onWidthRequested: value => precision.colorWarperPanelWidth =
+                Math.max(340, Math.min(precision.width * 0.5, value))
         }
     }
 

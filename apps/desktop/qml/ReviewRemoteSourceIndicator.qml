@@ -3,9 +3,8 @@ pragma Translator: "ReviewWorkspace"
 
 import QtQuick
 
-// Compact remote-origin marker. The badge reports the state that matters at
-// the current presentation boundary: unavailable server access takes priority
-// over the lower-level fact that an original may once have been downloaded.
+// Compact remote-origin marker. Network availability and a complete local
+// original cache are independent facts, so both remain visible together.
 Item {
     id: indicator
 
@@ -18,7 +17,9 @@ Item {
     implicitHeight: iconSize + 2
 
     Accessible.role: Accessible.StaticText
-    Accessible.name: offline
+    Accessible.name: offline && cached
+        ? qsTr("Server offline; remote original cached locally")
+        : offline
         ? qsTr("Server offline")
         : cached
         ? qsTr("Remote original cached locally")
@@ -38,16 +39,15 @@ Item {
         width: Math.max(8, Math.round(indicator.iconSize * 0.65))
         height: width
         radius: width / 2
-        visible: indicator.offline || indicator.cached
-        color: indicator.offline ? Theme.warningSurface : Theme.successSurface
+        visible: indicator.cached
+        color: Theme.successSurface
         border.width: 1
-        border.color: indicator.offline ? Theme.warningBorder : Theme.successBorder
+        border.color: Theme.successBorder
 
         ShadowIcon {
             anchors.centerIn: parent
-            source: indicator.offline
-                ? "qrc:/icons/close.svg" : "qrc:/icons/check.svg"
-            color: indicator.offline ? Theme.warningText : Theme.successText
+            source: "qrc:/icons/check.svg"
+            color: Theme.successText
             size: Math.max(5, parent.width - 3)
         }
     }

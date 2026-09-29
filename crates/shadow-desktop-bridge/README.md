@@ -9,6 +9,9 @@ presentation, SQLite schema details, or native image algorithms.
 | Change | Primary owner |
 | --- | --- |
 | Desktop CXX structs, methods, and session composition | [`src/lib.rs`](src/lib.rs) |
+| Versioned Recipe document projection and verified bundled LUT storage | [`src/recipe_interchange.rs`](src/recipe_interchange.rs), [`src/recipe_lut_resources.rs`](src/recipe_lut_resources.rs) |
+| Exact pre-curve recipe prefix, existing warm-source lookup and cancellable scalar input map | [`src/edit_preview/curve_input.rs`](src/edit_preview/curve_input.rs) |
+| Frozen color-only Grade Stack projection, explicit omissions, and cancellable LUT export | [`src/lut_export.rs`](src/lut_export.rs) |
 | Checkpointed smart-category classification projection | [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
 | Library service composition | [`src/library_service.rs`](src/library_service.rs) |
 | Ordered Library photo paging, facets, and signed visual presentation | [`src/library_service/browse.rs`](src/library_service/browse.rs) |
@@ -23,11 +26,16 @@ presentation, SQLite schema details, or native image algorithms.
 | Batch capture-time, manual-coordinate, and GPX preview/apply lifecycles | [`src/library_service/metadata/capture_time_batch.rs`](src/library_service/metadata/capture_time_batch.rs), [`src/library_service/metadata/coordinate_batch.rs`](src/library_service/metadata/coordinate_batch.rs), [`src/library_service/metadata/gpx.rs`](src/library_service/metadata/gpx.rs) |
 | Read-only reference photo/video-folder capture-time/GPS anchors for explicit location completion | [`src/location_reference_service.rs`](src/location_reference_service.rs), [`src/location_reference_service/video_metadata.rs`](src/location_reference_service/video_metadata.rs), [`src/session_location_reference.rs`](src/session_location_reference.rs) |
 | Desktop-session Library, relink, scan, and durable-export CXX delegation | [`src/session_library.rs`](src/session_library.rs), [`src/session_scan.rs`](src/session_scan.rs), [`src/session_export.rs`](src/session_export.rs) |
+| Exact pipeline source inspection and metadata admission into a caller-isolated temporary Catalog | [`src/session_pipeline.rs`](src/session_pipeline.rs) |
 | Desktop-session Review and cache-maintenance CXX delegation | [`src/session_review.rs`](src/session_review.rs), [`src/session_cache_maintenance.rs`](src/session_cache_maintenance.rs) |
-| Desktop-session transient anonymous-person analysis and biometric-free CXX summary projection; empty endpoint input delegates to the shared Infer Runtime Consumer resolver | [`src/session_people_analysis.rs`](src/session_people_analysis.rs) |
+| Authorized anonymous-person analysis, durable local-summary projection, merge/undo/clear delegation, and embedding/coordinate-free CXX projection; empty endpoint input delegates to the shared Infer Runtime Consumer resolver | [`src/session_people_analysis.rs`](src/session_people_analysis.rs) |
+| Independently clearable local People Store keyed to Catalog photo identities, with additive occurrence reconciliation, per-occurrence portraits, and durable corrections; face embeddings are never persisted | [`src/people_library_store.rs`](src/people_library_store.rs) |
+| Additive model refresh and bounded durable correction history | [`src/people_library_store/reconciliation.rs`](src/people_library_store/reconciliation.rs), [`src/people_library_store/history.rs`](src/people_library_store/history.rs) |
+| Session-local people-analysis job identity, cooperative cancellation between provider calls, monotonic progress, terminal state, and bounded retirement | [`src/people_analysis_service.rs`](src/people_analysis_service.rs) |
 | Desktop-session bounded SigLIP text-to-image ranking, smart-category batching, and vector-free CXX projection; explicit endpoint input remains the diagnostic override | [`src/session_semantic_search.rs`](src/session_semantic_search.rs), [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
 | Desktop-session resumable Qwen image-understanding batches, rebuildable description/keyword proposals, and closed-set classification review with explicit acceptance or dismissal | [`src/session_image_understanding.rs`](src/session_image_understanding.rs) |
 | Canonical wall-clock conversion and digest encoding | [`src/wall_clock.rs`](src/wall_clock.rs), [`src/digest_hex.rs`](src/digest_hex.rs) |
+| Shared default Infer Runtime credential location across RAW denoise, subject masks, and image completion | [`src/infer_runtime_credentials.rs`](src/infer_runtime_credentials.rs) |
 | Folder import lifecycle | [`src/scan_service.rs`](src/scan_service.rs) |
 | Folder-owned source relinking from scan evidence, an unavailable Library card, or a configured source: verified attachment, replacement-root adoption, unresolved counts, and safe obsolete-source retirement | [`src/relink_service.rs`](src/relink_service.rs) |
 | Replacement-folder planning: old-directory sibling/source-tree discovery, exact-identity matching, bounded legacy identity bootstrapping, ambiguity rejection, and pre-scan duplicate prevention | [`src/relink_service/folder_recovery.rs`](src/relink_service/folder_recovery.rs) |
@@ -36,10 +44,12 @@ presentation, SQLite schema details, or native image algorithms.
 | Authenticated remote-Mac Library mirror, client-local curation, verified original cache residency, and local Catalog edit admission without losing remote origin | [`src/remote_library_service.rs`](src/remote_library_service.rs), [`src/session_remote_library.rs`](src/session_remote_library.rs) |
 | This Mac's managed Library-server lifecycle, embedded-preview-first Provider routing, shared-root scanning, rebuildable development-schema recovery, cache reset, and CXX projection | [`src/library_server_service.rs`](src/library_server_service.rs), [`src/library_server_service/provider_host.rs`](src/library_server_service/provider_host.rs), [`src/library_server_host.rs`](src/library_server_host.rs), [`src/session_library_server.rs`](src/session_library_server.rs) |
 | Photo source admission, Provider Host inventory, quarantine, optics discovery, and raster delivery | [`src/session_photo_source.rs`](src/session_photo_source.rs), [`src/photo_provider.rs`](src/photo_provider.rs), [`src/isolated_proxy.rs`](src/isolated_proxy.rs), [`src/isolated_proxy/provider_inventory.rs`](src/isolated_proxy/provider_inventory.rs) |
-| Exact SAM 2.1 installation/application admission, resident provider session, and proposal staging | [`src/subject_mask_runtime.rs`](src/subject_mask_runtime.rs) |
-| Subject-mask preview, registration, apply, and discard authority | [`src/subject_mask_service.rs`](src/subject_mask_service.rs) |
-| Edit-session subject-mask prompt, refinement, and apply orchestration | [`src/session_subject_mask.rs`](src/session_subject_mask.rs) |
-| RAW foundation execution routing: legacy sidecar by default; explicit Infer Runtime opt-in with owner-only staged handles, cache-before-Infer alias resolution, cancellation, independent `.shadowrawf` verification/publication, and no silent fallback | [`src/raw_foundation_runtime.rs`](src/raw_foundation_runtime.rs), [`src/raw_foundation_runtime/infer_materialization.rs`](src/raw_foundation_runtime/infer_materialization.rs), [`src/raw_foundation_runtime/infer_materialization/alias_store.rs`](src/raw_foundation_runtime/infer_materialization/alias_store.rs), [`src/isolated_proxy/raw_frame_staging.rs`](src/isolated_proxy/raw_frame_staging.rs) |
+| Typed Infer Runtime SAM 2.1 probability-mask consumption, transient person detection and face parsing from one prepared in-memory JPEG, local-only provenance admission, and proposal staging; Shadow does not install or host the models | [`src/subject_mask_runtime.rs`](src/subject_mask_runtime.rs) |
+| Transient per-photo person thumbnails, exact face-parsing ontology, multi-region label composition, and bounded session payloads | [`src/subject_mask_people.rs`](src/subject_mask_people.rs) |
+| Bounded input reuse, discovered-person and parsed-label caches, proposal preview, registration, apply, and discard authority | [`src/subject_mask_service.rs`](src/subject_mask_service.rs) |
+| Edit-session subject-mask input preparation, point refinement, people/detail selection, and apply orchestration | [`src/session_subject_mask.rs`](src/session_subject_mask.rs) |
+| Destination-safe semantic Recipe import planning, bounded per-session item lifecycles, target-identity validation, and CXX projection | [`src/recipe_import_plan.rs`](src/recipe_import_plan.rs), [`src/recipe_import_service.rs`](src/recipe_import_service.rs), [`src/session_recipe_import.rs`](src/session_recipe_import.rs) |
+| Infer Runtime RAW foundation execution through typed lease/SCM_RIGHTS handles, cache-before-runtime alias resolution, cancellation, independent `.shadowrawf` verification/publication, and unavailable-feature status without local-model fallback | [`src/raw_foundation_runtime.rs`](src/raw_foundation_runtime.rs), [`src/raw_foundation_runtime/infer_materialization.rs`](src/raw_foundation_runtime/infer_materialization.rs), [`src/raw_foundation_runtime/infer_materialization/alias_store.rs`](src/raw_foundation_runtime/infer_materialization/alias_store.rs), [`src/isolated_proxy/raw_frame_staging.rs`](src/isolated_proxy/raw_frame_staging.rs) |
 | Cancellable RAW foundation job progress and terminal descriptor ownership | [`src/raw_foundation_service.rs`](src/raw_foundation_service.rs) |
 | Session-ready and restart-resolved `.shadowrawf` association, re-verification, exact zero-strength bypass, strength-independent verified-artifact identity, and bounded native render transfer | [`src/raw_foundation_render_source.rs`](src/raw_foundation_render_source.rs) |
 | Desktop-session RAW foundation model probing and opaque job delegation | [`src/session_raw_foundation.rs`](src/session_raw_foundation.rs) |
@@ -49,6 +59,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Interactive RGB8 preview transaction, settled JPEG/analysis policy, terminal linearization, durable-publication call, stable cross-language payload lifetime, and descriptor projection | [`src/edit_preview/service.rs`](src/edit_preview/service.rs), [`src/edit_preview/owned_response.rs`](src/edit_preview/owned_response.rs), [`src/edit_preview/response.rs`](src/edit_preview/response.rs) |
 | Desktop-session full-detail viewport, AI RAW-foundation routing, and prepared-source lifecycle | [`src/session_edit_render.rs`](src/session_edit_render.rs) |
 | Settled Recipe-preview identity, blob storage, and Catalog publication | [`src/edit_preview/recipe_preview_store.rs`](src/edit_preview/recipe_preview_store.rs) |
+| Before-preview composition projection: retain geometry and optics, discard grading and RAW development edits, without inheriting the working Recipe | [`src/recipe_v1/render_request.rs`](src/recipe_v1/render_request.rs) |
 | Working drafts, named versions, checkout, and edit-reference publication | [`src/session_edit_history.rs`](src/session_edit_history.rs) |
 | Photo Variant lifecycle, active-head projection, and stale-editor isolation | [`src/session_photo_variants.rs`](src/session_photo_variants.rs), [`src/session_edit_history.rs`](src/session_edit_history.rs) |
 | Bounded per-photo Recipe history, Library-wide commit/ref paging, reference decoration, and semantic diff projection | [`src/history_service.rs`](src/history_service.rs), [`src/session_history.rs`](src/session_history.rs) |
@@ -56,7 +67,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Strict flat Liquify DTO decoding and bounded node construction | [`src/recipe_v1/ffi_adapter/liquify.rs`](src/recipe_v1/ffi_adapter/liquify.rs) |
 | Condition-mask executability and opaque managed-raster gates between persistent Recipe values, the flat Qt DTO, verified application storage, and native render plans | [`src/recipe_v1/snapshot_decode.rs`](src/recipe_v1/snapshot_decode.rs), [`src/recipe_v1/ffi_adapter.rs`](src/recipe_v1/ffi_adapter.rs), [`src/recipe_v1/managed_raster_resolution.rs`](src/recipe_v1/managed_raster_resolution.rs), [`src/recipe_v1/compiler.rs`](src/recipe_v1/compiler.rs) |
 | Shared Grade Node library, application, and desktop-session orchestration | [`src/shared_grade_library.rs`](src/shared_grade_library.rs), [`src/shared_grade_application.rs`](src/shared_grade_application.rs), [`src/session_shared_grade.rs`](src/session_shared_grade.rs) |
-| Recipe-exact export execution (including fail-closed AI RAW-foundation routing) and queueing | [`src/export_service.rs`](src/export_service.rs), [`src/export_queue_service.rs`](src/export_queue_service.rs) |
+| Recipe-exact raster export execution (including fail-closed AI RAW-foundation routing and provider-neutral RawFrame staging when the public decoder cannot develop the source), durable queueing, and source-stage RAW DNG publication that preserves the staged CFA mosaic and source calibration without applying the Recipe; isolated display JPEGs are never substituted for RAW export | [`src/export_service.rs`](src/export_service.rs), [`src/export_queue_service.rs`](src/export_queue_service.rs), [`src/raw_dng_export.rs`](src/raw_dng_export.rs), [`src/isolated_proxy/raw_frame_staging.rs`](src/isolated_proxy/raw_frame_staging.rs) |
 | Cache ownership and explicit maintenance | [`src/cache_maintenance_service.rs`](src/cache_maintenance_service.rs) |
 | Cross-responsibility facade contracts and responsibility-owned fixtures | [`src/tests/mod.rs`](src/tests/mod.rs), [`src/tests/fixtures/mod.rs`](src/tests/fixtures/mod.rs) |
 
@@ -79,9 +90,10 @@ mode.
 Recipe v1 keeps existing single Oklab-lightness and zero-minimum-chroma Oklch-hue masks on their
 byte-stable, GPU-executable representation. The domain can also persist bounded `all`/`any`/`not`
 condition expressions, chroma-qualified predicates, and a scale-explicit local-detail predicate.
-Those richer values currently fail before Qt projection and before render-plan execution; they are
-not flattened, silently omitted, or advertised as active UI features. The next execution slice must
-extend the Qt/native mask protocol and prove CPU/Metal parity before removing either gate.
+The Qt condition editor preserves bounded expressions as domain JSON. Scalar expressions lower
+through `shadow-bridge::adjustment::condition_mask` to a bounded postfix program shared by CPU and
+resident Metal; condition thresholds always read the node input before its adjustments. The
+local-detail predicate remains capability-gated until neighborhood execution is available.
 
 The Recipe draft and flat Qt DTO expose the optional, photo-private Liquify structural node as one
 enabled flag plus an ordered tagged Push/Reconstruct vector. Empty plus disabled is the canonical
@@ -121,3 +133,54 @@ Run focused validation with build output outside the shared source worktree:
 sh scripts/local_shared_workspace_guard.sh
 CARGO_TARGET_DIR=/absolute/task-private/path cargo test -p shadow-desktop-bridge --lib
 ```
+
+### Subject emphasis
+
+`session_subject_emphasis` owns current-crop Qwen evidence and the bounded light/color policy.
+It uses the existing typed description capability; keywords are suggestions requiring user
+selection, not ranked assertions of photographic intent. `session_subject_mask` retains cancellable
+input sessions, semantic grounding/SAM, immutable mask staging, and checked application.
+
+One analysis materializes a display-sized JPEG from current edits; selection separately prepares
+and reuses the original-space SAM JPEG. These explicit CPU image transfers leave reusable upstream
+RAW/foundation state intact. Results are tied to the captured photo, source, Recipe and generation;
+cancelled or superseded jobs cannot apply. There is no cross-session analysis cache. Accepted masks
+use the existing native-resolution soft-mask renderer, with the same Recipe for preview, detail,
+and export. Adjusting node strength invalidates only downstream grading; it performs no AI call,
+RAW re-decode, or repeated mask creation. Fine hair/transparent-edge matting is outside this preview.
+
+Photo-local paint lives in `recipe_v1::paint` (ordered render compilation) and
+`recipe_v1::ffi_adapter::paint` (strict Qt projection). `GradeStackDraft` carries the complete
+validated layer/stroke state; snapshot decode/encode preserves it independently of shared Grade
+Nodes and Canvas. Paint is deliberately excluded from LUT export as a spatial operation, with an
+explicit exclusion reason. Persisted Recipe identity includes the strokes, while warm source
+identity remains independent of paint edits. Each stroke carries tip roundness/angle, diameter-relative
+spacing, deterministic texture strength, and independent size/flow pressure flags through FFI and
+render compilation. Missing fields preserve the legacy round-brush defaults; tool presets and
+input smoothing are desktop preferences rather than recipe-wide mutable settings.
+
+`src/recipe_v1/rgb_tone_curves.rs` owns the optional four-channel RGB curve contract shared by
+snapshot decoding and render compilation. Absent curves preserve the legacy graph; populated
+curves retain one deterministic Grade-local slot and independent point sets.
+
+`session_auto_start` owns exact transient candidate-mask rendering and strict-CAS starting-point
+publication. Temporary render plans resolve staged raster bytes without promoting them or writing
+Recipe/cache state; apply promotes every selected mask and publishes all nodes in one working-head
+transaction. Stale proposals fail instead of using autosave rebasing. Its adjacent tests compare
+transient and durable native plans at different strengths and verify atomic/stale-head behavior.
+
+[`src/people_library_store/scan.rs`](src/people_library_store/scan.rs) stores completed input
+identities for incremental analysis. It keeps no biometric vectors. Each completed batch is
+published atomically with its people snapshot; cancellation keeps prior batches.
+Analysis and visible people follow the same enabled-source boundary as the Library.
+Hidden source memberships and authored names remain stored for a later relink.
+Face-mask cancellation reuses the existing node-bound input and parsed-person cache. It only
+changes request lifetime: no image render, extra host/device transfer, mask identity or
+preview/detail/export semantics change. Late results remain rejected by the mask session.
+
+[`people_library_store/portraits.rs`](src/people_library_store/portraits.rs) selects the clearest
+remaining face after source filtering or corrections. Quality-rejected automatic discoveries remain
+recoverable in storage; named and manually organized people remain visible. The core
+[`people_analysis/quality.rs`](../shadow-core/src/people_analysis/quality.rs) screens tiny or
+clearly detail-poor faces before identity inference. Its revision participates in incremental scan
+identity so older results are reevaluated without clearing user organization.

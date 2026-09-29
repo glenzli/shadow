@@ -1,7 +1,8 @@
 use shadow_domain::{
     ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, LiquifyPoint,
     LiquifyStroke, MaskBrushPoint, MaskDefinition, PhotoLiquifyNode, RawFoundationDenoise,
-    RawFoundationDenoiseModel, UnitInterval,
+    RawFoundationDenoiseModel, RetouchPoint, RetouchStroke, SemanticMaskAggregation,
+    SemanticMaskIntent, UnitInterval,
 };
 
 use crate::ffi;
@@ -11,11 +12,59 @@ use super::{
     LOCAL_MASK_LUMINANCE_RANGE, LOCAL_MASK_MANAGED_RASTER, LOCAL_MASK_RADIAL_GRADIENT,
     PreservedManagedRasterSettings, decode_grade_stack_draft_recipe_v1,
     encode_grade_stack_draft_recipe_v1, ffi_local_mask_fields, local_mask_definition_from_ffi,
-    new_basic_grade_node,
 };
 
 fn unit(value: f64) -> UnitInterval {
     UnitInterval::new(value).expect("test unit interval")
+}
+
+fn ffi_mask_component(kind: u8) -> ffi::FfiMaskComponent {
+    ffi::FfiMaskComponent {
+        condition_expression: String::new(),
+        component_id: "00000000-0000-0000-0000-000000000001".to_owned(),
+        operation: 0,
+        enabled: true,
+        kind,
+        x0: 0.0,
+        y0: 0.0,
+        x1: 0.0,
+        y1: 0.0,
+        radius_x: 0.0,
+        radius_y: 0.0,
+        feather: 0.0,
+        leaf_invert: false,
+        brush_points: Vec::new(),
+        semantic_query: String::new(),
+        semantic_maximum_regions: 0,
+        semantic_score_threshold_percent: 0,
+    }
+}
+
+#[test]
+fn legacy_leaf_component_identity_survives_repeated_projection_and_autosave() {
+    let mut draft = GradeStackDraft::default();
+    draft.grade_nodes[0].local_mask = Some(
+        MaskDefinition::linear_gradient(unit(0.1), unit(0.2), unit(0.8), unit(0.9), false)
+            .expect("legacy leaf"),
+    );
+    let snapshot = super::grade_stack_recipe_v1_snapshot(&draft, None).expect("persist leaf");
+    let first = encode_grade_stack_draft_recipe_v1(draft.clone()).expect("first projection");
+    let second = encode_grade_stack_draft_recipe_v1(draft).expect("second projection");
+    let identity = &first.grade_nodes[0].local_mask_components[0].component_id;
+    assert_eq!(
+        identity,
+        &second.grade_nodes[0].local_mask_components[0].component_id
+    );
+    let restored = decode_grade_stack_draft_recipe_v1(&first).expect("decode desktop draft");
+    let saved =
+        super::grade_stack_recipe_v1_snapshot(&restored, Some(&snapshot)).expect("autosave");
+    let reopened = crate::recipe_v1::decode_grade_stack_draft_from_recipe_v1_snapshot(&saved)
+        .expect("reopen saved snapshot");
+    let reopened = encode_grade_stack_draft_recipe_v1(reopened).expect("reproject");
+    assert_eq!(
+        identity,
+        &reopened.grade_nodes[0].local_mask_components[0].component_id
+    );
 }
 
 #[test]
@@ -189,29 +238,28 @@ fn condition_masks_round_trip_through_normalized_desktop_slots() {
         ),
     );
 
-    let mut grade_node = new_basic_grade_node("Condition mask").expect("neutral Grade Node");
-    grade_node.local_mask_kind = LOCAL_MASK_LUMINANCE_RANGE;
-    grade_node.local_mask_x0 = 0.2;
-    grade_node.local_mask_x1 = 0.8;
-    grade_node.local_mask_feather = 0.15;
-    grade_node.local_mask_invert = true;
+    let mut component = ffi_mask_component(LOCAL_MASK_LUMINANCE_RANGE);
+    component.x0 = 0.2;
+    component.x1 = 0.8;
+    component.feather = 0.15;
+    component.leaf_invert = true;
     assert_eq!(
-        local_mask_definition_from_ffi(&grade_node, 0).expect("decode luminance range"),
+        local_mask_definition_from_ffi(&component, 0, 0).expect("decode luminance range"),
         (Some(luminance), None)
     );
 
-    grade_node.local_mask_kind = LOCAL_MASK_COLOR_RANGE;
-    grade_node.local_mask_x0 = 0.75;
-    grade_node.local_mask_x1 = 0.25;
-    grade_node.local_mask_feather = 0.4;
-    grade_node.local_mask_invert = false;
+    component.kind = LOCAL_MASK_COLOR_RANGE;
+    component.x0 = 0.75;
+    component.x1 = 0.25;
+    component.feather = 0.4;
+    component.leaf_invert = false;
     assert_eq!(
-        local_mask_definition_from_ffi(&grade_node, 0).expect("decode color range"),
+        local_mask_definition_from_ffi(&component, 0, 0).expect("decode color range"),
         (Some(color), None)
     );
 
-    grade_node.local_mask_x0 = 1.0;
-    let (wrapped, preserved) = local_mask_definition_from_ffi(&grade_node, 0)
+    component.x0 = 1.0;
+    let (wrapped, preserved) = local_mask_definition_from_ffi(&component, 0, 0)
         .expect("normalized endpoint wraps to canonical hue");
     assert_eq!(preserved, None);
     let wrapped = wrapped.expect("color range");
@@ -226,21 +274,20 @@ fn condition_masks_round_trip_through_normalized_desktop_slots() {
 
 #[test]
 fn malformed_condition_mask_slots_fail_closed() {
-    let mut grade_node = new_basic_grade_node("Invalid mask").expect("neutral Grade Node");
-    grade_node.local_mask_kind = LOCAL_MASK_LUMINANCE_RANGE;
-    grade_node.local_mask_x0 = 0.8;
-    grade_node.local_mask_x1 = 0.2;
-    grade_node.local_mask_feather = 0.1;
-    assert!(local_mask_definition_from_ffi(&grade_node, 0).is_err());
+    let mut component = ffi_mask_component(LOCAL_MASK_LUMINANCE_RANGE);
+    component.x0 = 0.8;
+    component.x1 = 0.2;
+    component.feather = 0.1;
+    assert!(local_mask_definition_from_ffi(&component, 0, 0).is_err());
 
-    grade_node.local_mask_kind = LOCAL_MASK_COLOR_RANGE;
-    grade_node.local_mask_x0 = 0.5;
-    grade_node.local_mask_x1 = 0.0;
-    assert!(local_mask_definition_from_ffi(&grade_node, 0).is_err());
+    component.kind = LOCAL_MASK_COLOR_RANGE;
+    component.x0 = 0.5;
+    component.x1 = 0.0;
+    assert!(local_mask_definition_from_ffi(&component, 0, 0).is_err());
 
-    grade_node.local_mask_x1 = 0.2;
-    grade_node.local_mask_feather = f64::NAN;
-    assert!(local_mask_definition_from_ffi(&grade_node, 0).is_err());
+    component.x1 = 0.2;
+    component.feather = f64::NAN;
+    assert!(local_mask_definition_from_ffi(&component, 0, 0).is_err());
 }
 
 #[test]
@@ -248,10 +295,11 @@ fn managed_raster_is_an_opaque_kind_six_marker_with_refinement() {
     assert_eq!(
         ffi_local_mask_fields(
             None,
-            Some(PreservedManagedRasterSettings {
+            Some(&PreservedManagedRasterSettings {
                 expansion_percent: -35,
                 feather_percent: 24,
                 invert: true,
+                semantic_intent: None,
             })
         )
         .expect("encode opaque managed raster"),
@@ -268,26 +316,26 @@ fn managed_raster_is_an_opaque_kind_six_marker_with_refinement() {
             Vec::new(),
         )
     );
-    let mut grade_node = new_basic_grade_node("Managed mask").expect("neutral Grade Node");
-    grade_node.local_mask_kind = LOCAL_MASK_MANAGED_RASTER;
-    grade_node.local_mask_x0 = 0.18;
-    grade_node.local_mask_feather = 0.31;
-    grade_node.local_mask_invert = true;
+    let mut component = ffi_mask_component(LOCAL_MASK_MANAGED_RASTER);
+    component.x0 = 0.18;
+    component.feather = 0.31;
+    component.leaf_invert = true;
     assert_eq!(
-        local_mask_definition_from_ffi(&grade_node, 0).expect("decode opaque managed raster"),
+        local_mask_definition_from_ffi(&component, 0, 0).expect("decode opaque managed raster"),
         (
             None,
             Some(PreservedManagedRasterSettings {
                 expansion_percent: 18,
                 feather_percent: 31,
                 invert: true,
+                semantic_intent: None,
             })
         )
     );
 
-    grade_node.local_mask_x0 = 0.185;
+    component.x0 = 0.185;
     assert!(
-        local_mask_definition_from_ffi(&grade_node, 0)
+        local_mask_definition_from_ffi(&component, 0, 0)
             .expect_err("sub-percent managed refinement is not canonical")
             .to_string()
             .contains("one-percent increments")
@@ -295,7 +343,112 @@ fn managed_raster_is_an_opaque_kind_six_marker_with_refinement() {
 }
 
 #[test]
-fn current_qt_dto_rejects_persisted_composite_condition_masks() {
+fn semantic_managed_raster_intent_survives_the_qt_dto() {
+    let intent = SemanticMaskIntent::new("red train", 4, 30, SemanticMaskAggregation::Union)
+        .expect("semantic intent");
+    let mut draft = GradeStackDraft::default();
+    draft.grade_nodes[0].local_mask = None;
+    draft.grade_nodes[0].preserved_managed_raster = Some(PreservedManagedRasterSettings {
+        expansion_percent: 0,
+        feather_percent: 0,
+        invert: false,
+        semantic_intent: Some(intent.clone()),
+    });
+
+    let ffi = encode_grade_stack_draft_recipe_v1(draft).expect("encode semantic managed mask");
+    assert_eq!(ffi.grade_nodes[0].local_mask_components.len(), 1);
+    assert_eq!(
+        ffi.grade_nodes[0].local_mask_components[0].semantic_query,
+        "red train"
+    );
+    assert_eq!(
+        ffi.grade_nodes[0].local_mask_components[0].semantic_maximum_regions,
+        4
+    );
+    assert_eq!(
+        ffi.grade_nodes[0].local_mask_components[0].semantic_score_threshold_percent,
+        30
+    );
+    let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode semantic managed mask");
+    assert_eq!(
+        decoded.grade_nodes[0]
+            .composite_mask
+            .as_ref()
+            .and_then(|composite| composite.components.first())
+            .and_then(|component| match &component.definition {
+                super::MaskComponentDraftDefinition::PreservedManagedRaster(settings) => {
+                    settings.semantic_intent.as_ref()
+                }
+                super::MaskComponentDraftDefinition::Definition(_) => None,
+            }),
+        Some(&intent)
+    );
+}
+
+#[test]
+fn typed_mask_components_round_trip_stable_identity_order_bypass_and_final_inversion() {
+    let mut ffi =
+        encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("default DTO");
+    let mut base = ffi_mask_component(LOCAL_MASK_LINEAR_GRADIENT);
+    base.component_id = "00000000-0000-0000-0000-000000000011".to_owned();
+    base.x0 = 0.1;
+    base.y0 = 0.2;
+    base.x1 = 0.8;
+    base.y1 = 0.9;
+    let mut subtract = ffi_mask_component(LOCAL_MASK_LUMINANCE_RANGE);
+    subtract.component_id = "00000000-0000-0000-0000-000000000012".to_owned();
+    subtract.operation = 2;
+    subtract.enabled = false;
+    subtract.x0 = 0.3;
+    subtract.x1 = 0.7;
+    subtract.feather = 0.1;
+    ffi.grade_nodes[0].local_mask_components = vec![base, subtract];
+    ffi.grade_nodes[0].local_mask_invert = true;
+
+    let decoded = decode_grade_stack_draft_recipe_v1(&ffi).expect("decode composite DTO");
+    let encoded = encode_grade_stack_draft_recipe_v1(decoded).expect("re-encode composite DTO");
+    let components = &encoded.grade_nodes[0].local_mask_components;
+    assert_eq!(components.len(), 2);
+    assert_eq!(
+        components[0].component_id,
+        "00000000-0000-0000-0000-000000000011"
+    );
+    assert_eq!(components[0].operation, 0);
+    assert!(components[0].enabled);
+    assert_eq!(
+        components[1].component_id,
+        "00000000-0000-0000-0000-000000000012"
+    );
+    assert_eq!(components[1].operation, 2);
+    assert!(!components[1].enabled);
+    assert!(encoded.grade_nodes[0].local_mask_invert);
+}
+
+#[test]
+fn typed_mask_components_fail_closed_on_unknown_or_ambiguous_topology() {
+    let mut ffi =
+        encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("default DTO");
+    let mut base = ffi_mask_component(LOCAL_MASK_LINEAR_GRADIENT);
+    base.x0 = 0.1;
+    base.y0 = 0.2;
+    base.x1 = 0.8;
+    base.y1 = 0.9;
+    ffi.grade_nodes[0].local_mask_components = vec![base.clone()];
+
+    ffi.grade_nodes[0].local_mask_components[0].operation = 9;
+    assert!(decode_grade_stack_draft_recipe_v1(&ffi).is_err());
+    ffi.grade_nodes[0].local_mask_components[0].operation = 0;
+    ffi.grade_nodes[0].local_mask_components[0].kind = 99;
+    assert!(decode_grade_stack_draft_recipe_v1(&ffi).is_err());
+    ffi.grade_nodes[0].local_mask_components[0].kind = LOCAL_MASK_LINEAR_GRADIENT;
+    let mut duplicate = base;
+    duplicate.operation = 1;
+    ffi.grade_nodes[0].local_mask_components.push(duplicate);
+    assert!(decode_grade_stack_draft_recipe_v1(&ffi).is_err());
+}
+
+#[test]
+fn condition_masks_round_trip_through_the_qt_dto() {
     let expression = ConditionMaskExpression::all(vec![
         ConditionMaskNode::leaf(ConditionMaskPredicate::oklab_lightness_range(
             unit(0.2),
@@ -311,23 +464,14 @@ fn current_qt_dto_rejects_persisted_composite_condition_masks() {
     .expect("expression");
     let definition =
         MaskDefinition::condition_expression(expression).expect("persistent condition mask");
-    let error = ffi_local_mask_fields(Some(&definition), None)
-        .expect_err("DTO must reject unsupported shape");
-    assert!(
-        error
-            .to_string()
-            .contains("current Qt Grade Node DTO cannot represent")
-    );
-
+    let fields = ffi_local_mask_fields(Some(&definition), None).expect("condition projection");
+    assert_eq!(fields.0, 7);
     let mut grade_stack = GradeStackDraft::default();
-    grade_stack.grade_nodes[0].local_mask = Some(definition);
-    let projection_error = encode_grade_stack_draft_recipe_v1(grade_stack)
-        .expect_err("complete desktop projection must return the unsupported condition");
-    assert!(
-        projection_error
-            .to_string()
-            .contains("current Qt Grade Node DTO cannot represent")
-    );
+    grade_stack.grade_nodes[0].local_mask = Some(definition.clone());
+    let encoded = encode_grade_stack_draft_recipe_v1(grade_stack).expect("encode condition");
+    let component = &encoded.grade_nodes[0].local_mask_components[0];
+    let (decoded, _) = local_mask_definition_from_ffi(component, 0, 0).expect("decode condition");
+    assert_eq!(decoded, Some(definition));
 }
 
 #[test]
@@ -383,6 +527,25 @@ fn ordered_bypassed_liquify_round_trips_exactly_through_the_desktop_dto() {
     let absent =
         encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).expect("encode absence");
     assert!(absent.liquify_strokes.is_empty());
+}
+
+#[test]
+fn bypassed_retouch_node_round_trips_without_discarding_regions() {
+    let mut draft = GradeStackDraft::default();
+    draft.retouch_strokes = vec![
+        RetouchStroke::new(vec![RetouchPoint::new(unit(0.4), unit(0.6))], 24)
+            .expect("one-point Repair region"),
+    ];
+    draft.retouch_enabled = false;
+
+    let wire = encode_grade_stack_draft_recipe_v1(draft).expect("encode Repair node");
+    assert!(!wire.retouch_enabled);
+    assert_eq!(wire.retouch_strokes.len(), 1);
+
+    let decoded = decode_grade_stack_draft_recipe_v1(&wire).expect("decode Repair node");
+    assert!(!decoded.retouch_enabled);
+    assert_eq!(decoded.retouch_strokes.len(), 1);
+    assert_eq!(decoded.retouch_strokes[0].points().len(), 1);
 }
 
 #[test]

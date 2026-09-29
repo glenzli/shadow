@@ -140,7 +140,7 @@ Rectangle {
                             ? qsTr("RUNNER-UP DUEL")
                             : qsTr("CANDIDATE DUEL")
                     color: Theme.textPrimary
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                     font.letterSpacing: 1.0
                 }

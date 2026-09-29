@@ -1,39 +1,38 @@
 #include "raw_preview_rebinding.hpp"
 
-#include "neural_raw_denoise/neural_raw_denoise.hpp"
+#include "bayer_sampling.hpp"
+#include "clipped_highlight_reconstruction.hpp"
+#include "metal_raw_development.hpp"
 #include "raw_denoise_plan.hpp"
 #include "raw_foundation_source.hpp"
 #include "raw_frame_development_plan.hpp"
 #include "raw_frame_source_preparation.hpp"
-#include "metal_raw_development.hpp"
+#include "raw_source_reconstruction.hpp"
 
 #include <shadow/image/dcp_color_development.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/fused_raw_development.hpp>
+#include <shadow/image/raw_white_balance.hpp>
 #include <shadow/image/sensor_clipping.hpp>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
-#include <variant>
+#include <vector>
 
 namespace shadow::image::raw_pipeline_detail {
 
 namespace {
-
-struct OrdinaryRawPreviewBasis final {
-    RawFrame denoised_frame;
-    detail::NeuralRawDenoiseReceipt neural_denoise;
-    RawBayerDenoiseReceipt conventional_denoise;
-    std::string combined_denoise_identity;
-};
-
-struct FoundationRawPreviewBasis final {
-    PreparedRawFoundationCameraRgb camera_rgb;
-};
-
-using RawPreviewBasis = std::variant<OrdinaryRawPreviewBasis, FoundationRawPreviewBasis>;
 
 struct CompiledPreviewColorBinding final {
     RawFrameLinearTransform linear_transform;
@@ -41,6 +40,19 @@ struct CompiledPreviewColorBinding final {
     RawCameraProfileStatus camera_profile_status = RawCameraProfileStatus::no_match;
     std::string camera_profile_diagnostic;
 };
+
+struct AutoWhiteBalanceCandidate final {
+    double red_to_green = 1.0;
+    double blue_to_green = 1.0;
+    double balanced_chroma = 0.0;
+    double luminance = 0.0;
+};
+
+[[nodiscard]] double median(std::vector<double>& values) {
+    std::sort(values.begin(), values.end());
+    const std::size_t middle = values.size() / 2U;
+    return values.size() % 2U == 0U ? (values[middle - 1U] + values[middle]) * 0.5 : values[middle];
+}
 
 [[nodiscard]] bool
 same_plan_except_white_balance(RawDevelopmentPlan left, RawDevelopmentPlan right) noexcept {
@@ -59,6 +71,13 @@ same_plan_except_white_balance(RawDevelopmentPlan left, RawDevelopmentPlan right
         try {
             binding.dcp =
                 compile_dcp_color_transform(*camera_profile_definition, descriptor, white_balance);
+            // Keep the rebind path identical to initial RawFrame preparation. A decoder-provided
+            // primary matrix may use a different output basis from the DCP, so only borrow the
+            // DCP's native camera neutral for manual WB and do not reactivate its post-matrix
+            // HueSat/Look/Tone stages on every slider update.
+            if (descriptor.has_camera_to_linear_srgb_d65) {
+                binding.dcp->clear_post_matrix_stages();
+            }
             binding.camera_profile_status = RawCameraProfileStatus::applied;
         } catch (const DcpColorDevelopmentError& error) {
             binding.camera_profile_status = RawCameraProfileStatus::matched_not_applied;
@@ -89,6 +108,33 @@ same_plan_except_white_balance(RawDevelopmentPlan left, RawDevelopmentPlan right
     return pipeline;
 }
 
+[[nodiscard]] bool interactive_timing_enabled() noexcept {
+    const char* value = std::getenv("SHADOW_INTERACTIVE_TIMING");
+    return value != nullptr && std::strcmp(value, "1") == 0;
+}
+
+void log_interactive_rebind_timing(
+    const bool enabled,
+    const std::uint64_t sequence,
+    const char* const stage,
+    const std::chrono::steady_clock::time_point started
+) noexcept {
+    if (!enabled) {
+        return;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started
+    );
+    std::fprintf(
+        stderr,
+        "shadow.interactive-timing component=native-raw-rebind sequence=%llu stage=%s "
+        "elapsed_ms=%lld\n",
+        static_cast<unsigned long long>(sequence),
+        stage,
+        static_cast<long long>(elapsed.count())
+    );
+}
+
 } // namespace
 
 struct RawPreviewRebindingSource::Impl final {
@@ -99,8 +145,28 @@ struct RawPreviewRebindingSource::Impl final {
         RawDevelopmentPlanNegotiationStatus::rejected;
     AssetMetadata metadata;
     std::optional<CameraProfileDefinition> camera_profile_definition;
-    SensorClippingMask sensor_clipping;
-    RawPreviewBasis basis;
+    SourceReconstructionBasis basis;
+    // Completion depends only on this immutable basis and the already-validated CFA policy,
+    // never on a requested white balance. Keep the original risk for disabled/foundation paths.
+    mutable std::once_flag completed_risk_once;
+    mutable HighlightChromaRiskMap completed_risk;
+
+    [[nodiscard]] const HighlightChromaRiskMap& completed_highlight_risk() const {
+        std::call_once(completed_risk_once, [this]() {
+            auto prepared = source_reconstruction_highlight_chroma_risk(basis);
+            complete_cfa_owned_highlight_reconstruction(
+                source_reconstruction_sensor_clipping(basis),
+                prepared
+            );
+            completed_risk = std::move(prepared);
+        });
+        return completed_risk;
+    }
+#if SHADOW_IMAGE_HAS_METAL
+    // This buffer is an acceleration cache only.  It retains the already-denoised CFA plane and
+    // runs the same preview reconstruction kernel; the CPU frame remains the exact fallback.
+    std::optional<detail::MetalRawPreviewRebindingSource> ordinary_raw_metal_preview;
+#endif
     std::atomic<std::uint64_t> bind_count{0U};
     std::atomic<std::uint64_t> ordinary_raw_bind_count{0U};
     std::atomic<std::uint64_t> ordinary_raw_metal_development_count{0U};
@@ -118,13 +184,24 @@ struct RawPreviewRebindingSource::Impl final {
         const RawDevelopmentPlanNegotiationStatus negotiation,
         AssetMetadata source_metadata,
         std::optional<CameraProfileDefinition> profile,
-        SensorClippingMask clipping,
-        RawPreviewBasis preview_basis
+        SourceReconstructionBasis preview_basis
+#if SHADOW_IMAGE_HAS_METAL
+        ,
+        std::optional<detail::MetalRawPreviewRebindingSource> metal_preview
+#endif
     ) :
         development_template(std::move(development)), pipeline_template(std::move(pipeline)),
         requested_plan_template(requested_plan), negotiation_status(negotiation),
         metadata(std::move(source_metadata)), camera_profile_definition(std::move(profile)),
-        sensor_clipping(std::move(clipping)), basis(std::move(preview_basis)) {}
+        basis(std::move(preview_basis))
+#if SHADOW_IMAGE_HAS_METAL
+        ,
+        ordinary_raw_metal_preview(std::move(metal_preview)) {
+    }
+#else
+    {
+    }
+#endif
 };
 
 RawPreviewRebindingSource::RawPreviewRebindingSource(std::unique_ptr<Impl> impl) :
@@ -152,14 +229,140 @@ RawPreviewRebindingTelemetry RawPreviewRebindingSource::telemetry() const noexce
             impl_->foundation_amount_bind_count.load(std::memory_order_relaxed),
         .dcp_metal_execution_count =
             impl_->dcp_metal_execution_count.load(std::memory_order_relaxed),
-        .dcp_cpu_execution_count =
-            impl_->dcp_cpu_execution_count.load(std::memory_order_relaxed),
+        .dcp_cpu_execution_count = impl_->dcp_cpu_execution_count.load(std::memory_order_relaxed),
     };
 }
 
 DevelopedSourceReference
 RawPreviewRebindingSource::bind(const RawDevelopmentPlan& requested_plan) const {
     return bind_impl(requested_plan, std::nullopt);
+}
+
+std::optional<ResidentRawPreviewRebinding>
+RawPreviewRebindingSource::try_bind_metal_resident(const RawDevelopmentPlan& requested_plan) const {
+#if !SHADOW_IMAGE_HAS_METAL
+    static_cast<void>(requested_plan);
+    return std::nullopt;
+#else
+    if (!same_plan_except_white_balance(requested_plan, impl_->requested_plan_template)
+        || !valid_raw_white_balance(requested_plan.white_balance)) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "RAW preview rebinding may change only the absolute white balance"
+        );
+    }
+    const auto* ordinary = std::get_if<SensorCfaSourceReconstructionBasis>(&impl_->basis);
+    if (ordinary == nullptr || !impl_->ordinary_raw_metal_preview.has_value()) {
+        return std::nullopt;
+    }
+    RawDevelopmentPlan effective_plan = impl_->development_template.development_plan();
+    effective_plan.white_balance = requested_plan.white_balance;
+    if (impl_->development_template.requested_backend() == RawDevelopmentBackendMode::cpu) {
+        return std::nullopt;
+    }
+    const bool timing_enabled = interactive_timing_enabled();
+    const auto timing_started = std::chrono::steady_clock::now();
+    const auto timing_sequence = impl_->bind_count.load(std::memory_order_relaxed) + 1U;
+    CompiledPreviewColorBinding binding = compile_color_binding(
+        impl_->development_template.descriptor(),
+        effective_plan.white_balance,
+        impl_->camera_profile_definition
+    );
+    log_interactive_rebind_timing(
+        timing_enabled,
+        timing_sequence,
+        "color-binding-ready",
+        timing_started
+    );
+    PreparedRawFrameDevelopment rebound_development = impl_->development_template.rebind_color(
+        effective_plan,
+        binding.linear_transform,
+        std::move(binding.dcp),
+        impl_->development_template.source_scene_luminance_percentile()
+    );
+    log_interactive_rebind_timing(
+        timing_enabled,
+        timing_sequence,
+        "development-plan-ready",
+        timing_started
+    );
+    const DcpColorTransform* dcp = rebound_development.camera_profile();
+    const bool dcp_requested = dcp != nullptr && dcp->has_post_matrix_stages();
+    auto development = impl_->ordinary_raw_metal_preview->develop_resident(
+        ordinary->denoised_frame,
+        rebound_development.linear_transform(),
+        rebound_development.preview_max_edge(),
+        effective_plan.highlight_recovery,
+        effective_plan.quality,
+        detail::MetalRawDevelopmentContinuations{
+            .dcp_color_transform = dcp,
+        }
+    );
+    log_interactive_rebind_timing(
+        timing_enabled,
+        timing_sequence,
+        "metal-development-ready",
+        timing_started
+    );
+    if (!development.output.has_value() || (dcp_requested && !development.dcp_applied)) {
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            "metal-development-unavailable",
+            timing_started
+        );
+        return std::nullopt;
+    }
+    const DcpColorExecutionBackend dcp_backend =
+        development.dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;
+    RawDevelopmentReceipt receipt = finalize_raw_frame_development_receipt(
+        rebound_development,
+        development.output->dimensions(),
+        development.demosaic_receipt,
+        RawDevelopmentBackend::metal,
+        ordinary->conventional_denoise,
+        dcp_backend
+    );
+    receipt.requested_plan = requested_plan;
+    receipt.requested_plan_identity = raw_development_plan_identity(requested_plan);
+    receipt.effective_plan = effective_plan;
+    receipt.effective_plan_identity = raw_development_plan_identity(effective_plan);
+    receipt.plan_negotiation_status = impl_->negotiation_status;
+    RawPipelineReceipt pipeline = rebound_pipeline_template(
+        impl_->pipeline_template,
+        requested_plan,
+        effective_plan,
+        binding,
+        rebound_development.source_scene_luminance_percentile()
+    );
+    pipeline = finalize_raw_frame_pipeline_receipt(
+        std::move(pipeline),
+        RawDevelopmentBackend::metal,
+        effective_plan.highlight_recovery,
+        ordinary->combined_denoise_identity
+    );
+    impl_->bind_count.fetch_add(1U, std::memory_order_relaxed);
+    impl_->ordinary_raw_bind_count.fetch_add(1U, std::memory_order_relaxed);
+    impl_->ordinary_raw_metal_development_count.fetch_add(1U, std::memory_order_relaxed);
+    if (development.dcp_applied) {
+        impl_->ordinary_raw_fused_dcp_bind_count.fetch_add(1U, std::memory_order_relaxed);
+        impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
+    }
+    log_interactive_rebind_timing(timing_enabled, timing_sequence, "receipt-ready", timing_started);
+    const auto& sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis);
+    auto highlight_chroma_risk_map =
+        uses_cfa_owned_highlight_reconstruction(effective_plan.highlight_recovery)
+            ? impl_->completed_highlight_risk()
+            : source_reconstruction_highlight_chroma_risk(impl_->basis);
+    return ResidentRawPreviewRebinding{
+        .output = std::move(*development.output),
+        .raw_development_receipt = std::move(receipt),
+        .pipeline_receipt = std::move(pipeline),
+        .sensor_clipping_mask = sensor_clipping_mask,
+        .highlight_chroma_risk_map = std::move(highlight_chroma_risk_map),
+    };
+#endif
 }
 
 DevelopedSourceReference RawPreviewRebindingSource::bind_foundation_amount(
@@ -170,8 +373,251 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_foundation_amount(
 }
 
 bool RawPreviewRebindingSource::supports_foundation_amount_rebinding() const noexcept {
-    const auto* foundation = std::get_if<FoundationRawPreviewBasis>(&impl_->basis);
+    const auto* foundation = std::get_if<AiCameraRgbSourceReconstructionBasis>(&impl_->basis);
     return foundation != nullptr && foundation->camera_rgb.supports_amount_rebinding();
+}
+
+bool RawPreviewRebindingSource::supports_raw_white_balance_picker() const noexcept {
+    return source_reconstruction_retains_sensor_cfa(impl_->basis);
+}
+
+std::optional<RawWhiteBalancePresentation> RawPreviewRebindingSource::pick_raw_white_balance(
+    const double normalized_x,
+    const double normalized_y
+) const noexcept {
+    if (!std::isfinite(normalized_x) || !std::isfinite(normalized_y) || normalized_x < 0.0
+        || normalized_x > 1.0 || normalized_y < 0.0 || normalized_y > 1.0) {
+        return std::nullopt;
+    }
+    const auto* ordinary = std::get_if<SensorCfaSourceReconstructionBasis>(&impl_->basis);
+    if (ordinary == nullptr) {
+        return std::nullopt;
+    }
+    try {
+        const RawFrame& frame = ordinary->denoised_frame;
+        const auto& descriptor = frame.descriptor;
+        if (!frame.valid() || descriptor.active_dimensions.width < 3U
+            || descriptor.active_dimensions.height < 3U) {
+            return std::nullopt;
+        }
+
+        const bool rotated = descriptor.orientation == 5 || descriptor.orientation == 6;
+        const auto display_width =
+            rotated ? descriptor.active_dimensions.height : descriptor.active_dimensions.width;
+        const auto display_height =
+            rotated ? descriptor.active_dimensions.width : descriptor.active_dimensions.height;
+        const auto active_x = static_cast<std::uint32_t>(
+            std::llround(normalized_x * static_cast<double>(display_width - 1U))
+        );
+        const auto active_y = static_cast<std::uint32_t>(
+            std::llround(normalized_y * static_cast<double>(display_height - 1U))
+        );
+        std::uint32_t source_x = active_x;
+        std::uint32_t source_y = active_y;
+        switch (descriptor.orientation) {
+        case 0:
+            break;
+        case 3:
+            source_x = descriptor.active_dimensions.width - 1U - active_x;
+            source_y = descriptor.active_dimensions.height - 1U - active_y;
+            break;
+        case 5:
+            source_x = descriptor.active_dimensions.width - 1U - active_y;
+            source_y = active_x;
+            break;
+        case 6:
+            source_x = active_y;
+            source_y = descriptor.active_dimensions.height - 1U - active_x;
+            break;
+        default:
+            return std::nullopt;
+        }
+        if (source_x >= descriptor.active_dimensions.width
+            || source_y >= descriptor.active_dimensions.height) {
+            return std::nullopt;
+        }
+        const auto raw_x = descriptor.active_margins.left + source_x;
+        const auto raw_y = descriptor.active_margins.top + source_y;
+        std::array<std::vector<float>, 3U> channel_values;
+        for (std::int32_t delta_y = -2; delta_y <= 2; ++delta_y) {
+            for (std::int32_t delta_x = -2; delta_x <= 2; ++delta_x) {
+                const auto candidate_x = static_cast<std::int64_t>(raw_x) + delta_x;
+                const auto candidate_y = static_cast<std::int64_t>(raw_y) + delta_y;
+                if (candidate_x < 0 || candidate_y < 0
+                    || candidate_x >= static_cast<std::int64_t>(descriptor.storage_dimensions.width)
+                    || candidate_y
+                           >= static_cast<std::int64_t>(descriptor.storage_dimensions.height)) {
+                    continue;
+                }
+                const auto sample = detail::bilinear_camera_rgb_sample_at(
+                    frame,
+                    static_cast<std::uint32_t>(candidate_x),
+                    static_cast<std::uint32_t>(candidate_y),
+                    nullptr
+                );
+                if (!std::isfinite(sample.values[0]) || !std::isfinite(sample.values[1])
+                    || !std::isfinite(sample.values[2]) || sample.values[0] <= 1.0e-6F
+                    || sample.values[1] <= 1.0e-6F || sample.values[2] <= 1.0e-6F) {
+                    continue;
+                }
+                for (std::size_t channel = 0U; channel < channel_values.size(); ++channel) {
+                    channel_values[channel].push_back(sample.values[channel]);
+                }
+            }
+        }
+        std::array<double, 3U> neutral{};
+        for (std::size_t channel = 0U; channel < channel_values.size(); ++channel) {
+            auto& values = channel_values[channel];
+            if (values.empty()) {
+                return std::nullopt;
+            }
+            std::sort(values.begin(), values.end());
+            neutral[channel] = values[values.size() / 2U];
+        }
+        if (impl_->camera_profile_definition.has_value()) {
+            return raw_dcp_white_balance_presentation(
+                impl_->camera_profile_definition->profile,
+                neutral
+            );
+        }
+        return raw_frame_white_balance_presentation(descriptor, neutral);
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<RawWhiteBalancePresentation>
+RawPreviewRebindingSource::auto_raw_white_balance() const noexcept {
+    const auto* ordinary = std::get_if<SensorCfaSourceReconstructionBasis>(&impl_->basis);
+    if (ordinary == nullptr) {
+        return std::nullopt;
+    }
+    try {
+        const RawFrame& frame = ordinary->denoised_frame;
+        const auto& descriptor = frame.descriptor;
+        const auto as_shot_neutral = raw_as_shot_camera_neutral(descriptor);
+        if (!frame.valid() || !as_shot_neutral.has_value()
+            || descriptor.active_dimensions.width < 3U
+            || descriptor.active_dimensions.height < 3U) {
+            return std::nullopt;
+        }
+
+        constexpr std::uint32_t target_axis_samples = 48U;
+        const auto sample_width = std::min(descriptor.active_dimensions.width, target_axis_samples);
+        const auto sample_height =
+            std::min(descriptor.active_dimensions.height, target_axis_samples);
+        std::vector<AutoWhiteBalanceCandidate> candidates;
+        candidates.reserve(
+            static_cast<std::size_t>(sample_width) * static_cast<std::size_t>(sample_height)
+        );
+
+        for (std::uint32_t sample_y = 0U; sample_y < sample_height; ++sample_y) {
+            const auto active_y =
+                sample_height == 1U
+                    ? 0U
+                    : static_cast<std::uint32_t>(std::llround(
+                          static_cast<double>(sample_y)
+                          * static_cast<double>(descriptor.active_dimensions.height - 1U)
+                          / static_cast<double>(sample_height - 1U)
+                      ));
+            for (std::uint32_t sample_x = 0U; sample_x < sample_width; ++sample_x) {
+                const auto active_x =
+                    sample_width == 1U
+                        ? 0U
+                        : static_cast<std::uint32_t>(std::llround(
+                              static_cast<double>(sample_x)
+                              * static_cast<double>(descriptor.active_dimensions.width - 1U)
+                              / static_cast<double>(sample_width - 1U)
+                          ));
+                const auto sample = detail::bilinear_camera_rgb_sample_at(
+                    frame,
+                    descriptor.active_margins.left + active_x,
+                    descriptor.active_margins.top + active_y,
+                    nullptr
+                );
+                if (!std::isfinite(sample.values[0]) || !std::isfinite(sample.values[1])
+                    || !std::isfinite(sample.values[2]) || sample.values[0] <= 1.0e-6F
+                    || sample.values[1] <= 1.0e-6F || sample.values[2] <= 1.0e-6F
+                    || *std::max_element(
+                           sample.physical_white_coverage.begin(),
+                           sample.physical_white_coverage.end()
+                       ) > 1.0e-6F) {
+                    continue;
+                }
+                const double maximum =
+                    *std::max_element(sample.values.begin(), sample.values.end());
+                const double luminance =
+                    (static_cast<double>(sample.values[0]) + static_cast<double>(sample.values[1])
+                     + static_cast<double>(sample.values[2]))
+                    / 3.0;
+                if (luminance < 0.02 || maximum > 0.90) {
+                    continue;
+                }
+
+                const std::array<double, 3U> balanced{
+                    static_cast<double>(sample.values[0]) / (*as_shot_neutral)[0],
+                    static_cast<double>(sample.values[1]) / (*as_shot_neutral)[1],
+                    static_cast<double>(sample.values[2]) / (*as_shot_neutral)[2],
+                };
+                const double balanced_mean = (balanced[0] + balanced[1] + balanced[2]) / 3.0;
+                const double balanced_chroma =
+                    (*std::max_element(balanced.begin(), balanced.end())
+                     - *std::min_element(balanced.begin(), balanced.end()))
+                    / std::max(balanced_mean, 1.0e-9);
+                if (!std::isfinite(balanced_chroma) || balanced_chroma > 0.45) {
+                    continue;
+                }
+                candidates.push_back({
+                    .red_to_green = static_cast<double>(sample.values[0])
+                                    / static_cast<double>(sample.values[1]),
+                    .blue_to_green = static_cast<double>(sample.values[2])
+                                     / static_cast<double>(sample.values[1]),
+                    .balanced_chroma = balanced_chroma,
+                    .luminance = luminance,
+                });
+            }
+        }
+        if (candidates.size() < 12U) {
+            return std::nullopt;
+        }
+        std::sort(
+            candidates.begin(),
+            candidates.end(),
+            [](const AutoWhiteBalanceCandidate& left, const AutoWhiteBalanceCandidate& right) {
+                if (left.balanced_chroma != right.balanced_chroma) {
+                    return left.balanced_chroma < right.balanced_chroma;
+                }
+                return left.luminance > right.luminance;
+            }
+        );
+        const std::size_t selected_count =
+            std::min(candidates.size(), std::max<std::size_t>(12U, candidates.size() / 5U));
+        if (candidates[selected_count - 1U].balanced_chroma > 0.30) {
+            return std::nullopt;
+        }
+        std::vector<double> red_ratios;
+        std::vector<double> blue_ratios;
+        red_ratios.reserve(selected_count);
+        blue_ratios.reserve(selected_count);
+        for (std::size_t index = 0U; index < selected_count; ++index) {
+            red_ratios.push_back(candidates[index].red_to_green);
+            blue_ratios.push_back(candidates[index].blue_to_green);
+        }
+        const std::array<double, 3U> neutral{
+            median(red_ratios),
+            1.0,
+            median(blue_ratios),
+        };
+        if (impl_->camera_profile_definition.has_value()) {
+            return raw_dcp_white_balance_presentation(
+                impl_->camera_profile_definition->profile,
+                neutral
+            );
+        }
+        return raw_frame_white_balance_presentation(descriptor, neutral);
+    } catch (...) {
+        return std::nullopt;
+    }
 }
 
 DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
@@ -189,10 +635,19 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
 
     RawDevelopmentPlan effective_plan = impl_->development_template.development_plan();
     effective_plan.white_balance = requested_plan.white_balance;
+    const bool timing_enabled = interactive_timing_enabled();
+    const auto timing_started = std::chrono::steady_clock::now();
+    const auto timing_sequence = impl_->bind_count.load(std::memory_order_relaxed) + 1U;
     CompiledPreviewColorBinding binding = compile_color_binding(
         impl_->development_template.descriptor(),
         effective_plan.white_balance,
         impl_->camera_profile_definition
+    );
+    log_interactive_rebind_timing(
+        timing_enabled,
+        timing_sequence,
+        "fallback-color-binding-ready",
+        timing_started
     );
     PreparedRawFrameDevelopment rebound_development = impl_->development_template.rebind_color(
         effective_plan,
@@ -200,9 +655,15 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         std::move(binding.dcp),
         impl_->development_template.source_scene_luminance_percentile()
     );
+    log_interactive_rebind_timing(
+        timing_enabled,
+        timing_sequence,
+        "fallback-development-plan-ready",
+        timing_started
+    );
     impl_->bind_count.fetch_add(1U, std::memory_order_relaxed);
 
-    if (const auto* ordinary = std::get_if<OrdinaryRawPreviewBasis>(&impl_->basis)) {
+    if (const auto* ordinary = std::get_if<SensorCfaSourceReconstructionBasis>(&impl_->basis)) {
         if (foundation_amount_percent.has_value()) {
             throw DecodeError(
                 DecodeErrorCode::invalid_request,
@@ -212,6 +673,9 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         }
         const DcpColorTransform* dcp = rebound_development.camera_profile();
         const bool dcp_requested = dcp != nullptr && dcp->has_post_matrix_stages();
+        const bool reconstruct_cfa_highlights =
+            uses_cfa_owned_highlight_reconstruction(effective_plan.highlight_recovery);
+        const bool fused_dcp_requested = dcp_requested;
         // The initial RAW source development already folds DCP input rendering into its Metal
         // tile transaction. Do the same for a white-balance rebind: otherwise a bounded Metal
         // reconstruction is copied to the host, uploaded once more for DCP, then copied back
@@ -219,7 +683,33 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         // the exact existing backend selector and staged DCP fallback intact.
         std::optional<FusedRawFrameDevelopment> developed;
         bool fused_dcp_applied = false;
-        if (dcp_requested
+#if SHADOW_IMAGE_HAS_METAL
+        if (rebound_development.requested_backend() != RawDevelopmentBackendMode::cpu
+            && impl_->ordinary_raw_metal_preview.has_value()) {
+            auto resident_attempt = impl_->ordinary_raw_metal_preview->develop(
+                ordinary->denoised_frame,
+                rebound_development.linear_transform(),
+                rebound_development.preview_max_edge(),
+                effective_plan.highlight_recovery,
+                effective_plan.quality,
+                detail::MetalRawDevelopmentContinuations{
+                    .dcp_color_transform = fused_dcp_requested ? dcp : nullptr,
+                }
+            );
+            if (resident_attempt.development.has_value()
+                && (!fused_dcp_requested || resident_attempt.dcp_applied)) {
+                developed = std::move(resident_attempt.development);
+                fused_dcp_applied = resident_attempt.dcp_applied;
+            }
+        }
+#endif
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            "fallback-resident-development-attempted",
+            timing_started
+        );
+        if (!developed.has_value() && fused_dcp_requested
             && rebound_development.requested_backend() != RawDevelopmentBackendMode::cpu) {
             auto fused_attempt = detail::try_develop_bayer_linear_srgb_f32_metal(
                 ordinary->denoised_frame,
@@ -236,6 +726,12 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
                 fused_dcp_applied = true;
             }
         }
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            "fallback-secondary-metal-attempted",
+            timing_started
+        );
         if (!developed.has_value()) {
             developed = develop_bayer_linear_srgb_f32_fused_with_backend(
                 ordinary->denoised_frame,
@@ -246,15 +742,24 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
                 effective_plan.quality
             );
         }
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            developed->backend == RawDevelopmentBackend::metal ? "fallback-development-ready-metal"
+                                                               : "fallback-development-ready-cpu",
+            timing_started
+        );
         impl_->ordinary_raw_bind_count.fetch_add(1U, std::memory_order_relaxed);
         if (developed->backend == RawDevelopmentBackend::metal) {
             impl_->ordinary_raw_metal_development_count.fetch_add(1U, std::memory_order_relaxed);
         } else {
             impl_->ordinary_raw_cpu_development_count.fetch_add(1U, std::memory_order_relaxed);
         }
-        DcpColorExecutionBackend dcp_backend = fused_dcp_applied
-            ? DcpColorExecutionBackend::metal
-            : DcpColorExecutionBackend::cpu;
+        HighlightChromaRiskMap highlight_chroma_risk = reconstruct_cfa_highlights
+                                                           ? impl_->completed_highlight_risk()
+                                                           : ordinary->highlight_chroma_risk;
+        DcpColorExecutionBackend dcp_backend =
+            fused_dcp_applied ? DcpColorExecutionBackend::metal : DcpColorExecutionBackend::cpu;
         if (fused_dcp_applied) {
             impl_->ordinary_raw_fused_dcp_bind_count.fetch_add(1U, std::memory_order_relaxed);
             impl_->dcp_metal_execution_count.fetch_add(1U, std::memory_order_relaxed);
@@ -266,12 +771,18 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
                 impl_->dcp_cpu_execution_count.fetch_add(1U, std::memory_order_relaxed);
             }
         }
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            dcp_backend == DcpColorExecutionBackend::metal ? "fallback-dcp-ready-metal"
+                                                           : "fallback-dcp-ready-cpu",
+            timing_started
+        );
         RawDevelopmentReceipt receipt = finalize_raw_frame_development_receipt(
             rebound_development,
             developed->scene_linear.dimensions,
             developed->demosaic_receipt,
             developed->backend,
-            ordinary->neural_denoise,
             ordinary->conventional_denoise,
             dcp_backend
         );
@@ -294,15 +805,22 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
             effective_plan.highlight_recovery,
             ordinary->combined_denoise_identity
         );
+        log_interactive_rebind_timing(
+            timing_enabled,
+            timing_sequence,
+            "fallback-receipt-ready",
+            timing_started
+        );
         return DevelopedSourceReference{
             .source = std::move(developed->scene_linear),
             .raw_development_receipt = std::move(receipt),
             .pipeline_receipt = std::move(pipeline),
-            .sensor_clipping_mask = impl_->sensor_clipping,
+            .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
+            .highlight_chroma_risk_map = std::move(highlight_chroma_risk),
         };
     }
 
-    const auto& foundation = std::get<FoundationRawPreviewBasis>(impl_->basis);
+    const auto& foundation = std::get<AiCameraRgbSourceReconstructionBasis>(impl_->basis);
     impl_->foundation_camera_rgb_bind_count.fetch_add(1U, std::memory_order_relaxed);
     if (foundation_amount_percent.has_value()) {
         impl_->foundation_amount_bind_count.fetch_add(1U, std::memory_order_relaxed);
@@ -317,6 +835,15 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
                                                  foundation.camera_rgb,
                                                  rebound_development.linear_transform()
                                              );
+    HighlightChromaRiskMap highlight_chroma_risk = foundation.highlight_chroma_risk;
+    if (uses_clipped_highlight_surface_reconstruction(requested_plan.highlight_recovery)) {
+        static_cast<void>(reconstruct_clipped_highlight_surface(
+            developed.scene_linear,
+            foundation.sensor_clipping,
+            highlight_chroma_risk,
+            &rebound_development.linear_transform()
+        ));
+    }
     DcpColorExecutionBackend dcp_backend = DcpColorExecutionBackend::cpu;
     const DcpColorTransform* dcp = rebound_development.camera_profile();
     if (dcp != nullptr && dcp->has_post_matrix_stages()) {
@@ -355,7 +882,8 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
         .source = std::move(developed.scene_linear),
         .raw_development_receipt = std::move(receipt),
         .pipeline_receipt = std::move(pipeline),
-        .sensor_clipping_mask = impl_->sensor_clipping,
+        .sensor_clipping_mask = source_reconstruction_sensor_clipping(impl_->basis),
+        .highlight_chroma_risk_map = std::move(highlight_chroma_risk),
     };
 }
 
@@ -365,23 +893,28 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         prepared.frame_,
         prepared.development_.diagnostic_dimensions()
     );
-    detail::NeuralRawDenoiseResult neural = detail::execute_prepared_neural_raw_denoise(
-        std::move(prepared.frame_),
-        prepared.development_.neural_raw_denoise()
+    HighlightChromaRiskMap highlight_chroma_risk = project_highlight_chroma_risk_map(
+        prepared.frame_,
+        prepared.development_.diagnostic_dimensions()
     );
     RawBayerDenoiseResult conventional = detail::execute_prepared_raw_bayer_denoise(
-        std::move(neural.frame),
+        std::move(prepared.frame_),
         prepared.development_.raw_denoise()
     );
-    OrdinaryRawPreviewBasis basis{
+    SensorCfaSourceReconstructionBasis basis{
         .denoised_frame = std::move(conventional.frame),
-        .neural_denoise = std::move(neural.receipt),
         .conventional_denoise = std::move(conventional.receipt),
+        .sensor_clipping = std::move(sensor_clipping),
+        .highlight_chroma_risk = std::move(highlight_chroma_risk),
     };
-    basis.combined_denoise_identity = detail::combined_raw_denoise_cache_identity(
-        basis.neural_denoise,
-        basis.conventional_denoise
+    basis.combined_denoise_identity = basis.conventional_denoise.cache_identity;
+#if SHADOW_IMAGE_HAS_METAL
+    std::string metal_preview_diagnostic;
+    auto metal_preview = detail::MetalRawPreviewRebindingSource::try_prepare(
+        basis.denoised_frame,
+        metal_preview_diagnostic
     );
+#endif
     auto impl = std::make_unique<RawPreviewRebindingSource::Impl>(
         std::move(prepared.development_),
         std::move(prepared.pipeline_),
@@ -389,8 +922,11 @@ PreparedRawPreviewRebinding prepare_raw_preview_rebinding(PreparedRawFrameSource
         prepared.plan_negotiation_status_,
         std::move(prepared.metadata_),
         std::move(prepared.camera_profile_definition_),
-        std::move(sensor_clipping),
-        RawPreviewBasis{std::move(basis)}
+        SourceReconstructionBasis{std::move(basis)}
+#if SHADOW_IMAGE_HAS_METAL
+        ,
+        std::move(metal_preview)
+#endif
     );
     auto source = std::shared_ptr<const RawPreviewRebindingSource>(
         new RawPreviewRebindingSource(std::move(impl))
@@ -413,13 +949,11 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
             "verified AI RAW foundation does not match the decoded source geometry"
         );
     }
-    PreparedRawFoundationCameraRgb camera_rgb = prepare_raw_foundation_camera_rgb(
+    AiCameraRgbSourceReconstructionBasis source_basis = prepare_ai_camera_rgb_source_reconstruction(
         foundation,
         prepared.frame_,
         prepared.development_.preview_max_edge()
     );
-    SensorClippingMask sensor_clipping =
-        project_sensor_clipping_mask(prepared.frame_, camera_rgb.dimensions);
     prepared.pipeline_.requested_plan = requested_plan;
     prepared.pipeline_.effective_plan = prepared.development_.development_plan();
     const RawDevelopmentPlanNegotiationStatus negotiation_status =
@@ -433,8 +967,11 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
         negotiation_status,
         std::move(prepared.metadata_),
         std::move(prepared.camera_profile_definition_),
-        std::move(sensor_clipping),
-        RawPreviewBasis{FoundationRawPreviewBasis{.camera_rgb = std::move(camera_rgb)}}
+        SourceReconstructionBasis{std::move(source_basis)}
+#if SHADOW_IMAGE_HAS_METAL
+        ,
+        std::nullopt
+#endif
     );
     auto source = std::shared_ptr<const RawPreviewRebindingSource>(
         new RawPreviewRebindingSource(std::move(impl))
@@ -502,9 +1039,10 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
             "AI RAW preview rebinding requires an owned RawFrame source"
         );
     }
-    RawDevelopmentPlan effective_plan = requested_plan;
-    effective_plan.noise_reduction = RawNoiseReductionIntent::disabled;
-    effective_plan.highlight_recovery = RawHighlightRecoveryIntent::disabled;
+    const RawDevelopmentPlan effective_plan = source_reconstruction_effective_plan(
+        requested_plan,
+        SourceReconstructionKind::ai_camera_rgb
+    );
     return prepare_raw_foundation_preview_rebinding(
         prepare_raw_frame_source(session, effective_plan, max_edge, camera_profiles),
         foundation,
@@ -538,9 +1076,10 @@ PreparedRawPreviewRebinding prepare_raw_foundation_preview_rebinding(
             "staged AI RAW preview rebinding is disabled by the RAW pipeline policy"
         );
     }
-    RawDevelopmentPlan effective_plan = requested_plan;
-    effective_plan.noise_reduction = RawNoiseReductionIntent::disabled;
-    effective_plan.highlight_recovery = RawHighlightRecoveryIntent::disabled;
+    const RawDevelopmentPlan effective_plan = source_reconstruction_effective_plan(
+        requested_plan,
+        SourceReconstructionKind::ai_camera_rgb
+    );
     return prepare_raw_foundation_preview_rebinding(
         prepare_raw_frame_source(
             metadata_session,

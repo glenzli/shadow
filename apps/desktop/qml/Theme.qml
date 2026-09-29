@@ -23,15 +23,17 @@ QtObject {
     readonly property int controlRadius: 6
     readonly property int sectionSpacing: 14
     readonly property int panelPadding: 16
-
-    // At 96 DPI, Windows' Segoe UI and CJK fallback fonts read smaller than
-    // their macOS counterparts at the same logical pixel size. Compensate at
-    // the typography-token boundary without scaling controls or image space.
-    readonly property real platformFontScale:
-        Qt.platform.os === "windows" ? 1.10 : 1.0
-    readonly property int fontBody: Math.round(12 * platformFontScale)
-    readonly property int fontMeta: Math.round(10 * platformFontScale)
-    readonly property int fontSection: Math.round(11 * platformFontScale)
+    // Micro type is reserved for plot coordinates and thumbnail badges.
+    // Readable UI copy starts at Caption; field values use Body.
+    readonly property int fontMicro: 8
+    readonly property int fontCaption: 10
+    readonly property int fontMeta: 11
+    readonly property int fontSection: 12
+    readonly property int fontBody: 13
+    readonly property int fontSubheading: 14
+    readonly property int fontTitle: 16
+    readonly property int fontHeading: 18
+    readonly property int fontHero: 20
 
     // Base surfaces
     readonly property color window: effectiveDark ? "#0f1114" : "#f1f3f5"

@@ -3,7 +3,7 @@
 //! File formats, destination naming, presets, and watermark composition are
 //! desktop-shell concerns. This service owns the expensive invariant: source
 //! development uses `ExportImage` intent and the exact current Recipe, then
-//! returns one tightly packed display-sRGB RGB8 raster.
+//! returns one tightly packed display-sRGB RGB8 or RGB16 raster.
 
 use std::path::Path;
 
@@ -21,15 +21,11 @@ use crate::isolated_proxy::{
 };
 use crate::{
     DesktopSession, ffi,
-    photo_provider::isolated_edit_raster,
     raw_foundation_render_source::{
         RawFoundationRenderSelection, load_raw_foundation_for_render,
         raw_foundation_ready_for_render,
     },
-    recipe_v1::{
-        ensure_foundation_allows_rgb_fallback, ensure_foundation_development_receipt,
-        resolve_recipe_render,
-    },
+    recipe_v1::{ensure_foundation_development_receipt, resolve_recipe_render},
     session_photo_source::catalog_native_path,
 };
 
@@ -58,7 +54,14 @@ impl DesktopSession {
             request.use_working_recipe,
         )?;
         let raw_development_plan = recipe.foundation.export_plan();
-        let requirements = DetailSessionRequirements::for_render_plan(&recipe.plan);
+        if request.bit_depth != 8 && request.bit_depth != 16 {
+            bail!("export bit depth must be 8 or 16");
+        }
+        let requirements = if request.bit_depth == 16 {
+            DetailSessionRequirements::for_high_bit_export(&recipe.plan)
+        } else {
+            DetailSessionRequirements::for_render_plan(&recipe.plan)
+        };
         // Export has no cancellation surface today. Supplying an explicit
         // token keeps source resolution on the same contract as preview and
         // detail without pretending that the queue can currently signal it.
@@ -81,7 +84,7 @@ impl DesktopSession {
             source.source,
             requirements,
         )?;
-        let raster = render_export_raster(&session, &recipe.plan)?;
+        let raster = render_export_raster(&session, &recipe.plan, request.bit_depth)?;
         if fingerprint_source(&native_path).context("re-read export source metadata")?
             != source.source
         {
@@ -134,64 +137,30 @@ fn open_export_session(
             Ok(session)
         }
         Err(public_decoder_error) => {
-            if !raw_plan.white_balance.is_as_shot() {
-                let helper_path = configured_helper_path().ok_or_else(|| {
-                    anyhow!(
-                        "manual Foundation RAW white balance requires the isolated Provider Host RawFrame route; public decoder could not prepare export for {}: {public_decoder_error}",
-                        native_path.display()
-                    )
-                })?;
-                let staging_root = cache_root.join("decode-helper").join("raw-frame-staging");
-                let staging = stage_isolated_raw_frame(
-                    &helper_path,
-                    &staging_root,
-                    native_path,
-                )
-                .with_context(|| {
-                    format!(
-                        "stage provider-neutral RawFrame for manual Foundation export after public decoder could not prepare {}: {public_decoder_error}",
-                        native_path.display()
-                    )
-                })?;
-                let session = PhotoEditDetailSession::open_with_staged_raw_development_plan(
-                    native_path,
-                    staging.manifest_path(),
-                    raw_plan,
-                    optics,
-                    requirements,
-                )
-                .with_context(|| {
-                    format!(
-                        "prepare manual Foundation export from the isolated RawFrame for {}",
-                        native_path.display()
-                    )
-                })?;
-                ensure_foundation_development_receipt(raw_plan, session.raw_pipeline_receipt())?;
-                return Ok(session);
-            }
-            if let Err(policy_error) = ensure_foundation_allows_rgb_fallback(raw_plan) {
-                return Err(anyhow!(
-                    "{policy_error}; public decoder could not prepare export for {}: {public_decoder_error}",
+            let helper_path = configured_helper_path().ok_or_else(|| {
+                anyhow!(
+                    "full-quality RAW export requires the isolated Provider Host RawFrame route; public decoder could not prepare export for {}: {public_decoder_error}",
                     native_path.display()
-                ));
-            }
-            let temporary_raster =
-                isolated_edit_raster(cache_root, native_path, 16_384).with_context(|| {
+                )
+            })?;
+            let staging_root = cache_root.join("decode-helper").join("raw-frame-staging");
+            let staging = stage_isolated_raw_frame(&helper_path, &staging_root, native_path)
+                .with_context(|| {
                     format!(
-                        "public decoder could not prepare export for {}; isolated decoder fallback could not start: {public_decoder_error}",
+                        "stage provider-neutral RawFrame for export after public decoder could not prepare {}: {public_decoder_error}",
                         native_path.display()
                     )
                 })?;
-            let isolated_result = PhotoEditDetailSession::open_with_requirements(
-                &temporary_raster,
+            let session = PhotoEditDetailSession::open_with_staged_raw_development_plan(
+                native_path,
+                staging.manifest_path(),
                 raw_plan,
                 optics,
                 requirements,
-            );
-            let _ = std::fs::remove_file(&temporary_raster);
-            let session = isolated_result.with_context(|| {
+            )
+            .with_context(|| {
                 format!(
-                    "public decoder could not prepare export for {}; isolated decoder fallback also failed: {public_decoder_error}",
+                    "prepare full-quality export from the isolated RawFrame for {}",
                     native_path.display()
                 )
             })?;
@@ -204,8 +173,20 @@ fn open_export_session(
 fn render_export_raster(
     session: &PhotoEditDetailSession,
     plan: &AdjustmentRenderPlan,
+    bit_depth: u8,
 ) -> AnyResult<ffi::FfiEditedExportRaster> {
-    let dimensions = session.dimensions();
+    match bit_depth {
+        8 => render_export_raster8(session, plan),
+        16 => render_export_raster16(session, plan),
+        _ => bail!("export bit depth must be 8 or 16"),
+    }
+}
+
+fn render_export_raster8(
+    session: &PhotoEditDetailSession,
+    plan: &AdjustmentRenderPlan,
+) -> AnyResult<ffi::FfiEditedExportRaster> {
+    let dimensions = plan.geometry.output_dimensions(session.dimensions())?;
     let row_stride_bytes = dimensions
         .width
         .checked_mul(3)
@@ -251,7 +232,68 @@ fn render_export_raster(
         width: dimensions.width,
         height: dimensions.height,
         row_stride_bytes,
+        bit_depth: 8,
         bytes,
+        samples16: Vec::new(),
+    })
+}
+
+fn render_export_raster16(
+    session: &PhotoEditDetailSession,
+    plan: &AdjustmentRenderPlan,
+) -> AnyResult<ffi::FfiEditedExportRaster> {
+    let dimensions = plan.geometry.output_dimensions(session.dimensions())?;
+    let row_stride_samples = dimensions
+        .width
+        .checked_mul(3)
+        .ok_or_else(|| anyhow!("RGB16 export sample stride overflowed"))?;
+    let row_stride_bytes = row_stride_samples
+        .checked_mul(2)
+        .ok_or_else(|| anyhow!("RGB16 export byte stride overflowed"))?;
+    let sample_len = u64::from(row_stride_samples)
+        .checked_mul(u64::from(dimensions.height))
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| anyhow!("RGB16 export raster allocation overflowed"))?;
+    let mut samples = vec![0_u16; sample_len];
+    let destination_stride =
+        usize::try_from(row_stride_samples).context("convert RGB16 export sample stride")?;
+    let mut y = 0;
+    while y < dimensions.height {
+        let mut x = 0;
+        while x < dimensions.width {
+            let rect = DetailTileRect {
+                x,
+                y,
+                width: EXPORT_TILE_SIDE.min(dimensions.width - x),
+                height: EXPORT_TILE_SIDE.min(dimensions.height - y),
+            };
+            let tile = session.render_plan_tile16(plan, DetailTileRequest { rect })?;
+            copy_export_tile16(
+                &mut samples,
+                destination_stride,
+                &ExportTileCopy16 {
+                    origin_x: x,
+                    origin_y: y,
+                    rect,
+                    source: &tile.samples,
+                    source_row_stride_bytes: tile.row_stride_bytes,
+                },
+            )?;
+            x = x
+                .checked_add(rect.width)
+                .ok_or_else(|| anyhow!("RGB16 export tile x advance overflowed"))?;
+        }
+        y = y
+            .checked_add(EXPORT_TILE_SIDE.min(dimensions.height - y))
+            .ok_or_else(|| anyhow!("RGB16 export tile y advance overflowed"))?;
+    }
+    Ok(ffi::FfiEditedExportRaster {
+        width: dimensions.width,
+        height: dimensions.height,
+        row_stride_bytes,
+        bit_depth: 16,
+        bytes: Vec::new(),
+        samples16: samples,
     })
 }
 
@@ -290,6 +332,57 @@ fn copy_export_tile(
         let destination_end = destination_row
             .checked_add(source_stride)
             .ok_or_else(|| anyhow!("export destination row end overflowed"))?;
+        destination[destination_row..destination_end]
+            .copy_from_slice(&tile.source[source_start..source_end]);
+    }
+    Ok(())
+}
+
+struct ExportTileCopy16<'a> {
+    origin_x: u32,
+    origin_y: u32,
+    rect: DetailTileRect,
+    source: &'a [u16],
+    source_row_stride_bytes: u32,
+}
+
+fn copy_export_tile16(
+    destination: &mut [u16],
+    destination_stride: usize,
+    tile: &ExportTileCopy16<'_>,
+) -> AnyResult<()> {
+    if tile.source_row_stride_bytes % 2 != 0 {
+        bail!("RGB16 export tile row stride is not sample-aligned");
+    }
+    let source_stride = usize::try_from(tile.source_row_stride_bytes / 2)
+        .context("convert RGB16 export tile stride")?;
+    let expected_source_stride = usize::try_from(tile.rect.width)
+        .context("convert RGB16 export tile width")?
+        .checked_mul(3)
+        .ok_or_else(|| anyhow!("RGB16 export tile width overflowed"))?;
+    if source_stride != expected_source_stride {
+        bail!("RGB16 export tile stride does not match its packed width");
+    }
+    let destination_x = usize::try_from(tile.origin_x)
+        .context("convert RGB16 export tile x")?
+        .checked_mul(3)
+        .ok_or_else(|| anyhow!("RGB16 export tile x overflowed"))?;
+    for row in 0..usize::try_from(tile.rect.height).context("convert RGB16 export tile height")? {
+        let source_start = row
+            .checked_mul(source_stride)
+            .ok_or_else(|| anyhow!("RGB16 export tile row overflowed"))?;
+        let source_end = source_start
+            .checked_add(source_stride)
+            .ok_or_else(|| anyhow!("RGB16 export tile row end overflowed"))?;
+        let destination_row = usize::try_from(tile.origin_y)
+            .context("convert RGB16 export tile y")?
+            .checked_add(row)
+            .and_then(|value| value.checked_mul(destination_stride))
+            .and_then(|value| value.checked_add(destination_x))
+            .ok_or_else(|| anyhow!("RGB16 export destination row overflowed"))?;
+        let destination_end = destination_row
+            .checked_add(source_stride)
+            .ok_or_else(|| anyhow!("RGB16 export destination row end overflowed"))?;
         destination[destination_row..destination_end]
             .copy_from_slice(&tile.source[source_start..source_end]);
     }

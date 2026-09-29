@@ -27,14 +27,55 @@ remote Mac manifest / client-local proxy cache
   → normal local Catalog identity → Precision + local RecipePreview precedence
 ```
 
-QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
+QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests use a stable URL across Library generations, allowing Qt to reuse decoded images and textures when the ticket is unchanged; comparison requests retain their generation identity. Grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
+
+## HDR and panorama composition
+
+Select 2–12 photos in Review, then use **Merge → HDR merge / Panorama merge**. Remote originals
+use the existing verified download preparation before opening the composition dialog. The selected
+2048/4096-pixel long edge applies to each input; this first implementation does not claim native
+full-resolution composition. Originals and their existing recipes are read-only inputs; recipes
+are not baked into the composite.
+
+- HDR accepts RAW exposure brackets from one camera, with matching dimensions, aperture, ISO and
+  white balance. It uses the existing owned RAW developer and sensor-clipping evidence, without
+  optional creative DCP tables/curves. Translation alignment, exposure normalization, shared RGB
+  fusion weights and reference-based ghost rejection preserve scene-linear headroom. Rotation,
+  optical-flow deghosting and JPEG response-curve calibration are not implemented.
+- Panorama accepts supported RAW and raster sources. OpenCV estimates camera rotations, followed
+  by spherical projection of linear RGB, scalar overlap exposure compensation, feather blending
+  and a largest fully covered rectangular crop. Every selected image must join. Close foreground
+  parallax, moving subjects and large exposure differences can still leave seams; there is no
+  graph-cut/multiband or content-aware border fill.
+- Review the preview, then **Save and import** to create a separate 32-bit float linear-sRGB TIFF
+  with ICC profile and embedded source hashes/development provenance. Saving never replaces an
+  existing file. Only the saved file is scanned through normal Library import; the composite can be
+  opened in Precision without clipping its float headroom at the decoder boundary.
+
+[`src/composition_controller.*`](src/composition_controller.hpp) owns process lifecycle, progress,
+cancellation and atomic no-replace publication. [`src/composition/`](src/composition/) owns the
+isolated decoder/fusion worker and algorithms; Qt never runs registration in its event loop. The
+worker bounds retained input and output pixels to 64 Mi each and rejects excess before fusion.
+Cancellation terminates the worker and discards private staging; save cancellation is honored
+until the atomic destination creation. A completed save remains a completed save.
+
+The desktop build needs OpenCV (4 or 5, core/imgproc/photo/stitching) and libtiff. The packaged
+`shadow-photo-composition-worker` is a required canonical-debug input with its own verified digest.
+`shadow-desktop-photo-composition` covers linear HDR color/headroom, translated alignment,
+rotational panorama, float TIFF edit rebinding, worker errors/cancellation and non-overwriting save.
+Direct raster inspection and isolated RAW inspection publish the same outer inspector identity,
+including the configured helper graph, so raster thumbnails pass the worker identity guard.
+Initial preparation may use the existing RAW Metal route, but registration/fusion are CPU work.
+After import, interactive adjustments reuse the normal warm editor source; only a new composition
+reruns multi-photo registration. No new host/device transfer is added to ordinary RAW editing.
 
 ## Desktop source index
 
 Application startup is split from environment-driven automation:
 
 - [`CMakeLists.txt`](CMakeLists.txt) owns desktop application assembly, packaged resources,
-  provider installation, and the final executable contract.
+  and the final executable contract. AI model executors and model assets are not packaged here;
+  the desktop is an Infer Runtime consumer.
   [`cmake/ShadowDesktopPlatformSources.cmake`](cmake/ShadowDesktopPlatformSources.cmake)
   is the single platform-source selector: the shared Qt application and QML tree remain common,
   while [`src/platform/macos/`](src/platform/macos/) owns AppKit/Metal presentation and
@@ -52,10 +93,34 @@ Application startup is split from environment-driven automation:
   registration.
 - [`src/main.cpp`](src/main.cpp) owns process startup, isolated RAW-helper policy, local Catalog
   recovery, service composition, QML loading, and the application run loop.
+- [`src/pipeline_launch.*`](src/pipeline_launch.hpp) owns isolated-editor admission: direct
+  `--isolate` file arguments and compatible versioned `--pipeline-edit` requests. It rejects
+  duplicate outputs, result/output collisions and replacement of existing files, and publishes
+  versioned results without overwriting a competing result.
+  [`src/pipeline_runtime.cpp`](src/pipeline_runtime.cpp) composes the task-private Catalog,
+  settings, cache, Precision and interchange controllers, without normal Library/Review/People
+  controllers. [`src/pipeline_run_controller.*`](src/pipeline_run_controller.hpp) owns asynchronous
+  input admission, per-photo selection, persistence before batch export, progress, cancellation,
+  partial results and terminal publication. [`qml/PipelineEditor.qml`](qml/PipelineEditor.qml)
+  owns the independent window; [`qml/PipelineExportDialog.qml`](qml/PipelineExportDialog.qml)
+  owns interactive output choices. [`src/pipeline_smoke_harness.*`](src/pipeline_smoke_harness.hpp)
+  drives opt-in packaged session acceptance, registered in `ShadowDesktopPipelineTests.cmake`.
+  [`src/rgb_curve_smoke_harness.*`](src/rgb_curve_smoke_harness.hpp) owns five-channel curve
+  history, photo isolation, persisted checkout and export acceptance.
+  [`src/direct_edit_smoke_harness.*`](src/direct_edit_smoke_harness.hpp) owns sampled curve gestures
+  and dedicated Dodge/Burn history, cancellation, photo isolation and export acceptance.
+  [`src/paint_smoke_harness.*`](src/paint_smoke_harness.hpp) owns the paint-specific
+  undo, cancellation, photo isolation, persistence and export acceptance sequence.
+  [`src/paint_interaction_smoke_harness.*`](src/paint_interaction_smoke_harness.hpp) exercises
+  continuous input and preview cadence while a preceding autosave completes. Paint publishes
+  inspector state at gesture boundaries; its one in-flight preview consumes the latest accumulated
+  points without cancelling every frame. Release/cancel supersedes that preview immediately.
 - [`src/people_analysis_controller.*`](src/people_analysis_controller.hpp) owns the explicit,
-  session-only anonymous-people analysis lifecycle: worker admission, safe failure presentation,
-  in-memory summary projection, rerun, localization, and clear-on-request/destruction. It delegates
-  model execution through `DesktopBackend`; no embeddings or face geometry enter Qt.
+  authorization-gated anonymous-people analysis lifecycle: persisted local-summary loading, worker
+  admission, safe failure presentation, conflict-safe group selection, durable merge delegation,
+  stable local naming, durable correction undo, incremental scan continuation, localization, and explicit clear. It delegates model execution and
+  the independently clearable People Store through `DesktopBackend`; only logical photo ids needed
+  to browse and split a person or reject co-occurring-face merges enter Qt, while embeddings and face geometry remain in Rust.
 - [`src/semantic_search_controller.*`](src/semantic_search_controller.hpp) owns manual,
   session-only natural-language search admission, safe failure presentation, and the bounded
   high/possible relevance projection; weak relative matches stay hidden.
@@ -85,9 +150,10 @@ Application startup is split from environment-driven automation:
   theme projection, and the stable application-shell entry points used by child workspaces. Map
   is an application-level workspace beside Review, Precision, and People; Library Management
   remains a secondary route rather than consuming a top-level tab.
-- [`qml/PeopleWorkspace.qml`](qml/PeopleWorkspace.qml) owns the manually triggered People preview,
-  local-only disclosure, analysis summary, anonymous cards, and session-clear interaction. It does
-  not imply persistence, naming, merge/split facts, or automatic background analysis.
+- [`qml/PeopleWorkspace.qml`](qml/PeopleWorkspace.qml) owns first-use consent, the manually
+  triggered People workflow, local-only disclosure, analysis summary, bounded representative face
+  crops, locally named selectable cards, reversible durable merge, and confirmed clear interaction. It
+  does not imply naming or automatic background analysis.
 - [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns the compact grid/filmstrip
   modes and batch controls inside Review. It does not route to Map; the application title bar owns
   that workspace transition.
@@ -100,8 +166,11 @@ Application startup is split from environment-driven automation:
   [`qml/ReviewGallerySectionNavigator.qml`](qml/ReviewGallerySectionNavigator.qml) owns the
   transient scroll reveal, sampled index labels, drag preview, and concrete section jump gesture;
   it consumes layout row anchors and never reconstructs date, place, or future People semantics.
-- [`qml/MainTitleBar.qml`](qml/MainTitleBar.qml) owns title-bar geometry, native window dragging,
-  workspace navigation, edit save/undo state, settings entry, and the History Drawer trigger. It
+- [`qml/ShadowTitleBar.qml`](qml/ShadowTitleBar.qml) owns shared title-bar geometry, native-control
+  spacing and window dragging for both Library and independent-editor windows. Both use expanded
+  client-area chrome and the same macOS traffic-light alignment.
+  [`qml/MainTitleBar.qml`](qml/MainTitleBar.qml) composes workspace navigation, edit save/undo state,
+  settings entry, and the History Drawer trigger. It
   preserves the `Main` translation context; [`qml/HistoryDrawer.qml`](qml/HistoryDrawer.qml) owns
   the per-photo durable Recipe timeline, named-version creation and non-destructive checkout, plus
   the read-only Library commit/ref timeline.
@@ -123,6 +192,16 @@ Application startup is split from environment-driven automation:
   [`qml/ShadowCheckBox.qml`](qml/ShadowCheckBox.qml) and
   [`qml/ShadowSwitch.qml`](qml/ShadowSwitch.qml) own the compact checkbox and toggle presentation
   used throughout the packaged desktop module; feature panes retain only their domain semantics.
+  [`qml/ShadowTextField.qml`](qml/ShadowTextField.qml),
+  [`qml/ShadowComboBox.qml`](qml/ShadowComboBox.qml), and the `ShadowMenu` / `ShadowMenuItem`
+  pair own form and menu typography, focus, disabled and light/dark presentation. Inline numeric
+  editors and composite search fields retain their own geometry. `Theme.qml` defines the shared
+  type scale; micro text is reserved for plot coordinates and thumbnail badges. Monochrome SVG
+  icons use white RGB with alpha coverage so `ShadowIcon` can tint them in both appearances.
+  [`qml/ShadowAdjustmentSection.qml`](qml/ShadowAdjustmentSection.qml) owns collapsible inspector
+  sections and their optional header-action slot; supplied actions keep behavior in the feature pane.
+  [`qml/ReviewGalleryActionsMenu.qml`](qml/ReviewGalleryActionsMenu.qml) owns secondary gallery
+  commands, while the toolbar prioritizes search, browsing, comparison, editing and export.
   Together with `Theme.qml` and the remaining `Shadow*` primitives they form the desktop's internal
   control library inside the packaged `Shadow.App` QML module. Keep feature-specific state and
   workflows outside these controls. A separate `Shadow.Controls` module is deferred until its
@@ -132,7 +211,7 @@ Application startup is split from environment-driven automation:
   keeps only field grouping and preference orchestration.
 - [`src/ui_preferences.*`](src/ui_preferences.hpp) owns appearance, language, Library thumbnail,
   and EXIF-field presentation preferences. [`src/ai_preferences.*`](src/ai_preferences.hpp) owns
-  admission policy for new local AI work, background image-understanding eligibility and keyword
+  admission policy for new Infer Runtime AI work, background image-understanding eligibility and keyword
   acceptance policy, plus the default strength of newly authored RAW-denoise nodes; model discovery,
   queue checkpoints, proposals, and verification remain with their model/workflow owners.
   [`src/personal_profile.*`](src/personal_profile.hpp) is deliberately separate from application
@@ -152,8 +231,8 @@ Application startup is split from environment-driven automation:
   may enforce that target only through the Catalog-proven unused-preview sweep: live, unknown,
   recently protected, and AI RAW foundation data may keep actual use above the requested target.
 - [`src/map_provider_preferences.*`](src/map_provider_preferences.hpp) owns optional external
-  map-service permissions, the persisted `auto`/Google/AMap/`none` Library basemap policy, the
-  shared road/satellite style, and the native-only Google/AMap credential lifecycle. `auto` is not
+  map-service permissions, the persisted `auto`/Google/AMap/`none` Library basemap policy,
+  the shared road/satellite style, and the native-only Google/AMap credential lifecycle. `auto` is not
   an effective provider identity: it delegates one sticky map-context choice to the Web map
   controller. With no eligible credential the controller publishes no effective provider; a
   transient credential-store failure does not erase the user's persisted policy.
@@ -166,8 +245,16 @@ Application startup is split from environment-driven automation:
   thin compatibility wrapper for focused component loading rather than a second policy owner.
 - [`src/review_remote_library_coordinator.*`](src/review_remote_library_coordinator.hpp) owns the
   complete desktop remote-Library lifecycle: multi-mirror loading, per-connection local-token routing,
-  background manifest synchronization, remote curation persistence, and verified on-demand
-  original materialization. [`src/remote_library_connection_store.*`](src/remote_library_connection_store.hpp)
+  local-first startup projection followed by a live progressive reachability/synchronization check,
+  page-wise background manifest synchronization with independent preview progress, remote curation
+  persistence, and verified on-demand
+  original materialization for editing or export. Materialization refreshes provider-neutral
+  metadata from the verified local source when inspection is available; inspection failure keeps
+  the verified original usable and retains manifest metadata with a diagnostic. Connection
+  presentation distinguishes mirrored thumbnails, resident originals, configuration, and current
+  reachability. Precision receives an edit-scoped metadata snapshot keyed to the materialized local
+  representation, so later Review selection changes cannot replace the active photo's capture data.
+  [`src/remote_library_connection_store.*`](src/remote_library_connection_store.hpp)
   owns ordered stable connection identities and migration from the former singleton setting;
   secrets never enter that registry. [`src/review_controller_remote_library.cpp`](src/review_controller_remote_library.cpp)
   is the thin QML facade routing owner. [`qml/LibraryRemoteConnectionsPane.qml`](qml/LibraryRemoteConnectionsPane.qml)
@@ -178,8 +265,10 @@ Application startup is split from environment-driven automation:
   A verified downloaded original remains a remote-origin card with explicit cached residency and
   can reopen offline from that cache; materialization never silently reclassifies it as a local
   folder asset.
-  Remote rows participate in locally mirrored curation filters but remain outside local-only
-  albums, keywords, shared-node application, export, and metadata-facet scopes until materialized.
+  Remote rows participate in locally mirrored curation filters. Albums, keywords, shared-node
+  application, and metadata facets remain local-only; export resolves each remote target to an
+  independently tracked local backing identity, materializing it first when necessary without
+  changing the remote presentation identity.
 - [`src/library_server_controller.*`](src/library_server_controller.hpp) owns the independent
   lifecycle for sharing this Mac's folders: durable configuration, user-private local authorization,
   asynchronous start/stop/rescan/cache-reset admission, and bounded
@@ -198,9 +287,10 @@ Application startup is split from environment-driven automation:
   Google/AMap interactive map document, provider credential injection, WGS84/GCJ-02 boundary,
   marker state, viewport events, placement events, sticky effective-provider selection, and
   WebView failure lifecycle. In automatic mode a new or explicitly navigated mainland-China
-  context selects AMap when configured and an overseas context selects Google when configured;
+  context selects AMap when configured and an overseas
+  context selects Google when configured;
   ordinary pan/zoom never changes providers. A manually selected provider never silently falls
-  back, and unsupported AMap regions remain an explicit setup state. Credentials are
+  back, and unsupported mainland-only providers remain an explicit setup state. Credentials are
   injected directly into the private document and have no QML-readable property. The official
   provider SDK owns basemap attribution and networking; Shadow has no parallel Google Tile session,
   native tile cache, or raster-layer implementation. On macOS the WebView is a native child view,
@@ -259,7 +349,8 @@ Application startup is split from environment-driven automation:
 - [`src/desktop_smoke/application_lifecycle.cpp`](src/desktop_smoke/application_lifecycle.cpp)
   owns normal close, dirty autosave close, and live language-switch acceptance.
 - [`src/desktop_smoke/library_lifecycle.cpp`](src/desktop_smoke/library_lifecycle.cpp) owns import
-  cancellation, progressive-grid visibility, and persisted-Library reopen acceptance, while
+  cancellation, progressive-grid visibility, persisted-Library reopen, and remote collection
+  count/restoration acceptance, while
   [`src/desktop_smoke/review_mutations.cpp`](src/desktop_smoke/review_mutations.cpp) owns Review
   decision/comparison completion and undo/forget outcomes.
 - [`src/desktop_smoke/edit_preview_session.cpp`](src/desktop_smoke/edit_preview_session.cpp)
@@ -299,11 +390,14 @@ Its implementation follows the same navigation:
   comparison receipts, feedback, and explicit decision mutation.
 - [`src/desktop_backend_edit.cpp`](src/desktop_backend_edit.cpp) owns Precision state, shared
   Grade Nodes, preview/detail rendering, and durable edit transitions.
+  [`src/desktop_backend_ai_completion.cpp`](src/desktop_backend_ai_completion.cpp) is the narrow
+  Qt/CXX projection for AI-completion source rendering, cancellable generation, proposal
+  consumption, and accepted-patch mutation.
 - [`src/desktop_backend_cache.cpp`](src/desktop_backend_cache.cpp) owns export-service access and
   conservative cache inventory/maintenance.
 - [`src/desktop_backend_remote_library.cpp`](src/desktop_backend_remote_library.cpp) owns the
   bounded Qt/CXX projection for cached remote snapshots, synchronization, review-state mutation,
-  and verified local original materialization.
+  verified local original materialization, and its bounded metadata/diagnostic result.
 - [`src/desktop_backend_history.cpp`](src/desktop_backend_history.cpp) and
   [`src/backend/history_projection.*`](src/backend/history_projection.hpp) own the bounded CXX/Qt
   projection for per-photo Recipe history, Library-wide commits, refs, keyset cursors, and semantic
@@ -359,16 +453,35 @@ Its implementation follows the same navigation:
   guard before a local original enters Precision. A disappeared path returns to the Library
   recovery flow and never becomes a misleading decoder failure.
 - [`src/edit_mask_assignment_controller.cpp`](src/edit_mask_assignment_controller.cpp) owns the
-  atomic choice between attaching a new mask to the selected empty node and creating, masking,
+  atomic choice between adding a typed component to the selected node mask and creating, masking,
   inserting, and selecting one new node. QML never chains those state mutations.
+- [`src/edit_ai_mask_controller.*`](src/edit_ai_mask_controller.hpp) owns the complete subject-mask
+  lifecycle: one node-bound input session, point refinement, transient current-photo people,
+  composable visible-detail selection, provider-job cancellation, candidate presentation, and the
+  separate apply transaction. One identity-checked rendered input is reused across refinements;
+  face detection is reused for the session, and each parsed person is recomposed locally after its
+  first analysis. Input, person thumbnails, and parsed labels are retired on apply, cancellation,
+  or edit-context change. [`qml/PrecisionPeopleMaskSelector.qml`](qml/PrecisionPeopleMaskSelector.qml)
+  owns the temporary person cards and multi-select detail list without creating another mask system.
+- [`src/edit_ai_completion_controller.*`](src/edit_ai_completion_controller.hpp) owns the
+  photo-local completion brush, local-execution authorization, cancellable proposal lifecycle,
+  stale-context rejection, apply/retry transitions, and accepted-region presentation. Accepted
+  rasters remain parameters of the fixed AI Completion node; QML does not create a parallel
+  retouch or asset subsystem. [`qml/PrecisionAiCompletionTools.qml`](qml/PrecisionAiCompletionTools.qml)
+  owns its bounded inspector actions; the packaged
+  [`completion panel contract`](tests/precision_ai_completion_tools_contract_test.cpp) checks
+  localized narrow layouts and pointer actions across authoring and candidate states.
 - [`src/edit_local_mask_controller.cpp`](src/edit_local_mask_controller.cpp) owns local-mask
-  presentation, in-session clipboard semantics, the enumerable scalar-parameter contract,
-  geometry/condition validation, and brush strokes. Ordinary photo-local masks are not named or
-  persisted as a separate reusable asset library.
+  component selection and presentation, in-session clipboard semantics, the enumerable
+  scalar-parameter contract, geometry/condition validation, and brush strokes.
+  [`src/edit_mask_component_mutation.hpp`](src/edit_mask_component_mutation.hpp) owns the bounded
+  topology change for component removal; the controller surrounds it with one history/autosave
+  transaction. Ordinary photo-local masks are not named or persisted as a separate reusable asset
+  library.
 - [`src/edit_mask_coverage_controller.cpp`](src/edit_mask_coverage_controller.cpp) owns the
-  selected-node coverage request lifecycle: tool, photo, node, and mask invalidation; monotonic
-  selection identity; exact preview pairing; and transient provider publication. Renderer-owned
-  coverage samples and their generation contract live in
+  selected-node coverage request lifecycle: tool, photo, node, component/final-mask target, and
+  mask invalidation; monotonic selection identity; exact preview pairing; and transient provider
+  publication. Renderer-owned coverage samples and their generation contract live in
   [`src/edit_mask_coverage_contract.hpp`](src/edit_mask_coverage_contract.hpp).
 - [`src/edit_foundation_controller.cpp`](src/edit_foundation_controller.cpp) owns the singleton,
   photo-local RAW Foundation white-balance authoring lifecycle, exact camera-neutral validation,
@@ -385,10 +498,8 @@ Its implementation follows the same navigation:
   [`src/edit_raw_foundation_state.*`](src/edit_raw_foundation_state.hpp) is its Qt-free generation
   state machine. Materialized artifacts remain rebuildable Rust-owned cache state: bypassing the
   node never deletes or serializes an artifact path, and strength changes never rerun the model.
-  [`providers/rawnind-foundation/`](providers/rawnind-foundation/README.md) owns the reproducible
-  self-contained provider build and optional desktop-bundle copy contract. Public model weights
-  remain side-loaded in the versioned application-data model directory; a missing provider or
-  model is an explicit unavailable state and never selects a fallback pixel route.
+  Infer Runtime owns RawNIND model installation and execution. An unavailable Infer Runtime
+  capability is an explicit feature-unavailable state and never selects a fallback pixel route.
 - [`src/edit_optics_controller.cpp`](src/edit_optics_controller.cpp) owns optical-correction state,
   automatic and manual profiles, residual controls, validation, history, and preview scheduling.
 - [`src/edit_retouch_controller.cpp`](src/edit_retouch_controller.cpp) owns photo-level repair and
@@ -396,6 +507,44 @@ Its implementation follows the same navigation:
   and Clone. [`src/edit_retouch_donor_selection.*`](src/edit_retouch_donor_selection.hpp) owns the
   deterministic, generation-matched preview analysis used to author an in-bounds donor into new
   Heal and Clone regions; later renders consume that stored offset without re-running analysis.
+  [`src/edit_retouch_donor_preview.*`](src/edit_retouch_donor_preview.hpp) reads one matching
+  displayed frame, including encoded settled previews. [`src/edit_retouch_sources.*`](src/edit_retouch_sources.hpp)
+  owns cached candidate positions and three temporary source anchors for the current photo and
+  framing. [`qml/PrecisionRetouchSourcePreview.qml`](qml/PrecisionRetouchSourcePreview.qml)
+  samples the displayed texture for the pre-stroke donor overlay without per-pointer readback.
+  [`src/edit_retouch_coordinates.*`](src/edit_retouch_coordinates.hpp) caches the renderer's
+  integer Canvas crop/homography and prepared Liquify map. Authoring and source sampling map
+  back to original coordinates; [`src/edit_retouch_projection.cpp`](src/edit_retouch_projection.cpp)
+  maps persisted regions into the current viewport. Transformed handles use projected centrelines
+  and local brush ellipses in `PrecisionRetouchProjectedHandle.qml`; only the selected region
+  expands its whole path. Failed inversions hide the handle instead of inventing a location.
+  This changes no existing Recipe coordinates or pixel execution. Pointer movement transfers no
+  image data; structural changes invalidate this coordinate cache, and normal retouch edits retain it.
+  Tone-only and texture-only repair keep their separation scale in each persisted region, with
+  ordinary per-region opacity, source transforms, and atomic history; these are photographic
+  retouch modes, not a general-purpose layer document.
+- [`src/edit_paint_controller.*`](src/edit_paint_controller.hpp) owns photo-local finishing layers,
+  bounded live paths, explicit preview color sampling, and one-stroke history/autosave checkpoints.
+  [`src/paint_brush_presets.*`](src/paint_brush_presets.hpp) owns six photographic presets,
+  twelve named custom brushes, and persistent A/B tool slots in `paint-brushes.ini`. These contain
+  tool settings only; applying a preset never rewrites existing strokes. A different blend starts
+  a new layer on the next stroke. [`src/paint_stroke_input.*`](src/paint_stroke_input.hpp) captures
+  mouse and tablet input, consumes tablet events before synthesized mouse delivery, retains real
+  pressure/eraser identity, and cancels on window deactivation or disabled input.
+  [`qml/PrecisionPaintTools.qml`](qml/PrecisionPaintTools.qml) keeps presets, size, flow, hardness
+  and opacity visible; [`qml/PrecisionPaintBrushSettings.qml`](qml/PrecisionPaintBrushSettings.qml)
+  holds optional tip/dynamics controls. [`qml/PrecisionPaintOverlay.qml`](qml/PrecisionPaintOverlay.qml)
+  composes pointer input and the bounded elliptical cursor into Precision and the independent editor.
+  Paint follows Repair/AI Completion and precedes Liquify/Canvas; authoring reverses Canvas and the
+  cached native Liquify sampler into original-image coordinates. Cursor axes use the local inverse
+  differential; very strong nonlinear deformation may bend the footprint beyond an ellipse.
+  Eight layers support Normal, perceptual Color, and lightness Soft Light, with destination-out
+  erasing and reversible layer visibility, opacity and order. Each stroke snapshots roundness,
+  angle, diameter-relative spacing, deterministic grayscale tip/strength, and size/flow pressure
+  mapping. Size pressure spans 10–100%; mouse input authors unit pressure. Input smoothing affects
+  new path samples and completes at the release point. X switches A/B; [ and ] resize the brush.
+  Built-in procedural tips are solid, fine grain and soft speckle; external tip/ABR import, text
+  and shapes are outside this tool's scope.
 - [`src/edit_liquify_controller.cpp`](src/edit_liquify_controller.cpp) owns the photo-private
   singleton Liquify projection, node bypass, Push/Reconstruct brush mode, and one-gesture/one-
   history boundary. Push prefers the local display mesh, then falls back to the same provisional
@@ -407,6 +556,15 @@ Its implementation follows the same navigation:
   semantics.
 - [`src/edit_tone_curve_controller.cpp`](src/edit_tone_curve_controller.cpp) owns Tone Curve
   presentation, point normalization and editing, gesture integration, history, and preview timing.
+- [`src/edit_targeted_curve_controller.*`](src/edit_targeted_curve_controller.hpp) owns asynchronous,
+  cancellable pre-curve input sampling and one photo-space vertical drag per history gesture.
+  [`qml/PrecisionTargetedCurveOverlay.qml`](qml/PrecisionTargetedCurveOverlay.qml) owns the pointer
+  surface; the curve editor displays its cached sample marker. Master RGB samples the mean of
+  encoded channels; individual channels sample after the master curve.
+- [`src/edit_dodge_burn_controller.cpp`](src/edit_dodge_burn_controller.cpp) owns the dedicated
+  low-flow light-sculpting brush state over the existing Oklab-lightness soft-light paint recipe.
+  It preserves ordinary brush preferences and reuses stroke pressure, cancellation and persistence;
+  Alt reverses one stroke and X switches direction.
 - [`src/edit_persistence_coordinator.cpp`](src/edit_persistence_coordinator.cpp) owns photo
   open/close, autosave, version operations, and durable state transitions. A named Version
   requested during a non-blocking autosave is queued behind that exact snapshot and keeps explicit
@@ -426,6 +584,10 @@ Its implementation follows the same navigation:
   explicit presentation-commit render after the working Recipe is durable: it completes the exact
   source-checked Recipe preview transaction off the UI thread before `activeChanged` lets `Main`
   refresh Library. Ordinary settled frames keep their non-blocking rebuildable-cache behavior.
+- [`src/edit_before_preview_state.hpp`](src/edit_before_preview_state.hpp) projects the current
+  crop, rotation, perspective, and optical correction into a colour-neutral comparison baseline.
+  Its independent revision rejects stale composition results while reusing the baseline across
+  ordinary grading gestures. Active cropping compares the full oriented source on both sides.
 - [`src/backend/edit_preview_frame.hpp`](src/backend/edit_preview_frame.hpp) is the small read-only
   RGB8/paired-R8 owner contract. [`src/backend/rust_owned_edit_preview_frame.cpp`](src/backend/rust_owned_edit_preview_frame.cpp)
   is its only Rust-Box adapter, so presentation tests do not depend on generated bridge types.
@@ -499,6 +661,9 @@ Precision presentation follows the same responsibility tree:
   setting formatting instead of making the Inspector composition root interpret camera fields.
 - [`qml/PrecisionCanvas.qml`](qml/PrecisionCanvas.qml) owns the preview viewport, zoom/detail
   transport, tool/comparison surface composition, and their stable workspace-facing state.
+- [`qml/PrecisionViewportState.qml`](qml/PrecisionViewportState.qml) owns synchronous pan/zoom
+  transforms and shared comparison anchors. [`qml/PrecisionDetailSurface.qml`](qml/PrecisionDetailSurface.qml)
+  swaps full-detail pixels together with their source-coordinate rectangle after image readiness.
 - [`qml/PrecisionDetailLoupe.qml`](qml/PrecisionDetailLoupe.qml) presents one non-persistent
   focus/manual picture-in-picture viewport from the existing full-detail tile transport; camera
   AF metadata selects its initial center. [`qml/PrecisionDetailLoupeState.qml`](qml/PrecisionDetailLoupeState.qml)
@@ -528,6 +693,11 @@ Precision presentation follows the same responsibility tree:
   input keep that feedback independent of preview generation churn, then perform one history and
   preview mutation when the pointer is released. Persistent coverage remains with the feature-
   specific overlays.
+- [`qml/PrecisionAiCompletionOverlay.qml`](qml/PrecisionAiCompletionOverlay.qml) owns transient
+  paint/erase coverage and the generated candidate overlay.
+  [`qml/PrecisionAiCompletionTools.qml`](qml/PrecisionAiCompletionTools.qml) owns first-use local
+  authorization, brush controls, generation/cancellation, apply/retry, and the accepted-region
+  list; the controller remains the only Recipe mutation authority.
 - [`qml/PrecisionLiquifyOverlay.qml`](qml/PrecisionLiquifyOverlay.qml) owns Liquify pointer
   sampling, admission, and a high-contrast radius/hardness brush cursor. The live deformation is
   the gesture feedback, so Liquify never paints a coverage trail over the photograph. Preview
@@ -549,11 +719,13 @@ Precision presentation follows the same responsibility tree:
   owns sharing and node collection popup lifecycles.
 - [`qml/PrecisionMaskCreateMenu.qml`](qml/PrecisionMaskCreateMenu.qml) owns mask-kind and
   current-node/new-node destination choice. The global tool defaults to a new node, a node-row
-  entry defaults to that node, and an existing mask is edited rather than silently replaced.
-  Geometry masks and Oklab-lightness/Oklch-hue condition masks use the same atomic transaction.
+  entry defaults to that node, and an existing mask receives an explicit Add, Subtract, or
+  Intersect component rather than being replaced. Geometry, condition, subject, people-detail,
+  and semantic masks use the same destination contract.
 - [`qml/PrecisionLocalMaskTools.qml`](qml/PrecisionLocalMaskTools.qml) owns only the selected
-  node mask's semantic geometry/range parameters, inversion, removal, and in-session copy/paste
-  controls; QML never interprets the compact condition-mask transport slots.
+  node mask's ordered component list, selected-leaf parameters and inversion, final inversion, removal,
+  selected/final coverage target, and in-session copy/paste controls; QML never evaluates mask
+  algebra or interprets the compact condition-mask transport slots.
 - [`qml/PrecisionMaskCoverageOverlay.qml`](qml/PrecisionMaskCoverageOverlay.qml) presents the
   renderer's exact selected-node R8 coverage with the theme mask tint and rejects a texture whose
   paired preview identity is no longer visible. Its view-only `O` toggle hides the tint without
@@ -626,7 +798,15 @@ Review presentation keeps the workspace focused on selection and orchestration:
   summary and undo.
 - [`qml/ReviewPhotoCard.qml`](qml/ReviewPhotoCard.qml) and
   [`qml/ReviewSinglePreview.qml`](qml/ReviewSinglePreview.qml) own grid-card and filmstrip
-  geometry. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
+  geometry. Filmstrip selection resolves against `ReviewFilterModel` identities, independently of
+  delegate residency, and restores visibility after view, filter, or ordering changes while keeping
+  pointer-selected cards stationary. [`qml/ReviewPreviewViewport.qml`](qml/ReviewPreviewViewport.qml) owns the filmstrip
+  and ordinary comparison's display-only zoom, pan, and selection reset, reusing the Precision
+  view transform and gesture components. Comparison optionally links magnification and normalized
+  image centers; a loading peer retains only the latest transform. Gestures reuse the same bounded
+  preview request and Qt texture: no source rebind, Recipe invalidation, image request, or additional
+  host/device image transfer is introduced. The 100% control refers to preview pixels; original
+  detail remains a Precision workflow. They share [`qml/ReviewPhotoAffinity.qml`](qml/ReviewPhotoAffinity.qml) for Like/star
   evidence and [`qml/ShadowRoundedImage.qml`](qml/ShadowRoundedImage.qml) for true rounded image
   clipping, so both browsing modes use edge-to-edge cropped thumbnails without sharing interaction
   state. [`qml/ReviewRemoteSourceIndicator.qml`](qml/ReviewRemoteSourceIndicator.qml) owns the
@@ -683,8 +863,11 @@ admission, background execution, preset persistence, and backend publication:
   owns the naming, identity-preserving edit, and removal transactions; built-in presets remain
   immutable.
 - [`qml/ExportSettingsPane.qml`](qml/ExportSettingsPane.qml) owns the editable Output Recipe draft:
-  JPEG/PNG/TIFF format, non-upscaling long edge, quality, tagged sRGB or Display P3 conversion,
-  print-resolution metadata, explicit strip-or-copyright metadata policy, and filename suffix.
+  JPEG/PNG/TIFF raster formats, selectable 8/16-bit TIFF, non-upscaling long edge, quality, tagged
+  sRGB or Display P3 conversion, print-resolution metadata, explicit strip-or-copyright metadata
+  policy, and filename suffix. Its RAW DNG mode is a distinct source-stage interchange export: it preserves the original
+  CFA mosaic and source calibration while deliberately ignoring edits, resizing, color-space
+  conversion, raster metadata policy, and watermarks.
   [`qml/ExportWatermarkPane.qml`](qml/ExportWatermarkPane.qml) owns the independent watermark
   management section and current watermark snapshot: reusable named PNG definitions, placement,
   opacity, scale, and inset.
@@ -694,6 +877,10 @@ admission, background execution, preset persistence, and backend publication:
   projection retranslates in place when the application language changes.
 - [`src/export_task_runner.cpp`](src/export_task_runner.cpp) owns the durable background drain:
   recovery, queue claims, cancellation, item execution, progress receipts, and terminal results.
+  [`qml/ExportActivityButton.qml`](qml/ExportActivityButton.qml) keeps progress and the terminal
+  result reachable from every workspace. Closing [`qml/ExportDialog.qml`](qml/ExportDialog.qml)
+  returns to editing without cancelling the job; reopening a running job preserves its targets
+  and settings. Cancellation remains an explicit action in the dialog.
 - [`src/export_preset_store.cpp`](src/export_preset_store.cpp) owns preset identity, normalization,
   settings persistence, identity-preserving custom edits, and runtime retranslation of built-in
   names while preserving user names. [`src/export_watermark_store.cpp`](src/export_watermark_store.cpp)
@@ -704,12 +891,17 @@ admission, background execution, preset persistence, and backend publication:
   JSON shared by the controller and executor. It reads legacy numeric schema 1 queue items, rejects
   unknown dated schemas, and never advertises a bit depth that the renderer did not produce.
 - [`src/backend/export_backend.cpp`](src/backend/export_backend.cpp) owns queue recovery and claims,
-  exact Recipe rendering, color conversion, resolution/copyright tagging, watermarking,
-  write-conflict handling, atomic publication, terminal completion, cancellation, and progress on
-  the application's single Rust session. [`src/backend/export_raster_encoder.cpp`](src/backend/export_raster_encoder.cpp)
+  dispatch between source-stage RAW DNG publication and exact Recipe raster rendering, color
+  conversion, resolution/copyright tagging, watermarking, write-conflict handling, atomic
+  publication, terminal completion, cancellation, and progress on the application's single Rust
+  session. The Rust bridge stages the original CFA through the packaged isolated helper, verifies
+  its source identity, encodes an uncompressed calibration-bearing DNG, and publishes it without
+  overwriting an existing destination. [`src/backend/export_raster_encoder.cpp`](src/backend/export_raster_encoder.cpp)
   owns the final JPEG/PNG encoding and a plugin-independent, lossless-Deflate TIFF writer backed by
-  libtiff. The current export raster contract is tagged RGB8; true high-bit-depth output requires a
-  future linear high-bit-depth renderer endpoint rather than expanding this 8-bit result.
+  libtiff. JPEG/PNG and 8-bit TIFF use the display RGB8 boundary. A 16-bit TIFF accepts only the
+  renderer's RGB16 boundary and rejects an expanded RGB8 input; it retains lossless Deflate,
+  output-profile, resolution, and explicit metadata behavior. The DNG route instead preserves the
+  original up-to-16-bit CFA samples and is not a rendered RGB image.
 
 `DesktopBackend` composes that export component with the shared session but does not forward its
 workflow operations. [`tests/backend_export_contract_test.cpp`](tests/backend_export_contract_test.cpp)
@@ -717,8 +909,8 @@ links the production component and verifies its settings schema plus an empty re
 [`tests/export_preset_store_test.cpp`](tests/export_preset_store_test.cpp) verifies preset
 normalization, persistence, stable built-in identities, runtime retranslation, and preservation of
 user-authored names; [`tests/export_raster_encoder_contract_test.cpp`](tests/export_raster_encoder_contract_test.cpp)
-reopens a generated TIFF and verifies its honest RGB8 identity, profile, lossless compression,
-resolution, and explicit copyright fields.
+reopens generated 8-bit and 16-bit TIFF files and verifies their sample depth, high-bit values,
+profile, lossless compression, resolution, and explicit copyright fields.
 
 Review presentation keeps the workspace as the composition and compatibility surface:
 
@@ -926,8 +1118,9 @@ Review presentation keeps the workspace as the composition and compatibility sur
   applies the current Library filter and aggregates effective GPS coordinates through
   [`src/review_library_map_coordinator.cpp`](src/review_library_map_coordinator.cpp); viewport
   requests are bounded, coalesced, stale-safe, and never perform geocoding. Shadow intentionally
-  embeds no provider API key. A user-supplied Google Maps JavaScript API key or AMap JS API key plus
-  security code activates only the explicitly selected provider while the Library map is visible.
+  embeds no provider API key. A user-supplied Google Maps JavaScript API or AMap JS
+  API key plus security code activates only the explicitly selected provider while the Library map
+  is visible.
   On macOS Qt WebView uses the system WebKit implementation; Windows may use WebView2 behind the
   same QML/controller contract. Country,
   administrative-area, and nearest-city enrichment is local by default and never depends on map
@@ -958,12 +1151,14 @@ Review presentation keeps the workspace as the composition and compatibility sur
   generation-bound Library page and count projection: one immutable active filter, keyset cursor,
   reset debounce/coalescing, page/count workers, stale-result rejection, cursor validation,
   snapshot/prefix/append reconciliation, query status, and destruction wait. `ReviewController`
-  supplies filter snapshots and cross-workflow state while the coordinator emits only facet,
+  supplies filter snapshots and cross-workflow state. Person navigation bypasses typing debounce,
+  projects exact photo membership over retained rows immediately, and discards superseded pages
+  before they can reach the grid. The coordinator emits only facet,
   decision, status, and work-state boundaries. Its
   [`tests/review_library_query_coordinator/`](tests/review_library_query_coordinator/) contracts
   cover projection, pagination, reset coalescing, stale completion, failures, and lifetime.
 - [`src/review_model.cpp`](src/review_model.cpp) owns the photo-keyed Qt row projection, stable QML
-  roles, exact-location source-availability application, visual-generation URLs, merged
+  roles, exact-location source-availability application, immutable grid and generation-bound comparison URLs, merged
   local/remote presentation ordering, and reset/prefix/append reconciliation. Its single test runner
   routes to responsibility-named contracts under
   [`tests/review_model/`](tests/review_model/) for roles, mutable Library/decision state, visual
@@ -1028,8 +1223,49 @@ cannot be overwritten merely because the final values happen to match.
 This ledger is deliberately separate from AI feedback. The current UI records
 human state only; it does not create feature snapshots, train the preference
 head, synthesize pairwise examples, or grant a model write access to Pick,
-Reject, or rating. Color labels, bulk mutation, decision filtering, XMP
-round-trip, and durable cross-session command undo remain follow-up work.
+Reject, or rating. Color labels, bulk mutation, decision filtering, and durable
+cross-session command undo remain follow-up work.
+
+Precision can preview a bounded Camera Raw XMP develop subset and import the
+accepted values as one new photo-local Grade Node. The preview separates mapped,
+ignored, and invalid fields before mutation. This is an approximate format
+mapping, not XMP round-trip support: absolute source white balance, curves,
+profiles, structured masks, and other parameters without a stable local
+equivalent remain explicit non-imported fields. The scalar subset includes eight-band HSL
+fields, mapped approximately to Shadow's perceptual Color Mixer; Adobe color-wheel and curve
+semantics are not treated as equivalent.
+
+[`src/edit_interchange_controller.*`](src/edit_interchange_controller.hpp) also owns the
+versioned `.shadowrecipe` file boundary. Export serializes the complete current immutable Recipe
+snapshot (or a selected Grade Node) and publishes the JSON document atomically. Version 2 embeds
+bounded, content-verified LUT text; managed masks and AI completion patches remain local dependencies.
+File reading, resource validation, and export packaging run off the GUI thread. Import first
+validates the document digest and current desktop Recipe shape, then previews a conservative
+cross-photo projection. Applying replaces only the destination photo's Grade Node list as one
+undoable transaction. It keeps portable normalized masks, assigns fresh independent node
+identities, detaches shared-library links, installs bundled LUTs into the destination's managed
+store, omits unbundled path-bound LUTs from legacy files, and leaves the destination's
+Foundation, RAW denoise, Repair, Completion, Liquify, and Canvas stages unchanged. A managed-raster
+node is imported bypassed rather than turning its local adjustment into a global adjustment; its
+source pixels are never reused. The dialog reports each omitted or disabled category before the
+user accepts the replacement. QML never interprets Recipe JSON or mutates the edit stack directly.
+
+The **Import / export grading** menu also opens [`qml/LutExportDialog.qml`](qml/LutExportDialog.qml).
+[`src/lut_export_controller.*`](src/lut_export_controller.hpp) owns a frozen grading snapshot,
+cancellable background generation, loss acknowledgement, and atomic `.cube` saving. The exporter
+keeps unmasked color operations in node order with their node strength. It explicitly omits spatial
+and source operations, including the spatial controls that share the Color Grading execution pass.
+17³/33³/65³ tables use linear-sRGB input and output over the input domain [0, 1]; output values retain
+negative and super-white headroom. Independent RGB probes report interpolation errors for included
+operations only. They neither measure omitted effects nor establish a worst-case error bound.
+
+When an imported Recipe contains semantic masks, the same dialog first adapts those masks to the
+destination photo. It presents overall and per-item progress, keeps cancellation and retry visible,
+and applies the ordinary all-node import only after every semantic item is ready. A partial result
+requires an explicit choice to import the available Grade Nodes; any node containing an unavailable
+semantic item is excluded as a whole rather than silently losing one mask component. Runtime
+unavailability is presented as an Infer Runtime or local-model readiness issue, without exposing
+provider diagnostics in the dialog.
 
 ## Review comparison and culling
 
@@ -1138,8 +1374,8 @@ GeoNames attribution notice, so the normal developer entry cannot silently regre
 location provider.
 
 For the everyday complete debug refresh, prefer
-`scripts/build_and_promote_debug.sh`. It records this index and the frozen RawNIND provider as
-explicit external bundle inputs, builds only the launchable desktop targets, runs both application
+`scripts/build_and_promote_debug.sh`. It records the required GeoNames index as an explicit
+external bundle input, builds only the launchable desktop targets, runs both application
 startup smokes, and then atomically advances `current-debug`. The full `desktop-build` command is
 deliberately broader: it also builds the desktop contract executables and remains the integration
 or CI command.
@@ -1184,6 +1420,12 @@ Release builds never embed or scan this repository-local path.
 
 Adding `SHADOW_DESKTOP_STREAMING_SCAN_SMOKE=1` proves that both the Review model and QML Grid become non-empty while `scanning` is still true, then requires `refreshing` to settle only after the terminal stable-prefix refresh. `SHADOW_DESKTOP_CANCEL_SCAN_SMOKE=1` requests cooperative cancellation after live progress begins and likewise waits for the final Library refresh before accepting a `cancelled` terminal snapshot. After a completed scan, launch the same isolated data root without `SHADOW_DESKTOP_SCAN_FOLDER` and add `SHADOW_DESKTOP_REOPEN_LIBRARY_SMOKE=1` to prove that the persisted Library appears without rescanning.
 
+With at least one configured, populated remote mirror, `SHADOW_DESKTOP_REMOTE_LIBRARY_SMOKE=1`
+checks the packaged All Photos badge, remote rows in the gallery, and restoration through the
+QML All Photos action after a local-only camera filter. System collection counts combine local
+Catalog totals with deduplicated remote logical photos, including cached offline mirrors;
+remote rating and Like changes update the corresponding global counts.
+
 Adding `SHADOW_DESKTOP_OPEN_FIRST_EDIT=1` to a smoke run waits for the first scanned Review item, opens it through the real Precision controller, renders its processed linear-light RGB edit preview, validates all four 256-bin histogram sums and clipping bounds, and fails after 30 seconds if no generation-matched preview and analysis reach QML.
 
 Adding `SHADOW_DESKTOP_METAL_PREVIEW_SMOKE=1` to that edit smoke performs two real slider
@@ -1202,7 +1444,14 @@ session and requires the final settled preview pixels and histogram to belong to
 generation. Set `SHADOW_DESKTOP_EDIT_SOURCE_PATH=/absolute/source/path` to select the exact scanned
 Review item used by an edit smoke instead of relying on Library order.
 
-Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, lazily requested neutral-import baseline and its independent analysis sidecar. This exercises the same warm decoded session without treating the baseline as unprocessed sensor data.
+Adding `SHADOW_DESKTOP_REQUEST_BEFORE=1` to that edit smoke waits for a second, lazily requested
+colour-neutral baseline with the current composition and its independent analysis sidecar.
+This exercises warm decoded-session reuse without treating the baseline as unprocessed sensor data.
+
+`SHADOW_DESKTOP_BEFORE_COMPOSITION_SMOKE=1` additionally crops and rotates the selected photo,
+reads both frames back through the provider to verify matching dimensions, then changes
+exposure and requires the same Before generation to remain cached. Use an isolated
+`SHADOW_DESKTOP_DATA_ROOT`: this probe deliberately edits its selected photo.
 
 Adding `SHADOW_DESKTOP_GRADE_STACK_SMOKE=1` to the first-edit smoke runs a real
 three-Grade-Node controller round trip: add, edit, duplicate, reorder, bypass,
@@ -1263,6 +1512,8 @@ Valid persisted curves contain 2 through 256 finite points with exact x endpoint
 
 Precision also keeps a bounded, in-memory undo/redo history for the current edit session. All updates between a slider press/release or one curve-point drag are coalesced into one meaningful full-stack step; Grade Node add/duplicate/delete/reorder/bypass, point add/remove, curve reset, Grade Node reset, and revert are undoable transitions. Grade Node selection is transient UI state and does not make the Recipe dirty. Opening a photo or loading a saved version as a draft clears session history. Autosave preserves this session history; a named version establishes a new durable checkpoint and clears it. Standard Undo/Redo shortcuts use the platform mapping (`Cmd+Z` and `Cmd+Shift+Z` on macOS), with visible controls in the preview toolbar.
 
+`edit_history_snapshot.hpp` keeps the immutable Recipe content anchor with each session undo/redo snapshot, so managed masks remain recoverable after an intervening autosave removes them from the working head. Autosave updates the CAS head separately and preserves the anchor of any newer draft.
+
 Each durable version row summarizes its parent-relative Recipe diff. Renderer-backed controls use readable labels such as `Exposure · Tone Curve · Saturation`; curve edits, additions, and resets share the stable `Tone Curve` change label, while topology and future adjustment types use semantic fallbacks without exposing internal parameter keys or commit identifiers. The current-version badge and exact parent count remain visible beside that summary.
 
 RAW preparation is cached for up to two recent `(representation, source fingerprint, edge)` sessions. A slider, point-curve, structure, reorder, or Grade-Node-visible update reruns the render plan and JPEG encoder; it does not reopen or decode the RAW. For a bounded AI RAW preview, strength also rebinds the retained original/full-strength-AI Camera RGB bases in memory; it does not reread `.shadowrawf`, reopen the source, rerun the model, or mix the full-resolution artifact. Once AI RAW denoise is active, a settled overview no longer speculatively prepares the hundreds-of-MiB 1:1 source; only an explicit detail viewport request pays that cost. Undo and redo restore the complete working stack through the same generation-checked preview path. Continuous gestures use a leading-edge 16 ms throttle: they cannot postpone the first frame indefinitely. A render in flight does not disable controls; a newer revision is queued while the prior render finishes, and a completed same-photo intermediate frame may be presented without declaring the generation settled. Only the exact latest generation publishes histogram state or the current-status message. A deliberately hidden selected Grade Node is different—the controls remain visible but read-only and dimmed so its preserved values stay inspectable. Preview buffers are bounded, rebuildable, and never become Catalog facts. Shared sliders reset to their declared default on double-click; adjustment sliders preserve one undoable gesture, while amount controls such as AI strength fill from the logical minimum rather than painting backward from their reset value.
@@ -1318,6 +1569,11 @@ The current UI authors fixed, complete Grade Nodes rather than exposing arbitrar
 Processed-RGB white balance uses the fast adjustment/GPU path with temperature/tint and a
 neutral-area picker. Photo-local RAW white balance is explicitly separate: it authors absolute
 camera-domain development and currently rebuilds the prepared RAW source after a coalesced drag.
+Clipped-highlight continuity is an automatic RawFrame source-development property rather than a
+user-facing switch. It prepares one reusable low-frequency source surface only when sensor clipping
+exists; later Highlight/White gestures continue to regrade that warm source without another decode,
+neighbourhood pass, or host/device transfer. Preview, detail, and export consume the same source
+semantics, while ordinary decoded RGB remains a legal no-sensor-evidence fallback.
 The application-wide LUT Library
 can persist multiple source folders, recursively validate 3D `.cube` resources and expose stable
 content identities in a dedicated manager. Valid resources are copied into an application-owned,
@@ -1327,9 +1583,167 @@ path, intensity, and a stable LUT render-op identity. Warm preview and full-deta
 parse the exact managed `.cube`, apply trilinear interpolation in processed working RGB, and blend
 the result by intensity; an unselected slot is an exact no-op. Only 3D `.cube` is supported, and
 the file itself cannot declare whether it expects log, display-encoded, or another input space, so
-the first contract deliberately treats it as a working-RGB LUT. Arbitrary Render Ops or
-connections, shared Grade Node revisions, masks,
-opacity/blend controls, clipping overlays, waveform/vectorscope, crop, full-resolution export,
-and AI-authored stacks remain later vertical slices. Warm FIT preview and its analysis remain an
+the contract explicitly uses linear sRGB for both input and output. Library thumbnails decode their
+sRGB reference, apply the same native LUT executor, and use the normal display transform; Log and
+display-encoded LUTs require conversion before import. Warm FIT preview and its analysis remain an
 interactive approximation for nonlinear curves; 100% detail is the full-resolution quality gate
 for the supported stack.
+
+## Startup recovery and semantic search lifecycle
+
+[`src/catalog_startup_recovery.cpp`](src/catalog_startup_recovery.cpp) owns startup
+failure presentation and preservation of an incompatible test Catalog. Supported
+migrations remain Catalog-owned. Creating a new test Catalog moves the old SQLite
+files, people data, and local cache into an adjacent recovery directory before
+retrying. Remote preview mirror payloads remain in place. The error dialog shows
+the executable and Catalog paths so a stale application build can be identified.
+
+[`src/semantic_search_controller.cpp`](src/semantic_search_controller.cpp) serializes
+one active search and one replaceable pending query. Clear and replacement cancel
+the active Rust request and reject late results. The core caches exact-source image
+vectors across queries; QML displays relative ranking and scan coverage without
+inventing strong-match confidence. Model files remain managed by Infer Runtime.
+
+## Independent photo editor
+
+Run `Shadow --isolate /absolute/photo.nef /absolute/another.jpg`, or `Shadow --isolate` to
+choose/drop files in the window. Input decoding uses the installed RAW, JPEG, HEIF and supported
+TIFF providers; PNG input is currently unsupported (PNG output is available). This opens an independent process with a private temporary
+Catalog/cache/settings root; the regular Library can remain open. Add up to 256 local photos,
+switch with the photo selector or previous/next buttons, then export the set. Switching saves
+each photo's working Recipe in this session. Closing without export requires confirmation and
+removes the temporary session; this is not a persistent project format.
+
+Interactive export chooses an existing output folder, JPEG/PNG/TIFF, sRGB/Display P3 and format
+quality/bit depth. Outputs retain full resolution, use `-edited` filenames with numeric collision
+suffixes, and do not copy source metadata. Existing files are never replaced. Stopping export
+keeps completed files and the live session; retry processes the remaining photos. Export is
+atomic per file, not an all-or-nothing transaction across the batch.
+
+External callers retain `Shadow --pipeline-edit --request /absolute/request.json --result
+/absolute/result.json`. The single-photo `shadow-pipeline-edit-20260814.1` request and result stay
+compatible. Batch callers use:
+
+```json
+{
+  "schema": "shadow-pipeline-edit-20260920.1",
+  "requestId": "caller-job-id",
+  "photos": [
+    {"input": "/absolute/first.nef", "output": "/absolute/first.png"},
+    {"input": "/absolute/second.jpg", "output": "/absolute/second.png"}
+  ],
+  "export": {"format": "png", "colorSpace": "srgb"}
+}
+```
+
+The result uses `shadow-pipeline-result-20260920.1`, echoes `requestId`, and records the overall
+`outcome`, `errors`, and a `photos` array with each input/output and terminal outcome. Completed
+outputs remain identified even if the rest is cancelled or fails. Exit codes are 0 completed,
+2 cancelled, and 1 failed (including result publication failure). Output and result paths must
+be new files in existing directories. DNG source-stage export is excluded because it does not
+apply editing adjustments. Relative paths, when supplied, resolve against the process working
+directory. Requests are limited to 1 MiB and 256 photos.
+
+After a partial export, the session opens the first unfinished photo for further editing and retry.
+Completed photos remain viewable but read-only; retry leaves their exported bytes untouched.
+
+`SHADOW_PIPELINE_SMOKE_ACTION=complete|cancel|paint|retry|precision` enables the otherwise inert packaged acceptance
+harness. The complete scenario changes the first photo's exposure, switches to another photo,
+checks state separation, returns and checks persistence, then exports. Interactive smoke also
+requires `SHADOW_PIPELINE_SMOKE_OUTPUT`. Use only disposable test outputs. The registered tests
+create synthetic raster fixtures and verify original bytes and a separate Library sentinel. For native-window
+checks, `SHADOW_PIPELINE_SMOKE_ACTION=window-chrome` with an empty `--isolate` session logs only
+window geometry and visibility changes; it opens no photo and performs no automatic edits.
+The `retry` scenario creates a temporary output obstruction, verifies that failed photos remain
+editable and completed photos are read-only, then edits and retries without rewriting completed files.
+The `paint` scenario checks whole-stroke undo/redo, cancelled and erased strokes, A/B isolation,
+new-blend layer creation, persisted tip/pressure settings, smoothing endpoints, and exact per-photo
+restoration and PNG output pixels. It requires `SHADOW_PIPELINE_SMOKE_OUTPUT` and disposable inputs.
+The default wall-clock deadline is 90 seconds for small fixtures; real full-resolution RAW acceptance
+may set `SHADOW_PAINT_SMOKE_TIMEOUT_MS` explicitly, bounded to 1–600 seconds. This affects only the
+opt-in smoke harness, not normal interactive sessions or export deadlines.
+
+## Local subject emphasis preview
+
+`edit_subject_emphasis_controller` owns an independent Precision draft: local QwenVL describes the
+current edited crop, the user confirms an English subject query, and GroundingDINO/SAM return a
+selection preview. Visible subject/background measurements choose one restrained adjustment or
+recommend leaving the image unchanged. Applying adds one ordinary masked Grade Node in one undo
+transition. Strength uses existing node rendering; it never reruns inference. The preview is a
+selection preview, not a simulated edited image. Normal before/after remains available after apply.
+
+The independent editor explicitly uses the installed Shadow Infer Runtime credential (or the
+existing `SHADOW_INFER_CREDENTIAL_FILE` override). Catalog, derived masks, cache, and preferences
+remain private to that editing session. All requests retain local-only, offline, no-fallback policy.
+
+For explicit local-provider acceptance, launch a disposable `--pipeline-edit` request with
+`SHADOW_SUBJECT_EMPHASIS_SMOKE_QUERY` set to a known visible English subject. The inert-by-default
+`subject_emphasis_smoke_harness` verifies cancellation before mutation, real Qwen evidence, semantic
+selection, the main-canvas overlay, one-node apply, exact undo/redo, strength-only changes, and then
+runs the request's normal export. The fixture must admit a restrained adjustment; no-adjustment
+policy cases live in the bridge owner's unit tests. This opt-in check requires installed local
+providers and a valid Shadow credential; it never substitutes an external or cloud provider.
+
+### Expanded color map
+
+`qml/ColorWarperEditor.qml` owns the shared compact/expanded 5×5 Oklab grid and complete pointer,
+keyboard and numeric gesture transactions. `qml/PrecisionColorWarperPanel.qml` provides the docked
+editor and resize affordance. `PrecisionWorkspace` exchanges the inspector for this panel and hides
+the node list; the photograph keeps at least half the workspace and never sits beneath the panel.
+Closing, changing photos/variants or selecting another tool retires the expanded interaction.
+
+Point movement changes only the selected Grade Node through the existing parameter scheduler.
+The warm scene-linear input and upstream RAW/Foundation state remain reusable; the invalidation
+frontier is the affected grade suffix. No new image readback, upload, inference or source cache key
+is introduced by the UI. Panel geometry is display-only. Existing revision cancellation, transient
+interactive frames and settled publication remain authoritative; preview/detail/export compile the
+same unchanged Oklab field. Relative drags preserve the initial grab offset, Shift scales movement
+by 0.1, arrows nudge by 0.002 (Shift: 0.0002), and numeric controls retain the normal single-gesture
+undo boundary. `SHADOW_PIPELINE_SMOKE_ACTION=color-warper` checks the real expanded RAW workspace,
+resizing, transient preview and exact undo/redo; `SHADOW_WARPER_EVIDENCE_DIR` enables bounded captures.
+
+### Automatic adjustments
+
+`src/edit_auto_start_controller.*` owns the cancellable, disposable suggestion and one-undo apply.
+`src/auto_start_analysis.*` runs bounded measurements, local Qwen scene checks and per-person skin
+selection off the GUI thread. `src/auto_start_policy.*` owns conservative display-tone and skin-hue
+limits. `qml/PrecisionAutoStart.qml` presents Auto beside Subject emphasis under Assisted editing and
+provides exact candidate preview, hold-to-compare, overall strength and three independent switches.
+Its dialog uses the shared Shadow controls, theme typography and separated header/footer.
+Suggestions never change edits until applied; manual edits or changing photos invalidate them.
+Applying the ready measured preview cancels unfinished AI analysis instead of requiring a model wait.
+The optional `AiPreferences::autoStartEnabled` prepares suggestions only for unedited photos.
+
+RAW white balance reuses the retained CFA estimator and interpolates at most 20 mired and six tint
+units around the current white point. Tone adjustments are normal Grade Nodes. A bounded candidate
+render checks for newly clipped display endpoints; this is not a RAW sensor headroom claim. Skin
+uses exact local AI skin masks and restrained Point Color hue shifts around each person's measured
+median, without whitening, smoothing or changing geometry. Existing Liquify edits skip automatic
+skin selection because this first version does not invert that deformation. Intentional lighting and unreliable
+selections remain unchanged. Missing models leave an explicitly labelled measured-only suggestion.
+
+Analysis reads one bounded baseline and up to two trial JPEGs (1024-edge) through the existing warm
+source. Strength/switch changes rerender captured nodes, never inference; WB changes rebind the
+existing RAW foundation, downstream changes reuse the grade frontier. Candidate masks affect only
+the transient render identity. Apply promotes them into the normal Recipe under strict working-head
+CAS; preview, detail and export then use the same mask bytes and native operations. No new durable
+preview entry, edit history or working head is published by analysis or cancellation.
+
+`SHADOW_PIPELINE_SMOKE_ACTION=auto-start` enables the inert-by-default independent-editor acceptance
+harness. `SHADOW_PIPELINE_SMOKE_OUTPUT` selects its output directory; `SHADOW_AUTO_START_REQUIRE_AI=1`
+requires actual local scene inference. It checks cancellation, temporary preview, strength, atomic
+apply, exact undo/redo and normal export, using installed local providers only.
+`SHADOW_AUTO_START_SMOKE_EARLY_APPLY=1` exercises applying before AI completes;
+`SHADOW_AUTO_START_SMOKE_LIFECYCLE=1` uses two inputs to check automatic preparation and cancellation
+on manual edits or photo switches without exporting.
+
+### Condition mask editing
+
+`src/edit_condition_mask_controller.*` owns the bounded condition editor transaction and legacy
+range projection. `qml/PrecisionConditionMaskTools.qml` edits grouped ranges using stable slider
+instances; changes reuse mask gesture history, paired-coverage invalidation and preview scheduling.
+The Recipe condition owner remains authoritative for persistent expression validation.
+
+People photo browsing uses the catalog membership filter and the existing Review workspace.
+[`qml/ReviewPersonBar.qml`](qml/ReviewPersonBar.qml) owns the return and reversible split controls;
+`Main.qml` composes their navigation with the independent people controller.

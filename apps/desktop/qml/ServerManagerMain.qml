@@ -58,7 +58,7 @@ ApplicationWindow {
                     anchors.centerIn: parent
                     text: "S"
                     color: Theme.accent
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.Bold
                 }
             }

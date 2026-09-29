@@ -75,6 +75,13 @@ class PreparedRawFrameSource final {
         const CameraProfileCatalog& camera_profiles
     );
     friend PreparedRawFrameSource prepare_raw_frame_source(
+        AssetMetadata metadata,
+        RawFrame frame,
+        const RawDevelopmentPlan& requested_plan,
+        std::optional<std::uint32_t> preview_max_edge,
+        const CameraProfileCatalog& camera_profiles
+    );
+    friend PreparedRawFrameSource prepare_raw_frame_source(
         const DecodeSession& session,
         const RawDevelopmentPlan& requested_plan,
         std::optional<std::uint32_t> preview_max_edge,
@@ -117,6 +124,17 @@ class PreparedRawFrameSource final {
 // This is the crash-isolated counterpart of the decode-owning overload.
 [[nodiscard]] PreparedRawFrameSource prepare_raw_frame_source(
     const DecodeSession& session,
+    RawFrame frame,
+    const RawDevelopmentPlan& requested_plan,
+    std::optional<std::uint32_t> preview_max_edge,
+    const CameraProfileCatalog& camera_profiles
+);
+
+// A crash-isolated helper already establishes both the RawFrame and bounded
+// source metadata. Consume that pair directly so no desktop caller needs to
+// reopen the original RAW merely for camera profile or optics preparation.
+[[nodiscard]] PreparedRawFrameSource prepare_raw_frame_source(
+    AssetMetadata metadata,
     RawFrame frame,
     const RawDevelopmentPlan& requested_plan,
     std::optional<std::uint32_t> preview_max_edge,

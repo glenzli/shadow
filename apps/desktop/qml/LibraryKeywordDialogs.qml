@@ -131,7 +131,7 @@ Item {
                 font.weight: Font.DemiBold
             }
 
-            TextField {
+            ShadowTextField {
                 id: keywordNameInput
                 Layout.fillWidth: true
                 placeholderText: qsTr("Keyword name")
@@ -215,7 +215,7 @@ Item {
                 font.pixelSize: Theme.fontMeta
             }
 
-            ComboBox {
+            ShadowComboBox {
                 id: parentPicker
                 Layout.fillWidth: true
                 textRole: "name"

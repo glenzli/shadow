@@ -1,6 +1,7 @@
 #pragma once
 
 #include <shadow/image/lut.hpp>
+#include <shadow/image/paint.hpp>
 
 #include <array>
 #include <compare>
@@ -51,13 +52,19 @@ struct SaturationAdjustment final {
 // luminance, then applies the resulting EV gain to Oklab lightness while preserving a/b. The
 // filter averages its local linear coefficients in a second box pass, so neighbouring pixels in
 // the same tonal region share a gain (preserving local contrast) while high-contrast edges remain
-// boundaries for the mask. Zeroes are exactly neutral and do not allocate any spatial working
-// state.
+// boundaries for the mask. The three optional channel-suppression values are a separate
+// pixel-local repair in source-evidenced RAW highlights: they reduce only positive channel excess
+// above the opposed-channel reference while restoring the original Oklab lightness. A smooth
+// source-luminance gate covers broad highlights without expanding either evidence plane and, when
+// used without the four tonal controls, does not allocate any spatial working state.
 struct SelectiveToneAdjustment final {
     double highlights = 0.0;
     double shadows = 0.0;
     double whites = 0.0;
     double blacks = 0.0;
+    double highlight_red_suppression = 0.0;
+    double highlight_green_suppression = 0.0;
+    double highlight_blue_suppression = 0.0;
 };
 
 inline constexpr std::uint32_t selective_tone_parameter_schema_version = 1;
@@ -240,7 +247,7 @@ inline constexpr std::uint32_t oklab_lightness_tone_curve_parameter_schema_versi
 inline constexpr std::uint32_t oklab_lightness_tone_curve_implementation_version = 1;
 inline constexpr std::uint32_t oklab_opponent_tone_curve_parameter_schema_version = 1;
 inline constexpr std::uint32_t oklab_opponent_tone_curve_implementation_version = 1;
-// The perceptual L curve has at most this many authored knots.
+// Each scalar curve has at most this many authored knots.
 inline constexpr std::size_t maximum_tone_curve_points = 256U;
 inline constexpr std::size_t maximum_tone_curve_preview_samples = 4'097U;
 
@@ -251,17 +258,26 @@ struct ToneCurvePoint final {
     auto operator<=>(const ToneCurvePoint&) const = default;
 };
 
-// One set of Oklab-L interpolation knots. The implementation fits a local,
+// One set of scalar interpolation knots. The implementation fits a local,
 // shape-preserving Fritsch-Butland PCHIP through these points. Strictly increasing
 // x coordinates span [0, 1]; y remains unbounded.
 struct ToneCurveSet final {
     std::vector<ToneCurvePoint> points{{0.0, 0.0}, {1.0, 1.0}};
 };
 
-// The sole user-authored tone curve is evaluated only on Oklab L. It deliberately
+// The perceptual tone curve is evaluated only on Oklab L. It deliberately
 // keeps the opponent a/b axes unchanged, so tonal shaping preserves hue and chroma
 // much more faithfully than an RGB curve. The normalized control domain and linear
 // endpoint extrapolation retain scene-linear HDR headroom.
+// RGB curves operate on the declared working primaries with the signed sRGB transfer
+// function, independent of output encoding. Master is applied before R/G/B, in
+// that encoded domain. PCHIP tangent extrapolation preserves extended range;
+// there is no intermediate clipping. These are creative curves, not RAW WB.
+struct RgbToneCurves final {
+    // Master, red, green, blue. Identity channels are exact bypasses.
+    std::array<ToneCurveSet, 4U> channels;
+};
+
 struct OklabLightnessToneCurve final {
     std::uint32_t parameter_schema_version = oklab_lightness_tone_curve_parameter_schema_version;
     std::uint32_t implementation_version = oklab_lightness_tone_curve_implementation_version;
@@ -287,6 +303,8 @@ enum class SpotRepairMode : std::uint8_t {
     heal = 0U,
     clone = 1U,
     heal_structure = 2U,
+    tone = 3U,
+    texture = 4U,
 };
 
 inline constexpr std::uint32_t maximum_retouch_detail_apron_level_zero_pixels = 512U;
@@ -311,6 +329,7 @@ struct SpotHealTarget final {
     bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
+    std::uint16_t frequency_radius = 8U;
 };
 
 // A single authored point on a continuous Repair/Clone brush stroke. Coordinates
@@ -338,6 +357,7 @@ struct RetouchStroke final {
     bool source_flip_vertical = false;
     double feather = 0.28;
     double strength = 1.0;
+    std::uint16_t frequency_radius = 8U;
 };
 
 struct SpotHealAdjustment final {
@@ -347,10 +367,28 @@ struct SpotHealAdjustment final {
     std::vector<RetouchStroke> strokes;
 };
 
+struct ImageCompletionPatch final {
+    std::uint32_t raster_width = 0U;
+    std::uint32_t raster_height = 0U;
+    std::uint32_t coordinate_width = 0U;
+    std::uint32_t coordinate_height = 0U;
+    double bounds_left = 0.0;
+    double bounds_top = 0.0;
+    double bounds_right = 1.0;
+    double bounds_bottom = 1.0;
+    double strength = 1.0;
+    std::vector<std::uint8_t> rgba8;
+};
+
+struct ImageCompletionAdjustment final {
+    std::vector<ImageCompletionPatch> patches;
+};
+
 using AdjustmentParameters = std::variant<
     ExposureAdjustment,
     ContrastAdjustment,
     OklabLightnessToneCurve,
+    RgbToneCurves,
     OklabOpponentToneCurves,
     RgbWhiteBalanceAdjustment,
     SaturationAdjustment,
@@ -359,6 +397,8 @@ using AdjustmentParameters = std::variant<
     OklabColorWarperAdjustment,
     CubeLutAdjustment,
     SharpenAdjustment,
-    SpotHealAdjustment>;
+    SpotHealAdjustment,
+    ImageCompletionAdjustment,
+    PaintLayerAdjustment>;
 
 } // namespace shadow::image

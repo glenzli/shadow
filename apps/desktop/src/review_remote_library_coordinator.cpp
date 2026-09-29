@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QFileInfo>
+#include <QTimeZone>
 #include <QUrl>
 #include <QVariantMap>
 #include <QtConcurrentRun>
@@ -31,6 +32,23 @@ constexpr auto secret_account_prefix = "library-sharing-token:";
            && std::all_of(normalized.cbegin(), normalized.cend(), [](const QChar character) {
                   return character.isPrint() && !character.isSpace();
               });
+}
+
+[[nodiscard]] bool transportUnavailable(const QString& diagnostic) {
+    for (const auto* marker :
+         {"offline",
+          "connection refused",
+          "connect error",
+          "error sending request",
+          "timed out",
+          "timeout",
+          "unreachable",
+          "dns",
+          "network"}) {
+        if (diagnostic.contains(QLatin1String(marker), Qt::CaseInsensitive))
+            return true;
+    }
+    return false;
 }
 
 [[nodiscard]] QString syncFailureStatus(const QString& diagnostic) {
@@ -66,6 +84,106 @@ constexpr auto secret_account_prefix = "library-sharing-token:";
     return static_cast<int>(std::min<qsizetype>(count, std::numeric_limits<int>::max()));
 }
 
+[[nodiscard]] bool cachedOriginalAvailable(const BackendRemoteLibraryPhoto& photo) {
+    return photo.has_cached_original && !photo.local_photo_id.isEmpty()
+           && !photo.local_representation_id.isEmpty()
+           && QFileInfo(photo.local_source_path).isFile()
+           && QFileInfo(photo.local_source_path).isReadable();
+}
+
+[[nodiscard]] QString
+reachabilityStatus(const QString& status_code, const bool online, const bool offline) {
+    if (online) {
+        return QStringLiteral("online");
+    }
+    if (status_code == QStringLiteral("synchronizing")) {
+        return QStringLiteral("checking");
+    }
+    if (status_code == QStringLiteral("authorization-failed")) {
+        return QStringLiteral("authorization-failed");
+    }
+    if (offline) {
+        return QStringLiteral("offline");
+    }
+    return QStringLiteral("unknown");
+}
+
+void applyMaterializationMetadata(
+    BackendRemoteLibraryPhoto& photo,
+    const BackendRemoteLibraryMaterialization& materialization
+) {
+    photo.metadata_schema_version = materialization.metadata_schema_version;
+    photo.has_captured_at = materialization.has_captured_at;
+    photo.captured_at_unix_seconds = materialization.captured_at_unix_seconds;
+    photo.camera_make = materialization.camera_make;
+    photo.camera_model = materialization.camera_model;
+    photo.lens_make = materialization.lens_make;
+    photo.lens_model = materialization.lens_model;
+    photo.has_iso_speed = materialization.has_iso_speed;
+    photo.iso_speed = materialization.iso_speed;
+    photo.has_exposure_time = materialization.has_exposure_time;
+    photo.exposure_time_seconds = materialization.exposure_time_seconds;
+    photo.has_aperture = materialization.has_aperture;
+    photo.aperture_f_number = materialization.aperture_f_number;
+    photo.has_focal_length = materialization.has_focal_length;
+    photo.focal_length_mm = materialization.focal_length_mm;
+    photo.has_focal_length_35mm = materialization.has_focal_length_35mm;
+    photo.focal_length_35mm = materialization.focal_length_35mm;
+    photo.has_raw_dimensions = materialization.has_raw_dimensions;
+    photo.raw_width = materialization.raw_width;
+    photo.raw_height = materialization.raw_height;
+    photo.has_image_dimensions = materialization.has_image_dimensions;
+    photo.image_width = materialization.image_width;
+    photo.image_height = materialization.image_height;
+    photo.has_orientation = materialization.has_orientation;
+    photo.orientation = materialization.orientation;
+    photo.has_coordinates = materialization.has_coordinates;
+    photo.latitude_degrees = materialization.latitude_degrees;
+    photo.longitude_degrees = materialization.longitude_degrees;
+    photo.has_altitude = materialization.has_altitude;
+    photo.altitude_meters = materialization.altitude_meters;
+}
+
+[[nodiscard]] QVariantMap remoteInspection(
+    const QString& presentation_photo_id,
+    const QString& presentation_representation_id,
+    const BackendRemoteLibraryPhoto& photo
+) {
+    const bool has_metadata =
+        photo.has_captured_at || !photo.camera_make.isEmpty() || !photo.camera_model.isEmpty()
+        || !photo.lens_make.isEmpty() || !photo.lens_model.isEmpty() || photo.has_iso_speed
+        || photo.has_exposure_time || photo.has_aperture || photo.has_focal_length
+        || photo.has_focal_length_35mm || photo.has_raw_dimensions || photo.has_image_dimensions
+        || photo.has_orientation || photo.has_coordinates;
+    return {
+        {QStringLiteral("available"), true},
+        {QStringLiteral("photoId"), presentation_photo_id},
+        {QStringLiteral("representationId"), presentation_representation_id},
+        {QStringLiteral("hasMetadata"), has_metadata},
+        {QStringLiteral("cameraMake"), photo.camera_make},
+        {QStringLiteral("cameraModel"), photo.camera_model},
+        {QStringLiteral("lensMake"), photo.lens_make},
+        {QStringLiteral("lensModel"), photo.lens_model},
+        {QStringLiteral("capturedAtUnixSeconds"), photo.captured_at_unix_seconds},
+        {QStringLiteral("hasCoordinates"), photo.has_coordinates},
+        {QStringLiteral("latitude"), photo.latitude_degrees},
+        {QStringLiteral("longitude"), photo.longitude_degrees},
+        {QStringLiteral("hasAltitude"), photo.has_altitude},
+        {QStringLiteral("altitudeMeters"), photo.altitude_meters},
+        {QStringLiteral("isoSpeed"), photo.iso_speed},
+        {QStringLiteral("exposureTimeSeconds"), photo.exposure_time_seconds},
+        {QStringLiteral("apertureFNumber"), photo.aperture_f_number},
+        {QStringLiteral("focalLengthMm"), photo.focal_length_mm},
+        {QStringLiteral("focalLength35mm"), photo.focal_length_35mm},
+        {QStringLiteral("rawWidth"), photo.raw_width},
+        {QStringLiteral("rawHeight"), photo.raw_height},
+        {QStringLiteral("imageWidth"), photo.image_width},
+        {QStringLiteral("imageHeight"), photo.image_height},
+        {QStringLiteral("hasOrientation"), photo.has_orientation},
+        {QStringLiteral("orientation"), photo.orientation},
+    };
+}
+
 } // namespace
 
 ReviewRemoteLibraryCoordinator::ReviewRemoteLibraryCoordinator(
@@ -95,11 +213,38 @@ ReviewRemoteLibraryCoordinator::ReviewRemoteLibraryCoordinator(
         this,
         &ReviewRemoteLibraryCoordinator::finishMutationTask
     );
+    reachability_refresh_timer_.setInterval(60'000);
+    reachability_refresh_timer_.setTimerType(Qt::VeryCoarseTimer);
+    connect(&reachability_refresh_timer_, &QTimer::timeout, this, [this]() {
+        if (!busy() && !mutation_task_active_)
+            syncAll();
+    });
     migrateLegacySecret();
 }
 
 ReviewRemoteLibraryCoordinator::~ReviewRemoteLibraryCoordinator() {
-    snapshot_watcher_.waitForFinished();
+    snapshot_queue_.clear();
+    for (auto job = active_sync_job_ids_.cbegin(); job != active_sync_job_ids_.cend(); ++job) {
+        try {
+            (void)operations_.cancel_sync(job.value());
+        } catch (...) {}
+    }
+    QFuture<SnapshotTaskResult> snapshot_future = snapshot_watcher_.future();
+    if (snapshot_future.isValid()) {
+        snapshot_future.waitForFinished();
+    }
+    if (snapshot_future.isValid() && snapshot_future.resultCount() > 0) {
+        const SnapshotTaskResult result = snapshot_future.resultAt(0);
+        const std::uint64_t returned_job_id =
+            result.kind == SnapshotTaskKind::BeginSync  ? result.sync_start.job_id
+            : result.kind == SnapshotTaskKind::SyncStep ? result.sync_step.job_id
+                                                        : 0;
+        if (returned_job_id != 0) {
+            try {
+                (void)operations_.cancel_sync(returned_job_id);
+            } catch (...) {}
+        }
+    }
     materialize_watcher_.waitForFinished();
     mutation_watcher_.waitForFinished();
     while (!mutation_queue_.isEmpty()) {
@@ -112,6 +257,7 @@ void ReviewRemoteLibraryCoordinator::start() {
         return;
     }
     started_ = true;
+    reachability_refresh_timer_.start();
     for (const auto& connection : connection_store_.connections()) {
         snapshot_queue_.enqueue({
             .kind = SnapshotTaskKind::LoadCached,
@@ -150,28 +296,64 @@ bool ReviewRemoteLibraryCoordinator::tokenStored() const noexcept {
     );
 }
 
+bool ReviewRemoteLibraryCoordinator::connected() const noexcept {
+    return !online_connection_ids_.isEmpty();
+}
+
 QVariantList ReviewRemoteLibraryCoordinator::connections() const {
     QVariantList result;
     result.reserve(connection_store_.connections().size());
     for (const auto& connection : connection_store_.connections()) {
         const auto snapshot = snapshots_.constFind(connection.id);
         const bool has_server = snapshot != snapshots_.cend() && snapshot->has_server;
+        const SyncProgress progress = sync_progress_.value(connection.id);
+        const int mirror_photo_count =
+            snapshot == snapshots_.cend() ? 0 : boundedPhotoCount(snapshot->photos.size());
+        const int cached_original_count = snapshot == snapshots_.cend()
+                                              ? 0
+                                              : boundedPhotoCount(
+                                                    std::count_if(
+                                                        snapshot->photos.cbegin(),
+                                                        snapshot->photos.cend(),
+                                                        cachedOriginalAvailable
+                                                    )
+                                                );
+        const QString status_code = connection_status_codes_.value(connection.id);
+        const bool online = online_connection_ids_.contains(connection.id);
         result.push_back(
             QVariantMap{
                 {QStringLiteral("id"), connection.id},
                 {QStringLiteral("address"), connection.address},
                 {QStringLiteral("tokenStored"), connection.token_stored},
-                {QStringLiteral("connected"),
+                {QStringLiteral("configured"),
                  connection.token_stored && !connection.address.isEmpty()},
+                {QStringLiteral("connected"), online},
+                {QStringLiteral("reachability"),
+                 reachabilityStatus(
+                     status_code,
+                     online,
+                     offline_connection_ids_.contains(connection.id)
+                 )},
                 {QStringLiteral("serverName"),
                  has_server ? snapshot->server.display_name : QString{}},
                 {QStringLiteral("hasCachedServer"), has_server},
                 {QStringLiteral("originalsAvailable"),
                  has_server && snapshot->server.originals_available},
-                {QStringLiteral("photoCount"),
-                 snapshot == snapshots_.cend() ? 0 : snapshot->photos.size()},
-                {QStringLiteral("statusCode"), connection_status_codes_.value(connection.id)},
+                {QStringLiteral("photoCount"), mirror_photo_count},
+                {QStringLiteral("mirrorPhotoCount"), mirror_photo_count},
+                {QStringLiteral("cachedOriginalCount"), cached_original_count},
+                {QStringLiteral("statusCode"), status_code},
                 {QStringLiteral("diagnosticText"), connection_diagnostics_.value(connection.id)},
+                {QStringLiteral("syncPageCount"), QVariant::fromValue(progress.page_count)},
+                {QStringLiteral("syncPhotoCount"), QVariant::fromValue(progress.photo_count)},
+                {QStringLiteral("syncPreviewCompletedCount"),
+                 QVariant::fromValue(progress.preview_completed_count)},
+                {QStringLiteral("syncDownloadedPreviewCount"),
+                 QVariant::fromValue(progress.downloaded_previews)},
+                {QStringLiteral("syncPreviewFailureCount"),
+                 QVariant::fromValue(progress.preview_failures)},
+                {QStringLiteral("syncRemovedCount"), QVariant::fromValue(progress.removed)},
+                {QStringLiteral("syncManifestComplete"), progress.manifest_complete},
                 {QStringLiteral("busy"),
                  active_snapshot_connection_id_ == connection.id
                      || materializing_connection_id_ == connection.id},
@@ -205,6 +387,22 @@ QString ReviewRemoteLibraryCoordinator::serverName() const {
 
 int ReviewRemoteLibraryCoordinator::remotePhotoCount() const noexcept {
     return boundedPhotoCount(photos_.size());
+}
+
+QVariantMap ReviewRemoteLibraryCoordinator::systemCollectionCounts() const {
+    qulonglong liked = 0;
+    qulonglong five_star = 0;
+    // Count the logical projection, after cross-server identity merging and
+    // optimistic curation, independently of the currently visible Library scope.
+    for (const auto& photo : photos_) {
+        liked += photo.liked ? 1U : 0U;
+        five_star += photo.decision_rating == 5 ? 1U : 0U;
+    }
+    return {
+        {QStringLiteral("all"), QVariant::fromValue(static_cast<qulonglong>(photos_.size()))},
+        {QStringLiteral("liked"), QVariant::fromValue(liked)},
+        {QStringLiteral("fiveStar"), QVariant::fromValue(five_star)},
+    };
 }
 
 QString ReviewRemoteLibraryCoordinator::statusCode() const {
@@ -341,6 +539,11 @@ bool ReviewRemoteLibraryCoordinator::removeConnection(const QString& connection_
     snapshots_.remove(connection_id);
     connection_status_codes_.remove(connection_id);
     connection_diagnostics_.remove(connection_id);
+    sync_progress_.remove(connection_id);
+    active_sync_job_ids_.remove(connection_id);
+    latest_sync_epochs_.remove(connection_id);
+    online_connection_ids_.remove(connection_id);
+    offline_connection_ids_.remove(connection_id);
     rebuildPhotoAggregates();
     reapplyRemoteItems();
     setStatus(QStringLiteral("connection-removed"));
@@ -364,16 +567,6 @@ void ReviewRemoteLibraryCoordinator::syncNow(const QString& connection_id) {
         setConnectionStatus(connection_id, QStringLiteral("connection-required"));
         return;
     }
-    const bool already_queued = std::any_of(
-        snapshot_queue_.cbegin(),
-        snapshot_queue_.cend(),
-        [&connection_id](const SnapshotRequest& request) {
-            return request.kind == SnapshotTaskKind::Sync && request.connection_id == connection_id;
-        }
-    );
-    if (already_queued || active_snapshot_connection_id_ == connection_id) {
-        return;
-    }
     const SecretStoreResult authorization = readAuthorization(connection_id);
     if (!authorization.succeeded() || !validToken(authorization.value)) {
         if (authorization.status == SecretStoreStatus::NotFound) {
@@ -387,14 +580,46 @@ void ReviewRemoteLibraryCoordinator::syncNow(const QString& connection_id) {
         );
         return;
     }
+    next_sync_epoch_ =
+        next_sync_epoch_ == std::numeric_limits<std::uint64_t>::max() ? 1 : next_sync_epoch_ + 1;
+    const std::uint64_t sync_epoch = next_sync_epoch_;
+    latest_sync_epochs_.insert(connection_id, sync_epoch);
+    QQueue<SnapshotRequest> retained_requests;
+    while (!snapshot_queue_.isEmpty()) {
+        SnapshotRequest queued = snapshot_queue_.dequeue();
+        if (queued.connection_id == connection_id && queued.kind != SnapshotTaskKind::LoadCached) {
+            if (queued.job_id != 0) {
+                try {
+                    (void)operations_.cancel_sync(queued.job_id);
+                } catch (...) {}
+            }
+            continue;
+        }
+        retained_requests.enqueue(std::move(queued));
+    }
+    snapshot_queue_ = std::move(retained_requests);
+    if (active_snapshot_connection_id_ != connection_id) {
+        const std::uint64_t active_job_id = active_sync_job_ids_.take(connection_id);
+        if (active_job_id != 0) {
+            try {
+                (void)operations_.cancel_sync(active_job_id);
+            } catch (...) {}
+        }
+    }
+    sync_progress_.insert(connection_id, SyncProgress{});
+    const bool availability_changed = online_connection_ids_.remove(connection_id);
     setConnectionStatus(connection_id, QStringLiteral("synchronizing"));
     snapshot_queue_.enqueue({
-        .kind = SnapshotTaskKind::Sync,
+        .kind = SnapshotTaskKind::BeginSync,
         .connection_id = connection_id,
         .server_address = requested->address,
         .authorization = authorization.value,
+        .sync_epoch = sync_epoch,
     });
     startNextSnapshotTask();
+    if (availability_changed) {
+        reapplyRemoteItems();
+    }
     emit stateChanged();
 }
 
@@ -414,47 +639,97 @@ void ReviewRemoteLibraryCoordinator::reapplyRemoteItems() {
 }
 
 void ReviewRemoteLibraryCoordinator::materializeForEdit(const QString& presentation_photo_id) {
-    if (busy()) {
+    if (materializing()) {
         return;
     }
+    (void)startMaterialization(presentation_photo_id, MaterializationPurpose::Edit);
+}
+
+bool ReviewRemoteLibraryCoordinator::prepareExport(const QVariantList& targets) {
+    if (materializing()) {
+        setStatus(QStringLiteral("operation-busy"));
+        return false;
+    }
+    if (targets.isEmpty()) {
+        setStatus(QStringLiteral("remote-photo-unavailable"));
+        return false;
+    }
+    pending_export_targets_ = targets;
+    pending_export_index_ = 0;
+    continueExportPreparation();
+    return true;
+}
+
+bool ReviewRemoteLibraryCoordinator::startMaterialization(
+    const QString& presentation_photo_id,
+    const MaterializationPurpose purpose
+) {
     const auto aggregate = photo_aggregates_.constFind(presentation_photo_id);
-    const RemotePhotoSourceChoice* source =
-        aggregate == photo_aggregates_.cend() ? nullptr : aggregate->preferredSource();
+    if (materialization_attempt_photo_id_ != presentation_photo_id) {
+        materialization_attempt_photo_id_ = presentation_photo_id;
+        materialization_attempted_connections_.clear();
+    }
+    const RemotePhotoSourceChoice* source = nullptr;
+    if (aggregate != photo_aggregates_.cend()) {
+        const auto usable = [this](const RemotePhotoSourceChoice& candidate) {
+            return !materialization_attempted_connections_.contains(candidate.connection_id)
+                   && (cachedOriginalAvailable(candidate.photo)
+                       || (candidate.originals_available
+                           && online_connection_ids_.contains(candidate.connection_id)));
+        };
+        const auto* preferred = aggregate->preferredSource();
+        if (preferred != nullptr && usable(*preferred))
+            source = preferred;
+        if (source == nullptr) {
+            for (const auto& candidate : aggregate->sources) {
+                if (usable(candidate)) {
+                    source = &candidate;
+                    break;
+                }
+            }
+        }
+    }
     const QString connection_id = source == nullptr ? QString{} : source->connection_id;
     const RemoteLibraryConnection* source_connection = connection(connection_id);
     const auto snapshot = snapshots_.constFind(connection_id);
-    if (source == nullptr || source_connection == nullptr || snapshot == snapshots_.cend()) {
+    if (source == nullptr || snapshot == snapshots_.cend()) {
         setStatus(QStringLiteral("remote-photo-unavailable"));
-        return;
+        return false;
     }
-    if (source->photo.has_cached_original && !source->photo.local_photo_id.isEmpty()
-        && !source->photo.local_representation_id.isEmpty()
-        && QFileInfo::exists(source->photo.local_source_path)) {
-        emit remotePhotoReady(
-            source->photo.local_photo_id,
-            source->photo.local_representation_id,
-            source->photo.local_source_path,
-            source->photo.title
-        );
-        return;
+    const bool cached = cachedOriginalAvailable(source->photo);
+    QString server_address;
+    QString authorization_value;
+    if (!cached) {
+        if (!online_connection_ids_.contains(connection_id)) {
+            setConnectionStatus(connection_id, QStringLiteral("remote-server-offline"));
+            return false;
+        }
+        if (!snapshot->has_server || !snapshot->server.originals_available) {
+            setConnectionStatus(connection_id, QStringLiteral("remote-original-unavailable"));
+            return false;
+        }
+        const SecretStoreResult authorization = readAuthorization(connection_id);
+        if (source_connection == nullptr || !authorization.succeeded()
+            || !validToken(authorization.value) || !validAddress(source_connection->address)) {
+            setConnectionStatus(
+                connection_id,
+                QStringLiteral("connection-required"),
+                authorization.diagnostic
+            );
+            return false;
+        }
+        server_address = source_connection->address;
+        authorization_value = authorization.value;
     }
-    if (!snapshot->has_server || !snapshot->server.originals_available) {
-        setConnectionStatus(connection_id, QStringLiteral("remote-original-unavailable"));
-        return;
-    }
-    const SecretStoreResult authorization = readAuthorization(connection_id);
-    if (!authorization.succeeded() || !validToken(authorization.value)
-        || !validAddress(source_connection->address)) {
-        setConnectionStatus(
-            connection_id,
-            QStringLiteral("connection-required"),
-            authorization.diagnostic
-        );
-        return;
-    }
+    materialization_attempted_connections_.insert(connection_id);
+    materialization_purpose_ = purpose;
     materializing_connection_id_ = connection_id;
     materializing_photo_id_ = presentation_photo_id;
-    setConnectionStatus(connection_id, QStringLiteral("downloading-original"));
+    setConnectionStatus(
+        connection_id,
+        cached ? QStringLiteral("preparing-cached-original")
+               : QStringLiteral("downloading-original")
+    );
     emit stateChanged();
     materialize_watcher_.setFuture(
         QtConcurrent::run(
@@ -462,12 +737,39 @@ void ReviewRemoteLibraryCoordinator::materializeForEdit(const QString& presentat
             operations_,
             connection_id,
             presentation_photo_id,
-            source_connection->address,
-            authorization.value,
+            server_address,
+            authorization_value,
             source->photo.remote_photo_id,
             source->photo.remote_representation_id
         )
     );
+    return true;
+}
+
+void ReviewRemoteLibraryCoordinator::continueExportPreparation() {
+    while (pending_export_index_ < pending_export_targets_.size()) {
+        const QVariantMap target = pending_export_targets_.at(pending_export_index_).toMap();
+        if (!target.value(QStringLiteral("isRemote")).toBool()) {
+            ++pending_export_index_;
+            continue;
+        }
+        const QString presentation_photo_id = target.value(QStringLiteral("photoId")).toString();
+        if (!startMaterialization(presentation_photo_id, MaterializationPurpose::Export)) {
+            failExportPreparation(status_code_);
+        }
+        return;
+    }
+
+    const QVariantList resolved = pending_export_targets_;
+    pending_export_targets_.clear();
+    pending_export_index_ = 0;
+    emit exportReady(resolved);
+}
+
+void ReviewRemoteLibraryCoordinator::failExportPreparation(const QString& status_code) {
+    pending_export_targets_.clear();
+    pending_export_index_ = 0;
+    emit exportPreparationFailed(status_code);
 }
 
 bool ReviewRemoteLibraryCoordinator::setDecision(
@@ -506,6 +808,7 @@ bool ReviewRemoteLibraryCoordinator::setDecision(
                    })
                    || enqueued;
     }
+    emit systemCollectionCountsChanged();
     return enqueued;
 }
 
@@ -550,6 +853,7 @@ bool ReviewRemoteLibraryCoordinator::setAffinity(
                    })
                    || enqueued;
     }
+    emit systemCollectionCountsChanged();
     return enqueued;
 }
 
@@ -558,22 +862,39 @@ ReviewRemoteLibraryCoordinator::SnapshotTaskResult ReviewRemoteLibraryCoordinato
     const SnapshotTaskKind kind,
     QString connection_id,
     QString server_address,
-    QString authorization
+    QString authorization,
+    const std::uint64_t job_id,
+    const std::uint64_t sync_epoch
 ) {
     SnapshotTaskResult result;
     result.kind = kind;
     result.connection_id = connection_id;
+    result.sync_epoch = sync_epoch;
     try {
         if (kind == SnapshotTaskKind::LoadCached) {
             result.snapshot = operations.snapshot(connection_id);
+        } else if (kind == SnapshotTaskKind::BeginSync) {
+            result.sync_start = operations.begin_sync(connection_id, server_address, authorization);
+            result.snapshot = result.sync_start.snapshot;
         } else {
-            result.sync_result = operations.sync(connection_id, server_address, authorization);
-            result.snapshot = result.sync_result.snapshot;
+            result.sync_step = operations.sync_step(job_id);
+            result.snapshot = result.sync_step.snapshot;
         }
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     } catch (...) {
         result.error = QStringLiteral("Unknown remote Library failure");
+    }
+    if (!result.error.isEmpty() && kind != SnapshotTaskKind::LoadCached) {
+        try {
+            result.snapshot = operations.snapshot(connection_id);
+        } catch (...) {}
+    }
+    // File facts are refreshed even while the server is offline, outside the GUI thread.
+    for (auto& photo : result.snapshot.photos) {
+        photo.has_preview = photo.has_preview && QFileInfo(photo.preview_path).isFile()
+                            && QFileInfo(photo.preview_path).isReadable();
+        photo.has_cached_original = cachedOriginalAvailable(photo);
     }
     return result;
 }
@@ -633,20 +954,109 @@ ReviewRemoteLibraryCoordinator::runMutationTask(Operations operations, MutationR
 void ReviewRemoteLibraryCoordinator::finishSnapshotTask() {
     const SnapshotTaskResult result = snapshot_watcher_.result();
     active_snapshot_connection_id_.clear();
+    const bool is_sync = result.kind != SnapshotTaskKind::LoadCached;
+    const bool stale =
+        is_sync && latest_sync_epochs_.value(result.connection_id) != result.sync_epoch;
+    const std::uint64_t returned_job_id =
+        result.kind == SnapshotTaskKind::BeginSync  ? result.sync_start.job_id
+        : result.kind == SnapshotTaskKind::SyncStep ? result.sync_step.job_id
+                                                    : 0;
+    if (stale) {
+        std::uint64_t job_to_cancel = returned_job_id;
+        const std::uint64_t tracked_job_id = active_sync_job_ids_.take(result.connection_id);
+        if (job_to_cancel == 0) {
+            job_to_cancel = tracked_job_id;
+        }
+        if (job_to_cancel != 0) {
+            try {
+                (void)operations_.cancel_sync(job_to_cancel);
+            } catch (...) {}
+        }
+        startNextSnapshotTask();
+        emit stateChanged();
+        return;
+    }
     if (!result.error.isEmpty()) {
+        const std::uint64_t active_job_id = active_sync_job_ids_.take(result.connection_id);
+        if (active_job_id != 0) {
+            try {
+                (void)operations_.cancel_sync(active_job_id);
+            } catch (...) {}
+        }
+        if (is_sync) {
+            online_connection_ids_.remove(result.connection_id);
+            if (transportUnavailable(result.error)
+                && syncFailureStatus(result.error) == QStringLiteral("sync-failed")) {
+                offline_connection_ids_.insert(result.connection_id);
+            } else {
+                offline_connection_ids_.remove(result.connection_id);
+            }
+        }
         setConnectionStatus(
             result.connection_id,
-            result.kind == SnapshotTaskKind::Sync ? syncFailureStatus(result.error)
-                                                  : QStringLiteral("cache-load-failed"),
+            is_sync ? syncFailureStatus(result.error) : QStringLiteral("cache-load-failed"),
             result.error
         );
+    } else if (result.kind == SnapshotTaskKind::LoadCached) {
+        applySnapshot(result.connection_id, result.snapshot);
+        setConnectionStatus(result.connection_id, QStringLiteral("offline-ready"));
+    } else if (result.kind == SnapshotTaskKind::BeginSync) {
+        offline_connection_ids_.remove(result.connection_id);
+        online_connection_ids_.insert(result.connection_id);
+        applySnapshot(result.connection_id, result.snapshot);
+        active_sync_job_ids_.insert(result.connection_id, result.sync_start.job_id);
+        SyncProgress progress;
+        progress.job_id = result.sync_start.job_id;
+        sync_progress_.insert(result.connection_id, progress);
+        enqueueSyncStep(result.connection_id, result.sync_start.job_id, result.sync_epoch);
+    } else if (active_sync_job_ids_.value(result.connection_id) != result.sync_step.job_id) {
+        try {
+            (void)operations_.cancel_sync(result.sync_step.job_id);
+        } catch (...) {}
     } else {
         applySnapshot(result.connection_id, result.snapshot);
-        setConnectionStatus(
-            result.connection_id,
-            result.kind == SnapshotTaskKind::Sync ? QStringLiteral("synchronized")
-                                                  : QStringLiteral("offline-ready")
-        );
+        SyncProgress progress;
+        progress.job_id = result.sync_step.job_id;
+        progress.page_count = result.sync_step.page_count;
+        progress.photo_count = result.sync_step.photo_count;
+        progress.preview_completed_count = result.sync_step.preview_completed_count;
+        progress.downloaded_previews = result.sync_step.downloaded_previews;
+        progress.preview_failures = result.sync_step.preview_failures;
+        progress.removed = result.sync_step.removed;
+        progress.manifest_complete = result.sync_step.manifest_complete;
+        const SyncProgress previous = sync_progress_.value(result.connection_id);
+        progress.diagnostic = previous.diagnostic;
+        if (!result.sync_step.diagnostic.isEmpty()
+            && !progress.diagnostic.contains(result.sync_step.diagnostic)) {
+            if (!progress.diagnostic.isEmpty()) {
+                progress.diagnostic.append(QLatin1Char('\n'));
+            }
+            progress.diagnostic.append(result.sync_step.diagnostic);
+        }
+        sync_progress_.insert(result.connection_id, progress);
+        if (result.sync_step.complete) {
+            active_sync_job_ids_.remove(result.connection_id);
+            setConnectionStatus(
+                result.connection_id,
+                result.sync_step.preview_failures == 0
+                    ? QStringLiteral("synchronized")
+                    : QStringLiteral("synchronized-preview-limited"),
+                progress.diagnostic
+            );
+        } else {
+            enqueueSyncStep(result.connection_id, result.sync_step.job_id, result.sync_epoch);
+        }
+    }
+    if (result.kind == SnapshotTaskKind::LoadCached) {
+        // Startup is local-first: every mirror is projected before its network
+        // request reaches the queue, then the existing progressive sync serves
+        // as the live reachability check without hiding cached rows on failure.
+        syncNow(result.connection_id);
+    } else if (!result.error.isEmpty()) {
+        if (result.snapshot.has_server)
+            snapshots_.insert(result.connection_id, result.snapshot);
+        rebuildPhotoAggregates();
+        reapplyRemoteItems();
     }
     startNextSnapshotTask();
     emit stateChanged();
@@ -654,23 +1064,35 @@ void ReviewRemoteLibraryCoordinator::finishSnapshotTask() {
 
 void ReviewRemoteLibraryCoordinator::finishMaterializeTask() {
     const MaterializeTaskResult result = materialize_watcher_.result();
+    const MaterializationPurpose purpose = materialization_purpose_;
     materializing_connection_id_.clear();
     materializing_photo_id_.clear();
     if (!result.error.isEmpty()) {
+        // Keep logical identity and try another verified original before reporting failure.
+        if (startMaterialization(result.presentation_photo_id, purpose))
+            return;
+        materialization_attempt_photo_id_.clear();
+        materialization_attempted_connections_.clear();
         setConnectionStatus(
             result.connection_id,
             QStringLiteral("materialize-failed"),
             result.error
         );
         emit stateChanged();
+        if (purpose == MaterializationPurpose::Export) {
+            failExportPreparation(QStringLiteral("materialize-failed"));
+        }
         return;
     }
+    materialization_attempt_photo_id_.clear();
+    materialization_attempted_connections_.clear();
     const auto found = photos_.find(result.presentation_photo_id);
     if (found != photos_.end()) {
         found->has_cached_original = true;
         found->local_photo_id = result.materialization.local_photo_id;
         found->local_representation_id = result.materialization.local_representation_id;
         found->local_source_path = result.materialization.local_source_path;
+        applyMaterializationMetadata(*found, result.materialization);
     }
     const auto aggregate = photo_aggregates_.find(result.presentation_photo_id);
     if (aggregate != photo_aggregates_.end()) {
@@ -683,17 +1105,67 @@ void ReviewRemoteLibraryCoordinator::finishMaterializeTask() {
             source.photo.local_photo_id = result.materialization.local_photo_id;
             source.photo.local_representation_id = result.materialization.local_representation_id;
             source.photo.local_source_path = result.materialization.local_source_path;
+            applyMaterializationMetadata(source.photo, result.materialization);
         }
     }
     reapplyRemoteItems();
-    setConnectionStatus(result.connection_id, QStringLiteral("original-ready"));
+    if (found != photos_.end()) {
+        emit remoteInspectionChanged(
+            result.presentation_photo_id,
+            remoteInspection(
+                result.presentation_photo_id,
+                presentationRepresentationId(result.presentation_photo_id, *found),
+                *found
+            )
+        );
+    }
+    setConnectionStatus(
+        result.connection_id,
+        result.materialization.inspection_diagnostic.isEmpty()
+            ? QStringLiteral("original-ready")
+            : QStringLiteral("original-ready-metadata-limited"),
+        result.materialization.inspection_diagnostic
+    );
     emit stateChanged();
     emit localLibraryRefreshRequested();
+    if (purpose == MaterializationPurpose::Export) {
+        if (pending_export_index_ >= pending_export_targets_.size()) {
+            failExportPreparation(QStringLiteral("remote-photo-unavailable"));
+            return;
+        }
+        QVariantMap target = pending_export_targets_.at(pending_export_index_).toMap();
+        target.insert(QStringLiteral("photoId"), result.materialization.local_photo_id);
+        target.insert(
+            QStringLiteral("representationId"),
+            result.materialization.local_representation_id
+        );
+        target.insert(QStringLiteral("sourcePath"), result.materialization.local_source_path);
+        target.insert(QStringLiteral("sourceAvailable"), true);
+        target.insert(QStringLiteral("isRemote"), false);
+        pending_export_targets_[pending_export_index_] = target;
+        ++pending_export_index_;
+        continueExportPreparation();
+        return;
+    }
+    BackendRemoteLibraryPhoto edit_photo =
+        found == photos_.end() ? BackendRemoteLibraryPhoto{} : *found;
+    applyMaterializationMetadata(edit_photo, result.materialization);
+    QVariantMap capture_metadata = remoteInspection(
+        result.materialization.local_photo_id,
+        result.materialization.local_representation_id,
+        edit_photo
+    );
+    capture_metadata.insert(
+        QStringLiteral("available"),
+        capture_metadata.value(QStringLiteral("hasMetadata"))
+    );
+    capture_metadata.insert(QStringLiteral("pending"), false);
     emit remotePhotoReady(
         result.materialization.local_photo_id,
         result.materialization.local_representation_id,
         result.materialization.local_source_path,
-        result.materialization.title
+        result.materialization.title,
+        capture_metadata
     );
 }
 
@@ -721,9 +1193,24 @@ void ReviewRemoteLibraryCoordinator::startNextSnapshotTask() {
             request.kind,
             request.connection_id,
             request.server_address,
-            request.authorization
+            request.authorization,
+            request.job_id,
+            request.sync_epoch
         )
     );
+}
+
+void ReviewRemoteLibraryCoordinator::enqueueSyncStep(
+    const QString& connection_id,
+    const std::uint64_t job_id,
+    const std::uint64_t sync_epoch
+) {
+    snapshot_queue_.enqueue({
+        .kind = SnapshotTaskKind::SyncStep,
+        .connection_id = connection_id,
+        .job_id = job_id,
+        .sync_epoch = sync_epoch,
+    });
 }
 
 void ReviewRemoteLibraryCoordinator::startMutationIfIdle() {
@@ -751,7 +1238,7 @@ void ReviewRemoteLibraryCoordinator::applySnapshot(
 }
 
 void ReviewRemoteLibraryCoordinator::rebuildPhotoAggregates() {
-    photo_aggregates_ = aggregateRemotePhotos(snapshots_);
+    photo_aggregates_ = aggregateRemotePhotos(snapshots_, online_connection_ids_);
     photos_.clear();
     photo_connection_ids_.clear();
     for (auto aggregate = photo_aggregates_.cbegin(); aggregate != photo_aggregates_.cend();
@@ -761,6 +1248,20 @@ void ReviewRemoteLibraryCoordinator::rebuildPhotoAggregates() {
             continue;
         }
         BackendRemoteLibraryPhoto projected = preferred->photo;
+        if (!projected.has_preview) {
+            for (const auto& candidate : aggregate->sources) {
+                if (!candidate.photo.has_preview)
+                    continue;
+                projected.has_preview = true;
+                projected.preview_path = candidate.photo.preview_path;
+                projected.preview_auto_transform = candidate.photo.preview_auto_transform;
+                projected.preview_width = candidate.photo.preview_width;
+                projected.preview_height = candidate.photo.preview_height;
+                projected.preview_role = candidate.photo.preview_role;
+                projected.preview_unavailable_reason.clear();
+                break;
+            }
+        }
         for (const auto& source : aggregate->sources) {
             if (source.photo.review_updated_at_ms > projected.review_updated_at_ms) {
                 projected.decision_flag = source.photo.decision_flag;
@@ -787,7 +1288,9 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
         const QString connection_id = photo_connection_ids_.value(found.key());
         const auto snapshot = snapshots_.constFind(connection_id);
         const bool originals_available = snapshot != snapshots_.cend() && snapshot->has_server
-                                         && snapshot->server.originals_available;
+                                         && snapshot->server.originals_available
+                                         && online_connection_ids_.contains(connection_id);
+        const bool cached_original = cachedOriginalAvailable(source);
         ReviewItem item;
         item.photo_id = found.key();
         item.representation_id = presentationRepresentationId(found.key(), source);
@@ -797,30 +1300,51 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
         item.has_raster_representation = source.has_raster_representation;
         item.visual_source_override =
             source.has_preview ? QUrl::fromLocalFile(source.preview_path).toString() : QString{};
+        item.visual_auto_transform = source.preview_auto_transform;
         item.is_remote = true;
-        item.remote_original_cached = source.has_cached_original;
+        const auto aggregate = photo_aggregates_.constFind(found.key());
+        item.remote_offline = aggregate != photo_aggregates_.cend() && !aggregate->sources.isEmpty()
+                              && std::all_of(
+                                  aggregate->sources.cbegin(),
+                                  aggregate->sources.cend(),
+                                  [this](const auto& origin) {
+                                      return offline_connection_ids_.contains(origin.connection_id);
+                                  }
+                              );
+        item.remote_original_cached = cached_original;
         item.remote_connection_id = connection_id;
         item.remote_server_id = source.server_id;
         item.remote_photo_id = source.remote_photo_id;
         item.remote_representation_id = source.remote_representation_id;
         item.remote_preview_unavailable_reason = source.preview_unavailable_reason;
+        item.local_backing_photo_id = source.local_photo_id;
+        item.local_backing_representation_id = source.local_representation_id;
         item.decision_flag = decisionFlagName(source.decision_flag);
         item.decision_rating = source.decision_rating;
         item.liked = source.liked;
         item.color_label = source.color_label;
         item.library_state_updated_at_ms = source.review_updated_at_ms;
         item.title = source.title;
-        item.source_path = source.has_cached_original ? source.local_source_path : QString{};
-        item.source_available = source.has_cached_original || originals_available;
+        item.source_path = cached_original ? source.local_source_path : QString{};
+        item.source_available = cached_original || originals_available;
         item.visual_role = source.preview_role;
         item.visual_width = source.preview_width;
         item.visual_height = source.preview_height;
         item.has_visual = source.has_preview;
+        item.capture_day =
+            source.has_captured_at
+                ? QDateTime::fromSecsSinceEpoch(source.captured_at_unix_seconds, QTimeZone::UTC)
+                      .date()
+                      .toString(Qt::ISODate)
+                : QString{};
+        item.metadata_schema_version = source.metadata_schema_version;
         item.has_metadata = source.has_captured_at || !source.camera_make.isEmpty()
                             || !source.camera_model.isEmpty() || !source.lens_make.isEmpty()
                             || !source.lens_model.isEmpty() || source.has_iso_speed
                             || source.has_exposure_time || source.has_aperture
-                            || source.has_focal_length || source.has_raw_dimensions;
+                            || source.has_focal_length || source.has_focal_length_35mm
+                            || source.has_raw_dimensions || source.has_image_dimensions
+                            || source.has_orientation || source.has_coordinates;
         item.camera_make = source.camera_make;
         item.camera_model = source.camera_model;
         item.lens_make = source.lens_make;
@@ -831,8 +1355,18 @@ QVector<ReviewItem> ReviewRemoteLibraryCoordinator::projectedRemoteItems() const
         item.exposure_time_seconds = source.has_exposure_time ? source.exposure_time_seconds : 0.0;
         item.aperture_f_number = source.has_aperture ? source.aperture_f_number : 0.0;
         item.focal_length_mm = source.has_focal_length ? source.focal_length_mm : 0.0;
+        item.focal_length_35mm = source.has_focal_length_35mm ? source.focal_length_35mm : 0.0;
         item.raw_width = source.has_raw_dimensions ? source.raw_width : 0;
         item.raw_height = source.has_raw_dimensions ? source.raw_height : 0;
+        item.image_width = source.has_image_dimensions ? source.image_width : 0;
+        item.image_height = source.has_image_dimensions ? source.image_height : 0;
+        item.has_orientation = source.has_orientation;
+        item.orientation = source.has_orientation ? source.orientation : 0;
+        item.has_coordinates = source.has_coordinates;
+        item.latitude_degrees = source.has_coordinates ? source.latitude_degrees : 0.0;
+        item.longitude_degrees = source.has_coordinates ? source.longitude_degrees : 0.0;
+        item.has_altitude = source.has_altitude;
+        item.altitude_meters = source.has_altitude ? source.altitude_meters : 0.0;
         items.push_back(std::move(item));
     }
     std::sort(items.begin(), items.end(), [](const ReviewItem& left, const ReviewItem& right) {

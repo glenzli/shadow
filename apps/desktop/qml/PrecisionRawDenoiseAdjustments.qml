@@ -103,7 +103,7 @@ ColumnLayout {
                 denoise.editor.foundationAiDenoisePhase === "failed"
                 || denoise.editor.foundationAiDenoisePhase === "unavailable"
                     ? Theme.dangerText : denoise.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             elide: Text.ElideRight
         }
 
@@ -116,7 +116,7 @@ ColumnLayout {
                 && !denoise.editor.foundationAiDenoiseEnabled
             text: qsTr("AI model execution is disabled in Settings")
             color: Theme.warningText
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             elide: Text.ElideRight
         }
 
@@ -128,7 +128,7 @@ ColumnLayout {
             text: denoise.editor.foundationAiDenoiseNoiseRecommendation
             color: denoise.editor.foundationAiDenoiseNoiseLevel === "high"
                 ? Theme.warningText : denoise.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             elide: Text.ElideRight
 
             HoverHandler { id: noiseRecommendationHover }
@@ -180,7 +180,7 @@ ColumnLayout {
                 && !denoise.editor.rawDenoiseNodeVisible
             text: qsTr("Node hidden · AI result is not applied")
             color: Theme.warningText
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             elide: Text.ElideRight
         }
     }

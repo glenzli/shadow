@@ -33,7 +33,8 @@ mod writer;
 
 pub use asset_registration::{RegisterAsset, RegisteredAsset, RegistrationStatus};
 pub use backup::{
-    CatalogBackupError, CatalogBackupReceipt, CatalogBackupVerification, create_catalog_backup,
+    CatalogBackupError, CatalogBackupReceipt, CatalogBackupVerification, CatalogRestoreError,
+    CatalogRestoreReceipt, create_catalog_backup, restore_catalog_backup_offline,
     verify_catalog_backup,
 };
 pub use cache_artifact::{
@@ -62,7 +63,7 @@ pub use export_queue::{
     ExportPresetRevisionId, ExportPresetRevisionRecord, ExportQueueRecovery, ExportSettingsSource,
     MAX_EXPORT_JOB_PAGE_SIZE, NewExportItem, NewExportOutputReceipt,
 };
-pub use feedback::{FeedbackPage, MAX_FEEDBACK_PAGE_SIZE};
+pub use feedback::{FeedbackPage, LearningEvidencePage, MAX_FEEDBACK_PAGE_SIZE};
 pub use import_journal::{
     ImportPhotoGrouping, ImportSession, ImportSessionState, ImportSessionSummary,
     SourceScanReconciliation,

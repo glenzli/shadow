@@ -2,15 +2,73 @@
 
 #include "backend/rust_qt_projection.hpp"
 
+#include <QJsonDocument>
+#include <QSet>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 namespace desktop_backend_projection {
 namespace {
+
+QVector<double> edit_curve_values(const rust::Vec<double>& source) {
+    if (source.size() % 2U != 0U || source.size() > 512U)
+        throw std::length_error("RGB curve point vector has invalid size");
+    QVector<double> result;
+    result.reserve(static_cast<qsizetype>(source.size()));
+    for (const double value : source)
+        result.push_back(value);
+    return result;
+}
+
+void validate_mask_components(const BackendGradeNode& source) {
+    if (source.local_mask_components.size() > BACKEND_MAX_MASK_COMPONENTS) {
+        throw std::length_error("local_mask_components exceeds the bounded component count");
+    }
+    if (source.local_mask_components.isEmpty() && source.local_mask_invert) {
+        throw std::invalid_argument("an empty node mask cannot carry final inversion");
+    }
+    QSet<QString> component_ids;
+    for (qsizetype index = 0; index < source.local_mask_components.size(); ++index) {
+        const auto& component = source.local_mask_components.at(index);
+        if (component.component_id.isEmpty() || component.kind < 1U || component.kind > 7U
+            || component.operation > 3U || (index == 0 && component.operation != 0U)
+            || (index > 0 && component.operation == 0U)
+            || component_ids.contains(component.component_id)) {
+            throw std::invalid_argument("local_mask_components contains invalid topology");
+        }
+        component_ids.insert(component.component_id);
+    }
+}
+
+void validate_mask_components(const shadow::desktop::FfiGradeNode& source) {
+    if (source.local_mask_components.size()
+        > static_cast<std::size_t>(BACKEND_MAX_MASK_COMPONENTS)) {
+        throw std::length_error("local_mask_components exceeds the bounded component count");
+    }
+    if (source.local_mask_components.empty() && source.local_mask_invert) {
+        throw std::invalid_argument("an empty node mask cannot carry final inversion");
+    }
+    std::unordered_set<std::string> component_ids;
+    for (std::size_t index = 0; index < source.local_mask_components.size(); ++index) {
+        const auto& component = source.local_mask_components[index];
+        if (component.component_id.empty() || component.kind < 1U || component.kind > 7U
+            || component.operation > 3U || (index == 0U && component.operation != 0U)
+            || (index > 0U && component.operation == 0U)
+            || !component_ids
+                    .insert(
+                        std::string(component.component_id.data(), component.component_id.size())
+                    )
+                    .second) {
+            throw std::invalid_argument("local_mask_components contains invalid topology");
+        }
+    }
+}
 
 [[nodiscard]] shadow::desktop::FfiBasicEditParameters
 ffi_parameters(const BackendBasicEditParameters& source) {
@@ -64,6 +122,9 @@ ffi_fine_parameters(const BackendFineEditParameters& source) {
     result.shadows = source.shadows;
     result.whites = source.whites;
     result.blacks = source.blacks;
+    result.highlight_red_suppression = source.highlight_red_suppression;
+    result.highlight_green_suppression = source.highlight_green_suppression;
+    result.highlight_blue_suppression = source.highlight_blue_suppression;
     result.global_a_balance = source.global_a_balance;
     result.global_b_balance = source.global_b_balance;
     result.vibrance = source.vibrance;
@@ -96,6 +157,14 @@ ffi_fine_parameters(const BackendFineEditParameters& source) {
     result.selective_color_relative = source.selective_color_relative;
     result.selective_color_lightness_protection = source.selective_color_lightness_protection;
     result.selective_color_cmyk = ffi_values(source.selective_color_cmyk);
+    for (const double value : source.rgb_curve_points[0])
+        result.rgb_curve_master_points.push_back(value);
+    for (const double value : source.rgb_curve_points[1])
+        result.rgb_curve_red_points.push_back(value);
+    for (const double value : source.rgb_curve_points[2])
+        result.rgb_curve_green_points.push_back(value);
+    for (const double value : source.rgb_curve_points[3])
+        result.rgb_curve_blue_points.push_back(value);
     result.oklab_lightness_curve_points.reserve(
         static_cast<std::size_t>(source.oklab_lightness_curve_points.size())
     );
@@ -202,6 +271,9 @@ edit_fine_parameters(const shadow::desktop::FfiFineEditParameters& source) {
         .shadows = source.shadows,
         .whites = source.whites,
         .blacks = source.blacks,
+        .highlight_red_suppression = source.highlight_red_suppression,
+        .highlight_green_suppression = source.highlight_green_suppression,
+        .highlight_blue_suppression = source.highlight_blue_suppression,
         .global_a_balance = source.global_a_balance,
         .global_b_balance = source.global_b_balance,
         .vibrance = source.vibrance,
@@ -227,6 +299,11 @@ edit_fine_parameters(const shadow::desktop::FfiFineEditParameters& source) {
             "selective_color_cmyk"
         ),
         .oklab_lightness_curve_points = std::move(oklab_lightness_curve_points),
+        .rgb_curve_points =
+            {edit_curve_values(source.rgb_curve_master_points),
+             edit_curve_values(source.rgb_curve_red_points),
+             edit_curve_values(source.rgb_curve_green_points),
+             edit_curve_values(source.rgb_curve_blue_points)},
         .oklab_color_warper_control_points = oklab_color_warper_control_points,
         .oklab_color_warper_strength = source.oklab_color_warper_strength,
         .lut_resource_id = qstring(source.lut_resource_id),
@@ -290,25 +367,42 @@ shadow::desktop::FfiEditPreviewPolicy ffi_edit_preview_policy(const EditPreviewP
 }
 
 shadow::desktop::FfiGradeNode ffi_grade_node(const BackendGradeNode& source) {
+    validate_mask_components(source);
     shadow::desktop::FfiGradeNode result;
     result.grade_node_id = source.grade_node_id.toStdString();
     result.shared_layer_id = source.shared_layer_id.toStdString();
     result.shared_revision_id = source.shared_revision_id.toStdString();
-    result.local_mask_kind = source.local_mask_kind;
-    result.local_mask_x0 = source.local_mask_x0;
-    result.local_mask_y0 = source.local_mask_y0;
-    result.local_mask_x1 = source.local_mask_x1;
-    result.local_mask_y1 = source.local_mask_y1;
-    result.local_mask_radius_x = source.local_mask_radius_x;
-    result.local_mask_radius_y = source.local_mask_radius_y;
-    result.local_mask_feather = source.local_mask_feather;
-    result.local_mask_invert = source.local_mask_invert;
-    result.local_mask_brush_points.reserve(
-        static_cast<std::size_t>(source.local_mask_brush_points.size())
+    result.local_mask_components.reserve(
+        static_cast<std::size_t>(source.local_mask_components.size())
     );
-    for (const double value : source.local_mask_brush_points) {
-        result.local_mask_brush_points.push_back(value);
+    for (const auto& source_component : source.local_mask_components) {
+        shadow::desktop::FfiMaskComponent component;
+        component.component_id = source_component.component_id.toStdString();
+        component.operation = source_component.operation;
+        component.enabled = source_component.enabled;
+        component.kind = source_component.kind;
+        component.x0 = source_component.x0;
+        component.y0 = source_component.y0;
+        component.x1 = source_component.x1;
+        component.y1 = source_component.y1;
+        component.radius_x = source_component.radius_x;
+        component.radius_y = source_component.radius_y;
+        component.feather = source_component.feather;
+        component.leaf_invert = source_component.leaf_invert;
+        component.brush_points.reserve(
+            static_cast<std::size_t>(source_component.brush_points.size())
+        );
+        for (const double value : source_component.brush_points) {
+            component.brush_points.push_back(value);
+        }
+        component.condition_expression = source_component.condition_expression.toStdString();
+        component.semantic_query = source_component.semantic_query.toStdString();
+        component.semantic_maximum_regions = source_component.semantic_maximum_regions;
+        component.semantic_score_threshold_percent =
+            source_component.semantic_score_threshold_percent;
+        result.local_mask_components.push_back(std::move(component));
     }
+    result.local_mask_invert = source.local_mask_invert;
     result.label = source.label.toStdString();
     result.opacity = source.opacity;
     result.exposure_render_op_id = source.exposure_render_op_id.toStdString();
@@ -326,25 +420,51 @@ shadow::desktop::FfiGradeNode ffi_grade_node(const BackendGradeNode& source) {
 }
 
 BackendGradeNode grade_node(const shadow::desktop::FfiGradeNode& source) {
+    validate_mask_components(source);
     BackendGradeNode result;
     result.grade_node_id = qstring(source.grade_node_id);
     result.shared_layer_id = qstring(source.shared_layer_id);
     result.shared_revision_id = qstring(source.shared_revision_id);
-    result.local_mask_kind = source.local_mask_kind;
-    result.local_mask_x0 = source.local_mask_x0;
-    result.local_mask_y0 = source.local_mask_y0;
-    result.local_mask_x1 = source.local_mask_x1;
-    result.local_mask_y1 = source.local_mask_y1;
-    result.local_mask_radius_x = source.local_mask_radius_x;
-    result.local_mask_radius_y = source.local_mask_radius_y;
-    result.local_mask_feather = source.local_mask_feather;
-    result.local_mask_invert = source.local_mask_invert;
-    result.local_mask_brush_points.reserve(
-        checked_qt_vector_size(source.local_mask_brush_points.size(), "local_mask_brush_points")
+    result.local_mask_components.reserve(
+        checked_qt_vector_size(source.local_mask_components.size(), "local_mask_components")
     );
-    for (const double value : source.local_mask_brush_points) {
-        result.local_mask_brush_points.push_back(value);
+    for (const auto& source_component : source.local_mask_components) {
+        BackendMaskComponent component;
+        component.component_id = qstring(source_component.component_id);
+        component.operation = source_component.operation;
+        component.enabled = source_component.enabled;
+        component.kind = source_component.kind;
+        component.x0 = source_component.x0;
+        component.y0 = source_component.y0;
+        component.x1 = source_component.x1;
+        component.y1 = source_component.y1;
+        component.radius_x = source_component.radius_x;
+        component.radius_y = source_component.radius_y;
+        component.feather = source_component.feather;
+        component.leaf_invert = source_component.leaf_invert;
+        component.brush_points.reserve(checked_qt_vector_size(
+            source_component.brush_points.size(),
+            "local_mask_component_brush_points"
+        ));
+        for (const double value : source_component.brush_points) {
+            component.brush_points.push_back(value);
+        }
+        component.condition_expression =
+            source_component.condition_expression.empty()
+                ? QString{}
+                : QString::fromUtf8(
+                      QJsonDocument::fromJson(
+                          qstring(source_component.condition_expression).toUtf8()
+                      )
+                          .toJson(QJsonDocument::Compact)
+                  );
+        component.semantic_query = qstring(source_component.semantic_query);
+        component.semantic_maximum_regions = source_component.semantic_maximum_regions;
+        component.semantic_score_threshold_percent =
+            source_component.semantic_score_threshold_percent;
+        result.local_mask_components.push_back(std::move(component));
     }
+    result.local_mask_invert = source.local_mask_invert;
     result.label = qstring(source.label);
     result.opacity = source.opacity;
     result.exposure_render_op_id = qstring(source.exposure_render_op_id);
@@ -400,6 +520,8 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
     settings.foundation.raw_ai_denoise_bypassed = source.raw_ai_denoise.bypassed;
     settings.foundation.raw_ai_denoise_model = source.raw_ai_denoise.model;
     settings.foundation.raw_ai_denoise_amount_percent = source.raw_ai_denoise.amount_percent;
+    settings.foundation.raw_highlight_repair_enabled =
+        source.foundation.raw_highlight_repair_enabled;
     settings.foundation.raw_white_balance_mode = source.foundation.raw_white_balance_mode;
     settings.foundation.temperature_kelvin = source.foundation.temperature_kelvin;
     settings.foundation.tint = source.foundation.tint;
@@ -426,6 +548,7 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
             .source_flip_vertical = spot.source_flip_vertical,
             .feather = spot.feather,
             .strength = spot.strength,
+            .frequency_radius = spot.frequency_radius,
         });
     }
     settings.retouch_strokes.reserve(static_cast<std::size_t>(source.retouch_strokes.size()));
@@ -441,6 +564,7 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
             .source_flip_vertical = stroke.source_flip_vertical,
             .feather = stroke.feather,
             .strength = stroke.strength,
+            .frequency_radius = stroke.frequency_radius,
         };
         ffi_stroke.points.reserve(static_cast<std::size_t>(stroke.points.size()));
         for (const auto& point : stroke.points) {
@@ -451,6 +575,67 @@ shadow::desktop::FfiEditSettings ffi_grade_stack(const BackendGradeStack& source
         }
         settings.retouch_strokes.push_back(std::move(ffi_stroke));
     }
+    settings.retouch_enabled = source.retouch_enabled;
+    for (const auto& layer : source.paint_layers) {
+        shadow::desktop::FfiPaintLayer value;
+        value.id = layer.id.toStdString();
+        value.label = layer.label.toStdString();
+        value.enabled = layer.enabled;
+        value.opacity = layer.opacity;
+        value.blend = layer.blend;
+        value.coordinate_width = layer.coordinate_width;
+        value.coordinate_height = layer.coordinate_height;
+        for (const auto& stroke : layer.strokes) {
+            shadow::desktop::FfiPaintStroke s;
+            s.radius = stroke.radius;
+            s.hardness = stroke.hardness;
+            s.opacity = stroke.opacity;
+            s.flow = stroke.flow;
+            s.red = stroke.red;
+            s.green = stroke.green;
+            s.blue = stroke.blue;
+            s.erase = stroke.erase;
+            s.roundness = stroke.roundness;
+            s.angle_degrees = stroke.angle_degrees;
+            s.spacing = stroke.spacing;
+            s.texture = stroke.texture;
+            s.texture_strength = stroke.texture_strength;
+            s.pressure_size = stroke.pressure_size;
+            s.pressure_flow = stroke.pressure_flow;
+
+            for (const auto& p : stroke.points)
+                s.points.push_back({p.x, p.y, p.pressure});
+            value.strokes.push_back(std::move(s));
+        }
+        settings.paint_layers.push_back(std::move(value));
+    }
+    settings.image_completions.reserve(static_cast<std::size_t>(source.image_completions.size()));
+    for (const auto& region : source.image_completions) {
+        settings.image_completions.push_back({
+            .store_object_id = region.store_object_id.toStdString(),
+            .storage_revision = region.storage_revision,
+            .content_blake3 = region.content_blake3.toStdString(),
+            .byte_len = region.byte_len,
+            .raster_width = region.raster_width,
+            .raster_height = region.raster_height,
+            .coordinate_width = region.coordinate_width,
+            .coordinate_height = region.coordinate_height,
+            .bounds_left = region.bounds_left,
+            .bounds_top = region.bounds_top,
+            .bounds_right = region.bounds_right,
+            .bounds_bottom = region.bounds_bottom,
+            .source_recipe_blake3 = region.source_recipe_blake3.toStdString(),
+            .provider = region.provider.toStdString(),
+            .deployment = region.deployment.toStdString(),
+            .model_build = region.model_build.toStdString(),
+            .postprocessing_identity = region.postprocessing_identity.toStdString(),
+            .api_contract_revision = region.api_contract_revision.toStdString(),
+            .actual_execution_provider = region.actual_execution_provider.toStdString(),
+            .enabled = region.enabled,
+            .strength = region.strength,
+        });
+    }
+    settings.image_completion_enabled = source.image_completion_enabled;
     settings.liquify_enabled = source.liquify_enabled;
     settings.liquify_strokes.reserve(static_cast<std::size_t>(source.liquify_strokes.size()));
     for (const auto& stroke : source.liquify_strokes) {
@@ -498,6 +683,7 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
     };
     result.foundation = {
         .enabled = source.foundation.enabled,
+        .raw_highlight_repair_enabled = source.foundation.raw_highlight_repair_enabled,
         .optics =
             {
                 .enabled = source.foundation.optics.enabled,
@@ -543,6 +729,7 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
             .source_flip_vertical = spot.source_flip_vertical,
             .feather = spot.feather,
             .strength = spot.strength,
+            .frequency_radius = spot.frequency_radius,
         });
     }
     result.retouch_strokes.reserve(
@@ -560,6 +747,7 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
             .source_flip_vertical = stroke.source_flip_vertical,
             .feather = stroke.feather,
             .strength = stroke.strength,
+            .frequency_radius = stroke.frequency_radius,
         };
         decoded.points.reserve(
             checked_qt_vector_size(stroke.points.size(), "retouch_stroke_points")
@@ -572,6 +760,70 @@ BackendGradeStack grade_stack(const shadow::desktop::FfiEditSettings& source) {
         }
         result.retouch_strokes.push_back(std::move(decoded));
     }
+    result.retouch_enabled = source.retouch_enabled;
+    for (const auto& layer : source.paint_layers) {
+        BackendPaintLayer value;
+        value.id = QString::fromUtf8(layer.id.data(), static_cast<qsizetype>(layer.id.size()));
+        value.label =
+            QString::fromUtf8(layer.label.data(), static_cast<qsizetype>(layer.label.size()));
+        value.enabled = layer.enabled;
+        value.opacity = layer.opacity;
+        value.blend = layer.blend;
+        value.coordinate_width = layer.coordinate_width;
+        value.coordinate_height = layer.coordinate_height;
+        for (const auto& stroke : layer.strokes) {
+            BackendPaintStroke s;
+            s.radius = stroke.radius;
+            s.hardness = stroke.hardness;
+            s.opacity = stroke.opacity;
+            s.flow = stroke.flow;
+            s.red = stroke.red;
+            s.green = stroke.green;
+            s.blue = stroke.blue;
+            s.erase = stroke.erase;
+            s.roundness = stroke.roundness;
+            s.angle_degrees = stroke.angle_degrees;
+            s.spacing = stroke.spacing;
+            s.texture = stroke.texture;
+            s.texture_strength = stroke.texture_strength;
+            s.pressure_size = stroke.pressure_size;
+            s.pressure_flow = stroke.pressure_flow;
+
+            for (const auto& p : stroke.points)
+                s.points.push_back({p.x, p.y, p.pressure});
+            value.strokes.push_back(std::move(s));
+        }
+        result.paint_layers.push_back(std::move(value));
+    }
+    result.image_completions.reserve(
+        checked_qt_vector_size(source.image_completions.size(), "image_completions")
+    );
+    for (const auto& region : source.image_completions) {
+        result.image_completions.push_back({
+            .store_object_id = qstring(region.store_object_id),
+            .storage_revision = region.storage_revision,
+            .content_blake3 = qstring(region.content_blake3),
+            .byte_len = region.byte_len,
+            .raster_width = region.raster_width,
+            .raster_height = region.raster_height,
+            .coordinate_width = region.coordinate_width,
+            .coordinate_height = region.coordinate_height,
+            .bounds_left = region.bounds_left,
+            .bounds_top = region.bounds_top,
+            .bounds_right = region.bounds_right,
+            .bounds_bottom = region.bounds_bottom,
+            .source_recipe_blake3 = qstring(region.source_recipe_blake3),
+            .provider = qstring(region.provider),
+            .deployment = qstring(region.deployment),
+            .model_build = qstring(region.model_build),
+            .postprocessing_identity = qstring(region.postprocessing_identity),
+            .api_contract_revision = qstring(region.api_contract_revision),
+            .actual_execution_provider = qstring(region.actual_execution_provider),
+            .enabled = region.enabled,
+            .strength = region.strength,
+        });
+    }
+    result.image_completion_enabled = source.image_completion_enabled;
     result.liquify_enabled = source.liquify_enabled;
     result.liquify_strokes.reserve(
         checked_qt_vector_size(source.liquify_strokes.size(), "liquify_strokes")

@@ -1,5 +1,6 @@
 #include "warm_edit_gpu_mask_plan.hpp"
 
+#include "../edit/condition_mask.hpp"
 #include "../edit/working_color_math.hpp"
 #include "warm_edit_gpu_color_matrix.hpp"
 
@@ -15,18 +16,17 @@ WarmGpuMaskPlanPreparation prepare_warm_gpu_mask_plan(
     const double opacity
 ) {
     WarmGpuMaskPlan plan{
-        .parameters =
-            WarmLayerBlendParameters{
-                .width = source_layout.dimensions.width,
-                .height = source_layout.dimensions.height,
-                .input_row_floats =
-                    static_cast<std::uint32_t>(source_layout.row_stride_bytes / sizeof(float)),
-                .origin_x = context.origin_x,
-                .origin_y = context.origin_y,
-                .full_width = full_dimensions.width,
-                .full_height = full_dimensions.height,
-                .opacity = static_cast<float>(opacity),
-            },
+        .parameters = WarmLayerBlendParameters{
+            .width = source_layout.dimensions.width,
+            .height = source_layout.dimensions.height,
+            .input_row_floats =
+                static_cast<std::uint32_t>(source_layout.row_stride_bytes / sizeof(float)),
+            .origin_x = context.origin_x,
+            .origin_y = context.origin_y,
+            .full_width = full_dimensions.width,
+            .full_height = full_dimensions.height,
+            .opacity = static_cast<float>(opacity),
+        },
     };
     auto& parameters = plan.parameters;
     switch (mask.kind) {
@@ -45,9 +45,17 @@ WarmGpuMaskPlanPreparation prepare_warm_gpu_mask_plan(
     case LocalMaskKind::managed_raster:
         return WarmGpuMaskPlanPreparation{
             .plan = std::nullopt,
-            .diagnostic =
-                "resident Metal does not yet support immutable managed raster masks",
+            .diagnostic = "resident Metal does not yet support immutable managed raster masks",
         };
+    case LocalMaskKind::condition_expression:
+        validate_condition_program(mask.condition_program);
+        parameters.mask_kind = WarmLayerMaskKind::condition_expression;
+        parameters.condition_count = static_cast<std::uint32_t>(mask.condition_program.size());
+        for (std::size_t i = 0U; i < mask.condition_program.size(); ++i)
+            for (std::size_t j = 0U; j < 8U; ++j)
+                parameters.condition_program[i][j] =
+                    static_cast<float>(mask.condition_program[i][j]);
+        break;
     case LocalMaskKind::brush: {
         if (mask.points.empty()) {
             parameters.mask_kind =
@@ -62,10 +70,9 @@ WarmGpuMaskPlanPreparation prepare_warm_gpu_mask_plan(
         if (!preparation.index.has_value()) {
             return WarmGpuMaskPlanPreparation{
                 .plan = std::nullopt,
-                .diagnostic =
-                    preparation.diagnostic.empty()
-                        ? "resident Metal could not prepare the brush spatial index"
-                        : std::move(preparation.diagnostic),
+                .diagnostic = preparation.diagnostic.empty()
+                                  ? "resident Metal could not prepare the brush spatial index"
+                                  : std::move(preparation.diagnostic),
             };
         }
         parameters.mask_kind = WarmLayerMaskKind::brush;
@@ -77,8 +84,8 @@ WarmGpuMaskPlanPreparation prepare_warm_gpu_mask_plan(
         break;
     }
     }
-    if (mask.kind == LocalMaskKind::luminance_range
-        || mask.kind == LocalMaskKind::color_range) {
+    if (mask.kind == LocalMaskKind::luminance_range || mask.kind == LocalMaskKind::color_range
+        || mask.kind == LocalMaskKind::condition_expression) {
         const WorkingSpaceTransform transform =
             prepare_working_space_transform(source_layout.working_space);
         if (!fill_warm_color_matrix_rows(
@@ -89,8 +96,7 @@ WarmGpuMaskPlanPreparation prepare_warm_gpu_mask_plan(
             )) {
             return WarmGpuMaskPlanPreparation{
                 .plan = std::nullopt,
-                .diagnostic =
-                    "resident Metal could not encode the condition-mask working space",
+                .diagnostic = "resident Metal could not encode the condition-mask working space",
             };
         }
     }

@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shadow.local/schemas/raw-highlight-cfa-topology-v1.json",
+  "title": "Shadow RAW highlight CFA topology",
+  "type": "object",
+  "required": [
+    "schema",
+    "topology_version",
+    "run_name",
+    "coordinate_space",
+    "source",
+    "bitfield",
+    "statistics",
+    "resource_usage"
+  ],
+  "properties": {
+    "schema": { "const": "shadow.raw-highlight-cfa-topology.v1" },
+    "topology_version": { "type": "string" },
+    "run_name": { "type": "string", "minLength": 1 },
+    "coordinate_space": {
+      "type": "object",
+      "required": ["plane", "storage", "width", "height", "orientation", "cfa_2x2"],
+      "properties": {
+        "plane": { "const": "active-raw-sensor" },
+        "storage": { "const": "row-major-unoriented-active" },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "orientation": { "type": "integer" },
+        "cfa_2x2": { "type": "string", "pattern": "^[RGB]{4}$" }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": ["staging_manifest", "sample_payload", "descriptor"],
+      "properties": {
+        "staging_manifest": { "$ref": "#/$defs/fileIdentity" },
+        "sample_payload": { "$ref": "#/$defs/fileIdentity" },
+        "descriptor": {
+          "type": "object",
+          "required": [
+            "contract",
+            "black_levels",
+            "physical_white_levels",
+            "linear_response_limits",
+            "has_linear_response_limits"
+          ],
+          "properties": {
+            "contract": {
+              "const": "active-camera-colour-response-20260822.1"
+            },
+            "black_levels": { "$ref": "#/$defs/fourLevels" },
+            "physical_white_levels": { "$ref": "#/$defs/fourLevels" },
+            "linear_response_limits": { "$ref": "#/$defs/fourLevels" },
+            "has_linear_response_limits": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "parent_oracle": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "bitfield": {
+      "type": "object",
+      "required": ["artifact", "encoding", "bits"],
+      "properties": {
+        "artifact": { "$ref": "#/$defs/fileIdentity" },
+        "encoding": { "const": "u8-row-major-unoriented-active-v1" },
+        "bits": {
+          "type": "object",
+          "required": [
+            "physical-white",
+            "linear-response-terminal",
+            "shared-physical-white-3x3",
+            "red-physical-white",
+            "green-physical-white",
+            "blue-physical-white"
+          ],
+          "properties": {
+            "physical-white": { "const": 0 },
+            "linear-response-terminal": { "const": 1 },
+            "shared-physical-white-3x3": { "const": 2 },
+            "red-physical-white": { "const": 3 },
+            "green-physical-white": { "const": 4 },
+            "blue-physical-white": { "const": 5 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "statistics": {
+      "type": "object",
+      "required": [
+        "physical_white_sample_count",
+        "linear_response_terminal_sample_count",
+        "shared_physical_white_sample_count",
+        "physical_white_by_cfa_site",
+        "linear_response_terminal_by_cfa_site",
+        "physical_white_by_channel"
+      ],
+      "properties": {
+        "physical_white_sample_count": { "type": "integer", "minimum": 0 },
+        "linear_response_terminal_sample_count": { "type": "integer", "minimum": 0 },
+        "shared_physical_white_sample_count": { "type": "integer", "minimum": 0 },
+        "physical_white_by_cfa_site": { "$ref": "#/$defs/fourCounts" },
+        "linear_response_terminal_by_cfa_site": { "$ref": "#/$defs/fourCounts" },
+        "physical_white_by_channel": {
+          "type": "object",
+          "required": ["R", "G", "B"],
+          "properties": {
+            "R": { "type": "integer", "minimum": 0 },
+            "G": { "type": "integer", "minimum": 0 },
+            "B": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "resource_usage": {
+      "type": "object",
+      "required": ["elapsed_ms", "peak_rss_bytes", "rows_per_chunk"],
+      "properties": {
+        "elapsed_ms": { "type": "number", "minimum": 0 },
+        "peak_rss_bytes": { "type": "integer", "minimum": 0 },
+        "rows_per_chunk": { "type": "integer", "minimum": 2 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "fourLevels": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0, "maximum": 65535 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "fourCounts": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "fileIdentity": {
+      "type": "object",
+      "required": ["basename", "size_bytes", "sha256"],
+      "properties": {
+        "basename": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

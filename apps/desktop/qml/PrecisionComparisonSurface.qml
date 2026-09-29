@@ -26,6 +26,10 @@ Item {
         && (comparisonMode === sideBySideMode
             || comparisonMode === stackedMode)
     property bool beforeFrameReady: false
+    required property real imageDisplayWidth
+    required property real imageDisplayHeight
+    required property real imageCenterX
+    required property real imageCenterY
 
     signal comparisonPositionRequested(real nextPosition)
 
@@ -94,10 +98,12 @@ Item {
             clip: true
 
             Image {
-                anchors.fill: parent
-                anchors.margins: 10
+                x: parent.width / 2 - comparison.imageCenterX * width
+                y: parent.height / 2 - comparison.imageCenterY * height
+                width: comparison.imageDisplayWidth
+                height: comparison.imageDisplayHeight
                 source: comparison.editor.beforePreviewSource
-                fillMode: Image.PreserveAspectFit
+                fillMode: Image.Stretch
                 asynchronous: true
                 cache: false
                 retainWhileLoading: true
@@ -119,7 +125,7 @@ Item {
                     anchors.centerIn: parent
                     text: qsTr("BEFORE")
                     color: Theme.textSecondary
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.Bold
                     font.letterSpacing: 0.7
                 }
@@ -139,10 +145,12 @@ Item {
             clip: true
 
             Image {
-                anchors.fill: parent
-                anchors.margins: 10
+                x: parent.width / 2 - comparison.imageCenterX * width
+                y: parent.height / 2 - comparison.imageCenterY * height
+                width: comparison.imageDisplayWidth
+                height: comparison.imageDisplayHeight
                 source: dualAfterLivePreview.fallbackSource
-                fillMode: Image.PreserveAspectFit
+                fillMode: Image.Stretch
                 asynchronous: true
                 cache: false
                 retainWhileLoading: true
@@ -152,13 +160,15 @@ Item {
             EditPreviewTextureItem {
                 id: dualAfterLivePreview
                 objectName: "dualAfterLivePreview"
-                anchors.fill: parent
-                anchors.margins: 10
+                x: parent.width / 2 - comparison.imageCenterX * width
+                y: parent.height / 2 - comparison.imageCenterY * height
+                width: comparison.imageDisplayWidth
+                height: comparison.imageDisplayHeight
                 presentationRegistry:
                     comparison.editPreviewPresentation
                 source: comparison.afterPreviewSource
                 liveAdmissionEnabled: comparison.dualComparison
-                fillMode: EditPreviewTextureItem.PreserveAspectFit
+                fillMode: EditPreviewTextureItem.Stretch
             }
 
             Rectangle {
@@ -176,7 +186,7 @@ Item {
                     anchors.centerIn: parent
                     text: qsTr("AFTER")
                     color: Theme.textSecondary
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.Bold
                     font.letterSpacing: 0.7
                 }
@@ -318,7 +328,7 @@ Item {
             anchors.centerIn: parent
             text: qsTr("BEFORE")
             color: Theme.textSecondary
-            font.pixelSize: 8
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.Bold
             font.letterSpacing: 0.7
         }
@@ -343,7 +353,7 @@ Item {
             anchors.centerIn: parent
             text: qsTr("AFTER")
             color: Theme.textSecondary
-            font.pixelSize: 8
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.Bold
             font.letterSpacing: 0.7
         }

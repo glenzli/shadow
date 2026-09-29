@@ -7,6 +7,7 @@ mod format;
 mod library_scale_smoke;
 mod local_workspace_guard;
 mod raw_smoke;
+mod storage_maintenance;
 mod test_layout;
 mod workspace_build;
 
@@ -62,6 +63,8 @@ fn main() -> io::Result<()> {
         }
         "raw-smoke" => raw_smoke::run(env::args_os().nth(2)),
         "library-scale-smoke" => library_scale_smoke::run(env::args_os().skip(2)),
+        "storage-report" => storage_maintenance::report(),
+        "storage-prune-debug" => storage_maintenance::prune_debug(env::args_os().skip(2)),
         "coordination-health" => coordination_health::run(env::args_os().skip(2)),
         "local-workspace-guard" => local_workspace_guard::run(env::args_os().skip(2)),
         "test-layout" => test_layout::run(env::args_os().skip(2)),
@@ -71,7 +74,7 @@ fn main() -> io::Result<()> {
         }
         _ => {
             println!(
-                "cargo xtask <check|test|format [--check] [--all] [native-source ...]|test-layout [--root PATH] [--verbose] [--print-observed]|native-configure|native-build|native-check|desktop-i18n-check|desktop-build|desktop-check|desktop-release|desktop-build-promote [--verify] [validation-label]|desktop-promote-debug APP LABEL|desktop-run-debug [--check|--foreground]|desktop-smoke [fixture-directory]|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|library-scale-smoke [--photos N] [--page-size N]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|local-workspace-guard [--root PATH]|doctor>"
+                "cargo xtask <check|test|format [--check] [--all] [native-source ...]|test-layout [--root PATH] [--verbose] [--print-observed]|native-configure|native-build|native-check|desktop-i18n-check|desktop-build|desktop-check|desktop-release|desktop-build-promote [--verify] [validation-label]|desktop-promote-debug APP LABEL|desktop-run-debug [--check|--foreground]|desktop-smoke [fixture-directory]|raw-smoke [fixture-directory]|daily-use-smoke [fixture-directory]|library-scale-smoke [--photos N] [--page-size N]|storage-report|storage-prune-debug [--keep N] [--apply]|coordination-health [--root PATH] [--stale-after-minutes N] [--fail-on-stale] [--strict] [--commit-gate] [--bulk-stage-gate]|local-workspace-guard [--root PATH]|doctor>"
             );
             Ok(())
         }

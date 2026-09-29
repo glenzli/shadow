@@ -302,7 +302,7 @@ ColumnLayout {
                 }
             }
 
-            ComboBox {
+            ShadowComboBox {
                 id: periodMode
                 objectName: "personalProfileLivingPlacePeriodMode"
                 Layout.fillWidth: true
@@ -335,7 +335,7 @@ ColumnLayout {
                 visible: periodMode.currentIndex !== 0
                 spacing: 8
 
-                TextField {
+                ShadowTextField {
                     objectName: "personalProfileLivingPlaceStartMonth"
                     Layout.fillWidth: true
                     visible: periodMode.currentIndex === 1 || periodMode.currentIndex === 3
@@ -346,7 +346,7 @@ ColumnLayout {
                     onEditingFinished: root.replacePlace(root.editingIndex, text,
                                                          String(root.activePlace.endMonth || ""))
                 }
-                TextField {
+                ShadowTextField {
                     objectName: "personalProfileLivingPlaceEndMonth"
                     Layout.fillWidth: true
                     visible: periodMode.currentIndex === 2 || periodMode.currentIndex === 3

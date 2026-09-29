@@ -16,6 +16,8 @@ Item {
     required property int selectedIndex
 
     signal regionSelected(bool continuous, int index)
+    readonly property bool projected: editor.retouchSources !== undefined
+        && editor.retouchSources.projectionRequired === true
 
     readonly property real pixelScale: Math.max(
         0.0001,
@@ -29,7 +31,7 @@ Item {
     enabled: visible && !editor.stateBusy
 
     Repeater {
-        model: overlay.editor.retouchStrokes
+        model: overlay.projected ? [] : overlay.editor.retouchStrokes
 
         delegate: PrecisionRetouchStrokeHandle {
             anchors.fill: parent
@@ -44,7 +46,7 @@ Item {
     }
 
     Repeater {
-        model: overlay.editor.retouchSpots
+        model: overlay.projected ? [] : overlay.editor.retouchSpots
 
         delegate: PrecisionRetouchSpotHandle {
             anchors.fill: parent
@@ -55,6 +57,27 @@ Item {
                 && overlay.selectedIndex === modelData.index
             onSelectedRequested:
                 overlay.regionSelected(false, modelData.index)
+        }
+    }
+
+    Repeater {
+        model: overlay.projected ? overlay.editor.retouchStrokes : []
+        delegate: PrecisionRetouchProjectedHandle {
+            anchors.fill: parent
+            editor: overlay.editor
+            continuous: true
+            selected: overlay.selectedContinuous && overlay.selectedIndex === modelData.index
+            onSelectedRequested: overlay.regionSelected(true, modelData.index)
+        }
+    }
+    Repeater {
+        model: overlay.projected ? overlay.editor.retouchSpots : []
+        delegate: PrecisionRetouchProjectedHandle {
+            anchors.fill: parent
+            editor: overlay.editor
+            continuous: false
+            selected: !overlay.selectedContinuous && overlay.selectedIndex === modelData.index
+            onSelectedRequested: overlay.regionSelected(false, modelData.index)
         }
     }
 }

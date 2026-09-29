@@ -70,21 +70,42 @@ ShadowAdjustmentSection {
         return Qt.lighter(band.color, Theme.effectiveDark ? 1.9 : 1.55)
     }
 
-    TabBar {
-        id: mixerViewTabs
-        Layout.fillWidth: true
-        Layout.leftMargin: 14
-        Layout.rightMargin: 14
-        Layout.preferredHeight: 28
-        background: Rectangle {
-            radius: Theme.controlRadius
-            color: Theme.surfaceSubtle
-            border.color: mixer.panelBorder
+    headerActions: Row {
+        spacing: 6
+
+        ShadowIconButton {
+            objectName: "colorMixerParameterView"
+            source: "qrc:/icons/settings.svg"
+            buttonSize: 26
+            iconSize: 16
+            checkable: true
+            autoExclusive: true
+            checked: mixer.viewMode === 0
+            toolTipText: qsTr("By parameter")
+            onClicked: mixer.viewMode = 0
         }
-        onCurrentIndexChanged: mixer.viewMode = mixerViewTabs.currentIndex
-        ShadowTabButton { text: qsTr("OKLCH"); compact: true }
-        ShadowTabButton { text: qsTr("COLOR"); compact: true }
-        ShadowTabButton { text: qsTr("CURVES"); compact: true }
+        ShadowIconButton {
+            objectName: "colorMixerColorView"
+            source: "qrc:/icons/color-mixer-colors.svg"
+            buttonSize: 26
+            iconSize: 16
+            checkable: true
+            autoExclusive: true
+            checked: mixer.viewMode === 1
+            toolTipText: qsTr("By color")
+            onClicked: mixer.viewMode = 1
+        }
+        ShadowIconButton {
+            objectName: "colorMixerCurveView"
+            source: "qrc:/icons/color-mixer-curves.svg"
+            buttonSize: 26
+            iconSize: 16
+            checkable: true
+            autoExclusive: true
+            checked: mixer.viewMode === 2
+            toolTipText: qsTr("CURVES")
+            onClicked: mixer.viewMode = 2
+        }
     }
 
     TabBar {
@@ -94,10 +115,26 @@ ShadowAdjustmentSection {
         Layout.leftMargin: 14
         Layout.rightMargin: 14
         Layout.preferredHeight: visible ? 28 : 0
+        Layout.bottomMargin: visible ? 4 : 0
         background: Item {}
-        ShadowTabButton { text: qsTr("HUE"); compact: true }
-        ShadowTabButton { text: qsTr("CHROMA"); compact: true }
-        ShadowTabButton { text: qsTr("LIGHTNESS"); compact: true }
+        ShadowTabButton {
+            objectName: "colorMixerHueTab"
+            text: qsTr("HUE")
+            compact: true
+            underlineMaximumWidth: 32
+        }
+        ShadowTabButton {
+            objectName: "colorMixerChromaTab"
+            text: qsTr("CHROMA")
+            compact: true
+            underlineMaximumWidth: 32
+        }
+        ShadowTabButton {
+            objectName: "colorMixerLightnessTab"
+            text: qsTr("LIGHTNESS")
+            compact: true
+            underlineMaximumWidth: 32
+        }
     }
 
     Repeater {
@@ -109,6 +146,8 @@ ShadowAdjustmentSection {
             required property var modelData
             readonly property string component:
                 mixer.componentForTab(mixerTabs.currentIndex)
+            objectName: "colorMixerBandSlider_" + hueBandSlider.component
+                + "_" + hueBandSlider.index
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
@@ -128,57 +167,67 @@ ShadowAdjustmentSection {
             decimals: 0
             displayMultiplier: 100
             suffix: "%"
-            value: mixer.valueForBand(
-                hueBandSlider.index, hueBandSlider.component)
+            value: 0.0
+
+            function synchronizeFromEditor() {
+                if (hueBandSlider.gestureActive || hueBandSlider.valueEditing)
+                    return
+                hueBandSlider.value = mixer.valueForBand(
+                    hueBandSlider.index, hueBandSlider.component)
+            }
+
+            onComponentChanged: Qt.callLater(
+                hueBandSlider.synchronizeFromEditor)
+            Component.onCompleted: hueBandSlider.synchronizeFromEditor()
+
+            Connections {
+                target: mixer.editor
+                function onParametersChanged() {
+                    hueBandSlider.synchronizeFromEditor()
+                }
+            }
+
             onGestureStarted: mixer.editor.beginParameterEdit(
                 "color_mixer/" + hueBandSlider.component
                     + "/" + hueBandSlider.index)
             onEdited: value => mixer.editor.setColorMixerValue(
                 hueBandSlider.index, hueBandSlider.component, value)
-            onGestureFinished: mixer.editor.endParameterEdit(
-                "color_mixer/" + hueBandSlider.component
-                    + "/" + hueBandSlider.index)
+            onGestureFinished: {
+                mixer.editor.endParameterEdit(
+                    "color_mixer/" + hueBandSlider.component
+                        + "/" + hueBandSlider.index)
+                Qt.callLater(hueBandSlider.synchronizeFromEditor)
+            }
         }
     }
 
     RowLayout {
         visible: mixer.viewMode === 1
         Layout.fillWidth: true
-        Layout.leftMargin: 20
-        Layout.rightMargin: 20
-        Layout.topMargin: visible ? 7 : 0
-        Layout.bottomMargin: visible ? 5 : 0
+        Layout.leftMargin: 14
+        Layout.rightMargin: 14
+        Layout.topMargin: visible ? 3 : 0
+        Layout.bottomMargin: visible ? 3 : 0
         Layout.preferredHeight: visible ? 30 : 0
-        spacing: 8
+        spacing: 4
 
         Item { Layout.fillWidth: true }
 
         Repeater {
             model: mixer.bands
 
-            delegate: Rectangle {
+            delegate: ShadowColorLabelButton {
                 id: bandSwatch
 
                 required property int index
                 required property var modelData
-                Layout.preferredWidth: 18
-                Layout.preferredHeight: 18
+                objectName: "colorMixerBandChoice_" + index
+                buttonSize: 26
                 Layout.alignment: Qt.AlignHCenter
-                radius: 9
-                color: bandSwatch.modelData.color
-                border.width: mixer.selectedBand === bandSwatch.index ? 2 : 1
-                border.color: mixer.selectedBand === bandSwatch.index
-                    ? Theme.selectionForeground : Theme.borderStrong
-                opacity: mixer.selectedBand === bandSwatch.index ? 1 : 0.72
-
-                TapHandler {
-                    onTapped: mixer.selectedBand = bandSwatch.index
-                }
-
-                ToolTip.visible: swatchHover.hovered
-                ToolTip.delay: 450
-                ToolTip.text: bandSwatch.modelData.name
-                HoverHandler { id: swatchHover }
+                labelColor: bandSwatch.modelData.color
+                selected: mixer.selectedBand === bandSwatch.index
+                toolTipText: bandSwatch.modelData.name
+                onClicked: mixer.selectedBand = bandSwatch.index
             }
         }
 
@@ -235,6 +284,7 @@ ShadowAdjustmentSection {
     }
 
     HueCurveEditor {
+        objectName: "colorMixerCurveEditor"
         visible: mixer.viewMode === 2
         Layout.fillWidth: true
         Layout.leftMargin: 14

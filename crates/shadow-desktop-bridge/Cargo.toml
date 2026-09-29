@@ -13,8 +13,10 @@ crate-type = ["rlib", "staticlib"]
 anyhow.workspace = true
 blake3.workspace = true
 cxx.workspace = true
+image.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 shadow-bridge.workspace = true
 shadow-cache.workspace = true
 shadow-catalog.workspace = true
@@ -23,8 +25,10 @@ shadow-domain.workspace = true
 shadow-library-sharing.workspace = true
 shadow-native-path.workspace = true
 shadow-ai.workspace = true
+rusqlite.workspace = true
 thiserror.workspace = true
 time.workspace = true
+tempfile.workspace = true
 uuid.workspace = true
 
 [target.'cfg(windows)'.dependencies]

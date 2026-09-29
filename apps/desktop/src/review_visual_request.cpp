@@ -39,7 +39,10 @@ QString reviewVisualSource(
     }
 
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("generation"), QString::number(generation));
+    // Grid tickets identify immutable artifacts. Keep Qt's decoded-image/texture
+    // cache identity stable across navigation; comparisons still expire per query.
+    const quint64 request_generation = lifetime == ReviewVisualLifetime::Grid ? 0 : generation;
+    query.addQueryItem(QStringLiteral("generation"), QString::number(request_generation));
     query.addQueryItem(QStringLiteral("lifetime"), lifetime_name(lifetime));
     query.addQueryItem(
         QStringLiteral("ticket"),

@@ -1,4 +1,5 @@
 #include "retouch_source_transform.hpp"
+#include "retouch_dependency_reach.hpp"
 
 #include <algorithm>
 #include <array>
@@ -146,6 +147,19 @@ RetouchSourceReach retouch_source_reach(
     const double level_zero_to_raster_scale_y,
     const Dimensions raster_dimensions
 ) {
+    const auto is_frequency = [](const auto& v) {
+        return v.mode == SpotRepairMode::tone || v.mode == SpotRepairMode::texture;
+    };
+    if (adjustment.spots.size() + adjustment.strokes.size() > 1
+        && (std::any_of(adjustment.spots.begin(), adjustment.spots.end(), is_frequency)
+            || std::any_of(adjustment.strokes.begin(), adjustment.strokes.end(), is_frequency))) {
+        return retouch_dependency_reach(
+            adjustment,
+            level_zero_to_raster_scale_x,
+            level_zero_to_raster_scale_y,
+            raster_dimensions
+        );
+    }
     RetouchSourceReach result;
     const auto include = [&](const std::uint16_t radius_level_zero_pixels,
                              const double authored_offset_x_radii,
@@ -158,7 +172,8 @@ RetouchSourceReach retouch_source_reach(
                              const double normalized_upper_x,
                              const double normalized_lower_y,
                              const double normalized_upper_y,
-                             const bool horizontal_stroke) {
+                             const bool horizontal_stroke,
+                             const bool legacy_spot) {
         const double radius_x =
             static_cast<double>(radius_level_zero_pixels) * level_zero_to_raster_scale_x;
         const double radius_y =
@@ -178,7 +193,9 @@ RetouchSourceReach retouch_source_reach(
             automatic
                 ? (horizontal_stroke
                        ? (center_y <= 0.5 ? automatic_distance : -automatic_distance) * radius_y
-                       : 0.0)
+                       : (legacy_spot
+                              ? (center_y <= 0.5 ? 0.5 : -0.5) * automatic_distance * radius_y
+                              : 0.0))
                 : authored_offset_y_radii * radius_y;
         const bool identity =
             rotation_degrees == 0.0 && source_scale == 1.0 && !flip_horizontal && !flip_vertical;
@@ -258,7 +275,8 @@ RetouchSourceReach retouch_source_reach(
             target.center_x,
             target.center_y,
             target.center_y,
-            false
+            false,
+            true
         );
     }
     for (const RetouchStroke& stroke : adjustment.strokes) {
@@ -284,8 +302,40 @@ RetouchSourceReach retouch_source_reach(
             upper_x,
             lower_y,
             upper_y,
-            upper_x - lower_x >= upper_y - lower_y
+            upper_x - lower_x >= upper_y - lower_y,
+            false
         );
+    }
+    std::uint16_t frequency_radius = 0;
+    std::uint16_t frequency_brush_radius = 0;
+    const auto include_frequency = [&](const auto& v) {
+        if (v.mode == SpotRepairMode::tone || v.mode == SpotRepairMode::texture) {
+            frequency_radius = std::max(frequency_radius, v.frequency_radius);
+            frequency_brush_radius = v.radius_level_zero_pixels;
+        }
+    };
+    for (const auto& v : adjustment.spots)
+        include_frequency(v);
+    for (const auto& v : adjustment.strokes)
+        include_frequency(v);
+    if (frequency_radius) {
+        // Unlike Heal's boundary fit, frequency cloning needs only the donor
+        // displacement plus Gaussian support at each pixel. Brush coverage
+        // itself has no image-sample dependency.
+        if (raster_dimensions.width && raster_dimensions.height) {
+            result.horizontal = std::max(
+                0.0,
+                result.horizontal - frequency_brush_radius * level_zero_to_raster_scale_x
+            );
+            result.vertical = std::max(
+                0.0,
+                result.vertical - frequency_brush_radius * level_zero_to_raster_scale_y
+            );
+        }
+        result.horizontal +=
+            std::max(1.0, std::ceil(3.0 * frequency_radius * level_zero_to_raster_scale_x));
+        result.vertical +=
+            std::max(1.0, std::ceil(3.0 * frequency_radius * level_zero_to_raster_scale_y));
     }
     return result;
 }

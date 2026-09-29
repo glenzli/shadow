@@ -6,6 +6,7 @@
 #include "backend/image_understanding_types.hpp"
 #include "backend/library_server_types.hpp"
 #include "backend/library_types.hpp"
+#include "backend/lut_export_types.hpp"
 #include "backend/people_analysis_types.hpp"
 #include "backend/remote_library_types.hpp"
 #include "backend/review_types.hpp"
@@ -25,6 +26,16 @@ class ExportBackend;
 
 class DesktopBackend final {
   public:
+    struct PipelineInput final {
+        QString photo_id;
+        QString representation_id;
+        QString source_path;
+        QString title;
+    };
+
+    [[nodiscard]] BackendLutExportSnapshot
+    prepareLutExport(const BackendGradeStack& grade_stack, const QString& selected_node_id) const;
+
     DesktopBackend(const QString& catalog_path, const QString& cache_root);
     ~DesktopBackend();
 
@@ -36,6 +47,7 @@ class DesktopBackend final {
     scanFolder(const QString& folder_path, std::uint64_t scan_id) const;
     [[nodiscard]] BackendScanProgress scanProgress(std::uint64_t scan_id) const;
     [[nodiscard]] bool cancelFolderScan(std::uint64_t scan_id) const;
+    [[nodiscard]] PipelineInput admitPipelineInput(const QString& source_path) const;
     [[nodiscard]] BackendPhotoInspection
     photoInspection(const QString& photo_id, const QString& representation_id) const;
     [[nodiscard]] BackendRemoteLibrarySnapshot
@@ -45,6 +57,13 @@ class DesktopBackend final {
         const QString& server_address,
         const QString& authorization
     ) const;
+    [[nodiscard]] BackendRemoteLibrarySyncStart beginRemoteLibrarySync(
+        const QString& connection_id,
+        const QString& server_address,
+        const QString& authorization
+    ) const;
+    [[nodiscard]] BackendRemoteLibrarySyncStep stepRemoteLibrarySync(std::uint64_t job_id) const;
+    [[nodiscard]] bool cancelRemoteLibrarySync(std::uint64_t job_id) const;
     void setRemoteLibraryReviewState(
         const QString& connection_id,
         const QString& remote_photo_id,
@@ -79,10 +98,8 @@ class DesktopBackend final {
         std::int64_t capture_end_unix_seconds
     ) const;
     [[nodiscard]] QVector<BackendLocationReferenceLibrary> locationReferenceLibraries() const;
-    [[nodiscard]] BackendLocationReferenceLibrary addLocationReferenceLibrary(
-        const QString& root_path,
-        std::int64_t clock_offset_seconds
-    ) const;
+    [[nodiscard]] BackendLocationReferenceLibrary
+    addLocationReferenceLibrary(const QString& root_path, std::int64_t clock_offset_seconds) const;
     [[nodiscard]] bool removeLocationReferenceLibrary(const QString& id) const;
     [[nodiscard]] BackendLibraryMapSnapshot libraryMapSnapshot(
         const BackendLibraryPhotoFilter& filter,
@@ -186,6 +203,8 @@ class DesktopBackend final {
     [[nodiscard]] BackendLibraryMetadataBatchReceipt
     applyLibraryGpxImport(const QString& preview_id) const;
     [[nodiscard]] BackendReviewVisual loadReviewVisual(const QString& ticket) const;
+    [[nodiscard]] std::uint32_t
+    refreshSelectedReviewPreviews(const QStringList& visual_handles) const;
     [[nodiscard]] BackendReviewComparisonPresentation prepareReviewComparison(
         const QString& left_visual_handle,
         const QString& right_visual_handle
@@ -218,6 +237,53 @@ class DesktopBackend final {
     ) const;
     [[nodiscard]] BackendPhotoEditState
     photoEditState(const QString& photo_id, const QString& source_path) const;
+    [[nodiscard]] QByteArray exportShadowRecipe(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const BackendGradeStack& grade_stack,
+        const QString& label
+    ) const;
+    [[nodiscard]] BackendShadowRecipeImportPreview
+    previewShadowRecipe(const QByteArray& document) const;
+    [[nodiscard]] BackendRecipeImportPlan prepareSemanticRecipeImport(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const QString& expected_working_commit_id,
+        const BackendGradeStack& grade_stack,
+        const QByteArray& document
+    ) const;
+    [[nodiscard]] BackendRecipeImportPlan semanticRecipeImportPlan(std::uint64_t plan_token) const;
+    [[nodiscard]] std::uint64_t
+    beginSemanticRecipeImportItem(std::uint64_t plan_token, const QString& item_id) const;
+    [[nodiscard]] BackendRecipeImportItem executeSemanticRecipeImportItem(
+        std::uint64_t plan_token,
+        const QString& item_id,
+        std::uint64_t job_token
+    ) const;
+    [[nodiscard]] BackendRecipeImportItem cancelSemanticRecipeImportItem(
+        std::uint64_t plan_token,
+        const QString& item_id,
+        std::uint64_t job_token
+    ) const;
+    [[nodiscard]] BackendRecipeImportItem acceptSemanticRecipeImportItem(
+        std::uint64_t plan_token,
+        const QString& item_id,
+        std::uint64_t proposal_token,
+        std::uint64_t generation
+    ) const;
+    [[nodiscard]] BackendRecipeImportPlan
+    excludeSemanticRecipeImportNode(std::uint64_t plan_token, const QString& grade_node_id) const;
+    [[nodiscard]] BackendGradeStack finalizeSemanticRecipeImport(
+        std::uint64_t plan_token,
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const QString& expected_working_commit_id,
+        const BackendGradeStack& grade_stack
+    ) const;
+    void closeSemanticRecipeImport(std::uint64_t plan_token) const;
     [[nodiscard]] BackendPhotoEditState
     resetIncompatiblePhotoEditHistory(const QString& photo_id, const QString& source_path) const;
     [[nodiscard]] QVariantList
@@ -241,18 +307,39 @@ class DesktopBackend final {
     /// Executes only the already user-confirmed conservative sweep. It never
     /// deletes unknown entries, live Catalog blobs, or recent writes.
     [[nodiscard]] BackendCacheMaintenanceSweep runCacheMaintenanceSweep() const;
-    /// Executes bounded local face analysis and returns only anonymous group
-    /// counts. The report is rebuildable session state, never Catalog state.
+    /// Loads the independently clearable device-local People Store. It is
+    /// keyed to Catalog photo identities but contains no face embeddings.
+    [[nodiscard]] BackendPeopleAnalysisReport peopleLibrarySnapshot() const;
+    [[nodiscard]] std::uint64_t beginPeopleAnalysisJob(bool authorized) const;
+    [[nodiscard]] BackendPeopleAnalysisProgress
+    peopleAnalysisJobStatus(std::uint64_t job_token) const;
+    [[nodiscard]] bool cancelPeopleAnalysisJob(std::uint64_t job_token) const;
+    [[nodiscard]] BackendPeopleAnalysisExecution executePeopleAnalysisJob(
+        std::uint64_t job_token,
+        const QString& infer_base_url,
+        const QString& credential_file,
+        bool authorized
+    ) const;
+    void retirePeopleAnalysisJob(std::uint64_t job_token) const;
+    [[nodiscard]] BackendPeopleAnalysisReport mergePeople(const QStringList& person_ids) const;
     [[nodiscard]] BackendPeopleAnalysisReport
-    analyzePeople(const QString& infer_base_url, const QString& credential_file) const;
+    renamePerson(const QString& person_id, const QString& display_name) const;
+    [[nodiscard]] BackendPeopleAnalysisReport
+    splitPerson(const QString& person_id, const QStringList& photo_ids) const;
+    [[nodiscard]] BackendPeopleAnalysisReport undoPeopleMerge() const;
+    void clearPeopleData() const;
+    void resetPeopleAnalysisProgress() const;
     /// Executes bounded SigLIP text-to-image ranking over the current Review
     /// prefix. Results and exact visual tickets are session-only.
+    [[nodiscard]] std::uint64_t beginSemanticSearch() const;
+    void cancelSemanticSearch(std::uint64_t token) const;
     [[nodiscard]] BackendSemanticSearchReport searchSemantics(
         const QString& infer_base_url,
         const QString& credential_file,
         const QString& query,
         const QString& query_revision,
-        const QString& language
+        const QString& language,
+        std::uint64_t token
     ) const;
     [[nodiscard]] BackendSmartClassificationBatch classifySmartCategoriesBatch(
         const QString& infer_base_url,
@@ -272,6 +359,11 @@ class DesktopBackend final {
         const QString& category_id,
         std::int8_t decision
     ) const;
+    void completeSmartCategoryReview(
+        const QString& photo_id,
+        const QString& representation_id,
+        const QVector<BackendSmartCategoryFeedbackDecision>& decisions
+    ) const;
     void pauseSmartClassification(const QString& generation) const;
     [[nodiscard]] BackendImageUnderstandingBatch processImageUnderstandingBatch(
         const QString& infer_base_url,
@@ -285,10 +377,8 @@ class DesktopBackend final {
     [[nodiscard]] BackendImageUnderstandingSnapshot imageUnderstandingSnapshot() const;
     [[nodiscard]] BackendImageUnderstandingSnapshot
     pauseImageUnderstanding(const QString& generation) const;
-    [[nodiscard]] BackendImageUnderstandingProposal imageUnderstandingProposal(
-        const QString& photo_id,
-        const QString& representation_id
-    ) const;
+    [[nodiscard]] BackendImageUnderstandingProposal
+    imageUnderstandingProposal(const QString& photo_id, const QString& representation_id) const;
     void applyImageUnderstandingKeywords(
         const QString& photo_id,
         const QString& representation_id,
@@ -302,10 +392,8 @@ class DesktopBackend final {
         const QString& taxonomy_revision,
         const QVector<BackendClassificationReviewCategory>& categories
     ) const;
-    [[nodiscard]] BackendClassificationReviewProposal advancedClassificationReview(
-        const QString& photo_id,
-        const QString& representation_id
-    ) const;
+    [[nodiscard]] BackendClassificationReviewProposal
+    advancedClassificationReview(const QString& photo_id, const QString& representation_id) const;
     [[nodiscard]] QString acceptAdvancedClassificationReview(
         const QString& photo_id,
         const QString& representation_id,
@@ -327,8 +415,35 @@ class DesktopBackend final {
         EditPreviewPolicy policy,
         std::optional<EditMaskCoverageRequest> mask_coverage_request
     ) const;
+    [[nodiscard]] BackendCurveInputMap curveInputMap(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const BackendGradeStack& stack,
+        std::uint64_t token,
+        int node_index,
+        int channel
+    ) const;
+    [[nodiscard]] BackendRawWhiteBalancePickerResult pickRawWhiteBalance(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const BackendGradeStack& grade_stack,
+        std::uint32_t max_edge,
+        double normalized_x,
+        double normalized_y
+    ) const;
+    [[nodiscard]] BackendRawWhiteBalancePickerResult autoRawWhiteBalance(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const BackendGradeStack& grade_stack,
+        std::uint32_t max_edge
+    ) const;
     [[nodiscard]] std::uint64_t beginEditPreviewRequest() const noexcept;
     [[nodiscard]] bool cancelEditPreviewRequest(std::uint64_t render_token) const noexcept;
+    [[nodiscard]] std::uint64_t beginSubjectMaskInputSession() const;
+    void finishSubjectMaskInputSession(std::uint64_t subject_mask_input_session_token) const;
     [[nodiscard]] std::uint64_t beginSubjectMaskJob() const;
     void cancelSubjectMaskJob(std::uint64_t subject_mask_job_token) const;
     [[nodiscard]] BackendSubjectMaskResult executeSubjectMaskJob(
@@ -342,6 +457,36 @@ class DesktopBackend final {
         const BackendSubjectMaskApplyRequest& request
     ) const;
     void discardSubjectMaskProposal(std::uint64_t proposal_token) const;
+    [[nodiscard]] BackendEditedPreview renderAutoStartPreview(
+        const QString& photo,
+        const QString& source,
+        const QString& base,
+        const BackendGradeStack& stack,
+        std::uint64_t token,
+        const QVector<BackendAutoStartMask>& masks
+    ) const;
+    [[nodiscard]] BackendPhotoEditState applyAutoStart(
+        const QString& photo,
+        const QString& source,
+        const QString& base,
+        const QString& expected,
+        const BackendGradeStack& stack,
+        const QVector<BackendAutoStartMask>& masks
+    ) const;
+
+    [[nodiscard]] std::uint64_t beginImageCompletionJob() const;
+    void cancelImageCompletionJob(std::uint64_t image_completion_job_token) const;
+    [[nodiscard]] BackendImageCompletionResult executeImageCompletionJob(
+        const QString& photo_id,
+        const QString& source_path,
+        const BackendImageCompletionRequest& request
+    ) const;
+    [[nodiscard]] BackendPhotoEditState applyImageCompletionProposal(
+        const QString& photo_id,
+        const QString& source_path,
+        const BackendImageCompletionApplyRequest& request
+    ) const;
+    void discardImageCompletionProposal(std::uint64_t proposal_token) const;
     [[nodiscard]] BackendRawFoundationRuntimeStatus probeRawFoundationRuntime() const;
     [[nodiscard]] BackendRawFoundationNoiseAssessment
     assessRawFoundationNoise(const QString& photo_id, const QString& source_path) const;

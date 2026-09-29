@@ -21,21 +21,238 @@ using desktop_backend_projection::ffi_edit_preview_policy;
 using desktop_backend_projection::ffi_grade_node;
 using desktop_backend_projection::ffi_grade_stack;
 using desktop_backend_projection::grade_node;
+using desktop_backend_projection::grade_stack;
 using desktop_backend_projection::qbytes;
 using desktop_backend_projection::qcounts;
 using desktop_backend_projection::qstring;
 using desktop_backend_projection::shared_grade_node;
 
+[[nodiscard]] BackendRecipeImportItemTerminal
+recipe_import_terminal(const shadow::desktop::FfiRecipeImportItemTerminal terminal) {
+    using Ffi = shadow::desktop::FfiRecipeImportItemTerminal;
+    switch (terminal) {
+    case Ffi::Pending:
+        return BackendRecipeImportItemTerminal::Pending;
+    case Ffi::Running:
+        return BackendRecipeImportItemTerminal::Running;
+    case Ffi::Staged:
+        return BackendRecipeImportItemTerminal::Staged;
+    case Ffi::Completed:
+        return BackendRecipeImportItemTerminal::Completed;
+    case Ffi::NotFound:
+        return BackendRecipeImportItemTerminal::NotFound;
+    case Ffi::Unavailable:
+        return BackendRecipeImportItemTerminal::Unavailable;
+    case Ffi::Cancelled:
+        return BackendRecipeImportItemTerminal::Cancelled;
+    case Ffi::Failed:
+        return BackendRecipeImportItemTerminal::Failed;
+    }
+    throw std::runtime_error("unsupported semantic Recipe import terminal");
+}
+
+[[nodiscard]] BackendRecipeImportItem
+recipe_import_item(const shadow::desktop::FfiRecipeImportItem& item) {
+    return {
+        .item_id = qstring(item.item_id),
+        .grade_node_id = qstring(item.grade_node_id),
+        .component_id = qstring(item.component_id),
+        .operation = item.operation,
+        .enabled = item.enabled,
+        .expansion_percent = item.expansion_percent,
+        .feather_percent = item.feather_percent,
+        .leaf_invert = item.leaf_invert,
+        .semantic_query = qstring(item.semantic_query),
+        .semantic_maximum_regions = item.semantic_maximum_regions,
+        .semantic_score_threshold_percent = item.semantic_score_threshold_percent,
+        .terminal = recipe_import_terminal(item.terminal),
+        .generation = item.generation,
+        .progress_percent = item.progress_percent,
+        .detail = qstring(item.detail),
+        .proposal_token = item.proposal_token,
+        .preview_width = item.preview_width,
+        .preview_height = item.preview_height,
+        .preview_samples = qbytes(item.preview_samples),
+    };
+}
+
+[[nodiscard]] BackendRecipeImportPlan
+recipe_import_plan(const shadow::desktop::FfiRecipeImportPlan& plan) {
+    BackendRecipeImportPlan result{
+        .plan_token = plan.plan_token,
+        .generation = plan.generation,
+        .label = qstring(plan.label),
+    };
+    result.items.reserve(checked_qt_vector_size(plan.items.size(), "semantic_recipe_import_items"));
+    for (const auto& item : plan.items)
+        result.items.push_back(recipe_import_item(item));
+    result.nodes.reserve(checked_qt_vector_size(plan.nodes.size(), "semantic_recipe_import_nodes"));
+    for (const auto& node : plan.nodes) {
+        result.nodes.push_back({
+            .grade_node_id = qstring(node.grade_node_id),
+            .label = qstring(node.label),
+            .semantic_leaf_count = node.semantic_leaf_count,
+            .unsupported_managed_leaf_count = node.unsupported_managed_leaf_count,
+            .excluded = node.excluded,
+        });
+    }
+    return result;
+}
+
 } // namespace
 
-BackendPhotoEditState DesktopBackend::photoEditState(
+BackendPhotoEditState
+DesktopBackend::photoEditState(const QString& photo_id, const QString& source_path) const {
+    return edit_state(
+        impl_->session->photo_edit_state(photo_id.toStdString(), source_path.toStdString())
+    );
+}
+
+QByteArray DesktopBackend::exportShadowRecipe(
     const QString& photo_id,
-    const QString& source_path
+    const QString& source_path,
+    const QString& base_commit_id,
+    const BackendGradeStack& grade_stack_value,
+    const QString& label
 ) const {
-    return edit_state(impl_->session->photo_edit_state(
+    const auto settings = ffi_grade_stack(grade_stack_value);
+    return qbytes(impl_->session->export_shadow_recipe_document(
         photo_id.toStdString(),
-        source_path.toStdString()
+        source_path.toStdString(),
+        base_commit_id.toStdString(),
+        settings,
+        label.toStdString()
     ));
+}
+
+BackendShadowRecipeImportPreview
+DesktopBackend::previewShadowRecipe(const QByteArray& document) const {
+    const auto bytes = rust::Slice<const std::uint8_t>(
+        reinterpret_cast<const std::uint8_t*>(document.constData()),
+        static_cast<std::size_t>(document.size())
+    );
+    const auto preview = impl_->session->preview_shadow_recipe_document(bytes);
+    return {
+        .label = qstring(preview.label),
+        .portable_grade_stack = grade_stack(preview.portable_settings),
+        .grade_node_count = preview.grade_node_count,
+        .portable_mask_count = preview.portable_mask_count,
+        .managed_mask_node_count = preview.managed_mask_node_count,
+        .semantic_mask_intent_count = preview.semantic_mask_intent_count,
+        .detached_shared_node_count = preview.detached_shared_node_count,
+        .removed_lut_count = preview.removed_lut_count,
+        .excluded_retouch_region_count = preview.excluded_retouch_region_count,
+        .excluded_completion_region_count = preview.excluded_completion_region_count,
+        .excluded_liquify_stroke_count = preview.excluded_liquify_stroke_count,
+        .foundation_omitted = preview.foundation_omitted,
+        .raw_denoise_omitted = preview.raw_denoise_omitted,
+        .canvas_omitted = preview.canvas_omitted,
+    };
+}
+
+BackendRecipeImportPlan DesktopBackend::prepareSemanticRecipeImport(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const QString& expected_working_commit_id,
+    const BackendGradeStack& grade_stack_value,
+    const QByteArray& document
+) const {
+    const auto settings = ffi_grade_stack(grade_stack_value);
+    const auto bytes = rust::Slice<const std::uint8_t>(
+        reinterpret_cast<const std::uint8_t*>(document.constData()),
+        static_cast<std::size_t>(document.size())
+    );
+    return recipe_import_plan(impl_->session->prepare_semantic_recipe_import(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        base_commit_id.toStdString(),
+        expected_working_commit_id.toStdString(),
+        settings,
+        bytes
+    ));
+}
+
+BackendRecipeImportPlan
+DesktopBackend::semanticRecipeImportPlan(const std::uint64_t plan_token) const {
+    return recipe_import_plan(impl_->session->semantic_recipe_import_plan(plan_token));
+}
+
+std::uint64_t DesktopBackend::beginSemanticRecipeImportItem(
+    const std::uint64_t plan_token,
+    const QString& item_id
+) const {
+    return impl_->session->begin_semantic_recipe_import_item(plan_token, item_id.toStdString());
+}
+
+BackendRecipeImportItem DesktopBackend::executeSemanticRecipeImportItem(
+    const std::uint64_t plan_token,
+    const QString& item_id,
+    const std::uint64_t job_token
+) const {
+    return recipe_import_item(impl_->session->execute_semantic_recipe_import_item(
+        plan_token,
+        item_id.toStdString(),
+        job_token
+    ));
+}
+
+BackendRecipeImportItem DesktopBackend::cancelSemanticRecipeImportItem(
+    const std::uint64_t plan_token,
+    const QString& item_id,
+    const std::uint64_t job_token
+) const {
+    return recipe_import_item(impl_->session->cancel_semantic_recipe_import_item(
+        plan_token,
+        item_id.toStdString(),
+        job_token
+    ));
+}
+
+BackendRecipeImportItem DesktopBackend::acceptSemanticRecipeImportItem(
+    const std::uint64_t plan_token,
+    const QString& item_id,
+    const std::uint64_t proposal_token,
+    const std::uint64_t generation
+) const {
+    return recipe_import_item(impl_->session->accept_semantic_recipe_import_item(
+        plan_token,
+        item_id.toStdString(),
+        proposal_token,
+        generation
+    ));
+}
+
+BackendRecipeImportPlan DesktopBackend::excludeSemanticRecipeImportNode(
+    const std::uint64_t plan_token,
+    const QString& grade_node_id
+) const {
+    return recipe_import_plan(
+        impl_->session->exclude_semantic_recipe_import_node(plan_token, grade_node_id.toStdString())
+    );
+}
+
+BackendGradeStack DesktopBackend::finalizeSemanticRecipeImport(
+    const std::uint64_t plan_token,
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const QString& expected_working_commit_id,
+    const BackendGradeStack& grade_stack_value
+) const {
+    const auto settings = ffi_grade_stack(grade_stack_value);
+    return grade_stack(impl_->session->finalize_semantic_recipe_import(
+        plan_token,
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        base_commit_id.toStdString(),
+        expected_working_commit_id.toStdString(),
+        settings
+    ));
+}
+
+void DesktopBackend::closeSemanticRecipeImport(const std::uint64_t plan_token) const {
+    impl_->session->close_semantic_recipe_import(plan_token);
 }
 
 BackendPhotoEditState DesktopBackend::resetIncompatiblePhotoEditHistory(
@@ -48,22 +265,23 @@ BackendPhotoEditState DesktopBackend::resetIncompatiblePhotoEditHistory(
     ));
 }
 
-QVariantList DesktopBackend::opticsProfileCandidates(
-    const QString& photo_id,
-    const QString& source_path
-) const {
+QVariantList
+DesktopBackend::opticsProfileCandidates(const QString& photo_id, const QString& source_path) const {
     const auto candidates = impl_->session->optics_profile_candidates(
-        photo_id.toStdString(), source_path.toStdString()
+        photo_id.toStdString(),
+        source_path.toStdString()
     );
     QVariantList result;
     result.reserve(checked_qt_vector_size(candidates.size(), "optics_profile_candidates"));
     for (const auto& candidate : candidates) {
-        result.push_back(QVariantMap{
-            {QStringLiteral("cameraMaker"), qstring(candidate.camera_maker)},
-            {QStringLiteral("cameraModel"), qstring(candidate.camera_model)},
-            {QStringLiteral("lensMaker"), qstring(candidate.lens_maker)},
-            {QStringLiteral("lensModel"), qstring(candidate.lens_model)},
-        });
+        result.push_back(
+            QVariantMap{
+                {QStringLiteral("cameraMaker"), qstring(candidate.camera_maker)},
+                {QStringLiteral("cameraModel"), qstring(candidate.camera_model)},
+                {QStringLiteral("lensMaker"), qstring(candidate.lens_maker)},
+                {QStringLiteral("lensModel"), qstring(candidate.lens_model)},
+            }
+        );
     }
     return result;
 }
@@ -83,9 +301,9 @@ BackendSharedGradeNode DesktopBackend::publishSharedGradeNode(
     const BackendGradeNode& grade_node
 ) const {
     const auto ffi_node = ffi_grade_node(grade_node);
-    return shared_grade_node(impl_->session->publish_shared_grade_node(
-        label.toStdString(), ffi_node
-    ));
+    return shared_grade_node(
+        impl_->session->publish_shared_grade_node(label.toStdString(), ffi_node)
+    );
 }
 
 BackendBatchGradeReceipt DesktopBackend::applySharedGradeNodeToPhotos(
@@ -101,7 +319,8 @@ BackendBatchGradeReceipt DesktopBackend::applySharedGradeNodeToPhotos(
         ffi_targets.push_back(std::move(ffi_target));
     }
     const auto receipt = impl_->session->apply_shared_grade_node_to_photos(
-        layer_id.toStdString(), std::move(ffi_targets)
+        layer_id.toStdString(),
+        std::move(ffi_targets)
     );
     BackendBatchGradeReceipt result{
         .requested = receipt.requested,
@@ -109,9 +328,7 @@ BackendBatchGradeReceipt DesktopBackend::applySharedGradeNodeToPhotos(
         .unchanged = receipt.unchanged,
         .failed = receipt.failed,
     };
-    result.errors.reserve(
-        checked_qt_vector_size(receipt.errors.size(), "batch_grade_errors")
-    );
+    result.errors.reserve(checked_qt_vector_size(receipt.errors.size(), "batch_grade_errors"));
     for (const auto& error : receipt.errors) {
         result.errors.push_back(qstring(error));
     }
@@ -143,16 +360,22 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         request.max_edge = max_edge;
         request.jpeg_quality = jpeg_quality;
         request.policy = ffi_edit_preview_policy(policy);
-        request.use_working_recipe =
-            edit_preview_kind(policy) == EditPreviewKind::Current;
-        request.mask_coverage_requested =
-            mask_coverage_request.has_value();
+        request.use_working_recipe = edit_preview_kind(policy) == EditPreviewKind::Current;
+        request.mask_coverage_requested = mask_coverage_request.has_value();
+        if (mask_coverage_request.has_value()
+            && mask_coverage_request->target_component_index < -1) {
+            throw std::invalid_argument("mask coverage component target is invalid");
+        }
         request.mask_coverage_target_layer_index =
-            mask_coverage_request.has_value()
-            ? mask_coverage_request->target_layer_index : 0U;
+            mask_coverage_request.has_value() ? mask_coverage_request->target_layer_index : 0U;
+        request.mask_coverage_component_requested =
+            mask_coverage_request.has_value() && mask_coverage_request->target_component_index >= 0;
+        request.mask_coverage_target_component_index =
+            request.mask_coverage_component_requested
+                ? static_cast<std::uint32_t>(mask_coverage_request->target_component_index)
+                : 0U;
         request.mask_selection_revision =
-            mask_coverage_request.has_value()
-            ? mask_coverage_request->selection_revision : 0U;
+            mask_coverage_request.has_value() ? mask_coverage_request->selection_revision : 0U;
         ffi_photo_id = photo_id.toStdString();
         ffi_source_path = source_path.toStdString();
     } catch (...) {
@@ -190,12 +413,17 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         static_cast<int>(payload.width),
         static_cast<int>(payload.height)
     );
+    if (payload.level_zero_width == 0U || payload.level_zero_height == 0U) {
+        throw std::runtime_error("edit preview returned empty level-zero geometry");
+    }
     const std::uint64_t expected_rgb8_stride = static_cast<std::uint64_t>(payload.width) * 3U;
     if ((interactive
          && (payload.row_stride_bytes != expected_rgb8_stride || !payload.bytes.empty()))
         || (!interactive && payload.row_stride_bytes != 0U)) {
-        throw std::runtime_error("edit preview returned a payload layout "
-                                 "inconsistent with its explicit policy");
+        throw std::runtime_error(
+            "edit preview returned a payload layout "
+            "inconsistent with its explicit policy"
+        );
     }
     const auto interactive_mask_coverage_samples =
         owned_payload->interactive_mask_coverage_samples();
@@ -203,14 +431,14 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         interactive ? QByteArray{} : qbytes(payload.mask_coverage_samples);
     const bool empty_mask_coverage_sentinel =
         payload.mask_coverage_version == 0U && payload.mask_coverage_target_layer_index == 0U
+        && !payload.mask_coverage_component_selected
+        && payload.mask_coverage_target_component_index == 0U
         && payload.mask_selection_revision == 0U && payload.mask_coverage_width == 0U
         && payload.mask_coverage_height == 0U && payload.mask_coverage_row_stride_bytes == 0U
         && mask_coverage_samples.isEmpty() && interactive_mask_coverage_samples.empty();
     if (!payload.mask_coverage_available) {
         if (!empty_mask_coverage_sentinel) {
-            throw std::runtime_error(
-                "unavailable mask coverage returned non-empty sentinels"
-            );
+            throw std::runtime_error("unavailable mask coverage returned non-empty sentinels");
         }
     } else {
         const std::uint64_t expected_mask_bytes =
@@ -219,6 +447,11 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         if (!mask_coverage_request.has_value()
             || payload.mask_coverage_version != EDIT_MASK_COVERAGE_VERSION
             || payload.mask_coverage_target_layer_index != mask_coverage_request->target_layer_index
+            || payload.mask_coverage_component_selected
+                   != (mask_coverage_request->target_component_index >= 0)
+            || (payload.mask_coverage_component_selected
+                && payload.mask_coverage_target_component_index
+                       != static_cast<std::uint32_t>(mask_coverage_request->target_component_index))
             || payload.mask_selection_revision != mask_coverage_request->selection_revision
             || payload.mask_coverage_width != payload.width
             || payload.mask_coverage_height != payload.height
@@ -281,6 +514,10 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
                 .samples = mask_coverage_samples,
                 .version = payload.mask_coverage_version,
                 .target_layer_index = payload.mask_coverage_target_layer_index,
+                .target_component_index =
+                    payload.mask_coverage_component_selected
+                        ? static_cast<std::int32_t>(payload.mask_coverage_target_component_index)
+                        : -1,
                 .selection_revision = payload.mask_selection_revision,
                 .width = payload.mask_coverage_width,
                 .height = payload.mask_coverage_height,
@@ -306,6 +543,8 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
             },
         .width = payload.width,
         .height = payload.height,
+        .level_zero_width = payload.level_zero_width,
+        .level_zero_height = payload.level_zero_height,
         .terminal = EditPreviewTerminal::Completed,
     };
     if (interactive) {
@@ -314,13 +553,120 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
     return result;
 }
 
+BackendCurveInputMap DesktopBackend::curveInputMap(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const BackendGradeStack& stack,
+    std::uint64_t token,
+    int node_index,
+    int channel
+) const {
+    shadow::desktop::FfiEditPreviewRequest request;
+    request.base_commit_id = base_commit_id.toStdString();
+    request.settings = ffi_grade_stack(stack);
+    // A separate cancellable token owns this read-only cached-source request.
+    request.render_token = token;
+    request.max_edge = 1536U;
+    request.jpeg_quality = 90U;
+    request.policy = shadow::desktop::FfiEditPreviewPolicy::Interactive;
+    request.use_working_recipe = true;
+    request.mask_coverage_requested = false;
+    request.mask_coverage_target_layer_index = 0U;
+    request.mask_coverage_component_requested = false;
+    request.mask_coverage_target_component_index = 0U;
+    request.mask_selection_revision = 0U;
+    const auto map = impl_->session->curve_input_map(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        request,
+        static_cast<std::uint32_t>(node_index),
+        static_cast<std::uint8_t>(channel)
+    );
+    BackendCurveInputMap result{.width = map.width, .height = map.height};
+    result.values.reserve(static_cast<qsizetype>(map.values.size()));
+    for (auto value : map.values)
+        result.values.push_back(value);
+    return result;
+}
+
+BackendRawWhiteBalancePickerResult DesktopBackend::pickRawWhiteBalance(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const BackendGradeStack& grade_stack,
+    const std::uint32_t max_edge,
+    const double normalized_x,
+    const double normalized_y
+) const {
+    shadow::desktop::FfiEditPreviewRequest request;
+    request.base_commit_id = base_commit_id.toStdString();
+    request.settings = ffi_grade_stack(grade_stack);
+    // Picker lookups do not participate in preview terminal arbitration: they
+    // only consult the already-admitted immutable session.
+    request.render_token = 0U;
+    request.max_edge = max_edge;
+    request.jpeg_quality = 90U;
+    request.policy = shadow::desktop::FfiEditPreviewPolicy::Interactive;
+    request.use_working_recipe = true;
+    request.mask_coverage_requested = false;
+    request.mask_coverage_target_layer_index = 0U;
+    request.mask_coverage_component_requested = false;
+    request.mask_coverage_target_component_index = 0U;
+    request.mask_selection_revision = 0U;
+    const auto result = impl_->session->pick_raw_white_balance(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        request,
+        normalized_x,
+        normalized_y
+    );
+    return {
+        .available = result.available,
+        .temperature_kelvin = result.temperature_kelvin,
+        .tint = result.tint,
+    };
+}
+
+BackendRawWhiteBalancePickerResult DesktopBackend::autoRawWhiteBalance(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const BackendGradeStack& grade_stack,
+    const std::uint32_t max_edge
+) const {
+    shadow::desktop::FfiEditPreviewRequest request;
+    request.base_commit_id = base_commit_id.toStdString();
+    request.settings = ffi_grade_stack(grade_stack);
+    // The one-shot estimator only consults the already-admitted immutable CFA
+    // session and does not participate in preview terminal arbitration.
+    request.render_token = 0U;
+    request.max_edge = max_edge;
+    request.jpeg_quality = 90U;
+    request.policy = shadow::desktop::FfiEditPreviewPolicy::Interactive;
+    request.use_working_recipe = true;
+    request.mask_coverage_requested = false;
+    request.mask_coverage_target_layer_index = 0U;
+    request.mask_coverage_component_requested = false;
+    request.mask_coverage_target_component_index = 0U;
+    request.mask_selection_revision = 0U;
+    const auto result = impl_->session->auto_raw_white_balance(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        request
+    );
+    return {
+        .available = result.available,
+        .temperature_kelvin = result.temperature_kelvin,
+        .tint = result.tint,
+    };
+}
+
 std::uint64_t DesktopBackend::beginEditPreviewRequest() const noexcept {
     return impl_->session->begin_basic_edit_preview();
 }
 
-bool DesktopBackend::cancelEditPreviewRequest(
-    const std::uint64_t render_token
-) const noexcept {
+bool DesktopBackend::cancelEditPreviewRequest(const std::uint64_t render_token) const noexcept {
     return impl_->session->cancel_basic_edit_preview(render_token);
 }
 
@@ -420,7 +766,9 @@ BackendPhotoEditState DesktopBackend::createPhotoVariant(
     const QString& name
 ) const {
     return edit_state(impl_->session->create_photo_variant(
-        photo_id.toStdString(), source_path.toStdString(), name.toStdString()
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        name.toStdString()
     ));
 }
 
@@ -444,7 +792,9 @@ BackendPhotoEditState DesktopBackend::activatePhotoVariant(
     const QString& variant_id
 ) const {
     return edit_state(impl_->session->activate_photo_variant(
-        photo_id.toStdString(), source_path.toStdString(), variant_id.toStdString()
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        variant_id.toStdString()
     ));
 }
 
@@ -454,7 +804,9 @@ BackendPhotoEditState DesktopBackend::removePhotoVariant(
     const QString& variant_id
 ) const {
     return edit_state(impl_->session->remove_photo_variant(
-        photo_id.toStdString(), source_path.toStdString(), variant_id.toStdString()
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        variant_id.toStdString()
     ));
 }
 

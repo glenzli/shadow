@@ -260,8 +260,9 @@ dcp_color_matrix_for_temperature(const DcpProfile& profile, const double tempera
         || neutral[1] <= 0.0) {
         return std::nullopt;
     }
+    const double green = neutral[1];
     for (double& value : neutral) {
-        value /= neutral[1];
+        value /= green;
     }
     return neutral;
 }
@@ -302,9 +303,11 @@ raw_white_xy_from_temperature_tint(const double temperature_kelvin, const double
     if (!locus_uv.has_value() || !normal.has_value()) {
         return std::nullopt;
     }
-    // Positive photographic tint is magenta, opposite the positive Duv
-    // direction used by the chosen locus normal.
-    const double displacement = -tint * tint_duv_per_unit;
+    // The public control follows the conventional photographic direction:
+    // positive tint moves the rendered neutral from green toward magenta.
+    // `camera_neutral_from_matrix()` already turns this authored scene white
+    // into its inverse camera-space correction, so do not invert it here.
+    const double displacement = tint * tint_duv_per_unit;
     return uv_to_xy(
         Uv1960{
             .u = locus_uv->u + normal->u * displacement,
@@ -330,7 +333,7 @@ raw_white_balance_presentation_from_xy(const double white_x, const double white_
     }
     const double du = target->u - locus->u;
     const double dv = target->v - locus->v;
-    const double tint = -(du * normal->u + dv * normal->v) / tint_duv_per_unit;
+    const double tint = (du * normal->u + dv * normal->v) / tint_duv_per_unit;
     RawWhiteBalancePresentation result{
         .temperature_kelvin = 1'000'000.0 / *mired,
         .tint = tint,
@@ -442,6 +445,46 @@ std::optional<RawWhiteBalancePresentation> raw_dcp_white_balance_presentation(
     return white_xy.has_value()
                ? raw_white_balance_presentation_from_xy((*white_xy)[0], (*white_xy)[1])
                : std::nullopt;
+}
+
+std::optional<RawWhiteBalancePresentation> raw_frame_white_balance_presentation(
+    const RawFrameDescriptor& descriptor,
+    const std::array<double, 3U>& camera_neutral
+) noexcept {
+    const auto neutral = normalized_positive_camera_neutral(camera_neutral);
+    if (!neutral.has_value()) {
+        return std::nullopt;
+    }
+    try {
+        if (descriptor.has_xyz_to_camera_d65) {
+            const auto xy = xyz_to_xy(multiply(invert(descriptor.xyz_to_camera_d65), *neutral));
+            return xy.has_value() ? raw_white_balance_presentation_from_xy((*xy)[0], (*xy)[1])
+                                  : std::nullopt;
+        }
+        if (descriptor.has_camera_to_xyz_d50) {
+            Matrix3 camera_to_xyz{};
+            for (std::size_t input = 0U; input < 3U; ++input) {
+                for (std::size_t output = 0U; output < 3U; ++output) {
+                    camera_to_xyz[output * 3U + input] =
+                        descriptor.camera_to_xyz_d50[input * 3U + output];
+                }
+            }
+            const auto xy = xyz_to_xy(multiply(camera_to_xyz, *neutral));
+            return xy.has_value() ? raw_white_balance_presentation_from_xy((*xy)[0], (*xy)[1])
+                                  : std::nullopt;
+        }
+        if (descriptor.has_camera_to_linear_srgb_d65) {
+            const auto xy = xyz_to_xy(multiply(
+                invert(xyz_d65_to_linear_srgb),
+                multiply(descriptor.camera_to_linear_srgb_d65, *neutral)
+            ));
+            return xy.has_value() ? raw_white_balance_presentation_from_xy((*xy)[0], (*xy)[1])
+                                  : std::nullopt;
+        }
+    } catch (...) {
+        return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 std::optional<std::array<double, 3U>> raw_frame_camera_neutral(

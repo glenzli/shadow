@@ -7,13 +7,17 @@
 #include <compare>
 #include <cstdint>
 
-inline constexpr std::uint32_t EDIT_MASK_COVERAGE_VERSION = 1;
+inline constexpr std::uint32_t EDIT_MASK_COVERAGE_VERSION = 2;
 
 // One optional coverage request belongs to the immutable Grade Stack snapshot
 // handed to the preview worker. The selected node index is meaningful only
 // together with the monotonic selection revision.
 struct EditMaskCoverageRequest final {
     std::uint32_t target_layer_index = 0;
+    // -1 requests the final composed node mask. A non-negative index requests
+    // one leaf so component editing never mistakes final coverage for the
+    // selected selector's geometry.
+    std::int32_t target_component_index = -1;
     std::uint64_t selection_revision = 0;
 
     auto operator<=>(const EditMaskCoverageRequest&) const = default;
@@ -26,6 +30,7 @@ struct MaskCoverageGeneration final {
     std::uint64_t photo = 0;
     std::uint64_t recipe_revision = 0;
     std::uint32_t target_layer_index = 0;
+    std::int32_t target_component_index = -1;
     std::uint64_t selection_revision = 0;
     std::uint64_t paired_preview_generation = 0;
 
@@ -38,6 +43,7 @@ struct EditMaskCoveragePayload final {
     std::uint32_t row_stride_bytes = 0;
     std::uint32_t version = 0;
     std::uint32_t target_layer_index = 0;
+    std::int32_t target_component_index = -1;
     std::uint64_t selection_revision = 0;
 };
 

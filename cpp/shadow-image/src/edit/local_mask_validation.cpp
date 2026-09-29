@@ -1,5 +1,6 @@
 #include "local_mask_validation.hpp"
 
+#include "condition_mask.hpp"
 #include "managed_raster_mask.hpp"
 
 #include <shadow/image/edit_error.hpp>
@@ -48,6 +49,47 @@ void validate_normalized(const double value, const std::string_view name) {
 } // namespace
 
 void validate_local_mask(const LocalMask& mask) {
+    if (!mask.components.empty()) {
+        if (mask.components.size() > maximum_composite_local_mask_components) {
+            invalid_mask("composite local mask exceeds the eight-component execution limit");
+        }
+        if (mask.managed_raster.has_value() || !mask.points.empty()) {
+            invalid_mask("composite local mask may not carry outer leaf payload");
+        }
+        if (mask.components.front().operation != LocalMaskComponentOperation::base) {
+            invalid_mask("composite local mask first component must use Base");
+        }
+        std::size_t raster_bytes = 0U;
+        for (std::size_t index = 0U; index < mask.components.size(); ++index) {
+            const LocalMaskComponent& component = mask.components[index];
+            switch (component.operation) {
+            case LocalMaskComponentOperation::base:
+            case LocalMaskComponentOperation::add:
+            case LocalMaskComponentOperation::subtract:
+            case LocalMaskComponentOperation::intersect:
+                break;
+            default:
+                invalid_mask("composite local-mask component operation is unsupported");
+            }
+            if (index > 0U && component.operation == LocalMaskComponentOperation::base) {
+                invalid_mask("only the first composite local-mask component may use Base");
+            }
+            if (!component.mask.components.empty()) {
+                invalid_mask("composite local masks may not nest");
+            }
+            validate_local_mask(component.mask);
+            if (component.mask.managed_raster.has_value()) {
+                const std::size_t bytes = component.mask.managed_raster->samples.size();
+                if (bytes > maximum_composite_local_mask_raster_bytes - raster_bytes) {
+                    invalid_mask(
+                        "composite local-mask raster payload exceeds the 64 MiB execution budget"
+                    );
+                }
+                raster_bytes += bytes;
+            }
+        }
+        return;
+    }
     if (mask.kind != LocalMaskKind::managed_raster && mask.managed_raster.has_value()) {
         invalid_mask("only a managed raster mask may carry an immutable raster payload");
     }
@@ -116,6 +158,9 @@ void validate_local_mask(const LocalMask& mask) {
         }
         validate_normalized(mask.feather, "managed raster feather");
         validate_managed_raster_mask(*mask.managed_raster);
+        return;
+    case LocalMaskKind::condition_expression:
+        validate_condition_program(mask.condition_program);
         return;
     }
     invalid_mask("local-mask has an unsupported kind");

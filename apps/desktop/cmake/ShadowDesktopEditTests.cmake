@@ -1,5 +1,125 @@
 # Precision edit-session, preview/detail transport, tool interaction, and
 # packaged edit-component contracts.
+    qt_add_executable(shadow-lut-export-controller-test
+        tests/lut_export_controller_test.cpp
+        src/lut_export_controller.cpp src/lut_export_controller.hpp)
+    target_compile_features(shadow-lut-export-controller-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-lut-export-controller-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-lut-export-controller-test PRIVATE Qt6::Quick Qt6::Qml Qt6::Concurrent)
+    qt_add_qml_module(shadow-lut-export-controller-test
+        URI Shadow.LutExportContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES
+            qml/ShadowComboBox.qml
+            qml/ShadowIcon.qml
+ qml/LutExportDialog.qml qml/ShadowButton.qml qml/Theme.qml)
+    add_test(NAME shadow-desktop-lut-export-controller COMMAND shadow-lut-export-controller-test)
+    set_tests_properties(shadow-desktop-lut-export-controller PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30 LABELS "desktop;grading")
+
+    add_executable(
+        shadow-xmp-develop-import-test
+        tests/xmp_develop_import_test.cpp
+        src/xmp_develop_import.cpp
+        src/xmp_develop_import.hpp
+    )
+    target_compile_features(shadow-xmp-develop-import-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-xmp-develop-import-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-xmp-develop-import-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-xmp-develop-import-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-xmp-develop-import-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-xmp-develop-import
+        COMMAND shadow-xmp-develop-import-test
+    )
+
+    add_executable(
+        shadow-recipe-interchange-contract-test
+        tests/shadow_recipe_interchange_contract_test.cpp
+    )
+    target_compile_features(shadow-recipe-interchange-contract-test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        shadow-recipe-interchange-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-recipe-interchange-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick
+    )
+    qt_add_qml_module(
+        shadow-recipe-interchange-contract-test
+        URI Shadow.RecipeInterchangeContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/ShadowRecipeInterchangeDialog.qml
+            qml/ShadowButton.qml
+            qml/ShadowIconButton.qml
+            qml/ShadowIcon.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(
+        shadow-recipe-interchange-contract-test
+        shadow-recipe-interchange-contract-test-icons
+        PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/close.svg
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-recipe-interchange-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-recipe-interchange-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-recipe-interchange-contract
+        COMMAND shadow-recipe-interchange-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-recipe-interchange-contract
+        PROPERTIES ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
+    )
+
+    add_executable(
+        shadow-edit-interchange-controller-test
+        tests/edit_interchange_controller_test.cpp
+    )
+    target_compile_features(shadow-edit-interchange-controller-test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        shadow-edit-interchange-controller-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(shadow-edit-interchange-controller-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-interchange-controller-test PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-interchange-controller-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-interchange-controller
+        COMMAND shadow-edit-interchange-controller-test
+    )
+
     add_executable(
         shadow-edit-source-admission-test
         tests/edit_source_admission_test.cpp
@@ -127,6 +247,12 @@
     endif()
     add_test(NAME shadow-desktop-edit-history COMMAND shadow-edit-history-test)
 
+    add_executable(shadow-edit-history-snapshot-test tests/edit_history_snapshot_test.cpp)
+    target_compile_features(shadow-edit-history-snapshot-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-edit-history-snapshot-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-edit-history-snapshot-test PRIVATE Qt6::Core Qt6::Gui)
+    add_test(NAME shadow-desktop-edit-history-snapshot COMMAND shadow-edit-history-snapshot-test)
+
     add_executable(
         shadow-edit-history-restore-projection-test
         tests/edit_history_restore_projection_test.cpp
@@ -160,6 +286,39 @@
     add_test(
         NAME shadow-desktop-edit-history-restore-projection
         COMMAND shadow-edit-history-restore-projection-test
+    )
+
+    add_executable(
+        shadow-edit-mask-component-mutation-test
+        tests/edit_mask_component_mutation_test.cpp
+        src/edit_mask_component_mutation.hpp
+    )
+    target_compile_features(
+        shadow-edit-mask-component-mutation-test
+        PRIVATE cxx_std_20
+    )
+    target_include_directories(
+        shadow-edit-mask-component-mutation-test
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(
+        shadow-edit-mask-component-mutation-test
+        PRIVATE Qt6::Gui
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-edit-mask-component-mutation-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-edit-mask-component-mutation-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-edit-mask-component-mutation
+        COMMAND shadow-edit-mask-component-mutation-test
     )
 
     add_executable(
@@ -268,6 +427,12 @@
         NAME shadow-desktop-edit-version-presentation
         COMMAND shadow-edit-version-presentation-test
     )
+
+    add_executable(shadow-edit-before-preview-state-test tests/edit_before_preview_state_test.cpp)
+    target_compile_features(shadow-edit-before-preview-state-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-edit-before-preview-state-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-edit-before-preview-state-test PRIVATE Qt6::Gui)
+    add_test(NAME shadow-desktop-edit-before-preview-state COMMAND shadow-edit-before-preview-state-test)
 
     add_executable(
         shadow-edit-preview-contract-test
@@ -536,6 +701,13 @@
         src/edit_liquify_coordinates.cpp
         src/edit_liquify_coordinates.hpp
     )
+    add_executable(shadow-edit-retouch-coordinates-test
+        tests/edit_retouch_coordinates_test.cpp
+        src/edit_retouch_coordinates.cpp)
+    target_compile_features(shadow-edit-retouch-coordinates-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-edit-retouch-coordinates-test PRIVATE src)
+    target_link_libraries(shadow-edit-retouch-coordinates-test PRIVATE Qt6::Gui Shadow::Image)
+    add_test(NAME shadow-desktop-edit-retouch-coordinates COMMAND shadow-edit-retouch-coordinates-test)
     target_compile_features(
         shadow-edit-liquify-coordinates-test
         PRIVATE cxx_std_20
@@ -1102,6 +1274,48 @@
     )
 
     add_executable(
+        shadow-precision-people-mask-selector-contract-test
+        tests/precision_people_mask_selector_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-people-mask-selector-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-precision-people-mask-selector-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    )
+    qt_add_qml_module(
+        shadow-precision-people-mask-selector-contract-test
+        URI Shadow.PeopleMaskSelectorContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/PrecisionPeopleMaskSelector.qml
+            qml/Theme.qml
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-people-mask-selector-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-people-mask-selector-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-people-mask-selector-contract
+        COMMAND shadow-precision-people-mask-selector-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-people-mask-selector-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-precision-detail-loupe-contract-test
         tests/precision_detail_loupe_contract_test.cpp
     )
@@ -1184,8 +1398,10 @@
             qml/ShadowIconButton.qml
             qml/ShadowInlineSlider.qml
             qml/ShadowSlider.qml
+            qml/ShadowSwitch.qml
             qml/Theme.qml
             qml/ToneCurveEditor.qml
+            qml/ShadowTabButton.qml
     )
     if(MSVC)
         target_compile_options(
@@ -1204,6 +1420,28 @@
     )
     set_tests_properties(
         shadow-desktop-precision-raw-foundation-adjustments-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-precision-variant-selector-contract-test
+        tests/precision_variant_selector_contract_test.cpp
+    )
+    target_compile_features(shadow-precision-variant-selector-contract-test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        shadow-precision-variant-selector-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-precision-variant-selector-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test
+    )
+    add_test(
+        NAME shadow-desktop-precision-variant-selector-contract
+        COMMAND shadow-precision-variant-selector-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-variant-selector-contract
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
@@ -1245,6 +1483,96 @@
     )
 
     add_executable(
+        shadow-precision-color-mixer-contract-test
+        tests/precision_color_mixer_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-color-mixer-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_link_libraries(
+        shadow-precision-color-mixer-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test
+    )
+    qt_add_qml_module(
+        shadow-precision-color-mixer-contract-test
+        URI Shadow.PrecisionColorMixerContract
+        VERSION 1.0
+        RESOURCE_PREFIX "/qt/qml"
+        NO_PLUGIN
+        QML_FILES
+            qml/HueCurveEditor.qml
+            qml/PrecisionColorMixer.qml
+            qml/ShadowColorLabelButton.qml
+            qml/ShadowAdjustmentSection.qml
+            qml/ShadowIcon.qml
+            qml/ShadowIconButton.qml
+            qml/ShadowInlineSlider.qml
+            qml/ShadowSlider.qml
+            qml/ShadowTabButton.qml
+            qml/Theme.qml
+    )
+    qt_add_resources(shadow-precision-color-mixer-contract-test color-mixer-contract-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/chevron-down.svg icons/reset-all.svg icons/settings.svg
+            icons/color-mixer-colors.svg icons/color-mixer-curves.svg)
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-color-mixer-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-color-mixer-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-color-mixer-contract
+        COMMAND shadow-precision-color-mixer-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-color-mixer-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
+        shadow-precision-canvas-status-overlays-contract-test
+        tests/precision_canvas_status_overlays_contract_test.cpp
+    )
+    target_compile_features(
+        shadow-precision-canvas-status-overlays-contract-test
+        PRIVATE cxx_std_20
+    )
+    target_compile_definitions(
+        shadow-precision-canvas-status-overlays-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(
+        shadow-precision-canvas-status-overlays-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test
+    )
+    if(MSVC)
+        target_compile_options(
+            shadow-precision-canvas-status-overlays-contract-test
+            PRIVATE /W4 /permissive-
+        )
+    else()
+        target_compile_options(
+            shadow-precision-canvas-status-overlays-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-precision-canvas-status-overlays-contract
+        COMMAND shadow-precision-canvas-status-overlays-contract-test
+    )
+    set_tests_properties(
+        shadow-desktop-precision-canvas-status-overlays-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(
         shadow-precision-direct-stroke-interaction-test
         tests/precision_direct_stroke_interaction_test.cpp
         src/edit_stroke_input.cpp
@@ -1272,6 +1600,7 @@
             qml/PrecisionActiveStrokeCoverage.qml
             qml/PrecisionCanvasZoomInput.qml
             qml/PrecisionCanvasPickerInput.qml
+            qml/PrecisionRetouchSourcePreview.qml
             qml/PrecisionCropOverlay.qml
             qml/PrecisionLiquifyOverlay.qml
             qml/PrecisionLocalMaskOverlay.qml
@@ -1333,3 +1662,151 @@
         shadow-desktop-precision-point-color-section-contract
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+
+# Precision view transforms and asynchronous detail presentation own these
+# focused contracts independently of the RAW/render implementation.
+foreach(contract IN ITEMS viewport detail_surface zoom_input)
+    add_executable(shadow-precision-${contract}-contract-test
+        tests/precision_${contract}_contract_test.cpp)
+    target_compile_features(shadow-precision-${contract}-contract-test PRIVATE cxx_std_20)
+    target_compile_definitions(shadow-precision-${contract}-contract-test
+        PRIVATE SHADOW_DESKTOP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(shadow-precision-${contract}-contract-test
+        PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+    add_test(NAME shadow-desktop-precision-${contract}-contract
+        COMMAND shadow-precision-${contract}-contract-test)
+    set_tests_properties(shadow-desktop-precision-${contract}-contract
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()
+
+# Tool preferences and raw pointer delivery are independent of photo/render state.
+foreach(contract IN ITEMS brush_presets stroke_input)
+    add_executable(shadow-paint-${contract}-test
+        tests/paint_${contract}_test.cpp
+        src/paint_${contract}.cpp
+        src/paint_${contract}.hpp)
+    set_target_properties(shadow-paint-${contract}-test PROPERTIES AUTOMOC ON)
+    target_compile_features(shadow-paint-${contract}-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-paint-${contract}-test PRIVATE src)
+    target_link_libraries(shadow-paint-${contract}-test PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick)
+    add_test(NAME shadow-desktop-paint-${contract} COMMAND shadow-paint-${contract}-test)
+    set_tests_properties(shadow-desktop-paint-${contract}
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()
+
+if(BUILD_TESTING)
+    add_executable(shadow-tone-curve-editor-contract-test
+        tests/tone_curve_editor_contract_test.cpp
+        src/tone_curve_point_model.cpp src/tone_curve_point_model.hpp)
+    target_compile_features(shadow-tone-curve-editor-contract-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-tone-curve-editor-contract-test PRIVATE src)
+    target_link_libraries(shadow-tone-curve-editor-contract-test PRIVATE
+        Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+    qt_add_qml_module(shadow-tone-curve-editor-contract-test
+        URI Shadow.CurveContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/ToneCurveEditor.qml qml/ShadowTabButton.qml
+        qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/Theme.qml)
+    qt_add_resources(shadow-tone-curve-editor-contract-test curve-test-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/eyedropper.svg icons/trash.svg icons/redo.svg)
+    add_test(NAME shadow-desktop-tone-curve-editor-contract COMMAND shadow-tone-curve-editor-contract-test)
+    set_tests_properties(shadow-desktop-tone-curve-editor-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+endif()
+
+if(BUILD_TESTING)
+    qt_add_executable(shadow-targeted-curve-contract-test tests/targeted_curve_contract_test.cpp)
+    target_compile_features(shadow-targeted-curve-contract-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-targeted-curve-contract-test PRIVATE Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    qt_add_qml_module(shadow-targeted-curve-contract-test
+        URI Shadow.TargetedCurveContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/PrecisionTargetedCurveOverlay.qml qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/Theme.qml)
+    qt_add_resources(shadow-targeted-curve-contract-test targeted-curve-test-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/close.svg icons/redo.svg)
+    add_test(NAME shadow-desktop-targeted-curve-contract COMMAND shadow-targeted-curve-contract-test)
+    set_tests_properties(shadow-desktop-targeted-curve-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic" TIMEOUT 30 LABELS "desktop;grading")
+endif()
+
+if(BUILD_TESTING)
+    qt_add_executable(shadow-paint-overlay-contract-test tests/paint_overlay_contract_test.cpp)
+    target_compile_features(shadow-paint-overlay-contract-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-paint-overlay-contract-test PRIVATE src)
+    target_link_libraries(shadow-paint-overlay-contract-test PRIVATE Qt6::Quick Qt6::Qml Qt6::Test)
+    qt_add_qml_module(shadow-paint-overlay-contract-test
+        URI Shadow.PaintContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        SOURCES src/paint_stroke_input.cpp src/paint_stroke_input.hpp
+        QML_FILES qml/PrecisionPaintOverlay.qml)
+    add_test(NAME shadow-desktop-paint-overlay-contract COMMAND shadow-paint-overlay-contract-test)
+    set_tests_properties(shadow-desktop-paint-overlay-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30 LABELS "desktop;paint")
+endif()
+
+if(BUILD_TESTING)
+    qt_add_executable(shadow-precision-ai-completion-tools-contract-test
+        tests/precision_ai_completion_tools_contract_test.cpp)
+    target_compile_features(shadow-precision-ai-completion-tools-contract-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-precision-ai-completion-tools-contract-test PRIVATE
+        Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    qt_add_qml_module(shadow-precision-ai-completion-tools-contract-test
+        URI Shadow.CompletionContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/PrecisionAiCompletionTools.qml qml/ShadowButton.qml
+        qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/ShadowSlider.qml
+        qml/ShadowInlineSlider.qml qml/ShadowSwitch.qml qml/Theme.qml)
+    qt_add_resources(shadow-precision-ai-completion-tools-contract-test completion-test-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/brush.svg icons/eraser.svg icons/undo.svg icons/clear.svg
+        icons/close.svg icons/refresh.svg)
+    target_compile_definitions(shadow-precision-ai-completion-tools-contract-test PRIVATE
+        SHADOW_COMPLETION_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+    add_dependencies(shadow-precision-ai-completion-tools-contract-test shadow-desktop-release-translations)
+    add_test(NAME shadow-desktop-precision-ai-completion-tools-contract
+        COMMAND shadow-precision-ai-completion-tools-contract-test)
+    set_tests_properties(shadow-desktop-precision-ai-completion-tools-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
+        TIMEOUT 30 LABELS "desktop;completion")
+endif()
+
+    add_executable(shadow-auto-start-policy-test tests/auto_start_policy_test.cpp src/auto_start_policy.cpp)
+    target_compile_features(shadow-auto-start-policy-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-auto-start-policy-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-auto-start-policy-test PRIVATE Qt6::Gui)
+    add_test(NAME shadow-desktop-auto-start-policy COMMAND shadow-auto-start-policy-test)
+    set_tests_properties(shadow-desktop-auto-start-policy PROPERTIES TIMEOUT 30 LABELS "desktop;grading")
+
+    qt_add_executable(shadow-auto-start-panel-contract-test tests/auto_start_panel_contract_test.cpp)
+    target_compile_features(shadow-auto-start-panel-contract-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-auto-start-panel-contract-test PRIVATE Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    target_compile_definitions(shadow-auto-start-panel-contract-test PRIVATE
+        SHADOW_AUTO_START_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+    add_dependencies(shadow-auto-start-panel-contract-test shadow-desktop-release-translations)
+    qt_add_qml_module(shadow-auto-start-panel-contract-test
+        URI Shadow.AutoStartContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/PrecisionAutoStart.qml qml/ShadowButton.qml qml/ShadowIconButton.qml
+            qml/ShadowIcon.qml qml/ShadowSlider.qml qml/ShadowInlineSlider.qml
+            qml/ShadowCheckBox.qml qml/ShadowSwitch.qml qml/Theme.qml)
+    qt_add_resources(shadow-auto-start-panel-contract-test auto-start-icons PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons" FILES icons/close.svg icons/reset-all.svg icons/check.svg)
+    add_test(NAME shadow-desktop-auto-start-panel COMMAND shadow-auto-start-panel-contract-test)
+    set_tests_properties(shadow-desktop-auto-start-panel PROPERTIES TIMEOUT 30 LABELS "desktop;grading"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic")
+
+if(BUILD_TESTING)
+    qt_add_executable(shadow-color-warper-interaction-test tests/color_warper_interaction_test.cpp)
+    target_compile_features(shadow-color-warper-interaction-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-color-warper-interaction-test PRIVATE Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    target_compile_definitions(shadow-color-warper-interaction-test PRIVATE
+        SHADOW_WARPER_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+    add_dependencies(shadow-color-warper-interaction-test shadow-desktop-release-translations)
+    qt_add_qml_module(shadow-color-warper-interaction-test
+        URI Shadow.WarperContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/ColorWarperEditor.qml qml/PrecisionColorWarperPanel.qml
+            qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/ShadowSlider.qml
+            qml/ShadowInlineSlider.qml qml/Theme.qml)
+    qt_add_resources(shadow-color-warper-interaction-test warper-icons PREFIX "/icons"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons" FILES icons/redo.svg icons/reset-all.svg icons/close.svg)
+    add_test(NAME shadow-desktop-color-warper-interaction COMMAND shadow-color-warper-interaction-test)
+    set_tests_properties(shadow-desktop-color-warper-interaction PROPERTIES TIMEOUT 30 LABELS "desktop;grading"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic")
+endif()

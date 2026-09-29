@@ -44,8 +44,16 @@ impl DesktopSession {
     pub(crate) fn render_durable_export_item(
         &self,
         item: &ffi::FfiDurableExportItem,
+        bit_depth: u8,
     ) -> AnyResult<ffi::FfiEditedExportRaster> {
-        self.export_queue.render(self, item)
+        self.export_queue.render(self, item, bit_depth)
+    }
+
+    pub(crate) fn execute_durable_raw_dng_item(
+        &self,
+        item: &ffi::FfiDurableExportItem,
+    ) -> AnyResult<ffi::FfiRawDngExportReceipt> {
+        self.export_queue.execute_raw_dng(self, item)
     }
 
     pub(crate) fn begin_durable_export_encoding(&self, item_id: &str) -> AnyResult<()> {

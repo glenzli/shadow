@@ -1,4 +1,4 @@
-use shadow_bridge::{RawPipelinePath, RawPipelineReceipt};
+use shadow_bridge::{RawHighlightRecoveryIntent, RawPipelinePath, RawPipelineReceipt};
 use shadow_domain::{
     PhotoFoundationNode, RawFoundationDenoise, RawFoundationDenoiseModel, RawTemperatureTint,
     RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot,
@@ -111,4 +111,39 @@ fn manual_white_balance_rejects_rgb_isolation_while_as_shot_allows_it() {
     let manual = preview_foundation_development_plan(manual_white_balance());
     assert!(ensure_foundation_allows_rgb_fallback(manual).is_err());
     assert!(ensure_foundation_allows_rgb_fallback(RawDevelopmentPlan::preview()).is_ok());
+}
+
+#[test]
+fn clipped_highlight_continuity_is_the_default_source_contract() {
+    for historical_switch in [false, true] {
+        let snapshot = RecipeSnapshot::new_with_input_settings(
+            1,
+            RecipeInputSettings::default().with_raw_highlight_repair_enabled(historical_switch),
+            Vec::new(),
+        )
+        .expect("build default highlight-continuity Foundation");
+        let resolved = ResolvedFoundationDevelopment::from_snapshot(&snapshot);
+        for plan in [
+            resolved.preview_plan(),
+            resolved.detail_plan(),
+            resolved.export_plan(),
+        ] {
+            assert_eq!(
+                plan.highlight_recovery,
+                RawHighlightRecoveryIntent::ProviderDefault
+            );
+            ensure_foundation_development_receipt(
+                plan,
+                &receipt(RawPipelinePath::ShadowRawFrame, plan, plan),
+            )
+            .expect("RawFrame executes the default clipped-highlight source contract");
+            ensure_foundation_development_receipt(
+                plan,
+                &receipt(RawPipelinePath::DecodedRaster, plan, plan),
+            )
+            .expect("ordinary RGB remains a legal no-sensor-evidence fallback");
+            ensure_foundation_allows_rgb_fallback(plan)
+                .expect("default continuity does not make non-RAW photos unavailable");
+        }
+    }
 }

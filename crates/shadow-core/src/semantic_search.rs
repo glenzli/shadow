@@ -1,8 +1,10 @@
-//! Bounded, session-only semantic search over current Review visuals.
+//! Cancellable semantic search over current Review visuals with rebuildable image vectors.
 //!
 //! The Catalog selects current artifacts, the cache verifies their bytes, and
-//! a semantic provider supplies image/text vectors. This owner keeps no index:
-//! it rejects stale results and returns only ranked photo references.
+//! a semantic provider supplies image/text vectors. Exact image vectors are cached
+//! independently of queries; stale results are rejected before ranked references return.
+
+mod embedding_cache;
 
 use std::fmt::Write as _;
 
@@ -15,7 +17,7 @@ use thiserror::Error;
 use crate::{CachedArtifactLoadError, CachedArtifactLoader};
 
 pub const DEFAULT_SEMANTIC_SEARCH_MAXIMUM_PHOTOS: usize = 32;
-pub const MAX_SEMANTIC_SEARCH_PHOTOS: usize = 256;
+pub const MAX_SEMANTIC_SEARCH_PHOTOS: usize = 100_000;
 const REVIEW_PAGE_SIZE: usize = 64;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -69,7 +71,7 @@ pub struct SemanticSearchReport {
 
 /// Ranks a bounded prefix of current Review visuals against one text query.
 ///
-/// This is deliberately a session preview, not a full-library indexing path.
+/// The caller controls coverage; image vectors are reusable across queries.
 /// Image requests use background priority; the single query request is
 /// interactive. Every image result is discarded if its exact Catalog artifact
 /// changed while inference was running.
@@ -86,13 +88,47 @@ pub fn search_review_semantics(
     language: Option<&str>,
     policy: SemanticSearchPolicy,
 ) -> Result<SemanticSearchReport, SemanticSearchError> {
-    let policy = policy.validate()?;
-    let query_evidence = provider.embed_text_semantics(
+    search_review_semantics_with_control(
+        catalog,
+        cache_root,
+        provider,
         query,
         query_revision,
         language,
-        SemanticRequestPriority::Interactive,
-    )?;
+        policy,
+        &|| false,
+    )
+}
+
+/// Searches verified current visuals with reusable embeddings and in-flight cancellation.
+/// # Errors
+/// Returns cancellation, policy, Catalog, cache-integrity, or provider errors.
+#[allow(clippy::too_many_arguments)]
+pub fn search_review_semantics_with_control(
+    catalog: &CatalogHandle,
+    cache_root: impl Into<std::path::PathBuf>,
+    provider: &impl SemanticEmbeddingProvider,
+    query: &str,
+    query_revision: &str,
+    language: Option<&str>,
+    policy: SemanticSearchPolicy,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<SemanticSearchReport, SemanticSearchError> {
+    let policy = policy.validate()?;
+    if cancelled() {
+        return Err(SemanticSearchError::Cancelled);
+    }
+    let cache_root = cache_root.into();
+    let embeddings = embedding_cache::EmbeddingCache::new(&cache_root);
+    let query_evidence = provider
+        .embed_text_semantics_cancellable(
+            query,
+            query_revision,
+            language,
+            SemanticRequestPriority::Interactive,
+            cancelled,
+        )?
+        .ok_or(SemanticSearchError::Cancelled)?;
     let embedding_space = query_evidence.embedding.space().space_id().to_owned();
     let loader = CachedArtifactLoader::open(catalog.clone(), cache_root)?;
     let mut cursor: Option<ReviewCursor> = None;
@@ -107,6 +143,9 @@ pub fn search_review_semantics(
             break;
         }
         for item in page.items {
+            if cancelled() {
+                return Err(SemanticSearchError::Cancelled);
+            }
             if considered_photos == policy.maximum_photos {
                 truncated = true;
                 break 'pages;
@@ -120,27 +159,51 @@ pub fn search_review_semantics(
                 skipped.unsupported_visual += 1;
                 continue;
             }
-            let image = loader.load_bytes(&record)?;
-            let source_revision = semantic_source_revision(item.photo_id, &record);
-            let evidence = provider.embed_image_semantics(
-                &image,
-                "image/jpeg",
+            let source_revision = format!(
+                "{}/input:jpeg2048q90v1",
+                semantic_source_revision(item.photo_id, &record)
+            );
+            let dimensions = record.artifact.dimensions;
+            let embedding = if let Some(cached) = embeddings.load(
                 &source_revision,
-                SemanticRequestPriority::Background,
-            )?;
-            if evidence.width != record.artifact.dimensions.width
-                || evidence.height != record.artifact.dimensions.height
-            {
-                return Err(SemanticSearchError::ProviderGeometryMismatch);
-            }
+                query_evidence.embedding.space(),
+                dimensions.width,
+                dimensions.height,
+            ) {
+                cached
+            } else {
+                let image = loader.load_bytes(&record)?;
+                let prepared = crate::vision_input::bounded_jpeg(&image, dimensions, 2048)
+                    .map_err(SemanticSearchError::InputPreparation)?;
+                let evidence = provider
+                    .embed_image_semantics_cancellable(
+                        &prepared.bytes,
+                        "image/jpeg",
+                        &source_revision,
+                        SemanticRequestPriority::Background,
+                        cancelled,
+                    )?
+                    .ok_or(SemanticSearchError::Cancelled)?;
+                if evidence.width != prepared.dimensions.width
+                    || evidence.height != prepared.dimensions.height
+                {
+                    return Err(SemanticSearchError::ProviderGeometryMismatch);
+                }
+                if !cancelled() && evidence.embedding.space() == query_evidence.embedding.space() {
+                    embeddings.store(
+                        &source_revision,
+                        &evidence.embedding,
+                        dimensions.width,
+                        dimensions.height,
+                    );
+                }
+                evidence.embedding
+            };
             if catalog.preferred_cached_artifact(item.representation_id)? != Some(record) {
                 skipped.stale_input += 1;
                 continue;
             }
-            let Some(similarity) = evidence
-                .embedding
-                .cosine_similarity(&query_evidence.embedding)
-            else {
+            let Some(similarity) = embedding.cosine_similarity(&query_evidence.embedding) else {
                 skipped.incompatible_embedding_space += 1;
                 continue;
             };
@@ -156,6 +219,9 @@ pub fn search_review_semantics(
         }
     }
 
+    if cancelled() {
+        return Err(SemanticSearchError::Cancelled);
+    }
     matches.sort_by(|left, right| right.cosine_similarity.total_cmp(&left.cosine_similarity));
     Ok(SemanticSearchReport {
         query_revision: query_evidence.query_revision,
@@ -182,10 +248,14 @@ fn semantic_source_revision(photo_id: PhotoId, record: &CachedArtifactRecord) ->
 
 #[derive(Debug, Error)]
 pub enum SemanticSearchError {
+    #[error("semantic search cancelled")]
+    Cancelled,
     #[error("semantic search policy is invalid")]
     InvalidPolicy,
     #[error("infer-runtime image geometry disagrees with the selected Catalog artifact")]
     ProviderGeometryMismatch,
+    #[error("could not prepare local vision input: {0}")]
+    InputPreparation(String),
     #[error(transparent)]
     Catalog(#[from] CatalogError),
     #[error(transparent)]

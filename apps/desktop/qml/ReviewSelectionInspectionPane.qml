@@ -34,16 +34,17 @@ ColumnLayout {
             Layout.fillWidth: true
             text: qsTr("FOCUS CHECK")
             color: pane.review.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             font.weight: Font.DemiBold
         }
 
         Label {
+            visible: pane.review.selectedHasFocusObservation
             text: pane.review.controller.focusDetailReady
                 ? qsTr("100%") : qsTr("PROXY")
             color: pane.review.controller.focusDetailReady
                 ? Theme.readyText : pane.review.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
         }
     }
@@ -52,10 +53,11 @@ ColumnLayout {
         id: detailFrame
 
         Layout.fillWidth: true
-        Layout.preferredHeight: Math.min(width, 238)
+        Layout.preferredHeight: pane.review.selectedHasFocusObservation
+            ? Math.min(width, 238) : noFocusLabel.implicitHeight + 8
         radius: 7
-        color: Theme.photoCanvas
-        border.width: 1
+        color: pane.review.selectedHasFocusObservation ? Theme.photoCanvas : Theme.transparent
+        border.width: pane.review.selectedHasFocusObservation ? 1 : 0
         border.color: pane.review.border
         clip: true
 
@@ -66,7 +68,7 @@ ColumnLayout {
                 && !pane.review.controller.focusDetailReady
             asynchronous: true
             cache: true
-            source: pane.review.selectedVisualSource
+            source: visible ? pane.review.selectedVisualSource : ""
             fillMode: Image.PreserveAspectFit
             readonly property real proxyScale: Math.max(
                 1, detailFrame.width / Math.max(1, pane.review.selectedWidth),
@@ -83,7 +85,7 @@ ColumnLayout {
             visible: pane.review.controller.focusDetailReady
             asynchronous: true
             cache: false
-            source: pane.review.controller.focusDetailImageSource
+            source: visible ? pane.review.controller.focusDetailImageSource : ""
             width: implicitWidth
             height: implicitHeight
             x: Math.round((detailFrame.width - width) / 2)
@@ -102,14 +104,15 @@ ColumnLayout {
         }
 
         Label {
+            id: noFocusLabel
             anchors.centerIn: parent
-            width: parent.width - 28
+            width: parent.width
             visible: !pane.review.selectedHasFocusObservation
             text: qsTr("No camera focus record")
             color: pane.review.textMuted
-            horizontalAlignment: Text.AlignHCenter
+            horizontalAlignment: Text.AlignLeft
             wrapMode: Text.WordWrap
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
 
         Rectangle {
@@ -147,7 +150,7 @@ ColumnLayout {
                     text: pane.review.controller.focusDetailStatusText
                     color: Theme.accentForeground
                     elide: Text.ElideRight
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                 }
             }
         }
@@ -163,38 +166,38 @@ ColumnLayout {
         Label {
             text: qsTr("Shadow reference")
             color: pane.review.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
         Label {
             Layout.alignment: Qt.AlignRight
             text: pane.percent(pane.review.selectedNearBlackFraction)
             color: pane.review.selectedNearBlackFraction >= 0.03
                 ? Theme.warningText : pane.review.textPrimary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
         Label {
             text: qsTr("Highlight reference")
             color: pane.review.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
         Label {
             Layout.alignment: Qt.AlignRight
             text: pane.percent(pane.review.selectedNearWhiteFraction)
             color: pane.review.selectedNearWhiteFraction >= 0.01
                 ? Theme.warningText : pane.review.textPrimary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
         Label {
             text: qsTr("Proxy detail")
             color: pane.review.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
         Label {
             Layout.alignment: Qt.AlignRight
             text: pane.review.selectedLaplacianVariance.toLocaleString(
                 Qt.locale(), "f", 3)
             color: pane.review.textPrimary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
         }
     }
 

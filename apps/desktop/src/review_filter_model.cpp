@@ -9,7 +9,38 @@
 #include <limits>
 #include <utility>
 
+int ReviewFilterModel::indexOfPhoto(
+    const QString& photo_id,
+    const QString& representation_id
+) const {
+    if (photo_id.isEmpty() || representation_id.isEmpty())
+        return -1;
+    for (int row = 0; row < rowCount(); ++row) {
+        const QModelIndex candidate = index(row, 0);
+        if (data(candidate, ReviewModel::PhotoIdRole).toString() == photo_id
+            && data(candidate, ReviewModel::RepresentationIdRole).toString() == representation_id)
+            return row;
+    }
+    return -1;
+}
+
 namespace {
+
+// Match Catalog's library_equipment_key: trim, ASCII lowercase, omit empty parts.
+[[nodiscard]] QString equipment_key(const QString& make, const QString& model) {
+    QStringList parts;
+    for (QString part : {make.trimmed(), model.trimmed()}) {
+        if (part.isEmpty())
+            continue;
+        for (qsizetype i = 0; i < part.size(); ++i) {
+            const ushort c = part.at(i).unicode();
+            if (c >= 'A' && c <= 'Z')
+                part[i] = QChar(static_cast<ushort>(c + ('a' - 'A')));
+        }
+        parts.append(part);
+    }
+    return parts.join(QChar(0x001f));
+}
 
 [[nodiscard]] bool is_flag_filter(const QString& filter) {
     return filter == QStringLiteral("all") || filter == QStringLiteral("unflagged")
@@ -63,6 +94,29 @@ QString ReviewFilterModel::colorFilter() const {
 
 QString ReviewFilterModel::editFilter() const {
     return edit_filter_;
+}
+
+bool ReviewFilterModel::hideOfflineUncached() const noexcept {
+    return hide_offline_uncached_;
+}
+bool ReviewFilterModel::onlyEditable() const noexcept {
+    return only_editable_;
+}
+
+void ReviewFilterModel::setHideOfflineUncached(const bool enabled) {
+    if (hide_offline_uncached_ == enabled)
+        return;
+    hide_offline_uncached_ = enabled;
+    refreshRowsFilter();
+    emit availabilityFiltersChanged();
+}
+
+void ReviewFilterModel::setOnlyEditable(const bool enabled) {
+    if (only_editable_ == enabled)
+        return;
+    only_editable_ = enabled;
+    refreshRowsFilter();
+    emit availabilityFiltersChanged();
 }
 
 QString ReviewFilterModel::likedFilter() const {
@@ -130,10 +184,9 @@ bool ReviewFilterModel::hasActiveServerFilter() const {
            || color_filter_ != QStringLiteral("all") || edit_filter_ != QStringLiteral("all")
            || liked_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
            || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
-           || chinese_lunar_month_type_ != QStringLiteral("all")
-           || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
-           || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
-           || !keyword_ids_all_.isEmpty()
+           || chinese_lunar_month_type_ != QStringLiteral("all") || !camera_key_.isEmpty()
+           || !lens_key_.isEmpty() || !country_key_.isEmpty() || !locality_key_.isEmpty()
+           || travel_filter_enabled_ || daily_filter_enabled_ || !keyword_ids_all_.isEmpty()
            || !excluded_keyword_ids_any_.isEmpty();
 }
 
@@ -360,39 +413,56 @@ bool ReviewFilterModel::smartCategoryFilterActive() const noexcept {
 void ReviewFilterModel::setSmartCategoryRepresentationKeys(const QStringList& member_keys) {
     QSet<QString> next;
     next.reserve(member_keys.size());
-    for (const QString& key : member_keys) if (!key.isEmpty()) next.insert(key);
-    if (smart_category_keys_ == next) return;
+    for (const QString& key : member_keys)
+        if (!key.isEmpty())
+            next.insert(key);
+    if (smart_category_keys_ == next)
+        return;
     smart_category_keys_ = std::move(next);
     beginFilterChange();
     endFilterChange(QSortFilterProxyModel::Direction::Rows);
     emit smartCategoryFilterChanged();
 }
 
+void ReviewFilterModel::setPhotoScope(const bool enabled, const QStringList& photo_ids) {
+    const QSet<QString> next =
+        enabled ? QSet<QString>(photo_ids.cbegin(), photo_ids.cend()) : QSet<QString>{};
+    if (photo_scope_enabled_ == enabled && photo_scope_ids_ == next) {
+        return;
+    }
+    photo_scope_enabled_ = enabled;
+    photo_scope_ids_ = next;
+    refreshRowsFilter();
+}
+
 void ReviewFilterModel::clearFilters() {
     const bool changed =
-        flag_filter_ != QStringLiteral("all") || minimum_rating_ != 0
-        || color_filter_ != QStringLiteral("all") || edit_filter_ != QStringLiteral("all")
-        || liked_filter_ != QStringLiteral("all") || excluded_flag_filter_ != QStringLiteral("all")
+        hide_offline_uncached_ || only_editable_ || flag_filter_ != QStringLiteral("all")
+        || minimum_rating_ != 0 || color_filter_ != QStringLiteral("all")
+        || edit_filter_ != QStringLiteral("all") || liked_filter_ != QStringLiteral("all")
+        || excluded_flag_filter_ != QStringLiteral("all")
         || excluded_color_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
         || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
-        || chinese_lunar_month_type_ != QStringLiteral("all")
-        || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
-        || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
-        || !keyword_ids_all_.isEmpty()
+        || chinese_lunar_month_type_ != QStringLiteral("all") || !camera_key_.isEmpty()
+        || !lens_key_.isEmpty() || !country_key_.isEmpty() || !locality_key_.isEmpty()
+        || travel_filter_enabled_ || daily_filter_enabled_ || !keyword_ids_all_.isEmpty()
         || !excluded_keyword_ids_any_.isEmpty() || !semantic_rank_by_key_.isEmpty()
         || !smart_category_keys_.isEmpty();
+    const bool availability_changed = hide_offline_uncached_ || only_editable_;
     const bool server_filters_changed =
         flag_filter_ != QStringLiteral("all") || minimum_rating_ != 0
         || color_filter_ != QStringLiteral("all") || edit_filter_ != QStringLiteral("all")
         || liked_filter_ != QStringLiteral("all") || excluded_flag_filter_ != QStringLiteral("all")
         || excluded_color_filter_ != QStringLiteral("all") || !capture_month_.isEmpty()
         || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
-        || chinese_lunar_month_type_ != QStringLiteral("all")
-        || !camera_key_.isEmpty() || !lens_key_.isEmpty() || !country_key_.isEmpty()
-        || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
-        || !keyword_ids_all_.isEmpty() || !excluded_keyword_ids_any_.isEmpty();
+        || chinese_lunar_month_type_ != QStringLiteral("all") || !camera_key_.isEmpty()
+        || !lens_key_.isEmpty() || !country_key_.isEmpty() || !locality_key_.isEmpty()
+        || travel_filter_enabled_ || daily_filter_enabled_ || !keyword_ids_all_.isEmpty()
+        || !excluded_keyword_ids_any_.isEmpty();
     const bool semantic_filter_changed = !semantic_rank_by_key_.isEmpty();
     const bool smart_category_filter_changed = !smart_category_keys_.isEmpty();
+    hide_offline_uncached_ = false;
+    only_editable_ = false;
     flag_filter_ = QStringLiteral("all");
     minimum_rating_ = 0;
     color_filter_ = QStringLiteral("all");
@@ -419,13 +489,16 @@ void ReviewFilterModel::clearFilters() {
     }
     refreshRowsFilter();
     sort(-1);
+    if (availability_changed)
+        emit availabilityFiltersChanged();
     if (server_filters_changed) {
         emit filtersChanged();
     }
     if (semantic_filter_changed) {
         emit semanticFilterChanged();
     }
-    if (smart_category_filter_changed) emit smartCategoryFilterChanged();
+    if (smart_category_filter_changed)
+        emit smartCategoryFilterChanged();
 }
 
 bool ReviewFilterModel::filterAcceptsRow(
@@ -434,6 +507,12 @@ bool ReviewFilterModel::filterAcceptsRow(
 ) const {
     const QModelIndex row = sourceModel()->index(source_row, 0, source_parent);
     if (!row.isValid()) {
+        return false;
+    }
+    if (photo_scope_enabled_
+        && !photo_scope_ids_.contains(
+            sourceModel()->data(row, ReviewModel::PhotoIdRole).toString()
+        )) {
         return false;
     }
     if (!semantic_rank_by_key_.isEmpty()
@@ -445,13 +524,39 @@ bool ReviewFilterModel::filterAcceptsRow(
         return false;
     }
     const bool remote = sourceModel()->data(row, ReviewModel::IsRemoteRole).toBool();
-    if (remote
-        && (!capture_month_.isEmpty() || chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
-            || chinese_lunar_month_type_ != QStringLiteral("all") || !camera_key_.isEmpty()
-            || !lens_key_.isEmpty() || !country_key_.isEmpty() || !locality_key_.isEmpty()
-            || travel_filter_enabled_ || daily_filter_enabled_ || !keyword_ids_all_.isEmpty()
-            || !excluded_keyword_ids_any_.isEmpty())) {
+    if (only_editable_ && !sourceModel()->data(row, ReviewModel::SourceAvailableRole).toBool()) {
         return false;
+    }
+    if (hide_offline_uncached_ && remote
+        && sourceModel()->data(row, ReviewModel::RemoteOfflineRole).toBool()
+        && !sourceModel()->data(row, ReviewModel::RemoteOriginalCachedRole).toBool()
+        && sourceModel()->data(row, ReviewModel::VisualSourceRole).toString().isEmpty()) {
+        return false;
+    }
+    if (remote
+        && (chinese_lunar_month_ > 0 || chinese_lunar_day_ > 0
+            || chinese_lunar_month_type_ != QStringLiteral("all") || !country_key_.isEmpty()
+            || !locality_key_.isEmpty() || travel_filter_enabled_ || daily_filter_enabled_
+            || !keyword_ids_all_.isEmpty() || !excluded_keyword_ids_any_.isEmpty())) {
+        return false;
+    }
+    if (remote) {
+        const auto value = [&](const int role) {
+            return sourceModel()->data(row, role).toString();
+        };
+        if (!capture_month_.isEmpty()
+            && value(ReviewModel::CaptureDayRole).left(7) != capture_month_)
+            return false;
+        if (!camera_key_.isEmpty()
+            && equipment_key(
+                   value(ReviewModel::CameraMakeRole),
+                   value(ReviewModel::CameraModelRole)
+               ) != camera_key_)
+            return false;
+        if (!lens_key_.isEmpty()
+            && equipment_key(value(ReviewModel::LensMakeRole), value(ReviewModel::LensModelRole))
+                   != lens_key_)
+            return false;
     }
     const QString flag = sourceModel()->data(row, ReviewModel::DecisionFlagRole).toString();
     if (flag_filter_ != QStringLiteral("all") && flag != flag_filter_) {

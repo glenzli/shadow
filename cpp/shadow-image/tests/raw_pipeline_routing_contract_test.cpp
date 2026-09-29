@@ -1,3 +1,5 @@
+#include "shadow/image/dcp_color_development.hpp"
+
 #include "raw_pipeline_routing_test_support.hpp"
 
 namespace {
@@ -150,7 +152,8 @@ void exact_dcp_replaces_missing_generic_matrix() {
     expect(
         developed.pipeline_receipt.camera_profile_identity
                 == "sha256:synthetic-open-camera-dcp"
-            && developed.pipeline_receipt.camera_profile_developer_version == 1U,
+            && developed.pipeline_receipt.camera_profile_developer_version
+                == image::dcp_color_developer_version,
         "DCP content and developer identities are cache-visible"
     );
     expect(
@@ -207,10 +210,10 @@ void host_raw_frame_capabilities_are_not_limited_by_provider_rgb_fallbacks() {
     );
 
     host_plan.highlight_recovery = image::RawHighlightRecoveryIntent::aggressive;
-    const auto rejected = image::negotiate_shadow_raw_frame_development_plan(host_plan);
+    const auto aggressive_accepted = image::negotiate_shadow_raw_frame_development_plan(host_plan);
     expect(
-        !rejected.accepted(),
-        "unsupported host sensor stages are rejected explicitly instead of being silently downgraded"
+        aggressive_accepted.accepted() && aggressive_accepted.effective == host_plan,
+        "host RawFrame negotiation exposes the opt-in destructive highlight repair stage explicitly"
     );
 }
 

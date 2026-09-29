@@ -15,7 +15,6 @@ mod people;
 mod preference;
 mod providers;
 mod raw_foundation;
-mod raw_foundation_materialization;
 mod remote;
 mod resource;
 mod runtime;
@@ -45,20 +44,22 @@ pub use derived_raster::{
     reload_managed_derived_raster,
 };
 pub use feedback::{
-    BatchBuildReport, FeatureSnapshotRef, FeedbackAction, FeedbackEvent, FeedbackForgetFact,
-    FeedbackIgnored, FeedbackValidationError, IncrementalTrainingBatch, IncrementalTrainingPolicy,
-    LearningScope, NewFeedbackEvent, NewFeedbackForgetFact, PairwiseExampleRef, PairwiseOutcome,
-    PresentationContext, PresentedCandidate, PresentedFitMode, PresentedVisualArtifact,
-    PresentedVisualFrame, PresentedVisualProvenance, PresentedVisualRole, SuggestionDecision,
-    build_incremental_preference_batch,
+    ApprovedEditExampleRef, BatchBuildReport, EditExampleIntent, EditExampleOrigin,
+    FeatureSnapshotRef, FeedbackAction, FeedbackEvent, FeedbackForgetFact, FeedbackIgnored,
+    FeedbackValidationError, IncrementalTrainingBatch, IncrementalTrainingPolicy,
+    LearningEvidenceExcluded, LearningReadinessError, LearningReadinessReport, LearningScope,
+    MAX_LEARNING_READINESS_EVENTS, NewFeedbackEvent, NewFeedbackForgetFact, PairwiseExampleRef,
+    PairwiseOutcome, PresentationContext, PresentedCandidate, PresentedFitMode,
+    PresentedVisualArtifact, PresentedVisualFrame, PresentedVisualProvenance, PresentedVisualRole,
+    SuggestionDecision, build_incremental_preference_batch, build_learning_readiness,
 };
 pub use generated::{
     AI_GENERATED_ARTIFACT_CONTRACT_VERSION, AiArtifactContractError, AiGeneratedPayload,
     AiTaskParameters, ArtifactHashAlgorithm, DenoiseDomainPolicy, DenoiseParameters,
-    DenoiseQuality, DenoisedRasterArtifact, GeneratedArtifactReference, MAX_MASK_PROMPT_POINTS,
-    MAX_RASTER_DIMENSION, MaskPointPolarity, MaskPrompt, MaskPromptPoint, MaskSemantic,
-    NormalizedMaskBox, RasterExtent, RasterPixelLayout, RasterSampleFormat, SoftMaskArtifact,
-    SoftMaskEncoding, SubjectMaskParameters, TileContract,
+    DenoiseQuality, DenoisedRasterArtifact, GeneratedArtifactReference, ImageCompletionParameters,
+    ImageCompletionPatchArtifact, MAX_MASK_PROMPT_POINTS, MAX_RASTER_DIMENSION, MaskPointPolarity,
+    MaskPrompt, MaskPromptPoint, MaskSemantic, NormalizedMaskBox, RasterExtent, RasterPixelLayout,
+    RasterSampleFormat, SoftMaskArtifact, SoftMaskEncoding, SubjectMaskParameters, TileContract,
 };
 pub use manifest::{
     BackendRequirement, Dimension, DistributionTerms, ElementType, LicensePermission, LicenseTerms,
@@ -80,43 +81,28 @@ pub use providers::{
     AppleVisionFeaturePrintProvider, ClassificationReviewCategory, ClassificationReviewDisposition,
     ClassificationReviewEvidence, ClassificationReviewProvider, ClassificationReviewRequest,
     ClassificationReviewSuggestion, DetectedFace, DetectedFaceBatch, EmbeddedFace,
-    FaceAnalysisProvider, FaceEmbeddingEligibility, ImageEmbeddingEvidence,
+    FaceAnalysisProvider, FaceEmbeddingEligibility, INFER_IMAGE_COMPLETION_CAPABILITY,
+    INFER_SEMANTIC_GROUNDING_CAPABILITY, INFER_SUBJECT_MASK_CAPABILITY, ImageEmbeddingEvidence,
     ImageUnderstandingEvidence, ImageUnderstandingProvenance, ImageUnderstandingProvider,
-    ImageUnderstandingQuality, InferRawFoundationArtifactReceipt, InferRawFoundationCancellation,
-    InferRawFoundationDecoderIdentity, InferRawFoundationJob, InferRawFoundationLeaseGrant,
-    InferRawFoundationPriority, InferRawFoundationProvenance, InferRawFoundationProvider,
-    InferRawFoundationRegisteredLease, InferRawFoundationRequest, InferRawFoundationResult,
-    InferRawFoundationSource, InferRawFoundationStaging, InferRuntimeAttemptSnapshot,
-    InferRuntimeCancelResult, InferRuntimeCapabilityCatalog, InferRuntimeClient,
-    InferRuntimeClientError, InferRuntimeContract, InferRuntimeExplainResult,
-    InferRuntimeJobListPage, InferRuntimeJobSnapshot, RAWNIND_FOUNDATION_ADAPTER_REVISION,
-    RAWNIND_FOUNDATION_ARTIFACT_SET_BLAKE3, RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256,
-    RAWNIND_FOUNDATION_IMPLEMENTATION_REVISION, RAWNIND_FOUNDATION_MODEL_ID,
-    RAWNIND_FOUNDATION_MODEL_RECEIPT_PREFIX, RAWNIND_FOUNDATION_MODEL_REVISION,
-    RAWNIND_FOUNDATION_PACKAGE_SHA256, RAWNIND_FOUNDATION_PLAN_RECEIPT_PREFIX,
-    RAWNIND_FOUNDATION_PROVIDER_ID, RAWNIND_FOUNDATION_RECEIPT_PREFIX,
-    RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256, RawNindFoundationInput,
-    RawNindFoundationModelVerificationError, RawNindFoundationPlan, RawNindFoundationPlanningError,
-    RawNindFoundationProvider, RawNindFoundationProviderConfigurationError,
-    SAM2_COREML_ADAPTER_REVISION, SAM2_COREML_ARTIFACT_SET_BLAKE3, SAM2_COREML_EXACT_REVISION,
-    SAM2_COREML_MAX_PROMPT_POINTS, SAM2_COREML_MODEL_ID, SAM2_COREML_MODEL_RECEIPT_PREFIX,
-    SAM2_COREML_PROVIDER_ID, SAM2_COREML_RECEIPT_PREFIX, Sam2CoreMlModelVerificationError,
-    Sam2CoreMlProviderConfigurationError, Sam2CoreMlResidentSession, Sam2CoreMlSidecarProvider,
-    SemanticEmbeddingProvider, SemanticRequestPriority, TextEmbeddingEvidence,
-    VerifiedRawNindFoundationInstallation, VerifiedSam2CoreMlInstallation, VisionProvenance,
-    VisionTokenizerProvenance, infer_raw_foundation_sdk_status, plan_rawnind_foundation,
-    verify_rawnind_foundation_installation, verify_sam2_coreml_installation,
+    ImageUnderstandingQuality, InferImageCompletionEvidence, InferRawFoundationArtifactReceipt,
+    InferRawFoundationCancellation, InferRawFoundationDecoderIdentity, InferRawFoundationJob,
+    InferRawFoundationLeaseGrant, InferRawFoundationPriority, InferRawFoundationProvenance,
+    InferRawFoundationProvider, InferRawFoundationRegisteredLease, InferRawFoundationRequest,
+    InferRawFoundationResult, InferRawFoundationSource, InferRawFoundationStaging,
+    InferRuntimeAttemptSnapshot, InferRuntimeCancelResult, InferRuntimeCapabilityCatalog,
+    InferRuntimeClient, InferRuntimeClientError, InferRuntimeContract, InferRuntimeExplainResult,
+    InferRuntimeJobListPage, InferRuntimeJobSnapshot, InferSubjectMaskEvidence, ParsedFace,
+    RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256, RAWNIND_FOUNDATION_MODEL_ID,
+    RAWNIND_FOUNDATION_PACKAGE_SHA256, RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256,
+    SemanticEmbeddingProvider, SemanticGroundedRegion, SemanticGroundingEvidence,
+    SemanticRequestPriority, TextEmbeddingEvidence, VisionProvenance, VisionTokenizerProvenance,
+    infer_raw_foundation_sdk_status,
 };
 pub use raw_foundation::{
     MAX_RAW_FOUNDATION_IMPLEMENTATION_REVISION_BYTES, RAW_FOUNDATION_ENCODING_VERSION,
     RAW_FOUNDATION_MEDIA_TYPE, RawFoundationArtifact, RawFoundationArtifactError,
-    RawFoundationDigestField, RawFoundationProvenance, RawFoundationSourceProvenance,
-};
-pub use raw_foundation_materialization::{
-    MaterializedRawFoundation, RawFoundationMaterializationDisposition,
-    RawFoundationMaterializationError, RawFoundationMaterializationOutcome,
-    materialize_rawnind_foundation, materialize_rawnind_foundation_with_progress,
-    resolve_cached_rawnind_foundation,
+    RawFoundationDigestField, RawFoundationMaterializationDisposition, RawFoundationProvenance,
+    RawFoundationSourceProvenance,
 };
 pub use remote::{
     MAX_REMOTE_INPUTS, PREPARED_REMOTE_UPLOAD_CONTRACT_VERSION, PreparedRemoteUpload,
@@ -141,7 +127,7 @@ pub use runtime::{
     ProviderTerminal, ProviderUnavailable, RUNTIME_PROGRESS_COMPLETE, RuntimeContractError,
     RuntimeFailure, RuntimeProgress, RuntimeProgressError, RuntimeProgressReporter,
     RuntimeProgressSink, RuntimeProvider, RuntimeTerminalOutcome, RuntimeTerminalReceipt,
-    RuntimeUsage, admit_local_execution, bind_system_execution,
+    RuntimeUsage, admit_local_execution, bind_local_service_execution, bind_system_execution,
 };
 pub use score::{
     CandidateAssessment, CandidateRank, CandidateSignals, DefectGate, PersonalPreferenceSignal,

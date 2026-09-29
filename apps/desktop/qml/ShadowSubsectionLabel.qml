@@ -22,7 +22,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         text: root.text
         color: Theme.textMuted
-        font.pixelSize: 9
+        font.pixelSize: Theme.fontCaption
         font.weight: Font.DemiBold
         font.letterSpacing: 0.7
         elide: Text.ElideRight

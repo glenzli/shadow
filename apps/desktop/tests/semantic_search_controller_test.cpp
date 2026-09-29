@@ -3,6 +3,8 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 
+#include <QSemaphore>
+#include <atomic>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -32,41 +34,43 @@ int main(int argc, char* argv[]) {
     QCoreApplication application(argc, argv);
     QString received_query;
     QString received_revision;
-    SemanticSearchController controller(
-        [&received_query,
-         &received_revision](const QString& query, const QString& revision, const QString&) {
-            received_query = query;
-            received_revision = revision;
-            return BackendSemanticSearchReport{
-                .considered_photos = 12,
-                .embedded_photos = 2,
-                .skipped_items = 1,
-                .truncated = false,
-                .matches = {
-                    {
-                        .photo_id = QStringLiteral("photo-b"),
-                        .representation_id = QStringLiteral("representation-b"),
-                        .cosine_similarity = 0.81F,
-                    },
-                    {
-                        .photo_id = QStringLiteral("photo-a"),
-                        .representation_id = QStringLiteral("representation-a"),
-                        .cosine_similarity = 0.77F,
-                    },
-                    {
-                        .photo_id = QStringLiteral("photo-c"),
-                        .representation_id = QStringLiteral("representation-c"),
-                        .cosine_similarity = 0.70F,
-                    },
-                    {
-                        .photo_id = QStringLiteral("photo-d"),
-                        .representation_id = QStringLiteral("representation-d"),
-                        .cosine_similarity = 0.62F,
-                    },
+    SemanticSearchController controller([&received_query, &received_revision](
+                                            const QString& query,
+                                            const QString& revision,
+                                            const QString&,
+                                            std::uint64_t
+                                        ) {
+        received_query = query;
+        received_revision = revision;
+        return BackendSemanticSearchReport{
+            .considered_photos = 12,
+            .embedded_photos = 2,
+            .skipped_items = 1,
+            .truncated = false,
+            .matches = {
+                {
+                    .photo_id = QStringLiteral("photo-b"),
+                    .representation_id = QStringLiteral("representation-b"),
+                    .cosine_similarity = 0.81F,
                 },
-            };
-        }
-    );
+                {
+                    .photo_id = QStringLiteral("photo-a"),
+                    .representation_id = QStringLiteral("representation-a"),
+                    .cosine_similarity = 0.77F,
+                },
+                {
+                    .photo_id = QStringLiteral("photo-c"),
+                    .representation_id = QStringLiteral("representation-c"),
+                    .cosine_similarity = 0.70F,
+                },
+                {
+                    .photo_id = QStringLiteral("photo-d"),
+                    .representation_id = QStringLiteral("representation-d"),
+                    .cosine_similarity = 0.62F,
+                },
+            },
+        };
+    });
     controller.search(QStringLiteral("  seaside sunset  "));
     waitForCompletion(controller);
     const QStringList keys = controller.rankedRepresentationKeys();
@@ -77,15 +81,18 @@ int main(int argc, char* argv[]) {
             received_revision.startsWith(QStringLiteral("shadow:semantic-search-ui/query:")),
             "a stable path-free query revision is generated"
         )
-        || !require(keys.size() == 2, "weak semantic matches are hidden")
-        || !require(controller.highRelevanceCount() == 1, "top score is highly relevant")
+        || !require(keys.size() == 4, "all ranked candidates remain visible")
         || !require(
-            controller.possibleRelevanceCount() == 1,
-            "the middle score band is kept as possible"
+            controller.highRelevanceCount() == 0,
+            "similarity is not presented as confidence"
         )
         || !require(
-            controller.hiddenLowRelevanceCount() == 2,
-            "low relevance candidates are counted but not shown"
+            controller.possibleRelevanceCount() == 4,
+            "all candidates remain in the relative ranking"
+        )
+        || !require(
+            controller.hiddenLowRelevanceCount() == 0,
+            "candidates are never hidden by uncalibrated thresholds"
         )
         || !require(
             keys.front()
@@ -97,19 +104,19 @@ int main(int argc, char* argv[]) {
 
     const QStringList high_keys = controller.highRepresentationKeys();
     const QStringList possible_keys = controller.possibleRepresentationKeys();
-    if (!require(high_keys.size() == 1, "the strongest section has one exact member")
-        || !require(possible_keys.size() == 1, "the possible section has one exact member")
+    if (!require(high_keys.isEmpty(), "no section claims calibrated strong relevance")
+        || !require(possible_keys.size() == 4, "the ranking section retains all candidates")
         || !require(
             possible_keys.front()
-                == QStringLiteral("photo-a") + QChar{0x001f} + QStringLiteral("representation-a"),
+                == QStringLiteral("photo-b") + QChar{0x001f} + QStringLiteral("representation-b"),
             "possible relevance keeps provider order"
         )) {
         return EXIT_FAILURE;
     }
 
     if (!require(
-            controller.shownResultCount() == 2,
-            "both visible sections remain in the gallery"
+            controller.shownResultCount() == 4,
+            "all ranked candidates remain in the gallery"
         )) {
         return EXIT_FAILURE;
     }
@@ -128,10 +135,49 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    // The old worker is allowed to complete after cancellation: its result must
+    // never return to the gallery, and only the latest queued query may run.
+    QSemaphore entered;
+    QSemaphore release;
+    std::atomic<int> calls{0};
+    int cancellations = 0;
+    SemanticSearchController cancellable(
+        [&](const QString&, const QString&, const QString&, std::uint64_t) {
+            if (calls.fetch_add(1) == 0) {
+                entered.release();
+                release.acquire();
+            }
+            return BackendSemanticSearchReport{};
+        },
+        {},
+        [&](std::uint64_t) { ++cancellations; }
+    );
+    cancellable.search(QStringLiteral("first"));
+    if (!entered.tryAcquire(1, 2000)) {
+        release.release();
+        return EXIT_FAILURE;
+    }
+    cancellable.search(QStringLiteral("obsolete"));
+    cancellable.search(QStringLiteral("latest"));
+    release.release();
+    waitForCompletion(cancellable);
+    if (!require(cancellations == 2 && calls == 2, "latest query replaces pending work")
+        || !require(
+            cancellable.activeQuery() == QStringLiteral("latest"),
+            "cancelled result is discarded"
+        )) {
+        return EXIT_FAILURE;
+    }
+    cancellable.clearSessionResults();
+    cancellable.search(QStringLiteral("clear before delivery"));
+    cancellable.clearSessionResults();
+    waitForCompletion(cancellable);
+    if (!require(!cancellable.hasResults(), "late result cannot undo clear"))
+        return EXIT_FAILURE;
+
     SemanticSearchController failing(
-        [](const QString&, const QString&, const QString&) -> BackendSemanticSearchReport {
-            throw std::runtime_error("credential leaked detail");
-        }
+        [](const QString&, const QString&, const QString&, std::uint64_t)
+            -> BackendSemanticSearchReport { throw std::runtime_error("credential leaked detail"); }
     );
     failing.search(QStringLiteral("portrait"));
     waitForCompletion(failing);

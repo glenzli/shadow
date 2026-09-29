@@ -11,8 +11,8 @@
 
 #include "../concurrency/row_scheduler.hpp"
 #include "../edit/local_mask_coverage.hpp"
-#include "../edit/photo_structural_scalar_rendering.hpp"
 #include "../edit/local_mask_validation.hpp"
+#include "../edit/photo_structural_scalar_rendering.hpp"
 #include "developed_source_raster.hpp"
 #include "display_rgb_math.hpp"
 #include "warm_edit_gpu.hpp"
@@ -104,8 +104,7 @@ namespace {
     return receipt;
 }
 
-[[nodiscard]] std::optional<detail::WarmEditGpuGeometryContext>
-warm_gpu_geometry_context(
+[[nodiscard]] std::optional<detail::WarmEditGpuGeometryContext> warm_gpu_geometry_context(
     const FloatRgbImage& source,
     const PreparedPhotoStructuralRendering& structural
 ) {
@@ -122,22 +121,23 @@ warm_gpu_geometry_context(
                 .width = source.dimensions.width,
                 .height = source.dimensions.height,
             },
-        .output_rect = GeometryPixelRect{
-            .x = 0U,
-            .y = 0U,
-            .width = structural.geometry_layout.output_dimensions.width,
-            .height = structural.geometry_layout.output_dimensions.height,
-        },
+        .output_rect =
+            GeometryPixelRect{
+                .x = 0U,
+                .y = 0U,
+                .width = structural.geometry_layout.output_dimensions.width,
+                .height = structural.geometry_layout.output_dimensions.height,
+            },
         .liquify = structural.liquify.has_value() ? &*structural.liquify : nullptr,
     };
 }
 
-[[nodiscard]] std::optional<EditPreviewMaskCoverage> public_mask_coverage(
-    detail::WarmEditGpuSession::MaskCoverageResult coverage
-) {
+[[nodiscard]] std::optional<EditPreviewMaskCoverage>
+public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
     EditPreviewMaskCoverage result{
         .version = std::string(edit_preview_mask_coverage_version),
         .layer_index = coverage.layer_index,
+        .component_index = std::nullopt,
         .dimensions = coverage.dimensions,
         .row_stride_bytes = coverage.row_stride_bytes,
         .samples = std::move(coverage.samples),
@@ -155,6 +155,7 @@ warm_gpu_geometry_context(
 [[nodiscard]] std::optional<EditPreviewMaskCoverage> finalize_cpu_mask_coverage(
     detail::LocalMaskCoverageRaster coverage,
     const std::uint32_t layer_index,
+    const std::optional<std::uint32_t> component_index,
     const PreparedPhotoStructuralRendering& structural,
     const std::stop_token cancellation
 ) {
@@ -177,6 +178,7 @@ warm_gpu_geometry_context(
     EditPreviewMaskCoverage result{
         .version = std::string(edit_preview_mask_coverage_version),
         .layer_index = layer_index,
+        .component_index = component_index,
         .dimensions = geometrically_paired->dimensions,
         .row_stride_bytes = geometrically_paired->row_stride_bytes,
         .samples = std::move(geometrically_paired->samples),
@@ -200,6 +202,8 @@ warm_gpu_geometry_context(
     const std::span<const AdjustmentNode> nodes,
     const PhotoGeometry& geometry,
     const PhotoLiquify* liquify,
+    const SensorClippingMask* sensor_clipping_mask,
+    const HighlightChromaRiskMap* highlight_chroma_risk_map,
     const bool retain_linear_for_analysis,
     const std::stop_token cancellation,
     const detail::WarmEditGpuOutputIntent output_intent
@@ -245,11 +249,9 @@ warm_gpu_geometry_context(
                 receipt.display_backend = EditPreviewBackend::metal;
                 receipt.display_backend_version = edit_preview_metal_display_backend_version;
                 receipt.fused_pipeline = true;
-                receipt.presentation_fell_back =
-                    !output.presentation_fallback_diagnostic.empty();
+                receipt.presentation_fell_back = !output.presentation_fallback_diagnostic.empty();
                 if (receipt.presentation_fell_back) {
-                    receipt.diagnostic =
-                        "presentation: " + output.presentation_fallback_diagnostic;
+                    receipt.diagnostic = "presentation: " + output.presentation_fallback_diagnostic;
                 }
                 if (!receipt.valid()) {
                     throw DecodeError(
@@ -262,8 +264,7 @@ warm_gpu_geometry_context(
                     .dimensions = output.dimensions,
                     .edited = std::move(output.analyzed_linear),
                     .rgb = std::move(output.rgb8),
-                    .presentation_surface =
-                        std::move(output.presentation_surface),
+                    .presentation_surface = std::move(output.presentation_surface),
                     .presentation_fallback_diagnostic =
                         std::move(output.presentation_fallback_diagnostic),
                     .execution = std::move(receipt),
@@ -281,6 +282,14 @@ warm_gpu_geometry_context(
             throw EditError(EditErrorCode::backend_failure, std::nullopt, std::move(diagnostic));
         }
 
+        if (working_proxy.samples.empty()) {
+            throw EditError(
+                EditErrorCode::backend_failure,
+                std::nullopt,
+                "resident RAW preview requires its Metal warm session: " + diagnostic
+            );
+        }
+
         // Automatic selection is all-or-nothing at the fused boundary. A declined/failing warm
         // attempt replays adjustment and display completely on the CPU from the immutable host
         // source; it never drops into the old split Metal stages and cannot expose partial data.
@@ -295,12 +304,13 @@ warm_gpu_geometry_context(
                 nodes,
                 AdjustmentExecutionContext{
                     .full_dimensions = working_proxy.dimensions,
+                    .sensor_clipping_mask = sensor_clipping_mask,
+                    .highlight_chroma_risk_map = highlight_chroma_risk_map,
                 },
                 AdjustmentBackendMode::cpu
             );
             detail::throw_if_row_cancelled();
-            geometry_applied =
-                apply_photo_structural_rendering(adjustment.pixels, structural);
+            geometry_applied = apply_photo_structural_rendering(adjustment.pixels, structural);
             display = render_linear_srgb_to_display_srgb8_with_backend(
                 geometry_applied,
                 DisplayOutputRequest{.target_dimensions = geometry_applied.dimensions},
@@ -334,6 +344,14 @@ warm_gpu_geometry_context(
         };
     }
 
+    if (working_proxy.samples.empty()) {
+        throw EditError(
+            EditErrorCode::backend_failure,
+            std::nullopt,
+            "resident RAW preview cannot execute with the CPU adjustment backend"
+        );
+    }
+
     AdjustmentExecutionResult adjustment;
     DisplayRgb8Image display;
     FloatRgbImage geometry_applied;
@@ -345,12 +363,13 @@ warm_gpu_geometry_context(
             nodes,
             AdjustmentExecutionContext{
                 .full_dimensions = working_proxy.dimensions,
+                .sensor_clipping_mask = sensor_clipping_mask,
+                .highlight_chroma_risk_map = highlight_chroma_risk_map,
             },
             AdjustmentBackendMode::cpu
         );
         detail::throw_if_row_cancelled();
-        geometry_applied =
-            apply_photo_structural_rendering(adjustment.pixels, structural);
+        geometry_applied = apply_photo_structural_rendering(adjustment.pixels, structural);
         display = render_linear_srgb_to_display_srgb8_with_backend(
             geometry_applied,
             DisplayOutputRequest{.target_dimensions = geometry_applied.dimensions},
@@ -381,10 +400,13 @@ warm_gpu_geometry_context(
     const std::span<const AdjustmentLayer> layers,
     const PhotoGeometry& geometry,
     const PhotoLiquify* liquify,
+    const SensorClippingMask* sensor_clipping_mask,
+    const HighlightChromaRiskMap* highlight_chroma_risk_map,
     const bool retain_linear_for_analysis,
     const std::stop_token cancellation,
     const std::optional<std::uint32_t> target_layer_index,
-    const detail::WarmEditGpuOutputIntent output_intent
+    const detail::WarmEditGpuOutputIntent output_intent,
+    const std::optional<std::uint32_t> target_component_index
 ) {
     if (cancellation.stop_requested()) {
         return std::nullopt;
@@ -401,13 +423,24 @@ warm_gpu_geometry_context(
             "mask coverage target layer index is outside the warm-preview layer plan"
         );
     }
+    if (target_component_index.has_value() && !target_layer_index.has_value()) {
+        throw DecodeError(
+            DecodeErrorCode::invalid_request,
+            0,
+            "mask coverage component requires a warm-preview target layer"
+        );
+    }
     static_cast<void>(detail::validate_adjustment_layer_plan(
         working_proxy,
         layers,
-        AdjustmentExecutionContext{.full_dimensions = working_proxy.dimensions}
+        AdjustmentExecutionContext{
+            .full_dimensions = working_proxy.dimensions,
+            .sensor_clipping_mask = sensor_clipping_mask,
+            .highlight_chroma_risk_map = highlight_chroma_risk_map,
+        }
     ));
     std::string fallback_diagnostic;
-    if (backend_mode != AdjustmentBackendMode::cpu) {
+    if (backend_mode != AdjustmentBackendMode::cpu && !target_component_index.has_value()) {
         const detail::WarmEditGpuRenderContext render_context{
             .geometry = warm_gpu_geometry_context(working_proxy, structural),
             .output_intent = output_intent,
@@ -436,11 +469,9 @@ warm_gpu_geometry_context(
                 receipt.display_backend = EditPreviewBackend::metal;
                 receipt.display_backend_version = edit_preview_metal_display_backend_version;
                 receipt.fused_pipeline = true;
-                receipt.presentation_fell_back =
-                    !output.presentation_fallback_diagnostic.empty();
+                receipt.presentation_fell_back = !output.presentation_fallback_diagnostic.empty();
                 if (receipt.presentation_fell_back) {
-                    receipt.diagnostic =
-                        "presentation: " + output.presentation_fallback_diagnostic;
+                    receipt.diagnostic = "presentation: " + output.presentation_fallback_diagnostic;
                 }
                 if (!receipt.valid()) {
                     throw DecodeError(
@@ -451,15 +482,13 @@ warm_gpu_geometry_context(
                 }
                 std::optional<EditPreviewMaskCoverage> mask_coverage;
                 if (output.mask_coverage.has_value()) {
-                    mask_coverage =
-                        public_mask_coverage(std::move(*output.mask_coverage));
+                    mask_coverage = public_mask_coverage(std::move(*output.mask_coverage));
                 }
                 return PreparedEditPreviewPixels{
                     .dimensions = output.dimensions,
                     .edited = std::move(output.analyzed_linear),
                     .rgb = std::move(output.rgb8),
-                    .presentation_surface =
-                        std::move(output.presentation_surface),
+                    .presentation_surface = std::move(output.presentation_surface),
                     .presentation_fallback_diagnostic =
                         std::move(output.presentation_fallback_diagnostic),
                     .execution = std::move(receipt),
@@ -477,6 +506,42 @@ warm_gpu_geometry_context(
         if (backend_mode == AdjustmentBackendMode::metal) {
             throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
         }
+    } else if (backend_mode != AdjustmentBackendMode::cpu) {
+        fallback_diagnostic =
+            "composite local-mask component coverage requires exact CPU replay";
+        if (backend_mode == AdjustmentBackendMode::metal) {
+            throw EditError(EditErrorCode::backend_failure, std::nullopt, fallback_diagnostic);
+        }
+    }
+
+    const FloatRgbImage* cpu_working_proxy = &working_proxy;
+    std::shared_ptr<const FloatRgbImage> resident_host_source;
+    if (working_proxy.samples.empty()) {
+        auto host_source = warm_gpu_session != nullptr
+                               ? warm_gpu_session->host_source_for_cpu_replay(cancellation)
+                               : detail::WarmEditGpuHostSourceAttempt{
+                                     .diagnostic = "resident Metal warm session is unavailable",
+                                 };
+        if (host_source.cancelled || cancellation.stop_requested()) {
+            return std::nullopt;
+        }
+        if (!host_source.source) {
+            std::string diagnostic = std::move(host_source.diagnostic);
+            if (!fallback_diagnostic.empty()) {
+                diagnostic = fallback_diagnostic
+                             + (diagnostic.empty() ? std::string{}
+                                                   : "; CPU replay: " + diagnostic);
+            }
+            throw EditError(
+                EditErrorCode::backend_failure,
+                std::nullopt,
+                diagnostic.empty()
+                    ? "resident RAW preview could not materialize its exact CPU replay source"
+                    : std::move(diagnostic)
+            );
+        }
+        resident_host_source = std::move(host_source.source);
+        cpu_working_proxy = resident_host_source.get();
     }
 
     AdjustmentExecutionResult adjustment;
@@ -487,11 +552,16 @@ warm_gpu_geometry_context(
         detail::ScopedRowCancellation scoped_cancellation(cancellation);
         detail::throw_if_row_cancelled();
         auto executed = detail::execute_adjustment_layers_with_mask_coverage(
-            working_proxy,
+            *cpu_working_proxy,
             layers,
             target_layer_index,
-            AdjustmentExecutionContext{.full_dimensions = working_proxy.dimensions},
-            cancellation
+            AdjustmentExecutionContext{
+                .full_dimensions = cpu_working_proxy->dimensions,
+                .sensor_clipping_mask = sensor_clipping_mask,
+                .highlight_chroma_risk_map = highlight_chroma_risk_map,
+            },
+            cancellation,
+            target_component_index
         );
         if (!executed.has_value()) {
             return std::nullopt;
@@ -507,6 +577,7 @@ warm_gpu_geometry_context(
             mask_coverage = finalize_cpu_mask_coverage(
                 std::move(*executed->mask_coverage),
                 *target_layer_index,
+                target_component_index,
                 structural,
                 cancellation
             );
@@ -515,8 +586,7 @@ warm_gpu_geometry_context(
             }
         }
         detail::throw_if_row_cancelled();
-        geometry_applied =
-            apply_photo_structural_rendering(adjustment.pixels, structural);
+        geometry_applied = apply_photo_structural_rendering(adjustment.pixels, structural);
         display = render_linear_srgb_to_display_srgb8_with_backend(
             geometry_applied,
             DisplayOutputRequest{.target_dimensions = geometry_applied.dimensions},

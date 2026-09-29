@@ -6,6 +6,7 @@
 #include <shadow/image/edit_execution_plan.hpp>
 #include <shadow/image/photo_geometry.hpp>
 #include <shadow/image/photo_liquify.hpp>
+#include <shadow/image/sensor_clipping.hpp>
 #include <shadow/image/working_rgb.hpp>
 
 #include <cstddef>
@@ -25,6 +26,12 @@ namespace shadow::image::detail {
 
 struct WarmEditGpuPreparation;
 class WarmEditGpuPresentationSurface;
+
+struct WarmEditGpuHostSourceAttempt final {
+    std::shared_ptr<const FloatRgbImage> source;
+    bool cancelled = false;
+    std::string diagnostic;
+};
 
 enum class WarmEditGpuOutputIntent : std::uint8_t {
     host_rgb8,
@@ -70,6 +77,10 @@ struct WarmEditGpuAdoptedSource final {
     WorkingRgbSpace working_space;
     double level_zero_to_raster_scale_x = 1.0;
     double level_zero_to_raster_scale_y = 1.0;
+    // Borrowed only while the warm session is prepared. The resulting session retains an R8
+    // device copy; edits never re-read this CPU source evidence.
+    const SensorClippingMask* sensor_clipping_mask = nullptr;
+    const HighlightChromaRiskMap* highlight_chroma_risk_map = nullptr;
 };
 
 // The resident backend owns one immutable source upload and two independently synchronized output
@@ -152,6 +163,11 @@ class WarmEditGpuSession final {
     ) const;
 
     [[nodiscard]] WarmEditPreviewGpuStats stats() const noexcept;
+    // Materializes the immutable resident source only for an exact portable replay that the
+    // active Metal layer backend cannot execute. The first successful readback is retained by
+    // this bounded warm session; ordinary Metal edits never pay this transfer.
+    [[nodiscard]] WarmEditGpuHostSourceAttempt
+    host_source_for_cpu_replay(std::stop_token cancellation = {}) const;
 
   private:
     struct Impl;
@@ -160,7 +176,11 @@ class WarmEditGpuSession final {
     std::unique_ptr<Impl> impl_;
 
     friend struct WarmEditGpuPreparation;
-    friend WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage& source);
+    friend WarmEditGpuPreparation prepare_warm_edit_gpu_session(
+        const FloatRgbImage& source,
+        const SensorClippingMask* sensor_clipping_mask,
+        const HighlightChromaRiskMap* highlight_chroma_risk_map
+    );
     friend WarmEditGpuPreparation
     prepare_warm_edit_gpu_session(const WarmEditGpuAdoptedSource& source);
 };
@@ -170,7 +190,11 @@ struct WarmEditGpuPreparation final {
     std::string diagnostic;
 };
 
-[[nodiscard]] WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage& source);
+[[nodiscard]] WarmEditGpuPreparation prepare_warm_edit_gpu_session(
+    const FloatRgbImage& source,
+    const SensorClippingMask* sensor_clipping_mask = nullptr,
+    const HighlightChromaRiskMap* highlight_chroma_risk_map = nullptr
+);
 [[nodiscard]] WarmEditGpuPreparation
 prepare_warm_edit_gpu_session(const WarmEditGpuAdoptedSource& source);
 

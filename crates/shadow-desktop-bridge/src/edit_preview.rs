@@ -5,6 +5,7 @@
 //! for post-terminal durable publication, [`owned_response`] for the stable
 //! cross-language payload lifetime, and [`response`] for descriptor projection.
 
+mod curve_input;
 mod owned_response;
 mod recipe_preview_store;
 mod response;

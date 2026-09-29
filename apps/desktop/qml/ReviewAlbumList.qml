@@ -23,7 +23,7 @@ ColumnLayout {
             Layout.fillWidth: true
             text: qsTranslate("ReviewWorkspace", "ALBUMS")
             color: albums.workspace.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             font.letterSpacing: 1.1
         }
@@ -105,7 +105,7 @@ ColumnLayout {
                     color: albumRow.selected
                         ? albums.workspace.textPrimary
                         : albums.workspace.textSecondary
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                     elide: Text.ElideRight
                 }
 
@@ -115,7 +115,7 @@ ColumnLayout {
                     color: albumRow.selected
                         ? albums.workspace.accent
                         : albums.workspace.textMuted
-                    font.pixelSize: 8
+                    font.pixelSize: Theme.fontMicro
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.55
                 }

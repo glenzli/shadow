@@ -8,6 +8,7 @@ import QtQuick.Effects
 // verifies the paired preview identity and applies the theme tint.
 Item {
     id: overlay
+    objectName: "precisionMaskCoverageOverlay"
 
     required property var editor
     required property bool interactionEnabled
@@ -22,7 +23,7 @@ Item {
                                               && pairedPreviewGeneration === readyPreviewGeneration
     readonly property bool coverageAvailable: interactionEnabled
         && editor.active && editor.hasSelectedGradeNode && kind >= 1
-        && kind <= 6 && coverageSource.length > 0 && generationMatches
+        && kind <= 7 && coverageSource.length > 0 && generationMatches
     readonly property bool coverageReady: coverageAvailable
         && coverageImage.status === Image.Ready
 

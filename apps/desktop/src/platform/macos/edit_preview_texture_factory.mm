@@ -92,8 +92,33 @@ class FrameLifetimeGuard final : public QObject {
   public:
     FrameLifetimeGuard(
         std::shared_ptr<const BackendEditPreviewFrame> frame,
+        QQuickWindow* const window,
         QObject* const parent
     ) : QObject(parent), frame_(std::move(frame)) {
+        // Qt's native wrapper does not own the texture, and its Metal command buffers
+        // may use unretained resource references. Keep each submitted frame alive until
+        // GPU completion, including replacement, scene-graph invalidation and shutdown.
+        // This adds no pixel transfer, render wait, or semantic cache invalidation.
+        QObject::connect(
+            window,
+            &QQuickWindow::beforeRendering,
+            this,
+            [this, window]() {
+                auto* const renderer = window->rendererInterface();
+                if (renderer == nullptr)
+                    return;
+                id<MTLCommandBuffer> const commands = reinterpret_cast<id<MTLCommandBuffer>>(
+                    renderer->getResource(window, QSGRendererInterface::CommandListResource)
+                );
+                if (commands == nil)
+                    return;
+                const auto retained_frame = frame_;
+                [commands addCompletedHandler:^(id<MTLCommandBuffer>) {
+                  static_cast<void>(retained_frame);
+                }];
+            },
+            Qt::DirectConnection
+        );
         const std::uint64_t active =
             telemetry().active_native_frame_guards.fetch_add(1U, std::memory_order_relaxed) + 1U;
         std::uint64_t peak = telemetry().peak_native_frame_guards.load(std::memory_order_relaxed);
@@ -216,7 +241,7 @@ class EditPreviewTextureFactory final : public QQuickTextureFactory {
         // The Qt wrapper is non-owning. Its child guard keeps the C2 owner,
         // buffer, and MTLTexture alive even if this factory is destroyed as
         // soon as createTexture() returns.
-        static_cast<void>(new FrameLifetimeGuard(frame_, imported));
+        static_cast<void>(new FrameLifetimeGuard(frame_, window, imported));
         telemetry().native_import_count.fetch_add(1U, std::memory_order_relaxed);
         telemetry().native_import_bytes.fetch_add(native_bytes_, std::memory_order_relaxed);
         return imported;

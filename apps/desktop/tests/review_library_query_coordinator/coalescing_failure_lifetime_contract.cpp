@@ -8,9 +8,50 @@ namespace review_library_query_test {
 void run_coalescing_failure_lifetime_contracts() {
     {
         auto state = std::make_shared<QueryBackendState>();
+        ReviewModel model;
+        ReviewLibraryQueryCoordinator coordinator(operations(state), model);
+        BackendLibraryPhotoFilter typing;
+        typing.camera_key = QStringLiteral("typing");
+        coordinator.scheduleReset(typing, BackendLibraryPhotoOrder::CaptureTimeDescending);
+        BackendLibraryPhotoFilter person;
+        person.camera_key = QStringLiteral("person");
+        coordinator.requestReset(person, BackendLibraryPhotoOrder::CaptureTimeDescending);
+        require(
+            coordinator.pageRunning() && coordinator.generation() == 2,
+            "explicit navigation begins synchronously, bypassing the filter debounce"
+        );
+        wait_until(
+            [&coordinator]() { return !coordinator.refreshing(); },
+            "the immediate navigation page completes"
+        );
+        QThread::msleep(150);
+        QCoreApplication::processEvents();
+        require(
+            page_call_count(state) == 1,
+            "navigation cancels the pending filter timer rather than issuing a second query"
+        );
+        require(
+            model.data(model.index(0, 0), ReviewModel::PhotoIdRole).toString() == "person",
+            "only the final navigation filter is queried"
+        );
+    }
+    {
+        auto state = std::make_shared<QueryBackendState>();
         state->block_first_page = true;
         ReviewModel model;
         ReviewLibraryQueryCoordinator coordinator(operations(state), model);
+        QStringList presented;
+        QObject::connect(
+            &model,
+            &QAbstractItemModel::rowsInserted,
+            &model,
+            [&model, &presented](const QModelIndex&, int first, int last) {
+                for (int row = first; row <= last; ++row)
+                    presented.push_back(
+                        model.data(model.index(row, 0), ReviewModel::PhotoIdRole).toString()
+                    );
+            }
+        );
         BackendLibraryPhotoFilter first;
         first.camera_key = QStringLiteral("first");
         coordinator.requestReset(first, BackendLibraryPhotoOrder::CaptureTimeDescending);
@@ -38,6 +79,10 @@ void run_coalescing_failure_lifetime_contracts() {
                        && page_call_count(state) == 2;
             },
             "one coalesced latest reset supersedes the completed older page"
+        );
+        require(
+            presented == QStringList{QStringLiteral("latest")},
+            "a superseded page must never flash old photos or instantiate their thumbnails"
         );
         require(
             coordinator.generation() == 3,

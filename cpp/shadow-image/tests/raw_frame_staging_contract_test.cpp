@@ -39,6 +39,8 @@ image::RawFrame frame_fixture() {
     frame.descriptor.bits_per_sample = 14U;
     frame.descriptor.black_levels = {64U, 65U, 66U, 67U};
     frame.descriptor.white_levels = {16'383U, 16'383U, 16'383U, 16'383U};
+    frame.descriptor.linear_response_limits = {15'100U, 15'101U, 15'102U, 15'103U};
+    frame.descriptor.has_linear_response_limits = true;
     frame.descriptor.as_shot_neutral = {2.0, 1.0, 1.5, 1.0};
     frame.descriptor.xyz_to_camera_d65 = {
         0.8,
@@ -90,9 +92,14 @@ void active_plane_and_shifted_cfa_are_published_atomically() {
         std::istreambuf_iterator<char>(manifest_stream),
         std::istreambuf_iterator<char>(),
     };
-    expect(text.starts_with("shadow-raw-frame-staging-20260806.1 "), "manifest schema");
+    expect(text.starts_with("shadow-raw-frame-staging-20260822.1 "), "manifest schema");
     expect(text.find("cfa=BGGR") != std::string::npos, "active-origin CFA");
     expect(text.find("black=67,66,65,64") != std::string::npos, "active site levels");
+    expect(
+        text.find("linear_response=15103,15102,15101,15100 has_linear_response=1")
+            != std::string::npos,
+        "active site response limits"
+    );
     expect(
         text.find("provider_id_hex=736861646f772e746573742e726177") != std::string::npos,
         "provider identity"
@@ -117,6 +124,12 @@ void active_plane_and_shifted_cfa_are_published_atomically() {
         "restored site levels"
     );
     expect(restored.descriptor.has_camera_to_linear_srgb_d65, "restored camera transform");
+    expect(
+        restored.descriptor.has_linear_response_limits
+            && restored.descriptor.linear_response_limits
+                   == std::array<std::uint32_t, 4U>{15'103U, 15'102U, 15'101U, 15'100U},
+        "restored active-site response limits"
+    );
     expect(
         restored.descriptor.has_xyz_to_camera_d65
             && restored.descriptor.xyz_to_camera_d65

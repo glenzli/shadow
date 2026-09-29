@@ -192,7 +192,38 @@ inline float warm_layer_coverage(
             ),
             hue
         );
-    } else if (parameters.mask_kind > 6u) {
+    } else if (parameters.mask_kind == 7u) {
+        const float3 lab = xyz_to_oklab(multiply_rows(
+            parameters.rgb_to_xyz_row_0, parameters.rgb_to_xyz_row_1,
+            parameters.rgb_to_xyz_row_2, source));
+        const float chroma = clamp(length(lab.yz) / 0.4f, 0.0f, 1.0f);
+        float stack[8];
+        uint depth = 0u;
+        for (uint i = 0u; i < parameters.condition_count; ++i) {
+            constant float* p = parameters.condition_program[i];
+            if (p[0] == 0.0f || p[0] == 2.0f) {
+                const float value = p[0] == 0.0f ? clamp(lab.x, 0.0f, 1.0f) : chroma;
+                stack[depth++] = p[3] == 0.0f
+                    ? (value >= p[1] && value <= p[2] ? 1.0f : 0.0f)
+                    : min(warm_smootherstep((value - p[1] + p[3]) / p[3]),
+                          1.0f - warm_smootherstep((value - p[2]) / p[3]));
+            } else if (p[0] == 1.0f) {
+                const float relative = length(lab.yz) / max(1.0e-6f, abs(lab.x));
+                const float hue = wrap_degrees(atan2(lab.z, lab.y) * (180.0f / adjustment_pi));
+                const float gate = p[4] == 0.0f ? 1.0f : p[5] == 0.0f
+                    ? (chroma >= p[4] ? 1.0f : 0.0f)
+                    : adjustment_smoothstep(max(0.0f, p[4] - p[5]), p[4], chroma);
+                stack[depth++] = adjustment_smoothstep(0.002f, 0.02f, relative)
+                    * perceptual_range_weight(float4(1.0f, p[1], p[2], p[3]), hue) * gate;
+            } else if (p[0] == 6.0f) stack[depth - 1u] = 1.0f - stack[depth - 1u];
+            else {
+                const float right = stack[--depth];
+                stack[depth - 1u] = p[0] == 4.0f ? min(stack[depth - 1u], right)
+                                                        : max(stack[depth - 1u], right);
+            }
+        }
+        coverage = stack[0];
+    } else if (parameters.mask_kind > 7u) {
         return -1.0f;
     }
     if (parameters.invert != 0u) {

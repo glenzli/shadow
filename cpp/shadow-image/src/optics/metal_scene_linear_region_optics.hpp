@@ -15,6 +15,8 @@ class ResidentRawSource;
 
 namespace shadow::image::detail {
 
+class MetalRawPreviewResidentOutput;
+
 inline constexpr std::string_view metal_scene_linear_region_optics_executor_identity =
     "shadow-metal-scene-linear-region-optics-v1";
 
@@ -37,6 +39,7 @@ struct MetalSceneLinearRegionOpticsTelemetry final {
 };
 
 class MetalSceneLinearRegionDeviceAccess;
+class MetalSceneLinearRegionWarmPreviewAccess;
 
 // The completed result owns one same-device private fp32 RGB buffer. It is move-only so C-d can
 // retain one unambiguous resource owner across asynchronous display/edit consumers. Ordinary C++
@@ -70,10 +73,16 @@ class MetalSceneLinearRegionLease final {
     std::unique_ptr<Impl> implementation_;
 
     friend class MetalSceneLinearRegionDeviceAccess;
+    friend class MetalSceneLinearRegionWarmPreviewAccess;
     friend MetalSceneLinearRegionLease develop_metal_scene_linear_region_optics(
         const raw_pipeline_detail::ResidentRawSource& source,
         lensfun_modifier_plan::PreparedRegion region,
         std::uint64_t source_resident_allowance_bytes
+    );
+    friend MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
+        const MetalRawPreviewResidentOutput& source,
+        const PreparedSceneLinearRegionOptics& optics,
+        lensfun_modifier_plan::PreparedRegion region
     );
 };
 
@@ -87,6 +96,16 @@ class MetalSceneLinearRegionLease final {
     const raw_pipeline_detail::ResidentRawSource& source,
     lensfun_modifier_plan::PreparedRegion region,
     std::uint64_t source_resident_allowance_bytes
+);
+
+// Continues a bounded ordinary RAW preview from its already reconstructed fp32 Metal buffer.
+// The caller must provide a full-preview region from the exact prepared optics plan. This avoids
+// host materialization during a white-balance-only rebind while retaining the same Lensfun plan
+// and source-rendering order as the materialized path.
+[[nodiscard]] MetalSceneLinearRegionLease apply_metal_scene_linear_preview_optics(
+    const MetalRawPreviewResidentOutput& source,
+    const PreparedSceneLinearRegionOptics& optics,
+    lensfun_modifier_plan::PreparedRegion region
 );
 
 [[nodiscard]] bool metal_scene_linear_region_optics_available() noexcept;

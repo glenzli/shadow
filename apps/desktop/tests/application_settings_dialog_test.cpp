@@ -63,6 +63,12 @@ int main(int argc, char* argv[]) {
     QObject ai;
     set(ai, "rawDenoiseExecutionAllowed", true);
     set(ai, "subjectMaskExecutionAllowed", true);
+    set(ai, "peopleAnalysisExecutionAllowed", false);
+    set(ai, "imageUnderstandingExecutionAllowed", true);
+    set(ai, "imageUnderstandingBackgroundEnabled", false);
+    set(ai, "imageUnderstandingScanScope", QStringLiteral("liked"));
+    set(ai, "imageUnderstandingMinimumRating", 5);
+    set(ai, "imageUnderstandingAutoApplyKeywords", false);
     set(ai, "rawDenoiseDefaultAmount", 100);
     set(ai, "modelStoragePath", QStringLiteral("/tmp/models"));
     set(ai, "modelStorageUrl", QUrl::fromLocalFile(QStringLiteral("/tmp/models")));
@@ -97,6 +103,20 @@ int main(int argc, char* argv[]) {
     set(editor, "foundationAiDenoiseAvailable", false);
     set(editor, "foundationAiDenoiseStatusText", QString{});
 
+    QObject people;
+    set(people, "hasResults", false);
+    set(people, "groups", QVariantList{});
+    set(people, "busy", false);
+
+    QObject image_understanding;
+    set(image_understanding, "busy", false);
+    set(image_understanding, "statusText", QString{});
+    set(image_understanding, "errorText", QString{});
+    set(image_understanding, "totalPhotos", 0);
+    set(image_understanding, "progressPercent", 0);
+    set(image_understanding, "canPause", false);
+    set(image_understanding, "canResume", false);
+
     QQmlEngine engine;
     QQmlComponent component{&engine};
     component.loadFromModule(
@@ -106,6 +126,11 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<QObject> dialog{component.createWithInitialProperties({
         {QStringLiteral("preferences"), QVariant::fromValue(&ui)},
         {QStringLiteral("aiPreferences"), QVariant::fromValue(&ai)},
+        {QStringLiteral("peopleAnalysisController"), QVariant::fromValue(&people)},
+        {
+            QStringLiteral("imageUnderstandingController"),
+            QVariant::fromValue(&image_understanding),
+        },
         {QStringLiteral("cachePreferences"), QVariant::fromValue(&cache)},
         {QStringLiteral("cacheMaintenanceController"), QVariant::fromValue(&maintenance)},
         {QStringLiteral("mapProviderPreferences"), QVariant::fromValue(&maps)},
@@ -134,6 +159,8 @@ int main(int argc, char* argv[]) {
         dialog->findChild<QObject*>(QStringLiteral("applicationSettingsDoneButton"));
     QObject* const raw_permission =
         dialog->findChild<QObject*>(QStringLiteral("rawDenoiseExecutionPermissionSwitch"));
+    QObject* const people_permission =
+        dialog->findChild<QObject*>(QStringLiteral("peopleAnalysisExecutionPermissionSwitch"));
     QObject* const cache_limit = dialog->findChild<QObject*>(QStringLiteral("cacheLimitSlider"));
     QObject* const unlimited_cache =
         dialog->findChild<QObject*>(QStringLiteral("unlimitedCacheCheckBox"));
@@ -146,7 +173,8 @@ int main(int argc, char* argv[]) {
             "AI can be opened directly from the shared settings entry"
         )
         || !require(
-            done != nullptr && raw_permission != nullptr && cache_limit != nullptr,
+            done != nullptr && raw_permission != nullptr && people_permission != nullptr
+                && cache_limit != nullptr,
             "the packaged dialog contains navigation, AI, and storage controls"
         )
         || !require(

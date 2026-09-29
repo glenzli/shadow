@@ -6,7 +6,7 @@ use shadow_library_sharing::RemoteReviewFlag;
 use super::{DesktopSession, ffi};
 use crate::remote_library_service::{
     RemoteLibraryPhoto, RemoteLibraryServer, RemoteLibrarySnapshot, RemoteLibrarySyncResult,
-    RemoteMaterialization,
+    RemoteLibrarySyncStart, RemoteLibrarySyncStep, RemoteMaterialization,
 };
 
 impl DesktopSession {
@@ -30,6 +30,30 @@ impl DesktopSession {
             server_address,
             authorization,
         )?))
+    }
+
+    pub(crate) fn begin_remote_library_sync(
+        &self,
+        connection_id: &str,
+        server_address: &str,
+        authorization: &str,
+    ) -> AnyResult<ffi::FfiRemoteLibrarySyncStart> {
+        Ok(project_sync_start(self.remote_library.begin_sync(
+            connection_id,
+            server_address,
+            authorization,
+        )?))
+    }
+
+    pub(crate) fn step_remote_library_sync(
+        &self,
+        job_id: u64,
+    ) -> AnyResult<ffi::FfiRemoteLibrarySyncStep> {
+        Ok(project_sync_step(self.remote_library.sync_step(job_id)?))
+    }
+
+    pub(crate) fn cancel_remote_library_sync(&self, job_id: u64) -> AnyResult<bool> {
+        self.remote_library.cancel_sync(job_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -80,7 +104,32 @@ fn project_sync_result(result: RemoteLibrarySyncResult) -> ffi::FfiRemoteLibrary
         page_count: result.page_count,
         photo_count: result.photo_count,
         downloaded_previews: result.downloaded_previews,
+        preview_failures: result.preview_failures,
         removed: result.removed,
+    }
+}
+
+fn project_sync_start(result: RemoteLibrarySyncStart) -> ffi::FfiRemoteLibrarySyncStart {
+    ffi::FfiRemoteLibrarySyncStart {
+        job_id: result.job_id,
+        snapshot: project_snapshot(result.snapshot),
+    }
+}
+
+fn project_sync_step(result: RemoteLibrarySyncStep) -> ffi::FfiRemoteLibrarySyncStep {
+    ffi::FfiRemoteLibrarySyncStep {
+        job_id: result.job_id,
+        snapshot: project_snapshot(result.snapshot),
+        stage: result.stage,
+        page_count: result.page_count,
+        photo_count: result.photo_count,
+        preview_completed_count: result.preview_completed_count,
+        downloaded_previews: result.downloaded_previews,
+        preview_failures: result.preview_failures,
+        removed: result.removed,
+        manifest_complete: result.manifest_complete,
+        complete: result.complete,
+        diagnostic: result.diagnostic,
     }
 }
 
@@ -119,6 +168,10 @@ fn empty_server() -> ffi::FfiRemoteLibraryServer {
 
 fn project_photo(photo: RemoteLibraryPhoto) -> ffi::FfiRemoteLibraryPhoto {
     let local_source = photo.local_source;
+    let metadata = photo.metadata;
+    let raw_dimensions = metadata.raw_dimensions.unwrap_or_default();
+    let image_dimensions = metadata.image_dimensions.unwrap_or_default();
+    let gps = metadata.gps;
     ffi::FfiRemoteLibraryPhoto {
         server_id: photo.server_id,
         remote_photo_id: photo.remote_photo_id.to_string(),
@@ -142,24 +195,46 @@ fn project_photo(photo: RemoteLibraryPhoto) -> ffi::FfiRemoteLibraryPhoto {
         preview_role: photo.preview_role,
         preview_width: photo.preview_width,
         preview_height: photo.preview_height,
+        preview_auto_transform: photo.preview_auto_transform,
         preview_unavailable_reason: photo.preview_unavailable_reason,
-        has_captured_at: photo.captured_at_unix_seconds.is_some(),
-        captured_at_unix_seconds: photo.captured_at_unix_seconds.unwrap_or_default(),
-        camera_make: photo.camera_make,
-        camera_model: photo.camera_model,
-        lens_make: photo.lens_make,
-        lens_model: photo.lens_model,
-        has_iso_speed: photo.iso_speed.is_some(),
-        iso_speed: photo.iso_speed.unwrap_or_default(),
-        has_exposure_time: photo.exposure_time_seconds.is_some(),
-        exposure_time_seconds: photo.exposure_time_seconds.unwrap_or_default(),
-        has_aperture: photo.aperture_f_number.is_some(),
-        aperture_f_number: photo.aperture_f_number.unwrap_or_default(),
-        has_focal_length: photo.focal_length_mm.is_some(),
-        focal_length_mm: photo.focal_length_mm.unwrap_or_default(),
-        has_raw_dimensions: photo.raw_width.is_some() && photo.raw_height.is_some(),
-        raw_width: photo.raw_width.unwrap_or_default(),
-        raw_height: photo.raw_height.unwrap_or_default(),
+        metadata_schema_version: metadata.schema_version,
+        has_captured_at: metadata.captured_at_unix_seconds.is_some(),
+        captured_at_unix_seconds: metadata.captured_at_unix_seconds.unwrap_or_default(),
+        camera_make: metadata.camera_make,
+        camera_model: metadata.camera_model,
+        lens_make: metadata.lens_make,
+        lens_model: metadata.lens_model,
+        has_iso_speed: metadata.iso_speed.is_some(),
+        iso_speed: metadata.iso_speed.unwrap_or_default(),
+        has_exposure_time: metadata.exposure_time_seconds.is_some(),
+        exposure_time_seconds: metadata.exposure_time_seconds.unwrap_or_default(),
+        has_aperture: metadata.aperture_f_number.is_some(),
+        aperture_f_number: metadata.aperture_f_number.unwrap_or_default(),
+        has_focal_length: metadata.focal_length_mm.is_some(),
+        focal_length_mm: metadata.focal_length_mm.unwrap_or_default(),
+        has_focal_length_35mm: metadata.focal_length_35mm.is_some(),
+        focal_length_35mm: metadata.focal_length_35mm.unwrap_or_default(),
+        has_raw_dimensions: metadata.raw_dimensions.is_some(),
+        raw_width: raw_dimensions.width,
+        raw_height: raw_dimensions.height,
+        has_image_dimensions: metadata.image_dimensions.is_some(),
+        image_width: image_dimensions.width,
+        image_height: image_dimensions.height,
+        has_orientation: metadata.orientation.is_some(),
+        orientation: metadata.orientation.unwrap_or_default(),
+        has_coordinates: gps.is_some(),
+        latitude_degrees: gps
+            .as_ref()
+            .map_or(0.0, |coordinates| coordinates.latitude_degrees),
+        longitude_degrees: gps
+            .as_ref()
+            .map_or(0.0, |coordinates| coordinates.longitude_degrees),
+        has_altitude: gps
+            .as_ref()
+            .is_some_and(|coordinates| coordinates.altitude_meters.is_some()),
+        altitude_meters: gps
+            .and_then(|coordinates| coordinates.altitude_meters)
+            .unwrap_or_default(),
         decision_flag: ffi_flag(photo.review_state.flag),
         decision_rating: photo.review_state.rating,
         liked: photo.review_state.liked,
@@ -189,12 +264,55 @@ fn hex_digest(digest: [u8; 32]) -> String {
 fn project_materialization(
     materialization: RemoteMaterialization,
 ) -> ffi::FfiRemoteLibraryMaterialization {
+    let metadata = materialization.metadata;
+    let raw_dimensions = metadata.raw_dimensions.unwrap_or_default();
+    let image_dimensions = metadata.image_dimensions.unwrap_or_default();
+    let gps = metadata.gps;
     ffi::FfiRemoteLibraryMaterialization {
         local_photo_id: materialization.local_photo_id.to_string(),
         local_representation_id: materialization.local_representation_id.to_string(),
         local_source_path: materialization.native_path.to_string_lossy().into_owned(),
         title: materialization.title,
         reused_existing: materialization.reused_existing,
+        inspection_diagnostic: materialization.inspection_diagnostic,
+        metadata_schema_version: metadata.schema_version,
+        has_captured_at: metadata.captured_at_unix_seconds.is_some(),
+        captured_at_unix_seconds: metadata.captured_at_unix_seconds.unwrap_or_default(),
+        camera_make: metadata.camera_make,
+        camera_model: metadata.camera_model,
+        lens_make: metadata.lens_make,
+        lens_model: metadata.lens_model,
+        has_iso_speed: metadata.iso_speed.is_some(),
+        iso_speed: metadata.iso_speed.unwrap_or_default(),
+        has_exposure_time: metadata.exposure_time_seconds.is_some(),
+        exposure_time_seconds: metadata.exposure_time_seconds.unwrap_or_default(),
+        has_aperture: metadata.aperture_f_number.is_some(),
+        aperture_f_number: metadata.aperture_f_number.unwrap_or_default(),
+        has_focal_length: metadata.focal_length_mm.is_some(),
+        focal_length_mm: metadata.focal_length_mm.unwrap_or_default(),
+        has_focal_length_35mm: metadata.focal_length_35mm.is_some(),
+        focal_length_35mm: metadata.focal_length_35mm.unwrap_or_default(),
+        has_raw_dimensions: metadata.raw_dimensions.is_some(),
+        raw_width: raw_dimensions.width,
+        raw_height: raw_dimensions.height,
+        has_image_dimensions: metadata.image_dimensions.is_some(),
+        image_width: image_dimensions.width,
+        image_height: image_dimensions.height,
+        has_orientation: metadata.orientation.is_some(),
+        orientation: metadata.orientation.unwrap_or_default(),
+        has_coordinates: gps.is_some(),
+        latitude_degrees: gps
+            .as_ref()
+            .map_or(0.0, |coordinates| coordinates.latitude_degrees),
+        longitude_degrees: gps
+            .as_ref()
+            .map_or(0.0, |coordinates| coordinates.longitude_degrees),
+        has_altitude: gps
+            .as_ref()
+            .is_some_and(|coordinates| coordinates.altitude_meters.is_some()),
+        altitude_meters: gps
+            .and_then(|coordinates| coordinates.altitude_meters)
+            .unwrap_or_default(),
     }
 }
 

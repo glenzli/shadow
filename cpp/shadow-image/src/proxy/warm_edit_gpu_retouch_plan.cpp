@@ -66,6 +66,9 @@ struct IntegerBounds final {
         return WarmRetouchMode::clone;
     case SpotRepairMode::heal:
         return WarmRetouchMode::heal;
+    case SpotRepairMode::tone:
+    case SpotRepairMode::texture:
+        return WarmRetouchMode::clone; // Rejected by prepare_warm_retouch_stage.
     case SpotRepairMode::heal_structure:
         return WarmRetouchMode::heal_structure;
     }
@@ -504,6 +507,12 @@ std::optional<WarmRetouchStage> prepare_warm_retouch_stage(
     const AdjustmentExecutionContext context
 ) {
     validate_spot_heal(adjustment);
+    for (const auto& v : adjustment.spots)
+        if (v.mode == SpotRepairMode::tone || v.mode == SpotRepairMode::texture)
+            return std::nullopt;
+    for (const auto& v : adjustment.strokes)
+        if (v.mode == SpotRepairMode::tone || v.mode == SpotRepairMode::texture)
+            return std::nullopt;
     const Dimensions full = execution_full_dimensions(dimensions, context);
     if (dimensions.width == 0U || dimensions.height == 0U || full.width == 0U || full.height == 0U
         || context.origin_x > full.width || context.origin_y > full.height

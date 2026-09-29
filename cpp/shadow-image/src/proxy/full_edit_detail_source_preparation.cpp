@@ -1,5 +1,6 @@
 #include "full_edit_detail_source_preparation.hpp"
 
+#include "../raw/clipped_highlight_reconstruction.hpp"
 #include "../raw/raw_foundation_source.hpp"
 #include "developed_source_raster.hpp"
 #include "proxy_render_request_validation.hpp"
@@ -302,6 +303,9 @@ PreparedFullEditDetailSource prepare_full_edit_detail_source(
         if (prepared.has_value()) {
             detail::PreparedSceneLinearRegionOptics region_optics =
                 prepared->prepare_region_optics(optics_provider, optics_settings);
+            // Ordinary Bayer highlight recovery is photosite-owned and bounded to the region's
+            // existing CFA dependency halo. It therefore preserves exact detail/export semantics
+            // without forcing a complete scene-RGB materialization.
             if (raw_pipeline_detail::cpu_resident_raw_source_supported(*prepared, region_optics)) {
                 auto resident = raw_pipeline_detail::prepare_resident_raw_source(
                     std::move(*prepared),

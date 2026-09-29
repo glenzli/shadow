@@ -82,84 +82,6 @@ else()
     )
 endif()
 
-set(
-    SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR
-    ""
-    CACHE PATH
-    "Optional frozen RawNIND onedir provider copied beside the Shadow executable"
-)
-set(
-    SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME
-    "shadow-rawnind-foundation-provider${CMAKE_EXECUTABLE_SUFFIX}"
-)
-set(
-    SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY
-    "_rawnind_runtime"
-)
-if(APPLE)
-    set(
-        SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY
-        "$<TARGET_BUNDLE_DIR:shadow-desktop>/Contents/Helpers/RawNIND"
-    )
-else()
-    set(
-        SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY
-        "$<TARGET_FILE_DIR:shadow-desktop>"
-    )
-endif()
-if(SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR)
-    if(NOT IS_DIRECTORY "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}")
-        message(FATAL_ERROR
-            "SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR is not a directory: "
-            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}"
-        )
-    endif()
-    set(
-        SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE
-        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
-    )
-    set(
-        SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME
-        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
-    )
-    if(NOT EXISTS "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE}")
-        message(FATAL_ERROR
-            "frozen RawNIND provider executable is missing: "
-            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE}"
-        )
-    endif()
-    if(NOT IS_DIRECTORY "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME}")
-        message(FATAL_ERROR
-            "frozen RawNIND provider runtime is missing: "
-            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME}"
-        )
-    endif()
-    message(STATUS
-        "Shadow will bundle frozen RawNIND provider from "
-        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}"
-    )
-endif()
-set(
-    SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION
-    "${CMAKE_CURRENT_BINARY_DIR}/raw-foundation-provider-configuration.txt"
-)
-set(
-    SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION_CONTENT
-    "provider_dir=${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}\nprovider_name=${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}\nruntime_directory=${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}\n"
-)
-file(
-    GENERATE
-    OUTPUT "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION}"
-    CONTENT "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION_CONTENT}"
-)
-
-if(APPLE)
-    add_subdirectory(
-        providers/sam2-coreml
-        "${CMAKE_CURRENT_BINARY_DIR}/providers/sam2-coreml"
-    )
-endif()
-
 find_program(SHADOW_CARGO_EXECUTABLE cargo REQUIRED)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(SHADOW_CARGO_PROFILE release)
@@ -390,9 +312,14 @@ qt_add_executable(
     ${SHADOW_DESKTOP_HISTORY_PROJECTION_SOURCES}
     src/desktop_backend.cpp
     src/desktop_backend_ai_mask.cpp
+    src/desktop_backend_ai_completion.cpp
     src/desktop_backend_raw_foundation.cpp
     src/desktop_backend_cache.cpp
     src/desktop_backend_edit.cpp
+    src/desktop_backend_lut_export.cpp
+    src/backend/lut_export_types.hpp
+    src/lut_export_controller.cpp
+    src/lut_export_controller.hpp
     src/desktop_backend_history.cpp
     src/desktop_backend_image_understanding.cpp
     src/desktop_backend_library.cpp
@@ -441,11 +368,40 @@ qt_add_executable(
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
+    src/edit_interchange_controller.cpp
+    src/edit_interchange_controller.hpp
+    src/edit_interchange_application.cpp
+    src/xmp_develop_import.cpp
+    src/xmp_develop_import.hpp
     src/edit_variant_controller.cpp
     src/edit_adjustment_controller.cpp
     src/edit_adjustment_reset_controller.cpp
+    src/subject_emphasis_smoke_harness.cpp
+    src/subject_emphasis_smoke_harness.hpp
+    src/edit_dodge_burn_controller.cpp
+    src/edit_paint_controller.cpp
+    src/edit_paint_controller.hpp
+    src/paint_brush_presets.cpp
+    src/paint_brush_presets.hpp
+    src/paint_stroke_input.cpp
+    src/paint_stroke_input.hpp
+    src/auto_start_policy.cpp
+    src/auto_start_policy.hpp
+    src/auto_start_analysis.cpp
+    src/auto_start_analysis.hpp
+    src/desktop_backend_auto_start.cpp
+    src/edit_auto_start_controller.cpp
+    src/edit_auto_start_controller.hpp
+    src/auto_start_smoke_harness.cpp
+    src/auto_start_smoke_harness.hpp
+    src/color_warper_smoke_harness.cpp
+    src/color_warper_smoke_harness.hpp
+    src/edit_subject_emphasis_controller.cpp
+    src/edit_subject_emphasis_controller.hpp
     src/edit_ai_mask_controller.cpp
     src/edit_ai_mask_controller.hpp
+    src/edit_ai_completion_controller.cpp
+    src/edit_ai_completion_controller.hpp
     src/edit_auto_geometry_controller.cpp
     src/edit_auto_geometry_controller.hpp
     src/edit_ai_mask_prompt_state.cpp
@@ -468,6 +424,7 @@ qt_add_executable(
     src/edit_history_controller.cpp
     src/edit_history_restore_projection.cpp
     src/edit_local_mask_controller.cpp
+    src/edit_condition_mask_controller.cpp
     src/edit_liquify_coordinates.cpp
     src/edit_liquify_coordinates.hpp
     src/edit_liquify_controller.cpp
@@ -485,15 +442,25 @@ qt_add_executable(
     src/edit_retouch_controller.cpp
     src/edit_retouch_donor_selection.cpp
     src/edit_retouch_donor_selection.hpp
+    src/edit_retouch_donor_preview.cpp
+    src/edit_retouch_donor_preview.hpp
+    src/edit_retouch_sources.cpp
+    src/edit_retouch_sources.hpp
+    src/edit_retouch_coordinates.cpp
+    src/edit_retouch_coordinates.hpp
+    src/edit_retouch_projection.cpp
     src/edit_source_admission.cpp
     src/edit_source_admission.hpp
     src/edit_stroke_input.cpp
     src/edit_stroke_input.hpp
     src/edit_task_runner.cpp
     src/edit_task_runner.hpp
+    src/edit_targeted_curve_controller.cpp
+    src/edit_targeted_curve_controller.hpp
     src/edit_tone_curve_controller.cpp
     src/edit_history.hpp
     src/edit_preview_contract.hpp
+    src/edit_before_preview_state.hpp
     src/edit_preview_liquify_mesh.cpp
     src/edit_preview_liquify_mesh.hpp
     ${SHADOW_DESKTOP_PLATFORM_SOURCES}
@@ -511,6 +478,8 @@ qt_add_executable(
     src/edit_version_model.hpp
     src/edit_version_presentation.cpp
     src/edit_version_presentation.hpp
+    src/composition_controller.cpp
+    src/composition_controller.hpp
     src/export_controller.cpp
     src/export_controller.hpp
     src/export_preset_store.cpp
@@ -549,7 +518,26 @@ qt_add_executable(
     src/history_model.hpp
     src/image_understanding_controller.cpp
     src/image_understanding_controller.hpp
+    src/catalog_startup_recovery.cpp
+    src/catalog_startup_recovery.hpp
     src/main.cpp
+    src/pipeline_launch.cpp
+    src/pipeline_launch.hpp
+    src/paint_smoke_harness.cpp
+    src/paint_smoke_harness.hpp
+    src/paint_interaction_smoke_harness.cpp
+    src/paint_interaction_smoke_harness.hpp
+    src/precision_editing_smoke_harness.cpp
+    src/precision_editing_smoke_harness.hpp
+    src/direct_edit_smoke_harness.cpp
+    src/direct_edit_smoke_harness.hpp
+    src/rgb_curve_smoke_harness.cpp
+    src/rgb_curve_smoke_harness.hpp
+    src/pipeline_smoke_harness.cpp
+    src/pipeline_smoke_harness.hpp
+    src/pipeline_runtime.cpp
+    src/pipeline_run_controller.cpp
+    src/pipeline_run_controller.hpp
     src/ai_preferences.cpp
     src/ai_preferences.hpp
     src/cache_preferences.cpp
@@ -659,29 +647,6 @@ qt_add_executable(
     src/ui_preferences.hpp
 )
 set(
-    SHADOW_RAWNIND_FOUNDATION_BUNDLE_INPUTS
-    "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_CONFIGURATION}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/install_runtime.cmake"
-    "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/model-manifest.json"
-)
-if(SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR)
-    file(
-        GLOB_RECURSE SHADOW_RAWNIND_FOUNDATION_PROVIDER_INPUTS
-        CONFIGURE_DEPENDS
-        LIST_DIRECTORIES FALSE
-        "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR}/*"
-    )
-    list(
-        APPEND SHADOW_RAWNIND_FOUNDATION_BUNDLE_INPUTS
-        ${SHADOW_RAWNIND_FOUNDATION_PROVIDER_INPUTS}
-    )
-endif()
-set_property(
-    TARGET shadow-desktop
-    APPEND
-    PROPERTY LINK_DEPENDS ${SHADOW_RAWNIND_FOUNDATION_BUNDLE_INPUTS}
-)
-set(
     SHADOW_GEONAMES_BUNDLE_INPUTS
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/geonames/NOTICE.txt"
 )
@@ -710,6 +675,8 @@ qt_add_resources(
         icons/check.svg
         icons/clear.svg
         icons/clone.svg
+        icons/color-mixer-colors.svg
+        icons/color-mixer-curves.svg
         icons/close.svg
         icons/compare.svg
         icons/compare-side-by-side.svg
@@ -752,6 +719,7 @@ qt_add_resources(
         icons/mask-radial.svg
         icons/mask-subtract.svg
         icons/metadata.svg
+        icons/more-horizontal.svg
         icons/move-down.svg
         icons/move-up.svg
         icons/network.svg
@@ -770,6 +738,7 @@ qt_add_resources(
         icons/scopes.svg
         icons/settings.svg
         icons/shared-link.svg
+        icons/source-available.svg
         icons/source-missing.svg
         icons/source-stack.svg
         icons/slot-left.svg
@@ -786,6 +755,8 @@ qt_add_resources(
         icons/skip.svg
         icons/zebra.svg
         icons/zoom.svg
+        icons/zoom-in.svg
+        icons/zoom-out.svg
 )
 
 qt_add_resources(
@@ -825,6 +796,7 @@ qt_add_qml_module(
     URI Shadow.ServerManager
     VERSION 1.0
     QML_FILES
+        qml/ShadowTextField.qml
         qml/ServerManagerMain.qml
         qml/SettingsLibraryServerPane.qml
         qml/ShadowButton.qml
@@ -912,12 +884,18 @@ qt_add_qml_module(
     URI Shadow.App
     VERSION 1.0
     QML_FILES
+        qml/ReviewGalleryActionsMenu.qml
+        qml/ShadowComboBox.qml
+        qml/ShadowMenu.qml
+        qml/ShadowMenuItem.qml
+        qml/ShadowTextField.qml
         qml/EditHistogram.qml
         qml/EditScopeClipSummary.qml
         qml/EditScopeCanvas.qml
         qml/EditScopeData.qml
         qml/EditScopeToolbar.qml
         qml/ExportDialog.qml
+        qml/ExportActivityButton.qml
         qml/ExportPresetMenus.qml
         qml/ExportPresetSidebar.qml
         qml/ExportSettingsPane.qml
@@ -950,13 +928,17 @@ qt_add_qml_module(
         qml/LibrarySourceHealthPane.qml
         qml/LibraryWorkspace.qml
         qml/LutManagerWindow.qml
+        qml/LutExportDialog.qml
         qml/ApplicationSettingsDialog.qml
         qml/SettingsGeneralPane.qml
         qml/SettingsLibraryPane.qml
         qml/SettingsAiPane.qml
         qml/SettingsStoragePane.qml
         qml/Main.qml
+        qml/PipelineEditor.qml
+        qml/PipelineExportDialog.qml
         qml/MainTitleBar.qml
+        qml/ShadowTitleBar.qml
         qml/MainLibraryFilterBar.qml
         qml/MainLibrarySortMenu.qml
         qml/MainPrecisionProxyStatus.qml
@@ -972,11 +954,21 @@ qt_add_qml_module(
         qml/PersonalLivingPlacesEditor.qml
         qml/PeopleWorkspace.qml
         qml/PrecisionCanvas.qml
+        qml/PrecisionViewportState.qml
+        qml/PrecisionDetailSurface.qml
         qml/PrecisionDetailLoupe.qml
         qml/PrecisionDetailLoupeState.qml
         qml/PrecisionActiveStrokeCoverage.qml
         qml/PrecisionAiMaskPromptOverlay.qml
+        qml/PrecisionTargetedCurveOverlay.qml
+        qml/PrecisionPaintOverlay.qml
+        qml/PrecisionPaintTools.qml
+        qml/PrecisionPaintBrushSettings.qml
+        qml/PrecisionAiCompletionOverlay.qml
+        qml/PrecisionAiCompletionTools.qml
+        qml/PrecisionPeopleMaskSelector.qml
         qml/PrecisionCanvasPickerInput.qml
+        qml/PrecisionRetouchSourcePreview.qml
         qml/PrecisionCanvasStatusOverlays.qml
         qml/PrecisionCanvasToolbar.qml
         qml/PrecisionVariantSelector.qml
@@ -995,19 +987,27 @@ qt_add_qml_module(
         qml/PrecisionColorMixer.qml
         qml/PrecisionSelectiveColor.qml
         qml/ColorWarperEditor.qml
+        qml/PrecisionColorWarperPanel.qml
         qml/HueCurveEditor.qml
         qml/PrecisionGeometryTools.qml
         qml/PrecisionGradeNodeMenus.qml
+        qml/ShadowRecipeInterchangeDialog.qml
+        qml/XmpImportDialog.qml
         qml/PrecisionGradeNodePane.qml
         qml/PrecisionLocalMaskOverlay.qml
         qml/PrecisionMaskCoverageOverlay.qml
         qml/PrecisionCropOverlay.qml
         qml/PrecisionRetouchOverlay.qml
+        qml/PrecisionRetouchProjectedHandle.qml
         qml/PrecisionRetouchSpotHandle.qml
         qml/PrecisionRetouchStrokeCoverage.qml
         qml/PrecisionRetouchStrokeHandle.qml
+        qml/PrecisionAutoStart.qml
+        qml/PrecisionSubjectEmphasis.qml
         qml/PrecisionLocalMaskTools.qml
+        qml/PrecisionConditionMaskTools.qml
         qml/PrecisionMaskCreateMenu.qml
+        qml/PrecisionSemanticMaskPanel.qml
         qml/PrecisionRetouchTools.qml
         qml/PrecisionRetouchRegionInspector.qml
         qml/PrecisionRetouchRegionPicker.qml
@@ -1019,6 +1019,7 @@ qt_add_qml_module(
         qml/RecipeRecoveryPopup.qml
         qml/PrecisionWorkspace.qml
         qml/ReviewWorkspace.qml
+        qml/ReviewPersonBar.qml
         qml/ReviewSelectionState.qml
         qml/ReviewComparisonState.qml
         qml/ReviewComparisonView.qml
@@ -1052,6 +1053,7 @@ qt_add_qml_module(
         qml/ReviewSelectionInspectionPane.qml
         qml/ReviewPhotoSummary.qml
         qml/ReviewSinglePreview.qml
+        qml/ReviewPreviewViewport.qml
         qml/ShadowButton.qml
         qml/ShadowCheckBox.qml
         qml/ShadowColorLabelButton.qml
@@ -1068,6 +1070,7 @@ qt_add_qml_module(
         qml/ShadowSubsectionLabel.qml
         qml/ShadowTabButton.qml
         qml/Theme.qml
+        qml/PhotoCompositionDialog.qml
         qml/ToneCurveEditor.qml
 )
 
@@ -1171,84 +1174,6 @@ else()
         VERBATIM
     )
 endif()
-add_custom_command(
-    TARGET shadow-desktop
-    POST_BUILD
-    COMMAND
-        ${CMAKE_COMMAND} -E make_directory
-        "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}"
-    COMMAND
-        ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/model-manifest.json"
-        "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/shadow-rawnind-foundation-model-manifest.json"
-    COMMENT "Installing the canonical RawNIND model manifest for Shadow"
-    VERBATIM
-)
-if(SHADOW_RAWNIND_FOUNDATION_PROVIDER_DIR)
-    add_custom_command(
-        TARGET shadow-desktop
-        POST_BUILD
-        COMMAND
-            ${CMAKE_COMMAND} -E copy_if_different
-            "${SHADOW_RAWNIND_FOUNDATION_PROVIDER_EXECUTABLE}"
-            "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
-        COMMAND
-            ${CMAKE_COMMAND}
-            "-DSHADOW_RAWNIND_SOURCE_RUNTIME=${SHADOW_RAWNIND_FOUNDATION_PROVIDER_RUNTIME}"
-            "-DSHADOW_RAWNIND_DESTINATION_RUNTIME=${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
-            -P
-            "${CMAKE_CURRENT_SOURCE_DIR}/providers/rawnind-foundation/install_runtime.cmake"
-        COMMENT "Installing the self-contained RawNIND provider beside Shadow"
-        VERBATIM
-    )
-else()
-    add_custom_command(
-        TARGET shadow-desktop
-        POST_BUILD
-        COMMAND
-            ${CMAKE_COMMAND} -E rm -f
-            "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
-        COMMAND
-            ${CMAKE_COMMAND} -E remove_directory
-            "${SHADOW_RAWNIND_FOUNDATION_BUNDLE_DIRECTORY}/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
-        COMMENT "Ensuring the optional RawNIND provider is absent from this Shadow build"
-        VERBATIM
-    )
-endif()
-if(APPLE)
-    add_custom_command(
-        TARGET shadow-desktop
-        POST_BUILD
-        COMMAND
-            ${CMAKE_COMMAND} -E rm -f
-            "$<TARGET_FILE_DIR:shadow-desktop>/${SHADOW_RAWNIND_FOUNDATION_PROVIDER_NAME}"
-        COMMAND
-            ${CMAKE_COMMAND} -E rm -f
-            "$<TARGET_FILE_DIR:shadow-desktop>/shadow-rawnind-foundation-model-manifest.json"
-        COMMAND
-            ${CMAKE_COMMAND} -E remove_directory
-            "$<TARGET_FILE_DIR:shadow-desktop>/${SHADOW_RAWNIND_FOUNDATION_RUNTIME_DIRECTORY}"
-        COMMENT "Removing the obsolete RawNIND Contents/MacOS layout"
-        VERBATIM
-    )
-endif()
-if(APPLE)
-    add_dependencies(shadow-desktop shadow-sam2-coreml-provider)
-    add_custom_command(
-        TARGET shadow-desktop
-        POST_BUILD
-        COMMAND
-            ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:shadow-sam2-coreml-provider>
-            $<TARGET_FILE_DIR:shadow-desktop>/$<TARGET_FILE_NAME:shadow-sam2-coreml-provider>
-        COMMAND
-            ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/providers/sam2-coreml/model-manifest.json"
-            "$<TARGET_FILE_DIR:shadow-desktop>/shadow-sam2-coreml-model-manifest.json"
-        COMMENT "Installing the local SAM 2.1 Core ML provider beside Shadow"
-        VERBATIM
-    )
-endif()
 if(Lensfun_FOUND)
     target_link_libraries(shadow-desktop PRIVATE PkgConfig::Lensfun)
 endif()
@@ -1301,6 +1226,7 @@ qt_add_translations(
 
 if(SHADOW_BUILD_DESKTOP)
     include(cmake/ShadowDesktopTests.cmake)
+    include(cmake/ShadowDesktopComposition.cmake)
 else()
     include(cmake/ShadowServerManagerTests.cmake)
 endif()

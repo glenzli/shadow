@@ -726,3 +726,40 @@ fn living_place_periods_exclude_only_ordinary_life_from_travel() {
         "all resolved-place photos must belong to exactly one generated collection"
     );
 }
+
+#[test]
+fn exact_people_membership_filters_count_and_keyset_pages_without_variable_limits() {
+    let mut catalog = Catalog::open_in_memory().unwrap();
+    let a = register(&mut catalog, "/a.nef");
+    let _other = register(&mut catalog, "/other.nef");
+    let b = register(&mut catalog, "/b.nef");
+    let filter = LibraryPhotoFilter {
+        photo_ids: Some(vec![a.photo_id, b.photo_id]),
+        ..Default::default()
+    };
+    assert_eq!(catalog.library_photo_count(&filter).unwrap(), 2);
+    let first = catalog
+        .library_photo_page(&filter, LibraryPhotoOrder::default(), None, 1)
+        .unwrap();
+    assert_eq!(first.items.len(), 1);
+    let next = catalog
+        .library_photo_page(
+            &filter,
+            LibraryPhotoOrder::default(),
+            first.next_cursor.as_ref(),
+            1,
+        )
+        .unwrap();
+    assert_eq!(next.items.len(), 1);
+    assert_ne!(first.items[0].photo_id, next.items[0].photo_id);
+    let empty = LibraryPhotoFilter {
+        photo_ids: Some(vec![]),
+        ..Default::default()
+    };
+    assert_eq!(catalog.library_photo_count(&empty).unwrap(), 0);
+    let many = LibraryPhotoFilter {
+        photo_ids: Some(vec![a.photo_id; 40_000]),
+        ..Default::default()
+    };
+    assert_eq!(catalog.library_photo_count(&many).unwrap(), 1);
+}

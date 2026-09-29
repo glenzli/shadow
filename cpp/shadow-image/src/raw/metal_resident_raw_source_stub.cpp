@@ -157,14 +157,6 @@ ResidentRawSourceAttempt try_prepare_metal_resident_raw_source(
             "a CPU-prepared RAW source cannot enter the Metal resident transaction"
         );
     }
-    if (prepared.development_.neural_raw_denoise().execution_requested()) {
-        return ResidentRawSourceAttempt{
-            .source = nullptr,
-            .fallback_source = std::optional<PreparedRawFrameSource>(std::move(prepared)),
-            .diagnostic =
-                "neural RAW denoise requires the materialized source transaction",
-        };
-    }
     if (prepared.development_.requested_backend() == RawDevelopmentBackendMode::metal) {
         throw DecodeError(
             DecodeErrorCode::internal,

@@ -74,7 +74,7 @@ Rectangle {
         anchors.fill: parent
         anchors.leftMargin: 14
         anchors.rightMargin: 12
-        spacing: 10
+        spacing: 8
 
         ColumnLayout {
             Layout.fillWidth: true
@@ -85,7 +85,7 @@ Rectangle {
                 text: toolbar.editor.active
                     ? toolbar.editor.title : qsTr("No photo open")
                 color: Theme.textPrimary
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontBody
                 font.weight: Font.Medium
                 elide: Text.ElideRight
             }
@@ -94,7 +94,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: toolbar.editor.sourcePath
                 color: Theme.textMuted
-                font.pixelSize: 8
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideMiddle
             }
         }
@@ -105,12 +105,12 @@ Rectangle {
         }
 
         RowLayout {
-            spacing: 2
+            spacing: 8
 
             ShadowIconButton {
                 id: zebraButton
                 source: "qrc:/icons/zebra.svg"
-                variant: ShadowIconButton.Secondary
+                variant: ShadowIconButton.Ghost
                 selected: toolbar.zebraEnabled
                 toolTipText: qsTr(
                     "Toggle clipping warning · RAW uses sensor limits")
@@ -123,7 +123,7 @@ Rectangle {
             ShadowIconButton {
                 id: beforeAfterButton
                 source: toolbar.comparisonModeIcon(toolbar.comparisonMode)
-                variant: ShadowIconButton.Secondary
+                variant: ShadowIconButton.Ghost
                 selected: toolbar.comparisonActive
                 toolTipText: toolbar.comparisonActive
                     ? qsTr("Disable comparison")
@@ -171,7 +171,7 @@ Rectangle {
 
                     contentItem: Row {
                         id: comparisonModeRow
-                        spacing: 4
+                        spacing: 8
 
                         Repeater {
                             model: [
@@ -190,7 +190,7 @@ Rectangle {
                             delegate: ShadowIconButton {
                                 required property var modelData
                                 source: modelData.icon
-                                variant: ShadowIconButton.Secondary
+                                variant: ShadowIconButton.Ghost
                                 selected: toolbar.comparisonMode
                                     === modelData.mode
                                 toolTipText: toolbar.comparisonModeName(
@@ -212,7 +212,7 @@ Rectangle {
             id: detailLoupeButton
             objectName: "detailLoupeToolbarButton"
             source: "qrc:/icons/detail-loupe.svg"
-            variant: ShadowIconButton.Secondary
+            variant: ShadowIconButton.Ghost
             selected: toolbar.detailLoupeVisible
             toolTipText: selected
                 ? qsTr("Hide detail loupe")
@@ -225,18 +225,19 @@ Rectangle {
         }
 
         Label {
+            visible: !toolbar.fitView && Math.abs(toolbar.zoomFactor - 1.0) >= 0.001
             text: toolbar.fitView
                 ? qsTr("FIT")
                 : qsTr("%L1%").arg(Math.round(toolbar.zoomFactor * 100))
             color: Theme.textMuted
             font.family: "Menlo"
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
 
         ShadowIconButton {
             id: zoomToolButton
             source: "qrc:/icons/zoom.svg"
-            variant: ShadowIconButton.Secondary
+            variant: ShadowIconButton.Ghost
             selected: toolbar.zoomToolActive
             toolTipText: selected
                 ? qsTr("Leave magnifier tool")
@@ -264,10 +265,10 @@ Rectangle {
 
         ShadowButton {
             id: actualPixelsButton
-            Layout.preferredWidth: 52
+            Layout.preferredWidth: 64
             Layout.preferredHeight: 30
             compact: true
-            variant: ShadowButton.Secondary
+            variant: ShadowButton.Ghost
             selected: !toolbar.fitView
                 && Math.abs(toolbar.zoomFactor - 1.0) < 0.001
             text: qsTr("100%")
@@ -278,7 +279,7 @@ Rectangle {
         ShadowIconButton {
             id: fitButton
             source: "qrc:/icons/fit-view.svg"
-            variant: ShadowIconButton.Secondary
+            variant: ShadowIconButton.Ghost
             selected: toolbar.fitView
             toolTipText: qsTr("Fit image to window")
             accessibleName: toolTipText

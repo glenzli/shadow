@@ -333,6 +333,8 @@ fn ffi_library_neutral_filter() -> ffi::FfiLibraryPhotoFilter {
         album_id: String::new(),
         keyword_ids_all: Vec::new(),
         excluded_keyword_ids_any: Vec::new(),
+        has_photo_ids: false,
+        photo_ids: Vec::new(),
     }
 }
 

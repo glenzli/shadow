@@ -4,6 +4,9 @@
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/raw_foundation.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/raw_white_balance.hpp>
+
+#include "metal_raw_development.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -13,6 +16,17 @@ namespace shadow::image::raw_pipeline_detail {
 
 class PreparedRawFrameSource;
 struct PreparedRawPreviewRebinding;
+
+// Device-only equivalent of one ordinary RAW white-balance bind. It carries the exact receipts
+// alongside the fp32 output; callers may fall back to bind() when an optional Metal continuation
+// (or a host-only optics stage) is required.
+struct ResidentRawPreviewRebinding final {
+    detail::MetalRawPreviewResidentOutput output;
+    RawDevelopmentReceipt raw_development_receipt;
+    RawPipelineReceipt pipeline_receipt;
+    std::optional<SensorClippingMask> sensor_clipping_mask;
+    std::optional<HighlightChromaRiskMap> highlight_chroma_risk_map;
+};
 
 // Immutable sensor/camera-space owner shared by every white-balance variant of one bounded
 // preview. The ordinary RAW route retains one already-denoised RawFrame; the AI route retains
@@ -25,11 +39,24 @@ class RawPreviewRebindingSource final {
     ~RawPreviewRebindingSource();
 
     [[nodiscard]] DevelopedSourceReference bind(const RawDevelopmentPlan& requested_plan) const;
+    [[nodiscard]] std::optional<ResidentRawPreviewRebinding>
+    try_bind_metal_resident(const RawDevelopmentPlan& requested_plan) const;
     [[nodiscard]] DevelopedSourceReference bind_foundation_amount(
         const RawDevelopmentPlan& requested_plan,
         std::uint8_t amount_percent
     ) const;
     [[nodiscard]] bool supports_foundation_amount_rebinding() const noexcept;
+    // Available only when the immutable preview retained its original
+    // denoised CFA frame.  Foundation/RGB compatibility paths deliberately do
+    // not expose a picker because their pixels are no longer sensor samples.
+    [[nodiscard]] bool supports_raw_white_balance_picker() const noexcept;
+    [[nodiscard]] std::optional<RawWhiteBalancePresentation>
+    pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
+    // Estimates one photographic white point from a bounded grid over the
+    // retained denoised CFA. This is a one-shot action, not a persistent
+    // development mode, and never reopens or re-denoises the source.
+    [[nodiscard]] std::optional<RawWhiteBalancePresentation>
+    auto_raw_white_balance() const noexcept;
     [[nodiscard]] const AssetMetadata& metadata() const noexcept;
     [[nodiscard]] RawPreviewRebindingTelemetry telemetry() const noexcept;
 

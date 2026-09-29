@@ -161,6 +161,66 @@ fn queued_render_uses_its_explicit_base_after_the_working_ref_moves() {
     assert!(!neutral.foundation.raw_ai_denoise().is_present());
     assert_eq!(neutral.foundation.optics(), &OpticsSettings::default());
 
+    let mut composed_settings = settings.clone();
+    composed_settings.geometry.present = true;
+    composed_settings.geometry.enabled = true;
+    composed_settings.geometry.crop_left = 0.1;
+    composed_settings.geometry.crop_right = 0.7;
+    composed_settings.geometry.quarter_turn = 3;
+    composed_settings.geometry.perspective_vertical = 0.08;
+    let before = resolve_composition_before_render(
+        &catalog,
+        &root.join("cache"),
+        registered.photo_id,
+        &composed_settings,
+    )
+    .expect("resolve Before with current composition");
+    assert_eq!(before.plan.geometry.crop_left, 0.1);
+    assert_eq!(before.plan.geometry.crop_right, 0.7);
+    assert_eq!(
+        before.plan.geometry.quarter_turn,
+        shadow_bridge::AdjustmentQuarterTurn::Clockwise270
+    );
+    assert_eq!(before.plan.geometry.perspective_vertical, 0.08);
+    assert_eq!(before.foundation.optics(), resolved.foundation.optics());
+    assert_eq!(
+        before.foundation.preview_plan().white_balance,
+        RawWhiteBalance::AsShot
+    );
+    assert!(!before.foundation.raw_ai_denoise().is_present());
+    let operations = |render: &ResolvedRecipeRender| {
+        render
+            .plan
+            .nodes
+            .iter()
+            .map(|node| (node.enabled, node.operation.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(operations(&before), operations(&neutral));
+    assert_ne!(before.snapshot_digest, neutral.snapshot_digest);
+
+    // Colour changes preserve the executable baseline; composition changes do not.
+    composed_settings.foundation.temperature_kelvin = 6700;
+    composed_settings.grade_nodes[0].basic.exposure_stops = -2.0;
+    let colour_changed = resolve_composition_before_render(
+        &catalog,
+        &root.join("cache"),
+        registered.photo_id,
+        &composed_settings,
+    )
+    .expect("resolve Before after grading changes");
+    assert_eq!(before.plan.geometry, colour_changed.plan.geometry);
+    assert_eq!(operations(&before), operations(&colour_changed));
+    composed_settings.geometry.quarter_turn = 1;
+    let framing_changed = resolve_composition_before_render(
+        &catalog,
+        &root.join("cache"),
+        registered.photo_id,
+        &composed_settings,
+    )
+    .expect("resolve Before after rotation");
+    assert_ne!(before.plan.geometry, framing_changed.plan.geometry);
+
     let mut bypassed_settings = settings.clone();
     bypassed_settings.foundation.enabled = false;
     let bypassed = resolve_recipe_render(

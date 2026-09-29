@@ -1,12 +1,13 @@
 use shadow_domain::{
-    ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, ManagedRasterMask,
-    MaskDefinition, PhotoFoundationNode, RasterMaskEncoding, RawFoundationDenoise,
-    RawFoundationDenoiseModel, RawTemperatureTint, RawWhiteBalance, RecipeInputSettings,
-    RecipeOpticsSettings, UnitInterval,
+    ConditionMaskExpression, ConditionMaskNode, ConditionMaskPredicate, EntityId,
+    ManagedRasterMask, MaskComponent, MaskComponentId, MaskComponentOperation, MaskDefinition,
+    PhotoFoundationNode, RasterMaskEncoding, RawFoundationDenoise, RawFoundationDenoiseModel,
+    RawTemperatureTint, RawWhiteBalance, RecipeInputSettings, RecipeOpticsSettings,
+    SemanticMaskAggregation, SemanticMaskIntent, UnitInterval,
 };
 
 use super::super::{
-    GradeStackDraft, PreservedManagedRasterSettings,
+    GradeStackDraft, MaskComponentDraftDefinition, PreservedManagedRasterSettings,
     decode_grade_stack_draft_from_recipe_v1_snapshot, decode_grade_stack_draft_recipe_v1,
     encode_grade_stack_draft_recipe_v1, grade_stack_recipe_v1_snapshot,
 };
@@ -16,7 +17,7 @@ fn unit(value: f64) -> UnitInterval {
 }
 
 #[test]
-fn persisted_but_unexecutable_conditions_fail_before_qt_projection() {
+fn persisted_conditions_reopen_without_losing_authored_semantics() {
     let expression = ConditionMaskExpression::all(vec![
         ConditionMaskNode::leaf(ConditionMaskPredicate::oklab_lightness_range(
             unit(0.2),
@@ -35,16 +36,16 @@ fn persisted_but_unexecutable_conditions_fail_before_qt_projection() {
         Some(MaskDefinition::condition_expression(expression).expect("condition mask"));
     let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("persistable Recipe");
 
-    let error = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
-        .expect_err("current desktop DTO must reject unsupported condition");
-    assert!(
-        error
-            .to_string()
-            .contains("current editable Grade Stack cannot project")
+    let reopened =
+        decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot).expect("reopen condition mask");
+    assert_eq!(
+        reopened.grade_nodes[0].local_mask,
+        grade_stack.grade_nodes[0].local_mask
     );
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // One legacy mask crosses draft, Qt and Recipe with refinements.
 fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
     let digest = "cd".repeat(32);
     let raster = ManagedRasterMask::new(
@@ -60,9 +61,18 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
     )
     .expect("managed raster");
     let mut grade_stack = GradeStackDraft::default();
+    let semantic_intent =
+        SemanticMaskIntent::new("red train", 4, 30, SemanticMaskAggregation::Union)
+            .expect("semantic intent");
     grade_stack.grade_nodes[0].local_mask = Some(
-        MaskDefinition::managed_raster_with_refinement(raster, -35, 24, false)
-            .expect("Recipe mask"),
+        MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
+            raster,
+            Some(semantic_intent.clone()),
+            -35,
+            24,
+            false,
+        )
+        .expect("Recipe mask"),
     );
     let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("persistable Recipe");
 
@@ -75,6 +85,7 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
             expansion_percent: -35,
             feather_percent: 24,
             invert: false,
+            semantic_intent: Some(semantic_intent.clone()),
         })
     );
 
@@ -82,6 +93,7 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
         expansion_percent: 18,
         feather_percent: 31,
         invert: true,
+        semantic_intent: Some(semantic_intent.clone()),
     });
     let round_trip = grade_stack_recipe_v1_snapshot(&reopened, Some(&snapshot))
         .expect("restore exact raster reference from the explicit base Recipe");
@@ -96,6 +108,7 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
         expansion_percent,
         feather_percent,
         invert,
+        semantic_intent: reopened_intent,
     } = revision.definition()
     else {
         panic!("expected managed raster")
@@ -107,6 +120,126 @@ fn persisted_managed_raster_round_trips_as_an_opaque_base_recipe_reference() {
     assert_eq!(*expansion_percent, 18);
     assert_eq!(*feather_percent, 31);
     assert!(*invert, "opaque Qt projection may still toggle inversion");
+    assert_eq!(reopened_intent.as_ref(), Some(&semantic_intent));
+
+    let qt = encode_grade_stack_draft_recipe_v1(reopened).expect("project legacy raster to Qt");
+    let mut projected = decode_grade_stack_draft_recipe_v1(&qt).expect("decode typed Base marker");
+    let restored = grade_stack_recipe_v1_snapshot(&projected, Some(&snapshot))
+        .expect("recover a single legacy raster through the component-based UI");
+    assert_eq!(restored, round_trip);
+    assert!(grade_stack_recipe_v1_snapshot(&projected, None).is_err());
+
+    let components = &mut projected.grade_nodes[0]
+        .composite_mask
+        .as_mut()
+        .expect("Qt component draft")
+        .components;
+    let mut unknown = components[0].clone();
+    unknown.id = MaskComponentId::from_uuid(uuid::Uuid::from_u128(0x99));
+    unknown.operation = MaskComponentOperation::Add;
+    components.push(unknown);
+    assert!(
+        grade_stack_recipe_v1_snapshot(&projected, Some(&snapshot))
+            .expect_err("an added opaque component cannot borrow the legacy Base raster")
+            .to_string()
+            .contains("cannot recover opaque managed mask component")
+    );
+}
+
+#[test]
+fn composite_managed_raster_round_trips_through_qt_with_stable_component_identity() {
+    let digest = "ab".repeat(32);
+    let raster = ManagedRasterMask::new(
+        format!("objects/v1/b3/{}/{}", &digest[..2], &digest[2..]),
+        1,
+        digest.clone(),
+        8,
+        4,
+        2,
+        6000,
+        4000,
+        RasterMaskEncoding::Gray8Unorm,
+    )
+    .expect("managed raster");
+    let base_id = MaskComponentId::from_uuid(uuid::Uuid::from_u128(0x11));
+    let managed_id = MaskComponentId::from_uuid(uuid::Uuid::from_u128(0x12));
+    let mut grade_stack = GradeStackDraft::default();
+    grade_stack.grade_nodes[0].local_mask = Some(
+        MaskDefinition::composite(
+            vec![
+                MaskComponent::new(
+                    base_id,
+                    MaskComponentOperation::Base,
+                    true,
+                    MaskDefinition::linear_gradient(
+                        unit(0.1),
+                        unit(0.2),
+                        unit(0.8),
+                        unit(0.9),
+                        false,
+                    )
+                    .expect("linear base"),
+                )
+                .expect("base component"),
+                MaskComponent::new(
+                    managed_id,
+                    MaskComponentOperation::Add,
+                    false,
+                    MaskDefinition::managed_raster_with_refinement(raster, 12, 23, true)
+                        .expect("managed leaf"),
+                )
+                .expect("managed component"),
+            ],
+            true,
+        )
+        .expect("composite mask"),
+    );
+    let snapshot = grade_stack_recipe_v1_snapshot(&grade_stack, None).expect("persist composite");
+    let reopened = decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot)
+        .expect("decode composite markers");
+    let composite = reopened.grade_nodes[0]
+        .composite_mask
+        .as_ref()
+        .expect("editable composite");
+    assert_eq!(composite.components[0].id, base_id);
+    assert_eq!(composite.components[1].id, managed_id);
+    assert!(matches!(
+        composite.components[1].definition,
+        MaskComponentDraftDefinition::PreservedManagedRaster(_)
+    ));
+
+    let qt = encode_grade_stack_draft_recipe_v1(reopened).expect("project Qt DTO");
+    let projected = decode_grade_stack_draft_recipe_v1(&qt).expect("decode Qt DTO");
+    let round_trip = grade_stack_recipe_v1_snapshot(&projected, Some(&snapshot))
+        .expect("recover managed component from explicit base Recipe");
+    let definition = round_trip
+        .resolve_mask(round_trip.layers()[0].mask().expect("mask reference"))
+        .expect("mask revision")
+        .definition();
+    let composite = definition.composite_definition().expect("composite mask");
+    assert!(composite.invert());
+    assert_eq!(composite.components()[0].id(), base_id);
+    assert_eq!(composite.components()[1].id(), managed_id);
+    assert!(!composite.components()[1].enabled());
+    let MaskDefinition::ManagedRaster { raster, .. } = composite.components()[1].definition()
+    else {
+        panic!("expected recovered managed raster")
+    };
+    assert_eq!(raster.content_blake3(), digest);
+
+    let mut mismatched = projected;
+    mismatched.grade_nodes[0]
+        .composite_mask
+        .as_mut()
+        .expect("composite draft")
+        .components[1]
+        .id = MaskComponentId::from_uuid(uuid::Uuid::from_u128(0x99));
+    assert!(
+        grade_stack_recipe_v1_snapshot(&mismatched, Some(&snapshot))
+            .expect_err("composite rasters still require their exact persisted component ID")
+            .to_string()
+            .contains("cannot recover opaque managed mask component")
+    );
 }
 
 #[test]

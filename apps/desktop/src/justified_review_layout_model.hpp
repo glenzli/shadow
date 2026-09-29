@@ -5,6 +5,7 @@
 #include <QPointer>
 #include <QSet>
 #include <QStringList>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QVector>
@@ -121,11 +122,13 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
     [[nodiscard]] QVariantMap sourceItem(int row) const;
     [[nodiscard]] static qreal aspectRatio(const QVariantMap& item);
     void disconnectSourceModel();
+    void requestRebuild();
     void rebuild();
     void appendPhotoRows(QVector<Row>& rows, QVariantList items) const;
 
     QPointer<QAbstractItemModel> source_model_;
     QVector<QMetaObject::Connection> source_connections_;
+    QTimer rebuild_timer_;
     QVector<Row> rows_;
     QVariantList section_variants_;
     QVector<Section> sections_;

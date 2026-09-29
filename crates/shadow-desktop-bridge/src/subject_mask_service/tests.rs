@@ -9,6 +9,228 @@ use super::*;
 static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn one_input_is_prepared_once_and_reused_by_later_prompt_jobs() {
+    let fixture = Fixture::new("reuse-input");
+    let service = SubjectMaskService::open(&fixture.store_root).unwrap();
+    let session = service.begin_input_session().unwrap();
+    let identity = input_identity("photo-a");
+
+    assert!(matches!(
+        service
+            .admit_original_space_input(session, &identity)
+            .unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+    assert!(matches!(
+        service.admit_original_space_input(session, &identity),
+        Err(SubjectMaskServiceError::InputPreparationInFlight(token)) if token == session
+    ));
+
+    let extent = RasterExtent::new(1_024, 683).unwrap();
+    let prepared = service
+        .complete_original_space_input_preparation(
+            session,
+            &identity,
+            b"stable JPEG bytes".to_vec(),
+            extent,
+        )
+        .unwrap();
+    let reused = match service
+        .admit_original_space_input(session, &identity)
+        .unwrap()
+    {
+        SubjectMaskInputAdmission::Reuse(input) => input,
+        SubjectMaskInputAdmission::Prepare => panic!("prepared input must be reused"),
+    };
+
+    assert!(Arc::ptr_eq(&prepared.bytes, &reused.bytes));
+    assert_eq!(prepared.content_hash, reused.content_hash);
+    assert_eq!(reused.coordinate_extent, extent);
+    service.finish_input_session(session).unwrap();
+    assert!(matches!(
+        service.admit_original_space_input(session, &identity),
+        Err(SubjectMaskServiceError::UnknownInputSession(token)) if token == session
+    ));
+}
+
+#[test]
+fn render_input_reuse_is_independent_of_the_interactive_target() {
+    let fixture = Fixture::new("target-independent-input");
+    let service = SubjectMaskService::open(&fixture.store_root).unwrap();
+    let session = service.begin_input_session().unwrap();
+    let identity = input_identity("photo-a");
+    assert!(matches!(
+        service
+            .admit_original_space_input(session, &identity)
+            .unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+    service
+        .complete_original_space_input_preparation(
+            session,
+            &identity,
+            b"stable JPEG bytes".to_vec(),
+            RasterExtent::new(16, 9).unwrap(),
+        )
+        .unwrap();
+
+    // Target Grade Node identity is intentionally absent from the render
+    // identity. A caller can validate a different target and reuse these
+    // exact original-space bytes for another semantic item.
+    assert!(matches!(
+        service
+            .admit_original_space_input(session, &identity)
+            .unwrap(),
+        SubjectMaskInputAdmission::Reuse(_)
+    ));
+}
+
+#[test]
+fn working_recipe_changes_invalidate_prepared_render_input() {
+    let fixture = Fixture::new("working-settings-change");
+    let service = SubjectMaskService::open(&fixture.store_root).unwrap();
+    let session = service.begin_input_session().unwrap();
+    let first = input_identity("photo-a");
+    assert!(matches!(
+        service.admit_original_space_input(session, &first).unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+    service
+        .complete_original_space_input_preparation(
+            session,
+            &first,
+            b"stable JPEG bytes".to_vec(),
+            RasterExtent::new(16, 9).unwrap(),
+        )
+        .unwrap();
+
+    let mut changed = first.clone();
+    changed.base_commit_id = "changed-working-commit".into();
+    assert!(matches!(
+        service.admit_original_space_input(session, &changed),
+        Err(SubjectMaskServiceError::InputIdentityChanged(token)) if token == session
+    ));
+
+    let mut changed = first.clone();
+    changed
+        .grade_stack
+        .grade_nodes
+        .push(crate::recipe_v1::GradeNodeDraft::neutral(
+            "changed settings",
+        ));
+    assert!(matches!(
+        service.admit_original_space_input(session, &changed),
+        Err(SubjectMaskServiceError::InputIdentityChanged(token)) if token == session
+    ));
+}
+
+#[test]
+fn input_session_rejects_recipe_identity_changes() {
+    let fixture = Fixture::new("identity-change");
+    let service = SubjectMaskService::open(&fixture.store_root).unwrap();
+    let session = service.begin_input_session().unwrap();
+    let first = input_identity("photo-a");
+    let changed = input_identity("photo-b");
+
+    assert!(matches!(
+        service.admit_original_space_input(session, &first).unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+    assert!(matches!(
+        service.admit_original_space_input(session, &changed),
+        Err(SubjectMaskServiceError::InputIdentityChanged(token)) if token == session
+    ));
+}
+
+#[test]
+fn cancelled_preparation_can_be_retried_in_the_same_prompt_session() {
+    let fixture = Fixture::new("retry-input");
+    let service = SubjectMaskService::open(&fixture.store_root).unwrap();
+    let session = service.begin_input_session().unwrap();
+    let identity = input_identity("photo-a");
+
+    assert!(matches!(
+        service
+            .admit_original_space_input(session, &identity)
+            .unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+    service
+        .abort_original_space_input_preparation(session, &identity)
+        .unwrap();
+    assert!(matches!(
+        service
+            .admit_original_space_input(session, &identity)
+            .unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+}
+
+#[test]
+fn people_and_parsed_labels_are_cached_for_one_input_session() {
+    let fixture = Fixture::new("people-cache");
+    let service = SubjectMaskService::open(&fixture.store_root).unwrap();
+    let session = service.begin_input_session().unwrap();
+    let identity = input_identity("photo-a");
+    assert!(matches!(
+        service
+            .admit_original_space_input(session, &identity)
+            .unwrap(),
+        SubjectMaskInputAdmission::Prepare
+    ));
+    service
+        .complete_original_space_input_preparation(
+            session,
+            &identity,
+            b"stable JPEG bytes".to_vec(),
+            RasterExtent::new(2, 2).unwrap(),
+        )
+        .unwrap();
+
+    let candidate = SubjectMaskPersonCandidate {
+        bounding_box: shadow_ai::FaceBoundingBox {
+            x: 0.0,
+            y: 0.0,
+            width: 2.0,
+            height: 2.0,
+        },
+        confidence: 0.9,
+        thumbnail_jpeg: Arc::from(&b"thumbnail"[..]),
+    };
+    let first = service
+        .cache_people(session, &identity, vec![candidate.clone()])
+        .unwrap();
+    let reused = service
+        .cache_people(session, &identity, Vec::new())
+        .unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(reused.len(), 1);
+
+    let parsed = ParsedSubjectMaskPerson::new(
+        vec![1, 4, 5, 17],
+        RasterExtent::new(2, 2).unwrap(),
+        vision_provenance(),
+    )
+    .unwrap();
+    let first_parsed = service
+        .cache_parsed_person(session, &identity, 0, parsed)
+        .unwrap();
+    let reused_parsed = service
+        .parsed_person(session, &identity, 0)
+        .unwrap()
+        .unwrap();
+    assert!(Arc::ptr_eq(&first_parsed, &reused_parsed));
+    assert_eq!(
+        service
+            .people_snapshot(session, &identity)
+            .unwrap()
+            .unwrap()[0]
+            .available_regions,
+        Some(first_parsed.available_regions)
+    );
+}
+
+#[test]
 fn cancellation_reaches_provider_and_returns_the_attached_preview_token() {
     let fixture = Fixture::new("cancel");
     let service = SubjectMaskService::open(&fixture.store_root).unwrap();
@@ -79,6 +301,108 @@ fn terminal_receipt_retires_the_job_exactly_once() {
         ),
         Err(SubjectMaskServiceError::UnknownJob(token)) if token == job
     ));
+}
+
+fn input_identity(photo_id: &str) -> SubjectMaskRenderInputIdentity {
+    SubjectMaskRenderInputIdentity {
+        photo_id: photo_id.into(),
+        source_path: format!("/{photo_id}.jpg"),
+        base_commit_id: "base-commit".into(),
+        grade_stack: GradeStackDraft::default(),
+    }
+}
+
+fn vision_provenance() -> shadow_ai::VisionProvenance {
+    shadow_ai::VisionProvenance {
+        job_id: "job".into(),
+        provider: "provider".into(),
+        deployment: "deployment".into(),
+        model_build: "build".into(),
+        artifact_sha256: "artifact".into(),
+        preprocessing_identity: "pre".into(),
+        postprocessing_identity: "post".into(),
+        tokenizer: None,
+        runtime: "runtime".into(),
+        requested_execution_provider: "cpu".into(),
+        actual_execution_provider: "cpu".into(),
+        execution_provider_fallback_reason: None,
+        precision: "fp32".into(),
+    }
+}
+
+#[test]
+fn refinement_is_preserved_when_a_managed_proposal_becomes_a_mask_definition() {
+    let content_blake3 = "ab".repeat(32);
+    let raster = shadow_domain::ManagedRasterMask::new(
+        format!(
+            "objects/v1/b3/{}/{}",
+            &content_blake3[..2],
+            &content_blake3[2..]
+        ),
+        1,
+        content_blake3,
+        8,
+        4,
+        2,
+        16,
+        9,
+        shadow_domain::RasterMaskEncoding::Gray8Unorm,
+    )
+    .unwrap();
+    let intent =
+        SemanticMaskIntent::new("sky", 3, 42, shadow_domain::SemanticMaskAggregation::Union)
+            .unwrap();
+    let definition = definition_with_refinement(
+        MaskDefinition::managed_raster(raster, false).unwrap(),
+        SubjectMaskRefinement {
+            expansion_percent: -25,
+            feather_percent: 18,
+            leaf_invert: true,
+            semantic_intent: Some(intent.clone()),
+        },
+    )
+    .unwrap();
+
+    let MaskDefinition::ManagedRaster {
+        semantic_intent,
+        expansion_percent,
+        feather_percent,
+        invert,
+        ..
+    } = definition
+    else {
+        panic!("expected managed raster")
+    };
+    assert_eq!(semantic_intent, Some(intent));
+    assert_eq!(expansion_percent, -25);
+    assert_eq!(feather_percent, 18);
+    assert!(invert);
+}
+
+#[test]
+fn refinement_validation_is_typed_before_proposal_consumption() {
+    assert_eq!(
+        SubjectMaskRefinement {
+            expansion_percent: -101,
+            feather_percent: 0,
+            leaf_invert: false,
+            semantic_intent: None,
+        }
+        .validate(),
+        Err(RecipeValidationError::InvalidManagedRasterMaskExpansion(
+            -101
+        ))
+    );
+    assert_eq!(
+        SubjectMaskRefinement {
+            expansion_percent: 0,
+            feather_percent: 101,
+            leaf_invert: false,
+            semantic_intent: None,
+        }
+        .validate(),
+        Err(RecipeValidationError::InvalidManagedRasterMaskFeather(101))
+    );
 }
 
 struct Fixture {

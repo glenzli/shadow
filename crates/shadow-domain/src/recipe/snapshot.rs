@@ -5,9 +5,10 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    LayerInstance, MAX_RETOUCH_SPOTS_PER_RECIPE, MAX_RETOUCH_STROKES_PER_RECIPE, MaskReference,
-    MaskRevision, PhotoCanvasNode, PhotoFoundationNode, PhotoGeometry, PhotoStructuralNodes,
-    RecipeInputSettings, RecipeValidationError, RetouchSpot, RetouchStroke,
+    ImageCompletionRegion, LayerInstance, MAX_IMAGE_COMPLETION_REGIONS_PER_RECIPE,
+    MAX_RETOUCH_SPOTS_PER_RECIPE, MAX_RETOUCH_STROKES_PER_RECIPE, MaskReference, MaskRevision,
+    PhotoCanvasNode, PhotoFoundationNode, PhotoGeometry, PhotoStructuralNodes, RecipeInputSettings,
+    RecipeValidationError, RetouchSpot, RetouchStroke,
 };
 
 // Shadow is still in its pre-release development phase. Keep the persisted
@@ -42,6 +43,24 @@ pub struct RecipeSnapshot {
     /// remain byte-for-byte compatible and independently editable.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     retouch_strokes: Vec<RetouchStroke>,
+    /// Node-level bypass for the complete photo-local repair stage. The
+    /// regions remain authored while bypassed, and legacy snapshots default
+    /// to enabled because repair previously had no bypass control.
+    #[serde(
+        default = "retouch_enabled_default",
+        skip_serializing_if = "bool_is_true"
+    )]
+    retouch_enabled: bool,
+    /// Accepted, photo-local generated replacements. Bytes live in the
+    /// application-managed derived-raster store; the Recipe retains exact
+    /// identity, original-image placement and provenance.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    image_completions: Vec<ImageCompletionRegion>,
+    #[serde(
+        default = "image_completion_enabled_default",
+        skip_serializing_if = "bool_is_true"
+    )]
+    image_completion_enabled: bool,
     /// Fixed, photo-private structural topology. Flattening retains the
     /// existing top-level Recipe v1 `geometry` field while adding an optional
     /// `liquify` field. The in-memory type makes duplicate or reordered
@@ -49,6 +68,8 @@ pub struct RecipeSnapshot {
     #[serde(flatten)]
     structural_nodes: PhotoStructuralNodes,
     layers: Vec<LayerInstance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    paint_layers: Vec<super::PaintLayer>,
 }
 
 impl RecipeSnapshot {
@@ -269,6 +290,10 @@ impl RecipeSnapshot {
             masks,
             retouch_spots,
             retouch_strokes,
+            retouch_enabled: true,
+            paint_layers: Vec::new(),
+            image_completions: Vec::new(),
+            image_completion_enabled: true,
             structural_nodes,
             layers,
         };
@@ -283,6 +308,10 @@ impl RecipeSnapshot {
             masks: Vec::new(),
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
+            retouch_enabled: true,
+            paint_layers: Vec::new(),
+            image_completions: Vec::new(),
+            image_completion_enabled: true,
             structural_nodes: PhotoStructuralNodes::default(),
             layers: Vec::new(),
         }
@@ -330,6 +359,65 @@ impl RecipeSnapshot {
     /// recipe. These remain photo-local and run after every Grade Node.
     pub fn retouch_strokes(&self) -> &[RetouchStroke] {
         &self.retouch_strokes
+    }
+
+    /// Returns whether the complete photo-local repair stage participates in
+    /// rendering. Bypassing never discards its independently editable areas.
+    pub const fn retouch_enabled(&self) -> bool {
+        self.retouch_enabled
+    }
+
+    /// Preserves every authored repair region while changing the fixed
+    /// photo-local stage bypass state.
+    #[must_use]
+    pub const fn with_retouch_enabled(mut self, enabled: bool) -> Self {
+        self.retouch_enabled = enabled;
+        self
+    }
+
+    /// Returns photo-local finishing layers in bottom-to-top compositing order.
+    pub fn paint_layers(&self) -> &[super::PaintLayer] {
+        &self.paint_layers
+    }
+
+    /// Replaces the photo-local finishing layers while validating the complete recipe.
+    ///
+    /// # Errors
+    /// Returns a validation error for invalid layers, duplicate identities or an invalid recipe.
+    pub fn with_paint_layers(
+        mut self,
+        layers: Vec<super::PaintLayer>,
+    ) -> Result<Self, RecipeValidationError> {
+        super::paint::validate_paint_layers(&layers)?;
+        self.paint_layers = layers;
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub fn image_completions(&self) -> &[ImageCompletionRegion] {
+        &self.image_completions
+    }
+
+    pub const fn image_completion_enabled(&self) -> bool {
+        self.image_completion_enabled
+    }
+
+    /// Replaces the complete fixed completion-node state after validating it.
+    /// This builder keeps legacy constructor signatures source-compatible.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a region or the resulting Recipe snapshot fails
+    /// the persisted completion-node contract.
+    pub fn with_image_completions(
+        mut self,
+        regions: Vec<ImageCompletionRegion>,
+        enabled: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        self.image_completions = regions;
+        self.image_completion_enabled = enabled;
+        self.validate()?;
+        Ok(self)
     }
 
     /// Returns the complete fixed-order, photo-local structural topology.
@@ -400,6 +488,15 @@ impl RecipeSnapshot {
         for stroke in &self.retouch_strokes {
             stroke.validate()?;
         }
+        super::paint::validate_paint_layers(&self.paint_layers)?;
+        if self.image_completions.len() > MAX_IMAGE_COMPLETION_REGIONS_PER_RECIPE {
+            return Err(RecipeValidationError::TooManyImageCompletionRegions(
+                self.image_completions.len(),
+            ));
+        }
+        for region in &self.image_completions {
+            region.validate()?;
+        }
         self.structural_nodes.validate()?;
         let mut ids = HashSet::with_capacity(self.layers.len());
         for layer in &self.layers {
@@ -428,6 +525,19 @@ impl RecipeSnapshot {
         }
         Ok(())
     }
+}
+
+const fn retouch_enabled_default() -> bool {
+    true
+}
+
+const fn image_completion_enabled_default() -> bool {
+    true
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn bool_is_true(value: &bool) -> bool {
+    *value
 }
 
 /// Returns the stable semantic cache identity of one Recipe snapshot.

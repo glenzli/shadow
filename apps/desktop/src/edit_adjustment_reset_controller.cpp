@@ -18,6 +18,10 @@ namespace {
         node.fine.shadows = neutral_fine.shadows;
         node.fine.whites = neutral_fine.whites;
         node.fine.blacks = neutral_fine.blacks;
+    } else if (section_key == QStringLiteral("highlight_channel_correction")) {
+        node.fine.highlight_red_suppression = neutral_fine.highlight_red_suppression;
+        node.fine.highlight_green_suppression = neutral_fine.highlight_green_suppression;
+        node.fine.highlight_blue_suppression = neutral_fine.highlight_blue_suppression;
     } else if (section_key == QStringLiteral("presence")) {
         node.fine.dehaze = neutral_fine.dehaze;
         node.fine.clarity = neutral_fine.clarity;

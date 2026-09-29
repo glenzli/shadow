@@ -16,6 +16,10 @@ use shadow_domain::RawFoundationDenoiseModel;
 use super::*;
 
 fn descriptor() -> RawFoundationArtifact {
+    descriptor_with_implementation(RAW_FOUNDATION_IMPLEMENTATION_REVISION)
+}
+
+fn descriptor_with_implementation(implementation: &str) -> RawFoundationArtifact {
     RawFoundationArtifact::new(
         GeneratedArtifactReference::new(
             ArtifactHashAlgorithm::Sha256,
@@ -33,11 +37,46 @@ fn descriptor() -> RawFoundationArtifact {
             "5".repeat(64),
             RawFoundationDenoiseModel::RAWNIND_PACKAGE_SHA256.into(),
             RawFoundationDenoiseModel::RAWNIND_BAYER_GRAPH_SHA256.into(),
-            RAW_FOUNDATION_IMPLEMENTATION_REVISION.into(),
+            implementation.into(),
         )
         .expect("foundation provenance"),
     )
     .expect("foundation descriptor")
+}
+
+#[test]
+fn configured_infer_implementation_keeps_its_identity_and_unknown_implementations_fail() {
+    for revision in [
+        INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION,
+        "unverified-model-runtime",
+    ] {
+        let ready = RawFoundationReady {
+            descriptor: descriptor_with_implementation(revision),
+            path: PathBuf::from("/cache/foundation.shadowrawf"),
+            source_path: PathBuf::from("/source/input.nef"),
+            source: RepresentationFingerprint {
+                byte_len: 8192,
+                modified_at_ms: Some(17),
+            },
+            disposition: shadow_ai::RawFoundationMaterializationDisposition::Published,
+            verified_reader: None,
+            raw_frame_staging: None,
+        };
+        let identity = RawFoundationRenderIdentity::from_ready(
+            &ready,
+            RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
+        );
+        if revision == INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION {
+            assert_eq!(identity.unwrap().implementation_revision, revision);
+        } else {
+            assert!(
+                identity
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Recipe-selected model")
+            );
+        }
+    }
 }
 
 fn verification() -> FoundationArtifactVerification {

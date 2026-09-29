@@ -1,0 +1,49 @@
+{
+  "schema": "shadow.raw-highlight-oracle-upstreams.v1",
+  "captured_utc": "2026-08-25T00:00:00Z",
+  "projects": {
+    "darktable": {
+      "license": "GPL-3.0-or-later",
+      "repository": "https://github.com/darktable-org/darktable",
+      "revision": "943d74a50e5baeecee26005cf20309e32f487949",
+      "reference_paths": [
+        "src/iop/hlreconstruct/opposed.c",
+        "doc/man/darktable-cli.pod"
+      ],
+      "role": "same-RawFrame opposed-CFA reference and optional controlled-XMP full pipeline"
+    },
+    "rawspeed": {
+      "license": "LGPL-2.1-or-later",
+      "repository": "https://github.com/darktable-org/rawspeed",
+      "revision": "7cf3dc3b9d9c82b414198b1f57460478be6c6c9d",
+      "role": "decoder metadata and container interpretation reference through consuming tools"
+    },
+    "rawtherapee": {
+      "license": "GPL-3.0-or-later",
+      "repository": "https://github.com/RawTherapee/RawTherapee",
+      "revision": "498f623784e33fd9a7077fcd8937fe0734033366",
+      "reference_paths": [
+        "rtengine/hilite_recon.cc",
+        "rtengine/rawimagesource.cc",
+        "doc/manpage/rawtherapee.1"
+      ],
+      "role": "disabled, opposed-colour, and colour-propagation full-pipeline oracles"
+    },
+    "vkdt": {
+      "license": "BSD-2-Clause by default; inspect per-file exceptions including GPL-3.0",
+      "repository": "https://github.com/hanatos/vkdt",
+      "revision": "b95b3a0ae88959589dc11d07c9040aead5acd1f8",
+      "reference_paths": [
+        "src/pipe/modules/hilite",
+        "src/cli"
+      ],
+      "role": "GPU raw-mosaic inpainting before demosaic"
+    },
+    "libraw": {
+      "license": "LGPL-2.1-or-later or CDDL-1.0",
+      "repository": "https://github.com/LibRaw/LibRaw",
+      "revision": "runtime-binary-sha256-recorded-per-run",
+      "role": "decode baseline and dcraw-compatible H0/H2/H3 reconstruction ablation"
+    }
+  }
+}

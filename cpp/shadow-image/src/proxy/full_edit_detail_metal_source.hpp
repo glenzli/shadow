@@ -19,6 +19,23 @@ namespace shadow::image::detail {
 inline constexpr std::uint64_t maximum_full_edit_detail_metal_resident_bytes =
     512ULL * 1'024ULL * 1'024ULL;
 
+// Applies the canonical source-rendering receipt in place to a same-device fp32 RGB buffer.
+// Both bounded RAW preview rebinding and full-detail preparation use this owner so exposure and
+// tone-curve math cannot drift merely because one source remains resident on Metal.
+struct MetalSourceRenderingInPlaceAttempt final {
+    bool applied = false;
+    std::uint64_t curve_upload_bytes = 0U;
+    std::string diagnostic;
+};
+
+[[nodiscard]] MetalSourceRenderingInPlaceAttempt apply_source_rendering_in_place_metal(
+    void* native_device_handle,
+    void* native_queue_handle,
+    void* native_buffer_handle,
+    Dimensions dimensions,
+    const SourceRenderingReceipt& source_rendering
+);
+
 // Runtime-only evidence for one C-b -> C-c -> source-render -> warm-adoption transaction. These
 // counters never enter a Recipe or durable cache identity.
 struct FullEditDetailMetalSourceTelemetry final {

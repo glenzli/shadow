@@ -195,11 +195,12 @@ class OversizedDescriptorFrame final : public BackendEditPreviewFrame {
 [[nodiscard]] QString mask_provider_request(const MaskCoverageGeneration generation) {
     return QStringLiteral(
                "scope/mask/current?photo=%1&recipe=%2&target=%3"
-               "&selection=%4&preview=%5"
+               "&component=%4&selection=%5&preview=%6"
     )
         .arg(generation.photo)
         .arg(generation.recipe_revision)
         .arg(generation.target_layer_index)
+        .arg(generation.target_component_index)
         .arg(generation.selection_revision)
         .arg(generation.paired_preview_generation);
 }
@@ -571,12 +572,14 @@ void stale_result_rules_are_kind_specific() {
         .policy = EditPreviewPolicy::NeutralBefore,
         .photo = 4,
         .current_revision = 0,
+        .before_revision = 7,
     };
     static_assert(accepts_edit_preview(current, 4, 9));
     static_assert(!accepts_edit_preview(current, 4, 10));
     static_assert(!accepts_edit_preview(current, 5, 9));
-    static_assert(accepts_edit_preview(before, 4, 99));
-    static_assert(!accepts_edit_preview(before, 5, 99));
+    static_assert(accepts_edit_preview(before, 4, 99, 7));
+    static_assert(!accepts_edit_preview(before, 5, 99, 7));
+    static_assert(!accepts_edit_preview(before, 4, 99, 8));
     static_assert(can_present_edit_preview(current, 4, 9));
     static_assert(can_present_edit_preview(current, 4, 10));
     static_assert(!can_present_edit_preview(current, 5, 10));
@@ -599,9 +602,7 @@ void stale_result_rules_are_kind_specific() {
     static_assert(edit_preview_admits_durable_cache(EditPreviewPolicy::PresentationCommit));
     static_assert(!edit_preview_admits_durable_cache(EditPreviewPolicy::NeutralBefore));
     static_assert(!edit_preview_requires_durable_publication(EditPreviewPolicy::Settled));
-    static_assert(
-        edit_preview_requires_durable_publication(EditPreviewPolicy::PresentationCommit)
-    );
+    static_assert(edit_preview_requires_durable_publication(EditPreviewPolicy::PresentationCommit));
     static_assert(!edit_preview_requires_display_diagnostics(EditPreviewPolicy::Interactive));
     static_assert(edit_preview_terminal_admits_publication(EditPreviewTerminal::Completed));
     static_assert(!edit_preview_terminal_admits_publication(EditPreviewTerminal::Cancelled));
@@ -651,26 +652,25 @@ void before_waits_for_the_latest_current_preview() {
     );
 }
 
-void first_interactive_frame_is_the_only_sample_protected_from_replacement() {
+void interactive_preview_is_latest_wins_from_the_first_sample() {
     constexpr EditPreviewCancellationState first{
         .current_rendering = true,
         .in_flight_policy = EditPreviewPolicy::Interactive,
         .gesture_active = true,
     };
-    static_assert(!should_cancel_edit_preview(first));
+    static_assert(should_cancel_edit_preview(first));
 
     auto after_first = first;
     after_first.first_interactive_frame_presented = true;
     require(
         should_cancel_edit_preview(after_first),
-        "interactive frames after the first presentation must be replaceable"
+        "interactive frames after the first presentation must remain replaceable"
     );
     auto gesture_end = first;
     gesture_end.force = true;
     require(
         should_cancel_edit_preview(gesture_end),
-        "gesture end must replace even a protected first frame with settled "
-        "output"
+        "gesture end must replace its active interactive frame with settled output"
     );
     auto settled = first;
     settled.in_flight_policy = EditPreviewPolicy::Settled;
@@ -755,7 +755,7 @@ int main() {
     detail_tiles_are_atomic_and_generation_guarded();
     stale_result_rules_are_kind_specific();
     before_waits_for_the_latest_current_preview();
-    first_interactive_frame_is_the_only_sample_protected_from_replacement();
+    interactive_preview_is_latest_wins_from_the_first_sample();
     benchmark_transport_when_requested();
     return EXIT_SUCCESS;
 }

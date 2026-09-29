@@ -42,8 +42,36 @@ ColumnLayout {
         resetToolTipText: qsTr("Restore the white balance recorded by the camera")
         onResetRequested: foundation.editor.resetFoundationWhiteBalance()
 
+        headerActions: Row {
+            spacing: 8
+            ShadowButton {
+                objectName: "foundationAutoWhiteBalanceButton"
+                text: qsTr("AUTO")
+                compact: true
+                minimumButtonWidth: 46
+                variant: ShadowButton.Ghost
+                enabled: foundation.editor.active && !foundation.editor.stateBusy
+                toolTipText: qsTr("Estimate RAW White Balance from neutral areas in the current photo")
+                accessibleName: qsTr("Automatic RAW White Balance")
+                onClicked: foundation.editor.autoFoundationWhiteBalance()
+            }
+            ShadowIconButton {
+                source: "qrc:/icons/eyedropper.svg"
+                selected: foundation.editor.rawWhiteBalancePickerActive
+                enabled: foundation.editor.active && !foundation.editor.stateBusy
+                toolTipText: qsTr("Pick a neutral area for RAW White Balance")
+                accessibleName: toolTipText
+                onClicked: foundation.editor.setRawWhiteBalancePickerActive(
+                    !foundation.editor.rawWhiteBalancePickerActive)
+            }
+        }
+
         ShadowSlider {
             objectName: "foundationWhiteBalanceTemperatureSlider"
+            visible: !foundation.editor.foundationWhiteBalanceAtCameraValue
+                || foundation.editor.foundationWhiteBalanceCameraValueAvailable
+            enabled: visible && foundation.editor.active
+                && !foundation.editor.stateBusy
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
@@ -71,6 +99,10 @@ ColumnLayout {
 
         ShadowSlider {
             objectName: "foundationWhiteBalanceTintSlider"
+            visible: !foundation.editor.foundationWhiteBalanceAtCameraValue
+                || foundation.editor.foundationWhiteBalanceCameraValueAvailable
+            enabled: visible && foundation.editor.active
+                && !foundation.editor.stateBusy
             Layout.fillWidth: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
@@ -107,12 +139,8 @@ ColumnLayout {
         onResetRequested:
             foundation.editor.resetSelectedAdjustmentSection("white_balance")
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 14
-            Layout.rightMargin: 14
-            spacing: 6
-            Item { Layout.fillWidth: true }
+        headerActions: Row {
+            spacing: 8
             ShadowIconButton {
                 source: "qrc:/icons/eyedropper.svg"
                 selected: foundation.editor.whiteBalancePickerActive
@@ -239,6 +267,94 @@ ColumnLayout {
                     modelData.key, value)
                 onGestureFinished: foundation.editor.endParameterEdit(modelData.key)
             }
+        }
+    }
+
+    ShadowAdjustmentSection {
+        Layout.fillWidth: true
+        visible: !foundation.editor.foundationSelected
+        enabled: foundation.gradeControlsEnabled
+        opacity: enabled ? 1.0 : 0.42
+        title: qsTr("RAW HIGHLIGHT CHANNEL CORRECTION")
+        toolTipText: qsTr("Suppress relative red, green, or blue excess only where RAW development reports unreliable highlight chroma. Perceived lightness and the exact source-risk boundary are preserved.")
+        resetAvailable: true
+        onResetRequested:
+            foundation.editor.resetSelectedAdjustmentSection(
+                "highlight_channel_correction")
+
+        ShadowSlider {
+            objectName: "highlightChannelCorrectionSlider_highlight_red_suppression"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Red suppression")
+            toolTipText: qsTr("Reduce this channel only inside source-evidenced RAW highlight risk. Equal R/G/B values are neutral.")
+            from: 0.0
+            to: 1.0
+            neutralValue: 0.0
+            stepSize: 0.01
+            decimals: 0
+            displayMultiplier: 100
+            suffix: "%"
+            value: foundation.fineValue("highlight_red_suppression")
+            semanticTrack: true
+            trackStartColor: Theme.track
+            trackMiddleColor: Theme.track
+            trackEndColor: "#d95b5b"
+            onGestureStarted: foundation.editor.beginParameterEdit("highlight_red_suppression")
+            onEdited: value => foundation.editor.setParameterValue(
+                "highlight_red_suppression", value)
+            onGestureFinished: foundation.editor.endParameterEdit("highlight_red_suppression")
+        }
+
+        ShadowSlider {
+            objectName: "highlightChannelCorrectionSlider_highlight_green_suppression"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Green suppression")
+            toolTipText: qsTr("Reduce this channel only inside source-evidenced RAW highlight risk. Equal R/G/B values are neutral.")
+            from: 0.0
+            to: 1.0
+            neutralValue: 0.0
+            stepSize: 0.01
+            decimals: 0
+            displayMultiplier: 100
+            suffix: "%"
+            value: foundation.fineValue("highlight_green_suppression")
+            semanticTrack: true
+            trackStartColor: Theme.track
+            trackMiddleColor: Theme.track
+            trackEndColor: "#55a66d"
+            onGestureStarted: foundation.editor.beginParameterEdit("highlight_green_suppression")
+            onEdited: value => foundation.editor.setParameterValue(
+                "highlight_green_suppression", value)
+            onGestureFinished: foundation.editor.endParameterEdit("highlight_green_suppression")
+        }
+
+        ShadowSlider {
+            objectName: "highlightChannelCorrectionSlider_highlight_blue_suppression"
+            Layout.fillWidth: true
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            label: qsTr("Blue suppression")
+            toolTipText: qsTr("Reduce this channel only inside source-evidenced RAW highlight risk. Equal R/G/B values are neutral.")
+            from: 0.0
+            to: 1.0
+            neutralValue: 0.0
+            stepSize: 0.01
+            decimals: 0
+            displayMultiplier: 100
+            suffix: "%"
+            value: foundation.fineValue("highlight_blue_suppression")
+            semanticTrack: true
+            trackStartColor: Theme.track
+            trackMiddleColor: Theme.track
+            trackEndColor: "#5b82d9"
+            onGestureStarted: foundation.editor.beginParameterEdit("highlight_blue_suppression")
+            onEdited: value => foundation.editor.setParameterValue(
+                "highlight_blue_suppression", value)
+            onGestureFinished: foundation.editor.endParameterEdit("highlight_blue_suppression")
         }
     }
 
@@ -440,9 +556,9 @@ ColumnLayout {
         enabled: foundation.gradeControlsEnabled
         opacity: enabled ? 1.0 : 0.42
         title: qsTr("CURVE")
-        toolTipText: qsTr("Perceptual lightness curve; hue and chroma are preserved.")
+        toolTipText: qsTr("Lightness and RGB curves. Reset clears all channels.")
         resetAvailable: true
-        onResetRequested: foundation.editor.resetToneCurve()
+        onResetRequested: foundation.editor.resetAllToneCurves()
 
         ToneCurveEditor {
             Layout.fillWidth: true

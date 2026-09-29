@@ -196,7 +196,7 @@ Core ML 产物集合保存可哈希的下载 blob。
 
 | 候选 | 待核实的上游条款 | 规划决策 |
 | --- | --- | --- |
-| [SAM 2](https://github.com/facebookresearch/sam2/blob/main/LICENSE) / [Apple Core ML SAM 2.1](https://huggingface.co/apple/coreml-sam2.1-tiny) | 上游模型仓库声明为 Apache-2.0 | 完成精确 checkpoint 审计后作为候选 |
+| [SAM 2](https://github.com/facebookresearch/sam2/blob/main/LICENSE) | 上游仓库声明为 Apache-2.0 | Infer Runtime 能力；精确部署 checkpoint 仍由其负责 |
 | [Depth Anything V2 Small](https://github.com/DepthAnything/Depth-Anything-V2#license) | Apache-2.0 | 候选 |
 | [Depth Anything V2 Base/Large/Giant](https://github.com/DepthAnything/Depth-Anything-V2#license) | 上游仓库采用 CC-BY-NC-4.0 | 商业分发暂缓 |
 | [Grounding DINO](https://github.com/IDEA-Research/GroundingDINO/blob/main/LICENSE) | Apache-2.0 | 完成 checkpoint/数据审计后作为候选 |

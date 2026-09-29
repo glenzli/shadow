@@ -6,7 +6,8 @@
 #include <QString>
 
 /// Lazily renders the bundled neutral reference photograph through managed
-/// `.cube` resources. Preview files are content addressed by the LUT bytes,
+/// `.cube` resources in linear sRGB, then encodes to display sRGB. Preview files
+/// are content addressed by the LUT bytes,
 /// reference pixels, and renderer version, so a changed LUT cannot reuse a
 /// stale thumbnail.
 class LutPreviewProvider final : public QQuickImageProvider {

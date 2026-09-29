@@ -3,9 +3,9 @@
 use super::{
     adjustment::{
         AdjustmentDetailEffectsPass, AdjustmentGeometry, AdjustmentLiquify,
-        AdjustmentLiquifyStroke, AdjustmentLocalMask, AdjustmentQuarterTurn,
-        AdjustmentRasterMaskEncoding, AdjustmentRenderNode, AdjustmentRenderOperation,
-        AdjustmentRenderPlan, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT,
+        AdjustmentLiquifyStroke, AdjustmentLocalMask, AdjustmentMaskComponentOperation,
+        AdjustmentQuarterTurn, AdjustmentRasterMaskEncoding, AdjustmentRenderNode,
+        AdjustmentRenderOperation, AdjustmentRenderPlan, OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT,
     },
     decoder::{dimensions, preview_codec},
     detail_session::{DetailTileRect, DetailTileRequest},
@@ -35,6 +35,12 @@ pub(super) fn ffi_render_request_with_mask_coverage(
         jpeg_quality,
         mask_coverage_requested: mask_coverage.is_some(),
         mask_coverage_target_layer_index: mask_coverage.map_or(0, |value| value.target_layer_index),
+        mask_coverage_component_requested: mask_coverage
+            .and_then(|value| value.target_component_index)
+            .is_some(),
+        mask_coverage_target_component_index: mask_coverage
+            .and_then(|value| value.target_component_index)
+            .unwrap_or(0),
     }
 }
 
@@ -149,185 +155,211 @@ pub(super) const fn detail_tile_rect(rect: ffi::FfiDetailTileRect) -> DetailTile
     }
 }
 
-// The flat CXX wire record is intentionally assembled in one auditable operation.
-#[allow(clippy::too_many_lines)]
-pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
-    let (operation, parameters, parameter_group_lengths, payload) = match &node.operation {
-        AdjustmentRenderOperation::LocalMaskLayerStart { opacity, mask } => {
-            let (
-                kind,
-                x0,
-                y0,
-                x1,
-                y1,
+fn ffi_local_mask_leaf(mask: &AdjustmentLocalMask) -> (Vec<f64>, Vec<u32>, Vec<u8>) {
+    let (kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert, brush_points, payload) =
+        match mask {
+            AdjustmentLocalMask::ConditionExpression { expression } => {
+                let program = super::adjustment::condition_mask::condition_program(expression)
+                    .expect("validated condition program");
+                let mut parameters = vec![7.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+                let count = u32::try_from(program.len()).expect("bounded condition count");
+                parameters.extend(program.into_iter().flatten());
+                return (parameters, vec![count], vec![]);
+            }
+            AdjustmentLocalMask::LinearGradient {
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                invert,
+            } => (
+                1.0,
+                *start_x,
+                *start_y,
+                *end_x,
+                *end_y,
+                0.0,
+                0.0,
+                0.0,
+                if *invert { 1.0 } else { 0.0 },
+                Vec::new(),
+                Vec::new(),
+            ),
+            AdjustmentLocalMask::RadialGradient {
+                center_x,
+                center_y,
                 radius_x,
                 radius_y,
                 feather,
                 invert,
-                brush_points,
-                is_brush,
-                mask_payload,
-            ) = match mask {
+            } => (
+                2.0,
+                *center_x,
+                *center_y,
+                0.0,
+                0.0,
+                *radius_x,
+                *radius_y,
+                *feather,
+                if *invert { 1.0 } else { 0.0 },
+                Vec::new(),
+                Vec::new(),
+            ),
+            AdjustmentLocalMask::Brush {
+                points,
+                radius,
+                feather,
+                invert,
+            } => (
+                3.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                *radius,
+                0.0,
+                *feather,
+                if *invert { 1.0 } else { 0.0 },
+                points
+                    .iter()
+                    .flat_map(|point| {
+                        [
+                            point.x,
+                            point.y,
+                            if point.begins_stroke { 1.0 } else { 0.0 },
+                        ]
+                    })
+                    .collect(),
+                Vec::new(),
+            ),
+            AdjustmentLocalMask::LuminanceRange {
+                lower,
+                upper,
+                softness,
+                invert,
+            } => (
+                4.0,
+                *lower,
+                0.0,
+                *upper,
+                0.0,
+                0.0,
+                0.0,
+                *softness,
+                if *invert { 1.0 } else { 0.0 },
+                Vec::new(),
+                Vec::new(),
+            ),
+            AdjustmentLocalMask::ColorRange {
+                center_hue_degrees,
+                width_degrees,
+                softness,
+                invert,
+            } => (
+                5.0,
+                *center_hue_degrees / 360.0,
+                0.0,
+                *width_degrees / 180.0,
+                0.0,
+                0.0,
+                0.0,
+                *softness,
+                if *invert { 1.0 } else { 0.0 },
+                Vec::new(),
+                Vec::new(),
+            ),
+            AdjustmentLocalMask::ManagedRaster {
+                raster_width,
+                raster_height,
+                coordinate_width,
+                coordinate_height,
+                encoding,
+                samples,
+                expansion,
+                feather,
+                invert,
+            } => (
+                6.0,
+                f64::from(*raster_width),
+                f64::from(*raster_height),
+                f64::from(*coordinate_width),
+                f64::from(*coordinate_height),
+                match encoding {
+                    AdjustmentRasterMaskEncoding::Gray8 => 1.0,
+                    AdjustmentRasterMaskEncoding::Gray16Float => 2.0,
+                },
+                *expansion,
+                *feather,
+                if *invert { 1.0 } else { 0.0 },
+                Vec::new(),
+                samples.clone(),
+            ),
+            AdjustmentLocalMask::Composite { .. } => {
+                unreachable!("validated composite local masks may not nest")
+            }
+        };
+    let point_count =
+        u32::try_from(brush_points.len() / 3).expect("validated brush point count fits in u32");
+    let mut parameters = vec![kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert];
+    parameters.extend(brush_points);
+    (
+        parameters,
+        if kind == 3.0 {
+            vec![point_count]
+        } else {
+            vec![]
+        },
+        payload,
+    )
+}
+
+fn ffi_local_mask_component(
+    component: &super::adjustment::AdjustmentLocalMaskComponent,
+) -> ffi::FfiAdjustmentMaskComponent {
+    let (parameters, parameter_group_lengths, payload) = ffi_local_mask_leaf(&component.mask);
+    ffi::FfiAdjustmentMaskComponent {
+        operation: match component.operation {
+            AdjustmentMaskComponentOperation::Base => 0,
+            AdjustmentMaskComponentOperation::Add => 1,
+            AdjustmentMaskComponentOperation::Subtract => 2,
+            AdjustmentMaskComponentOperation::Intersect => 3,
+        },
+        enabled: component.enabled,
+        parameters,
+        payload,
+        parameter_group_lengths,
+    }
+}
+
+// The flat CXX wire record is intentionally assembled in one auditable operation.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustmentNode {
+    let mut mask_components = Vec::new();
+    let mut mask_final_invert = false;
+    let (operation, parameters, parameter_group_lengths, payload) = match &node.operation {
+        AdjustmentRenderOperation::LocalMaskLayerStart { opacity, mask } => {
+            let (parameters, parameter_group_lengths, payload) = match mask {
                 None => (
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    Vec::new(),
-                    false,
-                    Vec::new(),
+                    vec![*opacity, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    vec![],
+                    vec![],
                 ),
-                Some(AdjustmentLocalMask::LinearGradient {
-                    start_x,
-                    start_y,
-                    end_x,
-                    end_y,
-                    invert,
-                }) => (
-                    1.0,
-                    *start_x,
-                    *start_y,
-                    *end_x,
-                    *end_y,
-                    0.0,
-                    0.0,
-                    0.0,
-                    if *invert { 1.0 } else { 0.0 },
-                    Vec::new(),
-                    false,
-                    Vec::new(),
-                ),
-                Some(AdjustmentLocalMask::RadialGradient {
-                    center_x,
-                    center_y,
-                    radius_x,
-                    radius_y,
-                    feather,
-                    invert,
-                }) => (
-                    2.0,
-                    *center_x,
-                    *center_y,
-                    0.0,
-                    0.0,
-                    *radius_x,
-                    *radius_y,
-                    *feather,
-                    if *invert { 1.0 } else { 0.0 },
-                    Vec::new(),
-                    false,
-                    Vec::new(),
-                ),
-                Some(AdjustmentLocalMask::Brush {
-                    points,
-                    radius,
-                    feather,
-                    invert,
-                }) => (
-                    3.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    *radius,
-                    0.0,
-                    *feather,
-                    if *invert { 1.0 } else { 0.0 },
-                    points
-                        .iter()
-                        .flat_map(|point| {
-                            [
-                                point.x,
-                                point.y,
-                                if point.begins_stroke { 1.0 } else { 0.0 },
-                            ]
-                        })
-                        .collect(),
-                    true,
-                    Vec::new(),
-                ),
-                Some(AdjustmentLocalMask::LuminanceRange {
-                    lower,
-                    upper,
-                    softness,
-                    invert,
-                }) => (
-                    4.0,
-                    *lower,
-                    0.0,
-                    *upper,
-                    0.0,
-                    0.0,
-                    0.0,
-                    *softness,
-                    if *invert { 1.0 } else { 0.0 },
-                    Vec::new(),
-                    false,
-                    Vec::new(),
-                ),
-                Some(AdjustmentLocalMask::ColorRange {
-                    center_hue_degrees,
-                    width_degrees,
-                    softness,
-                    invert,
-                }) => (
-                    5.0,
-                    *center_hue_degrees / 360.0,
-                    0.0,
-                    *width_degrees / 180.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    *softness,
-                    if *invert { 1.0 } else { 0.0 },
-                    Vec::new(),
-                    false,
-                    Vec::new(),
-                ),
-                Some(AdjustmentLocalMask::ManagedRaster {
-                    raster_width,
-                    raster_height,
-                    coordinate_width,
-                    coordinate_height,
-                    encoding,
-                    samples,
-                    expansion,
-                    feather,
-                    invert,
-                }) => (
-                    6.0,
-                    f64::from(*raster_width),
-                    f64::from(*raster_height),
-                    f64::from(*coordinate_width),
-                    f64::from(*coordinate_height),
-                    match encoding {
-                        AdjustmentRasterMaskEncoding::Gray8 => 1.0,
-                        AdjustmentRasterMaskEncoding::Gray16Float => 2.0,
-                    },
-                    *expansion,
-                    *feather,
-                    if *invert { 1.0 } else { 0.0 },
-                    Vec::new(),
-                    false,
-                    samples.clone(),
-                ),
+                Some(AdjustmentLocalMask::Composite { components, invert }) => {
+                    mask_components = components.iter().map(ffi_local_mask_component).collect();
+                    mask_final_invert = *invert;
+                    (vec![*opacity], vec![], vec![])
+                }
+                Some(mask) => {
+                    let (mut parameters, groups, payload) = ffi_local_mask_leaf(mask);
+                    parameters.insert(0, *opacity);
+                    (parameters, groups, payload)
+                }
             };
-            let point_count = u32::try_from(brush_points.len() / 3)
-                .expect("validated brush point count fits in u32");
-            let mut parameters = vec![
-                *opacity, kind, x0, y0, x1, y1, radius_x, radius_y, feather, invert,
-            ];
-            parameters.extend(brush_points);
             (
                 ffi::FfiAdjustmentOperation::LocalMaskLayerStart,
                 parameters,
-                if is_brush { vec![point_count] } else { vec![] },
-                mask_payload,
+                parameter_group_lengths,
+                payload,
             )
         }
         AdjustmentRenderOperation::LocalMaskLayerEnd => (
@@ -345,6 +377,21 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
         AdjustmentRenderOperation::Contrast { factor, pivot } => (
             ffi::FfiAdjustmentOperation::Contrast,
             vec![*factor, *pivot],
+            vec![],
+            vec![],
+        ),
+        AdjustmentRenderOperation::RgbToneCurves { curves } => (
+            ffi::FfiAdjustmentOperation::RgbToneCurves,
+            curves
+                .channels
+                .iter()
+                .flat_map(|points| {
+                    std::iter::once(f64::from(
+                        u32::try_from(points.len()).expect("validated curve point count"),
+                    ))
+                    .chain(points.iter().flat_map(|point| [point.x, point.y]))
+                })
+                .collect(),
             vec![],
             vec![],
         ),
@@ -377,6 +424,9 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                 parameters.shadows,
                 parameters.whites,
                 parameters.blacks,
+                parameters.highlight_red_suppression,
+                parameters.highlight_green_suppression,
+                parameters.highlight_blue_suppression,
             ],
             vec![],
             vec![],
@@ -509,9 +559,9 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
         AdjustmentRenderOperation::SpotHeal { targets, strokes } => {
             let stroke_parameters = strokes
                 .iter()
-                .map(|stroke| 10 + stroke.points.len() * 2)
+                .map(|stroke| 11 + stroke.points.len() * 2)
                 .sum::<usize>();
-            let mut flattened = Vec::with_capacity(targets.len() * 12 + stroke_parameters);
+            let mut flattened = Vec::with_capacity(targets.len() * 13 + stroke_parameters);
             let mut parameter_group_lengths = vec![
                 u32::try_from(targets.len()).expect("validated spot-heal target count fits u32"),
                 u32::try_from(strokes.len()).expect("validated continuous stroke count fits u32"),
@@ -530,6 +580,7 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                     f64::from(target.source_flip_vertical),
                     target.feather,
                     target.strength,
+                    f64::from(target.frequency_radius),
                 ]);
             }
             for stroke in strokes {
@@ -548,6 +599,7 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                     f64::from(stroke.source_flip_vertical),
                     stroke.feather,
                     stroke.strength,
+                    f64::from(stroke.frequency_radius),
                 ]);
                 for point in &stroke.points {
                     flattened.extend([point.x, point.y]);
@@ -558,6 +610,77 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
                 flattened,
                 parameter_group_lengths,
                 vec![],
+            )
+        }
+        AdjustmentRenderOperation::PaintLayer { layer } => {
+            let mut parameters = vec![
+                f64::from(layer.coordinate_width),
+                f64::from(layer.coordinate_height),
+                f64::from(layer.blend),
+                layer.opacity,
+            ];
+            let mut lengths = Vec::new();
+            for stroke in &layer.strokes {
+                lengths.push(u32::try_from(stroke.points.len()).expect("bounded paint points"));
+                parameters.extend([
+                    stroke.radius,
+                    stroke.hardness,
+                    stroke.opacity,
+                    stroke.flow,
+                    stroke.color[0],
+                    stroke.color[1],
+                    stroke.color[2],
+                    f64::from(u8::from(stroke.erase)),
+                    stroke.roundness,
+                    stroke.angle_degrees,
+                    stroke.spacing,
+                    f64::from(stroke.texture),
+                    stroke.texture_strength,
+                    f64::from(u8::from(stroke.pressure_size)),
+                    f64::from(u8::from(stroke.pressure_flow)),
+                ]);
+                for p in &stroke.points {
+                    parameters.extend([p.x, p.y, p.pressure]);
+                }
+            }
+            (
+                ffi::FfiAdjustmentOperation::PaintLayer,
+                parameters,
+                lengths,
+                vec![],
+            )
+        }
+        AdjustmentRenderOperation::ImageCompletion { patches } => {
+            let mut parameters = Vec::with_capacity(patches.len() * 9);
+            let mut group_lengths = Vec::with_capacity(patches.len() + 1);
+            let payload_len = patches.iter().map(|patch| patch.rgba8.len()).sum();
+            let mut payload = Vec::with_capacity(payload_len);
+            group_lengths.push(
+                u32::try_from(patches.len()).expect("validated completion patch count fits u32"),
+            );
+            for patch in patches {
+                parameters.extend([
+                    f64::from(patch.raster_width),
+                    f64::from(patch.raster_height),
+                    f64::from(patch.coordinate_width),
+                    f64::from(patch.coordinate_height),
+                    patch.bounds_left,
+                    patch.bounds_top,
+                    patch.bounds_right,
+                    patch.bounds_bottom,
+                    patch.strength,
+                ]);
+                group_lengths.push(
+                    u32::try_from(patch.rgba8.len())
+                        .expect("validated completion patch byte length fits u32"),
+                );
+                payload.extend_from_slice(&patch.rgba8);
+            }
+            (
+                ffi::FfiAdjustmentOperation::ImageCompletion,
+                parameters,
+                group_lengths,
+                payload,
             )
         }
     };
@@ -582,6 +705,8 @@ pub(crate) fn ffi_render_node(node: &AdjustmentRenderNode) -> ffi::FfiAdjustment
         parameters,
         payload,
         parameter_group_lengths,
+        mask_components,
+        mask_final_invert,
     }
 }
 

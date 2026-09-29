@@ -14,6 +14,10 @@ use crate::{
     schema::{SCHEMA_VERSION, catalog_tables_exist, current_version},
 };
 
+mod restore;
+
+pub use restore::{CatalogRestoreError, CatalogRestoreReceipt, restore_catalog_backup_offline};
+
 const BACKUP_PAGES_PER_STEP: i32 = 256;
 const BACKUP_STEP_PAUSE: Duration = Duration::from_millis(2);
 const MAX_INTEGRITY_DIAGNOSTICS: u32 = 32;
@@ -212,7 +216,7 @@ pub fn verify_catalog_backup(path: &Path) -> Result<CatalogBackupVerification, C
     })
 }
 
-fn create_and_verify_partial(
+pub(super) fn create_and_verify_partial(
     source: &Path,
     partial: &Path,
 ) -> Result<CatalogBackupVerification, CatalogBackupError> {
@@ -250,7 +254,7 @@ fn canonicalize_source(source: &Path) -> Result<PathBuf, CatalogBackupError> {
         })
 }
 
-fn absolute_destination(destination: &Path) -> Result<PathBuf, CatalogBackupError> {
+pub(super) fn absolute_destination(destination: &Path) -> Result<PathBuf, CatalogBackupError> {
     let file_name = destination
         .file_name()
         .ok_or_else(|| CatalogBackupError::MissingFileName(destination.to_path_buf()))?;
@@ -304,7 +308,7 @@ fn non_negative_u64(value: i64, field: &'static str) -> Result<u64, CatalogBacku
 }
 
 #[cfg(unix)]
-fn sync_parent_directory(path: &Path) -> Result<(), CatalogBackupError> {
+pub(super) fn sync_parent_directory(path: &Path) -> Result<(), CatalogBackupError> {
     let parent = path
         .parent()
         .ok_or_else(|| CatalogBackupError::MissingFileName(path.to_path_buf()))?;
@@ -318,7 +322,7 @@ fn sync_parent_directory(path: &Path) -> Result<(), CatalogBackupError> {
 }
 
 #[cfg(not(unix))]
-fn sync_parent_directory(_path: &Path) -> Result<(), CatalogBackupError> {
+pub(super) fn sync_parent_directory(_path: &Path) -> Result<(), CatalogBackupError> {
     Ok(())
 }
 

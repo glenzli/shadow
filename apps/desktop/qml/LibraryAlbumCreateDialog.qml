@@ -88,7 +88,7 @@ Popup {
             }
         }
 
-        TextField {
+        ShadowTextField {
             id: albumNameInput
             Layout.fillWidth: true
             placeholderText: qsTr("Album name")

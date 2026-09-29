@@ -4,11 +4,12 @@ use std::{collections::HashSet, path::Path};
 
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::{
-    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION, AdjustmentLiquify,
-    AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke, AdjustmentLiquifyReconstructStroke,
-    AdjustmentLiquifyStroke, AdjustmentLocalMask, AdjustmentRenderNode, AdjustmentRenderOperation,
-    AdjustmentRenderPlan, AdjustmentRetouchStroke, AdjustmentRetouchStrokePoint,
-    AdjustmentSpotHealTarget,
+    ADJUSTMENT_IMPLEMENTATION_VERSION, ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+    AdjustmentImageCompletionPatch, AdjustmentLiquify, AdjustmentLiquifyPoint,
+    AdjustmentLiquifyPushStroke, AdjustmentLiquifyReconstructStroke, AdjustmentLiquifyStroke,
+    AdjustmentLocalMask, AdjustmentLocalMaskComponent, AdjustmentMaskComponentOperation,
+    AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan, AdjustmentRetouchStroke,
+    AdjustmentRetouchStrokePoint, AdjustmentSpotHealTarget,
     COLOR_GRADING_IMPLEMENTATION_VERSION as COLOR_GRADING_IMPLEMENTATION_REVISION,
     ColorRangeParameters,
     FINISHING_EFFECTS_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_IMPLEMENTATION_REVISION,
@@ -18,11 +19,11 @@ use shadow_bridge::{
     PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_IMPLEMENTATION_REVISION,
     PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
     SELECTIVE_TONE_IMPLEMENTATION_VERSION as SELECTIVE_TONE_IMPLEMENTATION_REVISION,
-    SelectiveToneParameters, SharpenParameters,
+    SharpenParameters,
     TECHNICAL_DETAIL_IMPLEMENTATION_VERSION as TECHNICAL_DETAIL_IMPLEMENTATION_REVISION,
 };
 use shadow_domain::operation::{
-    BLACKS_PARAMETER_KEY, COLOR_GRADING_IMPLEMENTATION_VERSION, COLOR_GRADING_OPERATION_ID,
+    COLOR_GRADING_IMPLEMENTATION_VERSION, COLOR_GRADING_OPERATION_ID,
     COLOR_GRADING_PARAMETER_SCHEMA_VERSION, COLOR_MIXER_HUE_PARAMETER_KEY,
     COLOR_MIXER_LIGHTNESS_PARAMETER_KEY, COLOR_MIXER_SATURATION_PARAMETER_KEY,
     COLOR_RANGE_CENTER_PARAMETER_KEY, COLOR_RANGE_ENABLED_PARAMETER_KEY,
@@ -34,24 +35,23 @@ use shadow_domain::operation::{
     DETAIL_EFFECTS_PARAMETERS_KEY, EXPOSURE_OPERATION_ID, EXPOSURE_STOPS_PARAMETER_KEY,
     FINISHING_EFFECTS_IMPLEMENTATION_VERSION, FINISHING_EFFECTS_OPERATION_ID,
     FINISHING_EFFECTS_PARAMETER_SCHEMA_VERSION, GLOBAL_A_BALANCE_PARAMETER_KEY,
-    GLOBAL_B_BALANCE_PARAMETER_KEY, HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID,
-    LUT_INTENSITY_PARAMETER_KEY, LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY,
-    LUT_TITLE_PARAMETER_KEY, OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY,
-    OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION, OKLAB_COLOR_WARPER_OPERATION_ID,
-    OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION, OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY,
-    OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION, OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID,
-    OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+    GLOBAL_B_BALANCE_PARAMETER_KEY, LUT_3D_OPERATION_ID, LUT_INTENSITY_PARAMETER_KEY,
+    LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
+    OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY, OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
+    OKLAB_COLOR_WARPER_OPERATION_ID, OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
+    OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
+    OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID, OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
     OKLAB_LIGHTNESS_TONE_CURVE_POINTS_PARAMETER_KEY, PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
     PERCEPTUAL_COLOR_OPERATION_ID, POINT_COLOR_RANGES_PARAMETER_KEY,
     RGB_WHITE_BALANCE_OPERATION_ID, SATURATION_FACTOR_PARAMETER_KEY, SATURATION_OPERATION_ID,
     SELECTIVE_COLOR_CMYK_PARAMETER_KEY, SELECTIVE_COLOR_LIGHTNESS_PROTECTION_PARAMETER_KEY,
     SELECTIVE_COLOR_RELATIVE_PARAMETER_KEY, SELECTIVE_TONE_IMPLEMENTATION_VERSION,
-    SELECTIVE_TONE_OPERATION_ID, SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION, SHADOWS_PARAMETER_KEY,
+    SELECTIVE_TONE_OPERATION_ID, SELECTIVE_TONE_PARAMETER_SCHEMA_VERSION,
     SHARPEN_AMOUNT_PARAMETER_KEY, SHARPEN_MASKING_PARAMETER_KEY, SHARPEN_RADIUS_PARAMETER_KEY,
     SHARPEN_THRESHOLD_PARAMETER_KEY, TECHNICAL_DETAIL_IMPLEMENTATION_VERSION,
     TECHNICAL_DETAIL_OPERATION_ID, TECHNICAL_DETAIL_PARAMETER_SCHEMA_VERSION,
     VIBRANCE_PARAMETER_KEY, WHITE_BALANCE_TEMPERATURE_PARAMETER_KEY,
-    WHITE_BALANCE_TINT_PARAMETER_KEY, WHITES_PARAMETER_KEY,
+    WHITE_BALANCE_TINT_PARAMETER_KEY,
 };
 use shadow_domain::{
     AdjustmentNode, CURRENT_RECIPE_SCHEMA_VERSION, ImageDomain, LayerInstanceId, LiquifyStroke,
@@ -60,11 +60,12 @@ use shadow_domain::{
 };
 
 use super::{
-    MAX_GRADE_NODES, apply_detail_effect_values, ffi_adapter::adjustment_geometry,
+    MAX_GRADE_NODES, apply_detail_effect_values,
+    ffi_adapter::adjustment_geometry,
     fixed_color_mixer, fixed_selective_color, grade_node_recipe_v1_render_ops,
-    managed_raster_resolution::ManagedRasterMaskResolver, oklab_color_warper_from_ffi,
-    point_color_ranges_from_vector, required_bool, required_float, required_float_vector,
-    required_text, tone_curve_points_from_vector,
+    managed_raster_resolution::{ManagedImageCompletionResolver, ManagedRasterMaskResolver},
+    oklab_color_warper_from_ffi, point_color_ranges_from_vector, required_bool, required_float,
+    required_float_vector, required_text, selective_tone_parameters, tone_curve_points_from_vector,
 };
 
 // Retouch is photo-local rather than a Grade Node. These fixed, compiler-only
@@ -73,28 +74,32 @@ use super::{
 const RECIPE_V1_RETOUCH_LAYER_START_ID: &str = "recipe-v1-photo-retouch:start";
 const RECIPE_V1_RETOUCH_RENDER_NODE_ID: &str = "recipe-v1-photo-retouch:spots";
 const RECIPE_V1_RETOUCH_LAYER_END_ID: &str = "recipe-v1-photo-retouch:end";
+const RECIPE_V1_IMAGE_COMPLETION_NODE_ID: &str = "recipe-v1-photo-ai-completion";
 
 /// Compiles the currently executable Recipe v1 adapter subset into dependency
 /// order. Recipe `LayerInstance` vector order is the Grade Node execution
 /// order; graph bindings and the explicit output node define the private
 /// render-operation order within each Grade Node.
-#[cfg(test)]
 pub(crate) fn compile_recipe_render_plan(
     snapshot: &RecipeSnapshot,
 ) -> AnyResult<AdjustmentRenderPlan> {
-    compile_recipe_render_plan_with_resolver(snapshot, None)
+    compile_recipe_render_plan_with_resolver(snapshot, None, None)
 }
 
-pub(crate) fn compile_recipe_render_plan_with_managed_rasters(
+pub(crate) fn compile_recipe_render_plan_with_managed_rasters<R>(
     snapshot: &RecipeSnapshot,
-    resolver: &dyn ManagedRasterMaskResolver,
-) -> AnyResult<AdjustmentRenderPlan> {
-    compile_recipe_render_plan_with_resolver(snapshot, Some(resolver))
+    resolver: &R,
+) -> AnyResult<AdjustmentRenderPlan>
+where
+    R: ManagedRasterMaskResolver + ManagedImageCompletionResolver,
+{
+    compile_recipe_render_plan_with_resolver(snapshot, Some(resolver), Some(resolver))
 }
 
 fn compile_recipe_render_plan_with_resolver(
     snapshot: &RecipeSnapshot,
-    resolver: Option<&dyn ManagedRasterMaskResolver>,
+    mask_resolver: Option<&dyn ManagedRasterMaskResolver>,
+    completion_resolver: Option<&dyn ManagedImageCompletionResolver>,
 ) -> AnyResult<AdjustmentRenderPlan> {
     validate_recipe_compilation_contract(snapshot)?;
     // A photo-local repair must run after every Grade Node. It uses an
@@ -130,7 +135,7 @@ fn compile_recipe_render_plan_with_resolver(
                     })?;
                     Some(adjustment_local_mask_with_resolver(
                         definition.definition(),
-                        resolver,
+                        mask_resolver,
                     )?)
                 }
             };
@@ -185,6 +190,14 @@ fn compile_recipe_render_plan_with_resolver(
     if has_retouch {
         append_photo_retouch_nodes(snapshot, &mut compiled, &mut compiled_node_ids)?;
     }
+    append_photo_image_completion_node(
+        snapshot,
+        completion_resolver,
+        use_layer_boundaries,
+        &mut compiled,
+        &mut compiled_node_ids,
+    )?;
+    super::paint::append_paint_nodes(snapshot, use_layer_boundaries, &mut compiled)?;
     if compiled.len() > MAX_ADJUSTMENT_RENDER_NODES {
         bail!("Recipe render compiler supports at most 256 executable nodes");
     }
@@ -199,6 +212,74 @@ fn compile_recipe_render_plan_with_resolver(
     plan.validate()
         .context("validate compiled Recipe render plan")?;
     Ok(plan)
+}
+
+fn append_photo_image_completion_node(
+    snapshot: &RecipeSnapshot,
+    resolver: Option<&dyn ManagedImageCompletionResolver>,
+    use_layer_boundaries: bool,
+    compiled: &mut Vec<AdjustmentRenderNode>,
+    compiled_node_ids: &mut HashSet<String>,
+) -> AnyResult<()> {
+    if snapshot.image_completions().is_empty() {
+        return Ok(());
+    }
+    let resolver = resolver.context(
+        "Recipe contains managed AI completion bytes but no application-store resolver was supplied",
+    )?;
+    let patches: Vec<AdjustmentImageCompletionPatch> = snapshot
+        .image_completions()
+        .iter()
+        .filter(|region| region.enabled())
+        .map(|region| resolver.resolve_completion(region.patch(), region.strength().get()))
+        .collect::<AnyResult<_>>()?;
+    if patches.is_empty() {
+        return Ok(());
+    }
+    if !compiled_node_ids.insert(RECIPE_V1_IMAGE_COMPLETION_NODE_ID.to_owned()) {
+        bail!("Recipe render compiler rejects duplicate photo AI-completion id");
+    }
+    // Repair and completion are successive unmasked photo operations. Share
+    // their compiler-owned layer so 16 Grade Nodes still fit the native limit.
+    let end = if use_layer_boundaries {
+        if compiled
+            .last()
+            .is_some_and(|node| node.node_id == RECIPE_V1_RETOUCH_LAYER_END_ID)
+        {
+            compiled.pop()
+        } else {
+            compiled.push(AdjustmentRenderNode {
+                node_id: format!("{RECIPE_V1_IMAGE_COMPLETION_NODE_ID}:start"),
+                parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation: AdjustmentRenderOperation::LocalMaskLayerStart {
+                    opacity: 1.0,
+                    mask: None,
+                },
+            });
+            Some(AdjustmentRenderNode {
+                node_id: format!("{RECIPE_V1_IMAGE_COMPLETION_NODE_ID}:end"),
+                parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+                implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+                enabled: true,
+                operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
+            })
+        }
+    } else {
+        None
+    };
+    compiled.push(AdjustmentRenderNode {
+        node_id: RECIPE_V1_IMAGE_COMPLETION_NODE_ID.to_owned(),
+        parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
+        implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
+        enabled: snapshot.image_completion_enabled(),
+        operation: AdjustmentRenderOperation::ImageCompletion { patches },
+    });
+    if let Some(end) = end {
+        compiled.push(end);
+    }
+    Ok(())
 }
 
 fn validate_recipe_compilation_contract(snapshot: &RecipeSnapshot) -> AnyResult<()> {
@@ -297,7 +378,7 @@ fn append_photo_retouch_nodes(
         node_id: RECIPE_V1_RETOUCH_RENDER_NODE_ID.to_owned(),
         parameter_schema_version: ADJUSTMENT_PARAMETER_SCHEMA_VERSION,
         implementation_version: ADJUSTMENT_IMPLEMENTATION_VERSION,
-        enabled: true,
+        enabled: snapshot.retouch_enabled(),
         operation: AdjustmentRenderOperation::SpotHeal {
             targets: snapshot
                 .retouch_spots()
@@ -310,6 +391,8 @@ fn append_photo_retouch_nodes(
                         RetouchMode::Heal => 0,
                         RetouchMode::Clone => 1,
                         RetouchMode::HealStructure => 2,
+                        RetouchMode::Tone => 3,
+                        RetouchMode::Texture => 4,
                     },
                     source_offset_x_radii: spot.source_offset_x_radii(),
                     source_offset_y_radii: spot.source_offset_y_radii(),
@@ -319,6 +402,7 @@ fn append_photo_retouch_nodes(
                     source_flip_vertical: spot.source_flip_vertical(),
                     feather: spot.feather().get(),
                     strength: spot.strength().get(),
+                    frequency_radius: spot.frequency_radius(),
                 })
                 .collect(),
             strokes: snapshot
@@ -338,6 +422,8 @@ fn append_photo_retouch_nodes(
                         RetouchMode::Heal => 0,
                         RetouchMode::Clone => 1,
                         RetouchMode::HealStructure => 2,
+                        RetouchMode::Tone => 3,
+                        RetouchMode::Texture => 4,
                     },
                     source_offset_x_radii: stroke.source_offset_x_radii(),
                     source_offset_y_radii: stroke.source_offset_y_radii(),
@@ -347,6 +433,7 @@ fn append_photo_retouch_nodes(
                     source_flip_vertical: stroke.source_flip_vertical(),
                     feather: stroke.feather().get(),
                     strength: stroke.strength().get(),
+                    frequency_radius: stroke.frequency_radius(),
                 })
                 .collect(),
         },
@@ -439,16 +526,48 @@ fn adjustment_local_mask_with_resolver(
             softness: softness.get(),
             invert: *invert,
         },
-        MaskDefinition::ConditionExpression { .. } => {
-            bail!(
-                "Recipe v1 persists bounded condition-mask expressions, but this renderer supports only single luminance and zero-minimum-chroma hue leaves"
-            )
+        MaskDefinition::ConditionExpression { expression } => {
+            AdjustmentLocalMask::ConditionExpression {
+                expression: expression.clone(),
+            }
         }
+        MaskDefinition::Composite { composite } => AdjustmentLocalMask::Composite {
+            components: composite
+                .components()
+                .iter()
+                .map(|component| {
+                    let operation = match component.operation() {
+                        shadow_domain::MaskComponentOperation::Base => {
+                            AdjustmentMaskComponentOperation::Base
+                        }
+                        shadow_domain::MaskComponentOperation::Add => {
+                            AdjustmentMaskComponentOperation::Add
+                        }
+                        shadow_domain::MaskComponentOperation::Subtract => {
+                            AdjustmentMaskComponentOperation::Subtract
+                        }
+                        shadow_domain::MaskComponentOperation::Intersect => {
+                            AdjustmentMaskComponentOperation::Intersect
+                        }
+                    };
+                    Ok(AdjustmentLocalMaskComponent {
+                        operation,
+                        enabled: component.enabled(),
+                        mask: adjustment_local_mask_with_resolver(
+                            component.definition(),
+                            resolver,
+                        )?,
+                    })
+                })
+                .collect::<AnyResult<Vec<_>>>()?,
+            invert: composite.invert(),
+        },
         MaskDefinition::ManagedRaster {
             raster,
             expansion_percent,
             feather_percent,
             invert,
+            ..
         } => resolver
             .ok_or_else(|| {
                 anyhow!(
@@ -475,6 +594,12 @@ pub(crate) fn compile_recipe_node(
     let is_base_contract = descriptor.parameter_schema_version()
         == CPU_REFERENCE_PARAMETER_SCHEMA_VERSION
         && descriptor.implementation_version() == CPU_REFERENCE_IMPLEMENTATION_VERSION;
+    let is_current_rgb_tone_curves = descriptor.operation_id().as_str()
+        == shadow_domain::operation::RGB_TONE_CURVES_OPERATION_ID
+        && descriptor.parameter_schema_version()
+            == shadow_domain::operation::RGB_TONE_CURVES_PARAMETER_SCHEMA_VERSION
+        && descriptor.implementation_version()
+            == shadow_domain::operation::RGB_TONE_CURVES_IMPLEMENTATION_VERSION;
     let is_current_oklab_lightness_tone_curve = descriptor.operation_id().as_str()
         == OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID
         && descriptor.parameter_schema_version()
@@ -504,6 +629,7 @@ pub(crate) fn compile_recipe_node(
         && descriptor.parameter_schema_version() == FINISHING_EFFECTS_PARAMETER_SCHEMA_VERSION
         && descriptor.implementation_version() == FINISHING_EFFECTS_IMPLEMENTATION_VERSION;
     if (!is_base_contract
+        && !is_current_rgb_tone_curves
         && !is_current_oklab_lightness_tone_curve
         && !is_current_selective_tone
         && !is_current_perceptual_color
@@ -534,6 +660,15 @@ pub(crate) fn compile_recipe_node(
             AdjustmentRenderOperation::Contrast {
                 factor: required_float(node.parameters(), CONTRAST_FACTOR_PARAMETER_KEY, 2)?,
                 pivot: required_float(node.parameters(), CONTRAST_PIVOT_PARAMETER_KEY, 2)?,
+            }
+        }
+        shadow_domain::operation::RGB_TONE_CURVES_OPERATION_ID => {
+            require_stage(node, ProcessingStage::ToneAndLocalContrast)?;
+            if !is_current_rgb_tone_curves {
+                bail!("Recipe RGB curves use an unsupported contract");
+            }
+            AdjustmentRenderOperation::RgbToneCurves {
+                curves: Box::new(super::rgb_tone_curves::decode_rgb_tone_curves(node)?),
             }
         }
         OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID => {
@@ -574,12 +709,7 @@ pub(crate) fn compile_recipe_node(
                 bail!("Recipe Selective Tone uses a discarded contract");
             }
             AdjustmentRenderOperation::SelectiveTone {
-                parameters: SelectiveToneParameters {
-                    highlights: required_float(node.parameters(), HIGHLIGHTS_PARAMETER_KEY, 4)?,
-                    shadows: required_float(node.parameters(), SHADOWS_PARAMETER_KEY, 4)?,
-                    whites: required_float(node.parameters(), WHITES_PARAMETER_KEY, 4)?,
-                    blacks: required_float(node.parameters(), BLACKS_PARAMETER_KEY, 4)?,
-                },
+                parameters: selective_tone_parameters(node.parameters())?,
             }
         }
         PERCEPTUAL_COLOR_OPERATION_ID => {

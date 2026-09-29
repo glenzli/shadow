@@ -11,7 +11,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use shadow_catalog::{
-    CachedArtifact, CachedArtifactRecord, CachedArtifactRole, RepresentationFingerprint,
+    CachedArtifact, CachedArtifactRecord, CachedArtifactRole, InvalidateCachedArtifactStatus,
+    RepresentationFingerprint,
 };
 use shadow_domain::{ImageDimensions, PhotoId, PreviewByteOrder, PreviewCodec, RepresentationId};
 use uuid::Uuid;
@@ -29,6 +30,7 @@ const SESSION_GRID_VISUAL_HANDLE_PREFIX: &str = "shadow-grid-session-v1.";
 const GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 1;
 const SESSION_GRID_VISUAL_HANDLE_SCHEMA_VERSION: u8 = 1;
 const MAX_GRID_VISUAL_PAYLOAD_BYTES: usize = 16 * 1_024;
+const MAX_PREVIEW_REFRESH_TICKETS: usize = 512;
 
 /// The exact cached artifact chosen for a Review visual.
 #[derive(Debug, Clone)]
@@ -158,6 +160,48 @@ impl ReviewService {
             bytes: self.loader.load_bytes(&selection.record)?,
             requires_frame_receipt: false,
         })
+    }
+
+    /// Invalidates only the exact durable proxy references selected by the
+    /// current Library session. The source original remains immutable and the
+    /// subsequent folder scan is responsible for scheduling a replacement.
+    ///
+    /// Session-only embedded previews cannot participate: they have no durable
+    /// Catalog cache reference, so treating them as refreshable would make the
+    /// UI promise work that cannot be completed safely.
+    pub(crate) fn invalidate_selected_preview_visuals(
+        &self,
+        tickets: Vec<String>,
+    ) -> AnyResult<u32> {
+        if tickets.is_empty() {
+            bail!("select at least one durable preview to refresh");
+        }
+        if tickets.len() > MAX_PREVIEW_REFRESH_TICKETS {
+            bail!("selected preview refresh exceeds its 512-photo limit");
+        }
+
+        // Validate every requested handle before mutating a cache row. A mixed
+        // selection can otherwise invalidate its early durable rows before a
+        // later session-only handle is rejected.
+        let selections = tickets
+            .into_iter()
+            .map(|ticket| {
+                if !matches!(ticket_route(&ticket), VisualTicketRoute::DurableGrid) {
+                    bail!("selected preview refresh requires durable generated proxies");
+                }
+                self.decode_grid_visual_handle(&ticket)
+            })
+            .collect::<AnyResult<Vec<_>>>()?;
+
+        let mut invalidated = 0_u32;
+        for selection in selections {
+            if self.catalog.invalidate_cached_artifact(&selection.record)?
+                == InvalidateCachedArtifactStatus::Invalidated
+            {
+                invalidated = invalidated.saturating_add(1);
+            }
+        }
+        Ok(invalidated)
     }
 
     pub(crate) fn encode_grid_visual_handle(

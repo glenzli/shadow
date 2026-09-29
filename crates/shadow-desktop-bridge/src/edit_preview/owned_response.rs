@@ -9,6 +9,7 @@ use shadow_bridge::{
     EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION, InteractiveEditPreviewStorage, OpticsReceipt,
     OwnedInteractivePreviewFrame,
 };
+use shadow_domain::ImageDimensions;
 
 use crate::{AnyResult, ffi};
 
@@ -48,9 +49,10 @@ impl OwnedEditedPreview {
 
     pub(crate) fn interactive(
         frame: OwnedInteractivePreviewFrame,
+        level_zero_dimensions: ImageDimensions,
         optics: &OpticsReceipt,
     ) -> Box<Self> {
-        let projection = interactive_projection(&frame, optics);
+        let projection = interactive_projection(&frame, level_zero_dimensions, optics);
         Box::new(Self {
             projection,
             interactive_frame: Some(frame),
@@ -169,6 +171,7 @@ impl OwnedEditedPreview {
 
 fn interactive_projection(
     frame: &OwnedInteractivePreviewFrame,
+    level_zero_dimensions: ImageDimensions,
     optics: &OpticsReceipt,
 ) -> ffi::FfiEditedPreview {
     let dimensions = frame.dimensions();
@@ -177,6 +180,8 @@ fn interactive_projection(
         terminal: ffi::FfiEditPreviewTerminal::Completed,
         width: dimensions.width,
         height: dimensions.height,
+        level_zero_width: level_zero_dimensions.width,
+        level_zero_height: level_zero_dimensions.height,
         row_stride_bytes: frame.row_stride_bytes(),
         // The opaque owner supplies these two large payloads as borrowed
         // slices. Empty vectors make an accidental materializing path visible.
@@ -186,6 +191,11 @@ fn interactive_projection(
             .map_or(0, |_| EDIT_PREVIEW_MASK_COVERAGE_SCHEMA_VERSION),
         mask_coverage_target_layer_index: mask_coverage
             .map_or(0, |coverage| coverage.target_layer_index),
+        mask_coverage_component_selected: mask_coverage
+            .is_some_and(|coverage| coverage.target_component_index.is_some()),
+        mask_coverage_target_component_index: mask_coverage
+            .and_then(|coverage| coverage.target_component_index)
+            .unwrap_or(0),
         mask_selection_revision: mask_coverage
             .map_or(0, |coverage| coverage.mask_selection_revision),
         mask_coverage_width: mask_coverage.map_or(0, |coverage| coverage.dimensions.width),

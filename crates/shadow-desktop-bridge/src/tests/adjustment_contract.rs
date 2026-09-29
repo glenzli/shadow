@@ -55,6 +55,9 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
             shadows: 0.4,
             whites: 0.15,
             blacks: -0.2,
+            highlight_red_suppression: 0.21,
+            highlight_green_suppression: 0.13,
+            highlight_blue_suppression: 0.34,
         },
         perceptual_color: PerceptualColorParameters {
             global_a_balance: -0.28,
@@ -92,6 +95,7 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
             }; OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT],
             strength: 0.72,
         },
+        rgb_tone_curves: None,
         oklab_lightness_curve: Some(OklabLightnessToneCurve {
             lightness: vec![
                 ToneCurvePoint { x: 0.0, y: 0.0 },
@@ -117,6 +121,7 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
         },
     };
     let grade_stack = GradeStackDraft {
+        paint_layers: Vec::new(),
         raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![GradeNodeDraft {
@@ -125,6 +130,9 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
         }],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };
@@ -178,6 +186,70 @@ fn fine_edit_round_trip_preserves_every_parameter_and_execution_slot() {
         AdjustmentRenderOperation::Sharpen { parameters, .. }
             if parameters.as_ref() == &expected.sharpen
     ));
+}
+
+#[test]
+fn rgb_curves_roundtrip_compile_and_diff_without_changing_legacy_curves() {
+    let mut before = GradeStackDraft::default();
+    before.fine.oklab_lightness_curve = Some(OklabLightnessToneCurve {
+        lightness: vec![
+            ToneCurvePoint { x: 0.0, y: 0.0 },
+            ToneCurvePoint { x: 0.5, y: 0.6 },
+            ToneCurvePoint { x: 1.0, y: 1.0 },
+        ],
+    });
+    let original = grade_stack_recipe_v1_snapshot(&before, None).unwrap();
+    assert!(
+        single_grade_node_recipe_v1_render_ops(&original)
+            .unwrap()
+            .rgb_tone_curves
+            .is_none()
+    );
+    let mut after = before.clone();
+    let mut curves = shadow_bridge::RgbToneCurves::default();
+    for (i, channel) in curves.channels.iter_mut().enumerate() {
+        channel.insert(
+            1,
+            ToneCurvePoint {
+                x: 0.5,
+                y: 0.52 + f64::from(u32::try_from(i).unwrap()) * 0.03,
+            },
+        );
+    }
+    after.fine.rgb_tone_curves = Some(curves.clone());
+    let snapshot = grade_stack_recipe_v1_snapshot(&after, Some(&original)).unwrap();
+    assert_eq!(
+        decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot).unwrap(),
+        after
+    );
+    let ffi = encode_grade_stack_draft_recipe_v1(after.clone()).unwrap();
+    assert_eq!(decode_grade_stack_draft_recipe_v1(&ffi).unwrap(), after);
+    let plan = compile_recipe_render_plan(&snapshot).unwrap();
+    assert!(matches!(
+        &plan.nodes[6].operation,
+        AdjustmentRenderOperation::OklabLightnessToneCurve { .. }
+    ));
+    assert!(
+        matches!(&plan.nodes[7].operation, AdjustmentRenderOperation::RgbToneCurves {curves: actual} if **actual == curves)
+    );
+    assert_eq!(
+        changed_grade_parameters_recipe_v1(&before, &after),
+        ["rgb_tone_curves"]
+    );
+    assert!(!has_other_recipe_changes(
+        &diff_recipe_snapshots(&original, &snapshot),
+        &original,
+        &snapshot
+    ));
+    let mut invalid = ffi;
+    invalid.grade_nodes[0].fine.rgb_curve_blue_points =
+        vec![0.0, 0.0, 0.5, 0.2, 0.5, 0.8, 1.0, 1.0];
+    assert!(decode_grade_stack_draft_recipe_v1(&invalid).is_err());
+    let restored = grade_stack_recipe_v1_snapshot(&before, Some(&snapshot)).unwrap();
+    assert_eq!(
+        compile_recipe_render_plan(&restored).unwrap(),
+        compile_recipe_render_plan(&original).unwrap()
+    );
 }
 
 #[test]
@@ -301,11 +373,15 @@ fn managed_lut_round_trips_and_compiles_the_exact_document_and_strength() {
         intensity: 0.37,
     };
     let grade_stack = GradeStackDraft {
+        paint_layers: Vec::new(),
         raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };

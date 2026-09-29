@@ -132,7 +132,7 @@ ColumnLayout {
         font.pixelSize: Theme.fontMeta
     }
 
-    ComboBox {
+    ShadowComboBox {
         id: libraryCombo
         objectName: "personalProfileLocationLibraryCombo"
         Layout.fillWidth: true

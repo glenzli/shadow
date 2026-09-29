@@ -3,13 +3,16 @@
 use thiserror::Error;
 
 use crate::{
-    BranchId, LayerInstanceId, LayerRevisionId, MaskId, NodeId, RecipeCommitId, RecipeId, VersionId,
+    BranchId, LayerInstanceId, LayerRevisionId, MaskComponentId, MaskId, NodeId, RecipeCommitId,
+    RecipeId, VersionId,
 };
 
 use super::{BranchName, GraphValidationError, VersionName};
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum RecipeValidationError {
+    #[error("invalid photographic paint: {0}")]
+    InvalidPaint(&'static str),
     #[error("persisted floating-point values must be finite")]
     NonFiniteNumber,
     #[error("value {0} is outside the inclusive range [0, 1]")]
@@ -45,6 +48,24 @@ pub enum RecipeValidationError {
     DegenerateBrushMask,
     #[error("brush mask contains {0} points, but at most 4096 are supported")]
     TooManyMaskBrushPoints(usize),
+    #[error("composite mask must contain at least one component")]
+    EmptyMaskComposite,
+    #[error("composite mask contains {0} components, but at most 8 are supported")]
+    TooManyMaskComponents(usize),
+    #[error("the first composite-mask component must use the base operation")]
+    FirstMaskComponentMustBeBase,
+    #[error("the base composite-mask operation is only valid for the first component")]
+    BaseMaskComponentMustBeFirst,
+    #[error("composite-mask component {0} appears more than once")]
+    DuplicateMaskComponent(MaskComponentId),
+    #[error("a composite-mask component cannot contain another composite mask")]
+    NestedMaskComposite,
+    #[error("a reducible single-component mask must use its legacy leaf representation")]
+    NonCanonicalMaskComposite,
+    #[error(
+        "composite-mask reference coverage count does not match its components: expected {expected}, got {actual}"
+    )]
+    MaskComponentCoverageArity { expected: usize, actual: usize },
     #[error("luminance-range mask lower bound {lower} must not exceed upper bound {upper}")]
     InvalidLuminanceMaskRange { lower: f64, upper: f64 },
     #[error("color-range mask hue {0}° must use the canonical interval [0, 360)")]
@@ -112,10 +133,29 @@ pub enum RecipeValidationError {
     InvalidManagedRasterMaskExpansion(i8),
     #[error("managed raster-mask feather {0}% must be between 0% and 100%")]
     InvalidManagedRasterMaskFeather(u8),
+    #[error("semantic-mask intent supports contract {expected}, received contract {actual}")]
+    UnsupportedSemanticMaskIntentVersion { expected: u32, actual: u32 },
+    #[error("semantic-mask query must not be empty")]
+    EmptySemanticMaskQuery,
+    #[error("semantic-mask query is {actual_bytes} bytes; maximum is {max_bytes}")]
+    SemanticMaskQueryTooLong {
+        actual_bytes: usize,
+        max_bytes: usize,
+    },
+    #[error("semantic-mask query must use canonical whitespace")]
+    NonCanonicalSemanticMaskQuery,
+    #[error("semantic-mask query revision does not match its canonical query")]
+    InvalidSemanticMaskQueryRevision,
+    #[error("semantic-mask maximum region count {0} must be between 1 and 8")]
+    InvalidSemanticMaskMaximumRegions(u8),
+    #[error("semantic-mask score threshold {0}% must be between 1% and 100%")]
+    InvalidSemanticMaskScoreThreshold(u8),
     #[error("mask {mask_id} revision {revision} appears more than once")]
     DuplicateMaskRevision { mask_id: MaskId, revision: u32 },
     #[error("retouch spot radius {0} must be between 1 and 128 full-resolution pixels")]
     InvalidRetouchSpotRadius(u16),
+    #[error("frequency separation radius {0} must be between 2 and 32 full-resolution pixels")]
+    InvalidRetouchFrequencyRadius(u16),
     #[error("retouch stroke must contain at least one point")]
     EmptyRetouchStroke,
     #[error("retouch stroke contains {0} points, but at most 512 are supported")]
@@ -130,6 +170,32 @@ pub enum RecipeValidationError {
     TooManyRetouchSpots(usize),
     #[error("Recipe contains {0} retouch strokes, but at most 64 are supported")]
     TooManyRetouchStrokes(usize),
+    #[error("AI completion reference supports contract {expected}, received contract {actual}")]
+    UnsupportedImageCompletionReferenceVersion { expected: u32, actual: u32 },
+    #[error("AI completion storage revision must be non-zero")]
+    ZeroImageCompletionStorageRevision,
+    #[error("AI completion content identity must be a lowercase BLAKE3 digest")]
+    InvalidImageCompletionContentHash,
+    #[error("AI completion object identity is not canonical for its revision and digest")]
+    InvalidImageCompletionStoreObjectId,
+    #[error("AI completion {kind} extent {width}x{height} is outside the supported bound")]
+    InvalidImageCompletionExtent {
+        kind: &'static str,
+        width: u32,
+        height: u32,
+    },
+    #[error(
+        "AI completion byte length does not match tightly packed RGBA8: expected {expected}, got {actual}"
+    )]
+    ImageCompletionByteLengthMismatch { expected: u64, actual: u64 },
+    #[error("AI completion bounds must have positive width and height")]
+    DegenerateImageCompletionBounds,
+    #[error("AI completion source Recipe identity must be a lowercase BLAKE3 digest")]
+    InvalidImageCompletionSourceIdentity,
+    #[error("AI completion {kind} provenance is empty or too long")]
+    InvalidImageCompletionProvenance { kind: &'static str },
+    #[error("Recipe contains {0} AI completion regions, but at most 32 are supported")]
+    TooManyImageCompletionRegions(usize),
     #[error("photo crop must retain non-zero width and height")]
     DegeneratePhotoCrop,
     #[error("photo straighten angle {0}° is outside the supported -45°..45° range")]

@@ -11,9 +11,19 @@ pkg_check_modules(Lensfun QUIET IMPORTED_TARGET lensfun)
 pkg_check_modules(LittleCms REQUIRED IMPORTED_TARGET lcms2)
 pkg_check_modules(LibHeif QUIET IMPORTED_TARGET libheif>=1.19.7)
 find_package(JPEG REQUIRED)
+find_package(TIFF REQUIRED)
 
 add_library(shadow-image-platform-runtime INTERFACE)
 add_library(Shadow::ImagePlatformRuntime ALIAS shadow-image-platform-runtime)
+
+if(APPLE)
+    find_library(SHADOW_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    target_link_libraries(
+        shadow-image-platform-runtime
+        INTERFACE
+            "${SHADOW_FOUNDATION_FRAMEWORK}"
+    )
+endif()
 
 function(shadow_image_enable_warnings target)
     if(MSVC)
@@ -66,16 +76,12 @@ function(shadow_image_read_source_manifest output_variable manifest_name)
 endfunction()
 
 shadow_image_read_source_manifest(SHADOW_IMAGE_PORTABLE_SOURCES portable.txt)
-shadow_image_read_source_manifest(SHADOW_IMAGE_APPLE_SOURCES apple.txt)
-shadow_image_read_source_manifest(SHADOW_IMAGE_NON_APPLE_SOURCES non-apple.txt)
 shadow_image_read_source_manifest(SHADOW_IMAGE_METAL_SOURCES metal.txt)
 shadow_image_read_source_manifest(SHADOW_IMAGE_METAL_STUB_SOURCES metal-stubs.txt)
 
 set(
     SHADOW_IMAGE_ALL_MANIFEST_SOURCES
     ${SHADOW_IMAGE_PORTABLE_SOURCES}
-    ${SHADOW_IMAGE_APPLE_SOURCES}
-    ${SHADOW_IMAGE_NON_APPLE_SOURCES}
     ${SHADOW_IMAGE_METAL_SOURCES}
     ${SHADOW_IMAGE_METAL_STUB_SOURCES}
 )
@@ -89,29 +95,6 @@ if(NOT SHADOW_IMAGE_SOURCE_COUNT EQUAL SHADOW_IMAGE_UNIQUE_SOURCE_COUNT)
 endif()
 
 add_library(shadow-image STATIC ${SHADOW_IMAGE_PORTABLE_SOURCES})
-if(APPLE)
-    find_library(SHADOW_COREML_FRAMEWORK CoreML REQUIRED)
-    find_library(SHADOW_FOUNDATION_FRAMEWORK Foundation REQUIRED)
-    target_sources(
-        shadow-image
-        PRIVATE
-            ${SHADOW_IMAGE_APPLE_SOURCES}
-    )
-    target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_COREML=1)
-    target_link_libraries(
-        shadow-image-platform-runtime
-        INTERFACE
-            "${SHADOW_COREML_FRAMEWORK}"
-            "${SHADOW_FOUNDATION_FRAMEWORK}"
-    )
-else()
-    target_sources(
-        shadow-image
-        PRIVATE
-            ${SHADOW_IMAGE_NON_APPLE_SOURCES}
-    )
-    target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_COREML=0)
-endif()
 if(APPLE AND SHADOW_ENABLE_METAL)
     find_library(SHADOW_METAL_FRAMEWORK Metal REQUIRED)
     target_sources(
@@ -143,7 +126,7 @@ target_include_directories(
 )
 target_link_libraries(
     shadow-image
-    PRIVATE PkgConfig::LibRaw PkgConfig::LittleCms JPEG::JPEG ${CMAKE_DL_LIBS}
+    PRIVATE PkgConfig::LibRaw PkgConfig::LittleCms JPEG::JPEG TIFF::TIFF ${CMAKE_DL_LIBS}
     PUBLIC Shadow::ImagePlatformRuntime
 )
 if(Lensfun_FOUND)
@@ -169,14 +152,21 @@ endif()
 shadow_image_enable_warnings(shadow-image)
 
 if(SHADOW_BUILD_RAW_PROBE)
-    add_executable(shadow-raw-probe tools/raw_probe.cpp)
-    target_link_libraries(shadow-raw-probe PRIVATE Shadow::Image)
-    target_include_directories(
+    add_executable(
         shadow-raw-probe
-        PRIVATE
-            "${CMAKE_CURRENT_SOURCE_DIR}/src/raw/neural_raw_denoise"
+        tools/raw_probe.cpp
+        tools/raw_highlight_cfa_diagnostic.cpp
+        tools/raw_highlight_reference_pipeline.cpp
     )
+    target_link_libraries(shadow-raw-probe PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-raw-probe)
+
+    # Narrow diagnostic for comparing a vendor-developed RGB reference with the
+    # exact CFA/WB/matrix stages Shadow owns.  It intentionally produces only
+    # numeric evidence and never participates in the desktop render path.
+    add_executable(shadow-raw-stage-probe tools/raw_stage_probe.cpp)
+    target_link_libraries(shadow-raw-stage-probe PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-raw-stage-probe)
 endif()
 
 #The desktop starts this tiny executable for untrusted or proprietary RAW
@@ -256,6 +246,18 @@ if(BUILD_TESTING)
         add_test(NAME ${test_name} COMMAND ${target_name})
     endfunction()
 
+    add_executable(
+        shadow-image-raw-highlight-reference-tests
+        tests/raw_highlight_reference_pipeline_contract_test.cpp
+        tools/raw_highlight_reference_pipeline.cpp
+    )
+    target_link_libraries(shadow-image-raw-highlight-reference-tests PRIVATE Shadow::Image)
+    shadow_image_enable_warnings(shadow-image-raw-highlight-reference-tests)
+    add_test(
+        NAME shadow-image-raw-highlight-reference-contract
+        COMMAND shadow-image-raw-highlight-reference-tests
+    )
+
     shadow_image_add_contract(
         shadow-image-raw-frame-tests
         shadow-image-raw-frame-contract
@@ -265,6 +267,11 @@ if(BUILD_TESTING)
         shadow-image-sensor-clipping-tests
         shadow-image-sensor-clipping-contract
         tests/sensor_clipping_contract_test.cpp
+    )
+    shadow_image_add_contract(
+        shadow-image-clipped-highlight-reconstruction-tests
+        shadow-image-clipped-highlight-reconstruction-contract
+        tests/clipped_highlight_reconstruction_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-bayer-demosaic-tests
@@ -581,6 +588,7 @@ if(BUILD_TESTING)
         PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/src/edit"
     )
+    shadow_image_add_contract(shadow-image-curve-input-map-tests shadow-image-curve-input-map-contract tests/curve_input_map_contract_test.cpp)
     shadow_image_add_contract(
         shadow-image-tone-curve-tests
         shadow-image-tone-curve-contract
@@ -679,6 +687,9 @@ if(BUILD_TESTING)
         shadow-image-selective-color-contract
         tests/selective_color_contract_test.cpp
     )
+
+    shadow_image_add_contract(shadow-image-paint-tests shadow-image-paint-contract tests/paint_contract_test.cpp)
+    target_include_directories(shadow-image-paint-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/edit")
 
     shadow_image_add_contract(
         shadow-image-oklab-color-warper-tests
@@ -816,6 +827,12 @@ if(BUILD_TESTING)
     shadow_image_enable_warnings(shadow-image-lut-tests)
     add_test(NAME shadow-image-lut-contract COMMAND shadow-image-lut-tests)
 
+    shadow_image_add_contract(
+        shadow-image-lut-baking-tests
+        shadow-image-lut-baking-contract
+        tests/lut_baking_contract_test.cpp
+    )
+
     add_executable(shadow-image-source-rendering-tests tests/source_rendering_contract_test.cpp)
     target_link_libraries(shadow-image-source-rendering-tests PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-source-rendering-tests)
@@ -830,11 +847,6 @@ if(BUILD_TESTING)
         shadow-image-raw-sensor-preparation-tests
         shadow-image-raw-sensor-preparation-contract
         tests/raw_sensor_preparation_contract_test.cpp
-    )
-    shadow_image_add_contract(
-        shadow-image-neural-raw-denoise-tests
-        shadow-image-neural-raw-denoise-contract
-        tests/neural_raw_denoise_contract_test.cpp
     )
     shadow_image_add_contract(
         shadow-image-raw-foundation-tests

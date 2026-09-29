@@ -5,7 +5,10 @@
 //! this boundary.
 
 use serde::{Deserialize, Serialize};
-use shadow_domain::{ImageDimensions, PhotoId, PreviewCodec, RepresentationId, RepresentationKind};
+use shadow_domain::{
+    GpsMetadataSnapshot, ImageDimensions, PhotoId, PreviewCodec, RawMetadataSnapshot,
+    RepresentationId, RepresentationKind,
+};
 use uuid::Uuid;
 
 /// Current wire revision encoded as YYYYMMDDNN, where NN is the contract's
@@ -14,6 +17,7 @@ use uuid::Uuid;
 pub const LIBRARY_PROTOCOL_REVISION: u32 = 2_026_080_601;
 pub const MAX_LIBRARY_PAGE_SIZE: u16 = 256;
 pub const MAX_ORIGINAL_CHUNK_BYTES: u32 = 4 * 1_024 * 1_024;
+pub const REMOTE_PHOTO_METADATA_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -111,8 +115,15 @@ pub enum RemoteOriginalIdentity {
     },
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// Provider-neutral metadata suitable for Library presentation.
+///
+/// This is deliberately not an EXIF or MakerNote byte container. New fields
+/// remain optional so a newer client can read an older persisted mirror and an
+/// older peer can ignore compatible additions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RemotePhotoMetadata {
+    pub schema_version: u32,
     pub captured_at_unix_seconds: Option<i64>,
     pub camera_make: String,
     pub camera_model: String,
@@ -122,7 +133,74 @@ pub struct RemotePhotoMetadata {
     pub exposure_time_seconds: Option<f64>,
     pub aperture_f_number: Option<f64>,
     pub focal_length_mm: Option<f64>,
+    pub focal_length_35mm: Option<f64>,
     pub raw_dimensions: Option<ImageDimensions>,
+    /// Display-oriented uncropped image dimensions reported by the decoder.
+    pub image_dimensions: Option<ImageDimensions>,
+    /// Provider orientation code retained for metadata presentation and
+    /// source-aware consumers. Preview pixels use their own explicit contract.
+    pub orientation: Option<i32>,
+    pub gps: Option<GpsMetadataSnapshot>,
+}
+
+impl Default for RemotePhotoMetadata {
+    fn default() -> Self {
+        Self {
+            schema_version: REMOTE_PHOTO_METADATA_SCHEMA_VERSION,
+            captured_at_unix_seconds: None,
+            camera_make: String::new(),
+            camera_model: String::new(),
+            lens_make: String::new(),
+            lens_model: String::new(),
+            iso_speed: None,
+            exposure_time_seconds: None,
+            aperture_f_number: None,
+            focal_length_mm: None,
+            focal_length_35mm: None,
+            raw_dimensions: None,
+            image_dimensions: None,
+            orientation: None,
+            gps: None,
+        }
+    }
+}
+
+impl From<&RawMetadataSnapshot> for RemotePhotoMetadata {
+    fn from(metadata: &RawMetadataSnapshot) -> Self {
+        Self {
+            schema_version: REMOTE_PHOTO_METADATA_SCHEMA_VERSION,
+            captured_at_unix_seconds: nonzero_i64(metadata.captured_at_unix_seconds),
+            camera_make: metadata.make.clone(),
+            camera_model: metadata.model.clone(),
+            lens_make: metadata.lens_make.clone(),
+            lens_model: metadata.lens_model.clone(),
+            iso_speed: positive_f64(metadata.iso_speed),
+            exposure_time_seconds: positive_f64(metadata.exposure_time_seconds),
+            aperture_f_number: positive_f64(metadata.aperture_f_number),
+            focal_length_mm: positive_f64(metadata.focal_length_mm),
+            focal_length_35mm: positive_f64(metadata.focal_length_35mm),
+            raw_dimensions: valid_dimensions(metadata.raw_dimensions),
+            image_dimensions: valid_dimensions(metadata.image_dimensions),
+            orientation: Some(metadata.orientation),
+            gps: metadata.gps.clone(),
+        }
+    }
+}
+
+fn positive_f64(value: f64) -> Option<f64> {
+    (value.is_finite() && value > 0.0).then_some(value)
+}
+
+const fn nonzero_i64(value: i64) -> Option<i64> {
+    if value == 0 { None } else { Some(value) }
+}
+
+const fn valid_dimensions(value: ImageDimensions) -> Option<ImageDimensions> {
+    if value.width == 0 || value.height == 0 {
+        None
+    } else {
+        Some(value)
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -139,6 +217,22 @@ pub struct RemotePreviewManifest {
     pub byte_len: u64,
     pub codec: PreviewCodec,
     pub dimensions: ImageDimensions,
+    /// Whether the encoded preview still needs its own metadata transform or
+    /// already contains display-oriented pixels. Older mirrors default to the
+    /// conservative encoded-metadata path.
+    #[serde(default)]
+    pub pixel_orientation: RemotePreviewPixelOrientation,
+}
+
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemotePreviewPixelOrientation {
+    /// Apply orientation metadata embedded in the encoded preview, when any.
+    #[default]
+    EncodedMetadata,
+    /// Pixels have already been normalized into display orientation. Applying
+    /// source orientation again would be a double transform.
+    DisplayOriented,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]

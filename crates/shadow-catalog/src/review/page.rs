@@ -14,7 +14,7 @@ use super::{
 const MAX_REVIEW_PAGE_SIZE: usize = 512;
 
 impl Catalog {
-    /// Returns a bounded page containing one RAW-preferred online original
+    /// Returns a bounded page of active photos, containing one RAW-preferred online original
     /// representation per logical photo together with its preferred current
     /// grid visual. An original raster is used only when that photo has no
     /// online RAW representation.
@@ -107,6 +107,7 @@ impl Catalog {
                           AND edit_ref.name = 'working'
                     )
              FROM representations r
+             JOIN photos p ON p.id = r.photo_id AND p.lifecycle_state = 'active'
              JOIN locations l ON l.id = (
                  SELECT l2.id FROM locations l2
                  WHERE l2.representation_id = r.id AND l2.status = 'online'

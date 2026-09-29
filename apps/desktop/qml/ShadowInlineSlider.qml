@@ -5,19 +5,28 @@ import QtQuick.Controls
 
 Slider {
     id: control
+    objectName: adjustmentFocusTarget ? "shadowAdjustmentSliderInput" : ""
 
     property real neutralValue: from
     property bool showNeutralMarker: neutralValue > from && neutralValue < to
-    // Most adjustments visualize distance from their neutral value. Amount
-    // controls instead fill from the logical minimum while keeping an
-    // independent reset value (for example AI strength resets to 100%).
-    property bool fillFromMinimum: false
+    // Most adjustments visualize distance from their neutral value. A
+    // non-negative amount whose default is its maximum is different: filling
+    // from that maximum makes 0% look full and 100% look empty. Detect that
+    // common amount contract by default while still allowing a caller to
+    // override it explicitly.
+    property bool fillFromMinimum: from >= 0
+        && Math.abs(neutralValue - to)
+            <= Math.max(0.0000001, Math.abs(to - from) * 0.0000001)
     property color accent: Theme.accent
     property bool semanticTrack: false
     property color trackStartColor: Theme.track
     property color trackMiddleColor: Theme.track
     property color trackEndColor: Theme.track
     property string toolTipText: ""
+    // Only public adjustment rows opt into vertical focus traversal. Direct
+    // inline sliders in toolbars and settings keep their existing key model.
+    property bool adjustmentFocusTarget: false
+    property bool handleDragActive: false
 
     readonly property real logicalNeutralPosition: to === from
         ? 0 : Math.max(0, Math.min(1, (neutralValue - from) / (to - from)))
@@ -32,11 +41,80 @@ Slider {
         : Math.max(visualPosition, neutralPosition)
 
     signal resetRequested(real value)
+    signal focusTraversalStarted()
+    signal handleDragStarted()
+    signal handleDragFinished()
 
     implicitWidth: 112
     implicitHeight: 22
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
+    activeFocusOnTab: adjustmentFocusTarget
+
+    // Qt's value interface writes `value` without emitting Slider.moved().
+    // Give assistive input its own bound value so model-driven changes remain
+    // passive, while accessibility edits follow the same authoring route as
+    // mouse and keyboard input.
+    Accessible.ignored: true
+    Item {
+        id: accessibleInput
+        objectName: "shadowSliderAccessibleInput"
+        anchors.fill: parent
+        property real value: control.value
+        readonly property real minimumValue: Math.min(control.from, control.to)
+        readonly property real maximumValue: Math.max(control.from, control.to)
+        readonly property real stepSize: control.stepSize > 0 ? control.stepSize : 0.1
+        property bool ready: false
+        Component.onCompleted: ready = true
+        Accessible.role: Accessible.Slider
+        Accessible.name: control.Accessible.name
+        Accessible.description: control.Accessible.description
+        Accessible.focusable: true
+        Accessible.focused: control.activeFocus
+        Accessible.onIncreaseAction: applyValue(control.value + stepSize)
+        Accessible.onDecreaseAction: applyValue(control.value - stepSize)
+        onActiveFocusChanged: {
+            if (activeFocus)
+                control.forceActiveFocus(Qt.OtherFocusReason)
+        }
+        onValueChanged: {
+            if (ready && value !== control.value)
+                applyValue(value)
+        }
+        function applyValue(requested) {
+            if (control.enabled && Number.isFinite(requested)) {
+                let bounded = Math.max(minimumValue, Math.min(maximumValue, requested))
+                if (control.stepSize > 0) {
+                    bounded = control.from + Math.round(
+                        (bounded - control.from) / control.stepSize) * control.stepSize
+                    bounded = Math.max(minimumValue, Math.min(maximumValue, bounded))
+                }
+                if (Math.abs(bounded - control.value) > 0.0000001) {
+                    control.editValue(bounded)
+                }
+            }
+            value = Qt.binding(() => control.value)
+        }
+    }
+
+    // Script assignment would permanently remove a caller's model binding.
+    // Temporarily override it while delivering moved(), then restore that
+    // binding so undo, variant switching, and later model updates stay live.
+    Binding {
+        id: editOverride
+        target: control
+        property: "value"
+        value: 0
+        when: false
+        restoreMode: Binding.RestoreBinding
+    }
+
+    function editValue(nextValue) {
+        editOverride.value = nextValue
+        editOverride.when = true
+        control.moved()
+        editOverride.when = false
+    }
 
     function requestNeutralReset() {
         const boundedNeutral = Math.max(from, Math.min(to, neutralValue))
@@ -45,13 +123,31 @@ Slider {
         resetRequested(boundedNeutral)
     }
 
-    // A passive observer augments the Slider without becoming the hit-test
-    // target above it. Keeping this on the control (instead of its custom
-    // handle item) lets the Slider retain the exclusive drag lifecycle.
-    TapHandler {
-        acceptedButtons: Qt.LeftButton
-        gesturePolicy: TapHandler.DragThreshold
-        onDoubleTapped: control.requestNeutralReset()
+    function moveAdjustmentFocus(forward) {
+        if (!adjustmentFocusTarget)
+            return false
+
+        let candidate = control.nextItemInFocusChain(forward)
+        while (candidate && candidate !== control) {
+            if (candidate.objectName === "shadowAdjustmentSliderInput"
+                    && candidate.enabled && candidate.visible) {
+                control.focusTraversalStarted()
+                candidate.forceActiveFocus(Qt.TabFocusReason)
+                return true
+            }
+            candidate = candidate.nextItemInFocusChain(forward)
+        }
+        // Adjustment rows reserve vertical arrows for traversal even at a
+        // boundary; falling through would make Up/Down unexpectedly edit the
+        // horizontal value.
+        return true
+    }
+
+    Keys.onUpPressed: event => {
+        event.accepted = control.moveAdjustmentFocus(false)
+    }
+    Keys.onDownPressed: event => {
+        event.accepted = control.moveAdjustmentFocus(true)
     }
 
     background: Rectangle {
@@ -101,6 +197,7 @@ Slider {
     }
 
     handle: Rectangle {
+        id: handleItem
         objectName: "shadowInlineSliderHandle"
         x: control.leftPadding
             + control.visualPosition * (control.availableWidth - width)
@@ -110,7 +207,8 @@ Slider {
         radius: 6
         color: !control.enabled
             ? Theme.buttonDisabledSurface
-            : control.pressed ? Theme.accentHover : Theme.panelRaised
+            : (control.pressed || handleMouse.pressed)
+                ? Theme.accentHover : Theme.panelRaised
         border.width: control.visualFocus ? 2 : 1
         border.color: !control.enabled
             ? Theme.borderDisabled
@@ -118,6 +216,83 @@ Slider {
 
         Behavior on color {
             ColorAnimation { duration: 80 }
+        }
+
+        // A thumb press by itself deliberately does not start an adjustment,
+        // leaving Qt's double-click recognizer intact. Once movement crosses
+        // the drag threshold this area emits one explicit edit gesture and
+        // updates the Slider's public value/moved contract.
+        MouseArea {
+            id: handleMouse
+
+            anchors.fill: parent
+            anchors.margins: -5
+            enabled: control.enabled
+            acceptedButtons: Qt.LeftButton
+            hoverEnabled: true
+            cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+
+            property real pressCenterOffset: 0
+            property point pressPoint: Qt.point(0, 0)
+
+            function pointInControl(mouse) {
+                return mapToItem(control, mouse.x, mouse.y)
+            }
+
+            function finishDrag() {
+                if (!control.handleDragActive)
+                    return
+                control.handleDragActive = false
+                control.handleDragFinished()
+            }
+
+            onPressed: mouse => {
+                const point = pointInControl(mouse)
+                pressPoint = point
+                pressCenterOffset = point.x
+                    - (handleItem.x + handleItem.width / 2)
+                control.forceActiveFocus(Qt.MouseFocusReason)
+            }
+
+            onPositionChanged: mouse => {
+                if (!pressed)
+                    return
+                const point = pointInControl(mouse)
+                if (!control.handleDragActive) {
+                    const dx = point.x - pressPoint.x
+                    const dy = point.y - pressPoint.y
+                    if (Math.sqrt(dx * dx + dy * dy) < 4)
+                        return
+                    control.handleDragActive = true
+                    control.handleDragStarted()
+                }
+
+                const travel = control.availableWidth - handleItem.width
+                if (travel <= 0)
+                    return
+                const minimumCenter = control.leftPadding + handleItem.width / 2
+                const maximumCenter = minimumCenter + travel
+                const desiredCenter = Math.max(minimumCenter, Math.min(
+                    maximumCenter, point.x - pressCenterOffset))
+                const visual = (desiredCenter - minimumCenter) / travel
+                const logical = control.mirrored ? 1 - visual : visual
+                let nextValue = control.from
+                    + logical * (control.to - control.from)
+                if (control.stepSize > 0) {
+                    nextValue = control.from + Math.round(
+                        (nextValue - control.from) / control.stepSize)
+                        * control.stepSize
+                }
+                control.editValue(Math.max(control.from, Math.min(
+                    control.to, nextValue)))
+            }
+
+            onReleased: finishDrag()
+            onCanceled: finishDrag()
+            onDoubleClicked: mouse => {
+                mouse.accepted = true
+                control.requestNeutralReset()
+            }
         }
     }
 

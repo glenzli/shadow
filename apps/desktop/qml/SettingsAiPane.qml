@@ -9,10 +9,29 @@ ScrollView {
 
     required property var aiPreferences
     required property var imageUnderstandingController
+    required property var peopleAnalysisController
     required property var editor
     contentWidth: availableWidth
     clip: true
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+    Dialog {
+        id: clearPeopleDataDialog
+        objectName: "settingsClearPeopleDataDialog"
+        anchors.centerIn: parent
+        width: Math.min(480, parent.width - 48)
+        modal: true
+        title: qsTr("Clear people data?")
+        standardButtons: Dialog.Cancel | Dialog.Ok
+        onAccepted: root.peopleAnalysisController.clearPeopleData()
+
+        Label {
+            width: 420
+            text: qsTr("Stored face references, people groups, thumbnails, and your merges will be removed. Original photos and edits are not changed.")
+            color: Theme.textPrimary
+            wrapMode: Text.WordWrap
+        }
+    }
 
     component SettingsCard: Rectangle {
         Layout.fillWidth: true
@@ -39,13 +58,13 @@ ScrollView {
             Layout.fillWidth: true
             text: qsTr("AI & Models")
             color: Theme.textPrimary
-            font.pixelSize: 16
+            font.pixelSize: Theme.fontTitle
             font.weight: Font.DemiBold
         }
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("Shadow runs supported AI models locally. These permissions control new model work; disabling one does not remove or invalidate a result already generated for a photo.")
+            text: qsTr("Shadow uses locally managed Infer Runtime capabilities. These permissions control new model work; disabling one does not remove or invalidate a result already generated for a photo.")
             color: Theme.textMuted
             font.pixelSize: Theme.fontMeta
             wrapMode: Text.WordWrap
@@ -96,7 +115,7 @@ ScrollView {
                 Layout.fillWidth: true
                 visible: root.editor.active && root.editor.rawDenoiseNodeMaterialized
                 text: root.editor.foundationAiDenoiseAvailable
-                    ? qsTr("Current photo: local RAW denoise model is ready.")
+                    ? qsTr("Current photo: Infer Runtime RAW Denoise is ready.")
                     : root.editor.foundationAiDenoiseStatusText
                 color: root.editor.foundationAiDenoiseAvailable
                     ? Theme.successText : Theme.textMuted
@@ -116,10 +135,78 @@ ScrollView {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Subject selection uses the local SAM 2.1 provider when installed. Photo pixels and prompts are not uploaded by this feature.")
+                text: qsTr("Subject selection uses Infer Runtime when its SAM capability is available. Photo pixels and prompts remain local to this device.")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
+            }
+        }
+
+        SettingsCard {
+            ShadowSwitch {
+                objectName: "imageCompletionExecutionPermissionSwitch"
+                Layout.fillWidth: true
+                text: qsTr("Allow local AI Completion")
+                checked: root.aiPreferences.imageCompletionExecutionAllowed
+                onToggled:
+                    root.aiPreferences.imageCompletionExecutionAllowed = checked
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("AI Completion sends the current photo crop and your painted selection only to Infer Runtime on this device. Turning this off blocks new generation; accepted photo nodes remain available.")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        SettingsCard {
+            Label {
+                text: qsTr("People")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontBody
+                font.weight: Font.DemiBold
+            }
+
+            ShadowSwitch {
+                objectName: "peopleAnalysisExecutionPermissionSwitch"
+                Layout.fillWidth: true
+                text: qsTr("Allow local people analysis and organization")
+                checked: root.aiPreferences.peopleAnalysisExecutionAllowed
+                onToggled: {
+                    if (checked)
+                        root.aiPreferences.grantPeopleAnalysisConsent()
+                    else
+                        root.aiPreferences.revokePeopleAnalysisConsent()
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("When enabled, Shadow may analyze faces across the Library and retain local people groups and your merge corrections. Photos and people data are not uploaded.")
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: root.peopleAnalysisController.hasResults
+                    ? qsTr("%n local people groups are stored.", "", root.peopleAnalysisController.groups.length)
+                    : qsTr("No local people data is stored.")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontMeta
+                wrapMode: Text.WordWrap
+            }
+
+            ShadowButton {
+                objectName: "clearPeopleDataSettingsButton"
+                visible: root.peopleAnalysisController.hasResults
+                compact: true
+                text: qsTr("Clear People Data…")
+                enabled: !root.peopleAnalysisController.busy
+                onClicked: clearPeopleDataDialog.open()
             }
         }
 
@@ -351,7 +438,7 @@ ScrollView {
 
         SettingsCard {
             Label {
-                text: qsTr("Model storage")
+                text: qsTr("Models managed by Infer Runtime")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontBody
                 font.weight: Font.DemiBold
@@ -359,22 +446,10 @@ ScrollView {
 
             Label {
                 Layout.fillWidth: true
-                text: root.aiPreferences.modelStoragePath
+                text: qsTr("Install and manage models in Infer Runtime. Shadow does not load models from its own folder. A listed capability still needs an available model and a successful request before it is ready for use.")
                 color: Theme.textMuted
-                font.family: "Menlo"
                 font.pixelSize: Theme.fontMeta
-                elide: Text.ElideMiddle
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-
-                ShadowButton {
-                    text: qsTr("Show Model Folder")
-                    onClicked: Qt.openUrlExternally(root.aiPreferences.modelStorageUrl)
-                }
-
-                Item { Layout.fillWidth: true }
+                wrapMode: Text.WordWrap
             }
         }
 

@@ -1,10 +1,27 @@
 #include "review_controller.hpp"
 
+#include <QFileInfo>
 #include <QRegularExpression>
+#include <QSet>
 
 #include <algorithm>
+#include <exception>
 
 // Library import, paging, range projection, and filter-query routing.
+
+namespace {
+
+QVariantMap selectionTarget(const QAbstractItemModel& model, const int row) {
+    const QModelIndex index = model.index(row, 0);
+    QVariantMap result;
+    const auto roles = model.roleNames();
+    for (auto role = roles.cbegin(); role != roles.cend(); ++role) {
+        result.insert(QString::fromUtf8(role.value()), model.data(index, role.key()));
+    }
+    return result;
+}
+
+} // namespace
 
 void ReviewController::scanFolder(const QUrl& folder_url) {
     const bool admitted = !scanning() && !query_coordinator_.pageRunning()
@@ -19,6 +36,70 @@ void ReviewController::scanFolder(const QUrl& folder_url) {
     query_coordinator_.clearForImportStart();
 }
 
+void ReviewController::refreshSelectedPreviews(const QVariantList& targets) {
+    const bool admitted = !scanning() && !query_coordinator_.pageRunning()
+                          && !query_coordinator_.refreshing() && !comparison_coordinator_.busy()
+                          && !decision_coordinator_.busy();
+    if (!admitted || targets.isEmpty()) {
+        return;
+    }
+
+    QString selected_folder;
+    QStringList visual_handles;
+    visual_handles.reserve(targets.size());
+    for (const QVariant& value : targets) {
+        const QVariantMap target = value.toMap();
+        const QString source_path = target.value(QStringLiteral("sourcePath")).toString();
+        const QString visual_handle = target.value(QStringLiteral("visualHandle")).toString();
+        if (source_path.isEmpty() || visual_handle.isEmpty()
+            || !target.value(QStringLiteral("sourceAvailable"), true).toBool()
+            || target.value(QStringLiteral("isRemote")).toBool()) {
+            setStatusMessage({
+                "ReviewController",
+                QT_TRANSLATE_NOOP(
+                    "ReviewController",
+                    "Preview refresh requires selected local photos with generated proxies"
+                ),
+            });
+            return;
+        }
+        const QString folder = QFileInfo(source_path).absolutePath();
+        if (folder.isEmpty() || (!selected_folder.isEmpty() && folder != selected_folder)) {
+            setStatusMessage({
+                "ReviewController",
+                QT_TRANSLATE_NOOP(
+                    "ReviewController",
+                    "Refresh selected previews from one source folder at a time"
+                ),
+            });
+            return;
+        }
+        selected_folder = folder;
+        visual_handles.push_back(visual_handle);
+    }
+
+    try {
+        const std::uint32_t invalidated = backend_->refreshSelectedReviewPreviews(visual_handles);
+        if (invalidated == 0) {
+            setStatusMessage({
+                "ReviewController",
+                QT_TRANSLATE_NOOP(
+                    "ReviewController",
+                    "Selected previews have already been replaced"
+                ),
+            });
+            return;
+        }
+    } catch (const std::exception&) {
+        setStatusMessage({
+            "ReviewController",
+            QT_TRANSLATE_NOOP("ReviewController", "Could not refresh the selected previews"),
+        });
+        return;
+    }
+    scanFolder(QUrl::fromLocalFile(selected_folder));
+}
+
 void ReviewController::cancelScan() {
     static_cast<void>(import_coordinator_.cancel());
 }
@@ -27,6 +108,29 @@ void ReviewController::loadMore() {
     const bool admitted =
         !scanning() && !comparison_coordinator_.busy() && !decision_coordinator_.busy();
     static_cast<void>(query_coordinator_.loadMore(admitted));
+}
+
+QVariantList ReviewController::currentSelectionTargets(const QVariantList& targets) const {
+    QSet<QPair<QString, QString>> identities;
+    for (const QVariant& value : targets) {
+        const QVariantMap target = value.toMap();
+        identities.insert(
+            {target.value(QStringLiteral("photoId")).toString(),
+             target.value(QStringLiteral("representationId")).toString()}
+        );
+    }
+    QVariantList current;
+    for (int row = 0; row < filtered_model_.rowCount() && !identities.isEmpty(); ++row) {
+        const QModelIndex index = filtered_model_.index(row, 0);
+        const QPair<QString, QString> identity{
+            filtered_model_.data(index, ReviewModel::PhotoIdRole).toString(),
+            filtered_model_.data(index, ReviewModel::RepresentationIdRole).toString(),
+        };
+        if (identities.remove(identity)) {
+            current.push_back(selectionTarget(filtered_model_, row));
+        }
+    }
+    return current;
 }
 
 QVariantList ReviewController::selectionRangeTargets(
@@ -66,42 +170,54 @@ QVariantList ReviewController::selectionRangeTargets(
     QVariantList targets;
     targets.reserve(last - first + 1);
     for (int row = first; row <= last; ++row) {
-        const QModelIndex index = filtered_model_.index(row, 0);
-        targets.push_back(
-            QVariantMap{
-                {QStringLiteral("photoId"),
-                 filtered_model_.data(index, ReviewModel::PhotoIdRole).toString()},
-                {QStringLiteral("representationId"),
-                 filtered_model_.data(index, ReviewModel::RepresentationIdRole).toString()},
-                {QStringLiteral("locationId"),
-                 filtered_model_.data(index, ReviewModel::LocationIdRole).toString()},
-                {QStringLiteral("visualHandle"),
-                 filtered_model_.data(index, ReviewModel::VisualHandleRole).toString()},
-                {QStringLiteral("sourcePath"),
-                 filtered_model_.data(index, ReviewModel::SourcePathRole).toString()},
-                {QStringLiteral("sourceAvailable"),
-                 filtered_model_.data(index, ReviewModel::SourceAvailableRole).toBool()},
-                {QStringLiteral("title"),
-                 filtered_model_.data(index, ReviewModel::TitleRole).toString()},
-                {QStringLiteral("isRemote"),
-                 filtered_model_.data(index, ReviewModel::IsRemoteRole).toBool()},
-                {QStringLiteral("remoteOriginalCached"),
-                 filtered_model_.data(index, ReviewModel::RemoteOriginalCachedRole).toBool()},
-                {QStringLiteral("visualRole"),
-                 filtered_model_.data(index, ReviewModel::VisualRole).toString()},
-                {QStringLiteral("visualSource"),
-                 filtered_model_.data(index, ReviewModel::VisualSourceRole).toString()},
-                {QStringLiteral("visualWidth"),
-                 filtered_model_.data(index, ReviewModel::VisualWidthRole).toInt()},
-                {QStringLiteral("visualHeight"),
-                 filtered_model_.data(index, ReviewModel::VisualHeightRole).toInt()},
-            }
-        );
+        targets.push_back(selectionTarget(filtered_model_, row));
     }
     return targets;
 }
 
+void ReviewController::setPersonFilter(
+    const QString& id,
+    const QString& name,
+    const QStringList& photos
+) {
+    if (id == person_filter_id_ && name == person_filter_name_ && photos == person_photo_ids_)
+        return;
+    const bool membership_changed = id != person_filter_id_ || photos != person_photo_ids_;
+    person_filter_id_ = id;
+    person_filter_name_ = name;
+    person_photo_ids_ = photos;
+    filtered_model_.setPhotoScope(!id.isEmpty(), photos);
+    emit filtersChanged();
+    if (membership_changed) {
+        refreshRemoteLibraryPresentation();
+        scheduleFilterQuery();
+    }
+}
+void ReviewController::clearPersonFilter() {
+    setPersonFilter({}, {}, {});
+}
+
+void ReviewController::openPerson(
+    const QString& id,
+    const QString& name,
+    const QStringList& photos
+) {
+    // Install membership before clearing controls, so opening the Library never
+    // instantiates unrelated retained rows. One immediate request replaces all
+    // debounced filter notifications emitted by this navigation transaction.
+    setPersonFilter(id, name, photos);
+    clearLibraryFilterControls();
+    requestLibraryReset();
+}
+
 void ReviewController::clearFilters() {
+    clearPersonFilter();
+    clearLibraryFilterControls();
+}
+
+void ReviewController::clearLibraryFilterControls() {
+    availability_filter_settings_->setValue(QStringLiteral("library/hide_offline_uncached"), false);
+    availability_filter_settings_->setValue(QStringLiteral("library/only_editable"), false);
     filtered_model_.clearFilters();
     album_coordinator_.clearAlbumSelection();
     emit allFiltersCleared();
@@ -138,6 +254,19 @@ void ReviewController::setFilterEditState(const QString& edit_state) {
     filtered_model_.setEditFilter(edit_state);
 }
 
+void ReviewController::setFilterHideOfflineUncached(const bool enabled) {
+    availability_filter_settings_->setValue(
+        QStringLiteral("library/hide_offline_uncached"),
+        enabled
+    );
+    filtered_model_.setHideOfflineUncached(enabled);
+}
+
+void ReviewController::setFilterOnlyEditable(const bool enabled) {
+    availability_filter_settings_->setValue(QStringLiteral("library/only_editable"), enabled);
+    filtered_model_.setOnlyEditable(enabled);
+}
+
 void ReviewController::setFilterLiked(const QString& liked) {
     filtered_model_.setLikedFilter(liked);
 }
@@ -151,7 +280,7 @@ void ReviewController::setLibrarySortKey(const QString& sort_key) {
     library_sort_key_ = normalized;
     model_.setPresentationOrder(
         normalized == QStringLiteral("name") ? ReviewModel::PresentationSortKey::Name
-                                               : ReviewModel::PresentationSortKey::CaptureTime,
+                                             : ReviewModel::PresentationSortKey::CaptureTime,
         library_sort_descending_
     );
     emit libraryOrderChanged();
@@ -165,7 +294,7 @@ void ReviewController::setLibrarySortDescending(const bool descending) {
     library_sort_descending_ = descending;
     model_.setPresentationOrder(
         library_sort_key_ == QStringLiteral("name") ? ReviewModel::PresentationSortKey::Name
-                                                      : ReviewModel::PresentationSortKey::CaptureTime,
+                                                    : ReviewModel::PresentationSortKey::CaptureTime,
         descending
     );
     emit libraryOrderChanged();
@@ -290,6 +419,8 @@ BackendLibraryPhotoOrder ReviewController::currentLibraryOrder() const noexcept 
 
 BackendLibraryPhotoFilter ReviewController::currentLibraryFilter() const {
     BackendLibraryPhotoFilter filter;
+    filter.has_photo_ids = !person_filter_id_.isEmpty();
+    filter.photo_ids = person_photo_ids_;
     const QString flag = filtered_model_.flagFilter();
     if (flag == QStringLiteral("unflagged")) {
         filter.flag = BackendLibraryFlagFilter::Unflagged;

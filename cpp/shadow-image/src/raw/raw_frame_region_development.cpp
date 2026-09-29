@@ -362,11 +362,25 @@ void write_raw_frame_transformed_pixel(
         camera.values[1],
         camera.values[2],
     };
+    // A shared physical-white ratio is unmeasured, so neutralize only that residual camera chroma
+    // before the camera matrix while preserving Bayer-weighted luminance and spatial structure.
+    // Doing this after the matrix creates a display-grey plateau whose luminance does not follow
+    // the camera calibration.
+    const double chroma_neutralization =
+        std::clamp(static_cast<double>(camera.highlight_chroma_neutralization), 0.0, 1.0);
+    std::array<double, 3U> adjusted_camera = camera_values;
+    if (chroma_neutralization > 0.0) {
+        const double camera_luminance =
+            0.25 * camera_values[0] + 0.5 * camera_values[1] + 0.25 * camera_values[2];
+        for (auto& component : adjusted_camera) {
+            component += chroma_neutralization * (camera_luminance - component);
+        }
+    }
     std::array<double, 3U> scene_linear{};
     for (std::size_t output = 0U; output < 3U; ++output) {
         for (std::size_t input = 0U; input < 3U; ++input) {
             scene_linear[output] +=
-                transform.camera_to_linear_srgb_d65[output * 3U + input] * camera_values[input];
+                transform.camera_to_linear_srgb_d65[output * 3U + input] * adjusted_camera[input];
         }
     }
     for (std::size_t output = 0U; output < 3U; ++output) {
@@ -383,7 +397,8 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
     detail::validate_bayer_frame(frame, "resident RAW region development");
     if (!transform.valid()
         || (highlight_recovery != RawHighlightRecoveryIntent::provider_default
-            && highlight_recovery != RawHighlightRecoveryIntent::disabled)) {
+            && highlight_recovery != RawHighlightRecoveryIntent::disabled
+            && highlight_recovery != RawHighlightRecoveryIntent::aggressive)) {
         throw DecodeError(
             DecodeErrorCode::invalid_request,
             0,
@@ -391,9 +406,18 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
         );
     }
 
-    // This policy remains part of the prepared recipe/receipt contract. Reconstruction itself
-    // preserves measured camera RGB for both supported intents; later rendering may make an
-    // explicit, display-facing highlight decision without mutating the decoded source.
+    // Keep black-subtracted CFA samples through white balance before demosaic. The editable source
+    // retains WB-induced float headroom. The default exports calibrated response-risk evidence and
+    // reconstructs only a physical-white photosite upward from its two locally sampled
+    // opponents; opt-in aggressive repair also feathers bounded physical-white evidence before the
+    // camera-domain neutral pull. Neither route invents spatial detail or borrows hue from a
+    // neighbouring object.
+    const detail::BayerCfaSamplingPolicy cfa_sampling =
+        highlight_recovery == RawHighlightRecoveryIntent::provider_default
+            ? detail::editable_raw_cfa_sampling_policy(transform)
+        : highlight_recovery == RawHighlightRecoveryIntent::aggressive
+            ? detail::aggressive_highlight_repair_cfa_sampling_policy(transform)
+            : detail::BayerCfaSamplingPolicy{};
     const Dimensions reconstruction = frame.descriptor.active_dimensions;
     const Dimensions output_dimensions =
         oriented_raw_dimensions(reconstruction, frame.descriptor.orientation);
@@ -435,16 +459,14 @@ SceneLinearRgbFrame develop_raw_frame_region_cpu(
                                   raw_x,
                                   raw_y,
                                   &transform,
-                                  highlight_recovery == RawHighlightRecoveryIntent::provider_default
-                                      && transform.apply_cfa_white_balance
+                                  cfa_sampling
                               )
                             : detail::bilinear_camera_rgb_sample_at(
                                   frame,
                                   raw_x,
                                   raw_y,
                                   &transform,
-                                  highlight_recovery == RawHighlightRecoveryIntent::provider_default
-                                      && transform.apply_cfa_white_balance
+                                  cfa_sampling
                               );
                     const std::size_t output_index =
                         (static_cast<std::size_t>(local_y) * region.requested_core().width

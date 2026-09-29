@@ -12,6 +12,9 @@
 // and status routing reviewable without hiding it in the constructor.
 void ReviewController::initializeCoordinatorWiring() {
     filtered_model_.setSourceModel(&model_);
+    connect(&filtered_model_, &ReviewFilterModel::availabilityFiltersChanged, this, [this]() {
+        emit filtersChanged();
+    });
     connect(&filtered_model_, &ReviewFilterModel::filtersChanged, this, [this]() {
         scheduleFilterQuery();
         refreshRemoteLibraryPresentation();
@@ -391,7 +394,14 @@ void ReviewController::initializeCoordinatorWiring() {
             refreshRemoteLibraryPresentation();
             emit remoteLibraryChanged();
             emit itemCountChanged();
+            emit libraryFacetsChanged();
         }
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::systemCollectionCountsChanged,
+        this,
+        &ReviewController::libraryFacetsChanged
     );
     connect(
         &remote_library_coordinator_,
@@ -404,6 +414,24 @@ void ReviewController::initializeCoordinatorWiring() {
         &ReviewRemoteLibraryCoordinator::remotePhotoReady,
         this,
         &ReviewController::remotePhotoReady
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::remoteInspectionChanged,
+        this,
+        &ReviewController::remoteInspectionChanged
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::exportReady,
+        this,
+        &ReviewController::remoteExportReady
+    );
+    connect(
+        &remote_library_coordinator_,
+        &ReviewRemoteLibraryCoordinator::exportPreparationFailed,
+        this,
+        &ReviewController::remoteExportPreparationFailed
     );
     connect(
         &remote_library_coordinator_,

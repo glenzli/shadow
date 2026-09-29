@@ -4,10 +4,12 @@ use shadow_domain::ImageDimensions;
 
 use crate::{
     AdjustmentGeometry, AdjustmentLiquify, AdjustmentLiquifyPoint, AdjustmentLiquifyPushStroke,
-    AdjustmentLiquifyStroke, AdjustmentRenderNode, AdjustmentRenderOperation, AdjustmentRenderPlan,
-    BridgeError, DetailSessionRequirements, DetailTileRect, DetailTileRequest,
-    LibRawEditDetailSession, MAX_EDIT_DETAIL_RETAINED_BYTES, MAX_EDIT_DETAIL_TILE_SIDE,
-    OpticsSettings, PhotoEditDetailSession, RawDevelopmentPlan,
+    AdjustmentLiquifyStroke, AdjustmentLocalMask, AdjustmentLocalMaskComponent,
+    AdjustmentMaskComponentOperation, AdjustmentRenderNode, AdjustmentRenderOperation,
+    AdjustmentRenderPlan, BridgeError, DetailSessionRequirements, DetailTileRect,
+    DetailTileRenderBackend, DetailTileRequest, LibRawEditDetailSession,
+    MAX_EDIT_DETAIL_RETAINED_BYTES, MAX_EDIT_DETAIL_TILE_SIDE, OpticsSettings,
+    PhotoEditDetailSession, RawDevelopmentPlan,
 };
 
 fn liquify() -> AdjustmentLiquify {
@@ -47,6 +49,60 @@ fn plan(liquify: Option<AdjustmentLiquify>) -> AdjustmentRenderPlan {
     }
 }
 
+fn composite_plan(layer_enabled: bool, opacity: f64) -> AdjustmentRenderPlan {
+    let leaf = AdjustmentLocalMask::LinearGradient {
+        start_x: 0.1,
+        start_y: 0.2,
+        end_x: 0.9,
+        end_y: 0.8,
+        invert: false,
+    };
+    AdjustmentRenderPlan {
+        nodes: vec![
+            AdjustmentRenderNode {
+                node_id: "composite-start".to_owned(),
+                parameter_schema_version: 1,
+                implementation_version: 1,
+                enabled: layer_enabled,
+                operation: AdjustmentRenderOperation::LocalMaskLayerStart {
+                    opacity,
+                    mask: Some(AdjustmentLocalMask::Composite {
+                        components: vec![
+                            AdjustmentLocalMaskComponent {
+                                operation: AdjustmentMaskComponentOperation::Base,
+                                enabled: true,
+                                mask: leaf.clone(),
+                            },
+                            AdjustmentLocalMaskComponent {
+                                operation: AdjustmentMaskComponentOperation::Add,
+                                enabled: true,
+                                mask: leaf,
+                            },
+                        ],
+                        invert: false,
+                    }),
+                },
+            },
+            AdjustmentRenderNode {
+                node_id: "composite-exposure".to_owned(),
+                parameter_schema_version: 1,
+                implementation_version: 1,
+                enabled: true,
+                operation: AdjustmentRenderOperation::Exposure { stops: 0.2 },
+            },
+            AdjustmentRenderNode {
+                node_id: "composite-end".to_owned(),
+                parameter_schema_version: 1,
+                implementation_version: 1,
+                enabled: true,
+                operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
+            },
+        ],
+        liquify: None,
+        geometry: AdjustmentGeometry::identity(),
+    }
+}
+
 #[test]
 fn detail_source_requirements_are_derived_from_the_complete_structural_plan() {
     let ordinary = DetailSessionRequirements::for_render_plan(&plan(None));
@@ -61,6 +117,22 @@ fn detail_source_requirements_are_derived_from_the_complete_structural_plan() {
     assert!(
         bypassed_structural.requires_cpu_replay(),
         "bypass preserves CPU-capable source admission so re-enable never reopens the photo"
+    );
+
+    for composite in [
+        composite_plan(true, 1.0),
+        composite_plan(false, 1.0),
+        composite_plan(true, 0.0),
+    ] {
+        assert!(
+            DetailSessionRequirements::for_render_plan(&composite).requires_cpu_replay(),
+            "composite topology keeps the detail source CPU-capable across bypass and opacity edits"
+        );
+    }
+
+    assert!(
+        DetailSessionRequirements::for_high_bit_export(&plan(None)).requires_cpu_replay(),
+        "RGB16 export must not admit a Metal-only retained source"
     );
 }
 
@@ -78,6 +150,44 @@ fn prepared_raster_detail_source_reports_the_required_cpu_replay_capability() {
     .expect("tracked raster fixture prepares one CPU-replay-capable detail session");
     assert!(session.cpu_replay_available());
     assert!(session.satisfies_requirements(requirements));
+}
+
+#[test]
+fn prepared_raster_detail_source_renders_exact_rgb16_samples_through_cpu_export() {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/desktop/assets/lut-preview-reference.jpg");
+    let mut export_plan = plan(None);
+    export_plan.nodes[0].operation = AdjustmentRenderOperation::Exposure { stops: 0.37 };
+    let requirements = DetailSessionRequirements::for_high_bit_export(&export_plan);
+    let session = PhotoEditDetailSession::open_with_requirements(
+        &source,
+        RawDevelopmentPlan::detail(),
+        &OpticsSettings::default(),
+        requirements,
+    )
+    .expect("tracked raster fixture prepares one high-bit export session");
+    let request = DetailTileRequest {
+        rect: DetailTileRect {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 8,
+        },
+    };
+
+    let rendered = session
+        .render_plan_tile16(&export_plan, request)
+        .expect("high-bit detail render succeeds through the direct CPU boundary");
+
+    assert_eq!(rendered.rect, request.rect);
+    assert_eq!(rendered.row_stride_bytes, 8 * 3 * 2);
+    assert_eq!(rendered.samples.len(), 8 * 8 * 3);
+    assert_eq!(rendered.execution.backend, DetailTileRenderBackend::Cpu);
+    assert!(!rendered.execution.fell_back);
+    assert!(
+        rendered.samples.iter().any(|sample| sample % 257 != 0),
+        "the RGB16 bridge must preserve native high-bit results rather than expand RGB8 values"
+    );
 }
 
 #[test]

@@ -22,4 +22,9 @@ struct BackendLibraryServerSnapshot final {
     std::uint64_t cache_byte_len = 0;
     std::uint64_t shared_root_count = 0;
     bool serves_originals = true;
+    QString index_state;
+    std::uint64_t discovered_file_count = 0;
+    std::uint64_t inspection_completed_count = 0;
+    std::uint64_t published_preview_count = 0;
+    QString index_diagnostic;
 };

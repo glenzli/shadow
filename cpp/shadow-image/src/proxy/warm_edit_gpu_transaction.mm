@@ -146,7 +146,8 @@ WarmTransactionPreparation prepare_warm_gpu_transaction(
             layout.working_space,
             layout.level_zero_to_raster_scale_x,
             layout.level_zero_to_raster_scale_y,
-            render_context.adjustment
+            render_context.adjustment,
+            resident.highlight_evidence_available()
         ),
         .had_active_adjustments = !plan.segments.empty(),
     };

@@ -21,6 +21,9 @@ enum class AdjustmentOperation : std::uint8_t {
     lut_3d,
     sharpen,
     spot_heal,
+    image_completion,
+    paint_layer,
+    rgb_tone_curves,
 };
 
 inline constexpr std::uint32_t adjustment_parameter_schema_version = 1;

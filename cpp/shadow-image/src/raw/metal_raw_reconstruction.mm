@@ -41,13 +41,18 @@ struct RawDevelopmentParameters final {
     std::uint32_t cfa_channels[4]{};
     float black_levels[4]{};
     float white_minus_black[4]{};
+    float linear_response_minus_black[4]{};
     float camera_to_linear_srgb[9]{};
     float cfa_white_balance[4]{};
+    float opposed_highlight_chrominance_offsets[4]{};
     std::uint32_t apply_cfa_white_balance = 0U;
-    std::uint32_t clamp_cfa_white_balance = 0U;
+    float cfa_white_balance_scale = 1.0F;
+    std::uint32_t cap_physical_sensor_white = 0U;
+    std::uint32_t feather_highlight_chroma_neutralization = 0U;
+    std::uint32_t has_linear_response_limits = 0U;
 };
 
-static_assert(sizeof(RawDevelopmentParameters) == 168U);
+static_assert(sizeof(RawDevelopmentParameters) == 212U);
 static_assert(offsetof(RawDevelopmentParameters, storage_width) == 0U);
 static_assert(offsetof(RawDevelopmentParameters, reconstruction_width) == 32U);
 static_assert(offsetof(RawDevelopmentParameters, orientation) == 40U);
@@ -56,9 +61,15 @@ static_assert(offsetof(RawDevelopmentParameters, reconstruction_quality) == 56U)
 static_assert(offsetof(RawDevelopmentParameters, cfa_channels) == 60U);
 static_assert(offsetof(RawDevelopmentParameters, black_levels) == 76U);
 static_assert(offsetof(RawDevelopmentParameters, white_minus_black) == 92U);
-static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 108U);
-static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance) == 144U);
-static_assert(offsetof(RawDevelopmentParameters, apply_cfa_white_balance) == 160U);
+static_assert(offsetof(RawDevelopmentParameters, linear_response_minus_black) == 108U);
+static_assert(offsetof(RawDevelopmentParameters, camera_to_linear_srgb) == 124U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance) == 160U);
+static_assert(offsetof(RawDevelopmentParameters, opposed_highlight_chrominance_offsets) == 176U);
+static_assert(offsetof(RawDevelopmentParameters, apply_cfa_white_balance) == 192U);
+static_assert(offsetof(RawDevelopmentParameters, cfa_white_balance_scale) == 196U);
+static_assert(offsetof(RawDevelopmentParameters, cap_physical_sensor_white) == 200U);
+static_assert(offsetof(RawDevelopmentParameters, feather_highlight_chroma_neutralization) == 204U);
+static_assert(offsetof(RawDevelopmentParameters, has_linear_response_limits) == 208U);
 
 [[nodiscard]] std::size_t configured_tile_budget(const std::size_t maximum_buffer_bytes) noexcept {
     constexpr std::size_t desired_tile_bytes = 128U * 1024U * 1024U;
@@ -147,8 +158,8 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     const Dimensions reconstruction_dimensions,
     const Dimensions output_dimensions,
     const RawDevelopmentQuality quality,
-    const bool project_sensor_clipping,
-    const RawHighlightRecoveryIntent highlight_recovery
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const bool project_sensor_clipping
 ) {
     const auto& descriptor = frame.descriptor;
     RawDevelopmentParameters parameters;
@@ -170,6 +181,11 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
         parameters.black_levels[site] = static_cast<float>(descriptor.black_levels[site]);
         parameters.white_minus_black[site] =
             static_cast<float>(descriptor.white_levels[site] - descriptor.black_levels[site]);
+        parameters.linear_response_minus_black[site] = static_cast<float>(
+            (descriptor.has_linear_response_limits ? descriptor.linear_response_limits[site]
+                                                   : descriptor.white_levels[site])
+            - descriptor.black_levels[site]
+        );
     }
     for (std::size_t index = 0U; index < 9U; ++index) {
         parameters.camera_to_linear_srgb[index] =
@@ -178,24 +194,40 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
     for (std::size_t site = 0U; site < 4U; ++site) {
         parameters.cfa_white_balance[site] = static_cast<float>(transform.cfa_white_balance[site]);
     }
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        parameters.opposed_highlight_chrominance_offsets[channel] =
+            transform.opposed_highlight_chrominance_offsets[channel];
+    }
     parameters.apply_cfa_white_balance = transform.apply_cfa_white_balance ? 1U : 0U;
-    parameters.clamp_cfa_white_balance =
-        transform.apply_cfa_white_balance
-                && highlight_recovery == RawHighlightRecoveryIntent::provider_default
-            ? 1U
-            : 0U;
+    if (highlight_recovery == RawHighlightRecoveryIntent::provider_default
+        || highlight_recovery == RawHighlightRecoveryIntent::aggressive) {
+        parameters.cap_physical_sensor_white = 1U;
+        if (transform.apply_cfa_white_balance) {
+            const auto minimum = *std::min_element(
+                transform.cfa_white_balance.begin(),
+                transform.cfa_white_balance.end()
+            );
+            parameters.cfa_white_balance_scale = static_cast<float>(1.0 / minimum);
+        }
+    }
+    parameters.feather_highlight_chroma_neutralization =
+        highlight_recovery == RawHighlightRecoveryIntent::aggressive ? 1U : 0U;
+    parameters.has_linear_response_limits = descriptor.has_linear_response_limits ? 1U : 0U;
     return parameters;
 }
 
 } // namespace
 
-MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
+[[nodiscard]] MetalRawDevelopmentAttempt develop_bayer_linear_srgb_f32_metal_with_input(
     const RawFrame& frame,
     const RawFrameLinearTransform& transform,
     const std::optional<std::uint32_t> preview_max_edge,
     const RawHighlightRecoveryIntent highlight_recovery,
     const RawDevelopmentQuality quality,
-    const MetalRawDevelopmentContinuations continuations
+    const MetalRawDevelopmentContinuations continuations,
+    id<MTLBuffer> input_buffer,
+    const std::size_t input_bytes,
+    std::optional<MetalRawDenoiseEncoding> raw_denoise_encoding
 ) {
     const Dimensions reconstruction_dimensions =
         preview_max_edge.has_value()
@@ -216,31 +248,12 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         };
     }
 
-    std::size_t input_bytes = 0U;
-    if (!checked_multiply(frame.samples.size(), sizeof(std::uint16_t), input_bytes)
-        || input_bytes == 0U
+    if (input_buffer == nil || input_bytes == 0U
         || input_bytes > static_cast<std::size_t>(metal_raw_device().maxBufferLength)) {
         return MetalRawDevelopmentAttempt{
             .development = std::nullopt,
             .diagnostic = "RAW sensor plane exceeds this Metal device's buffer limit",
         };
-    }
-    std::optional<MetalRawDenoiseEncoding> raw_denoise_encoding;
-    if (continuations.raw_denoise != nullptr && continuations.raw_denoise->applied()) {
-        std::string diagnostic;
-        raw_denoise_encoding = MetalRawDenoiseEncoding::prepare(
-            frame,
-            continuations.raw_denoise->mode,
-            continuations.raw_denoise->iso_sensitivity,
-            diagnostic
-        );
-        if (!raw_denoise_encoding.has_value()) {
-            return MetalRawDevelopmentAttempt{
-                .development = std::nullopt,
-                .diagnostic = diagnostic.empty() ? "Metal could not prepare fused RAW denoise"
-                                                 : std::move(diagnostic),
-            };
-        }
     }
 
     const Dimensions output_dimensions =
@@ -368,16 +381,6 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         sensor_clipping_mask = std::move(mask);
     }
     @autoreleasepool {
-        OwnedObjectiveCObject input_buffer([metal_raw_device()
-            newBufferWithBytes:frame.samples.data()
-                        length:input_bytes
-                       options:MTLResourceStorageModeShared]);
-        if (!input_buffer) {
-            return MetalRawDevelopmentAttempt{
-                .development = std::nullopt,
-                .diagnostic = "Metal could not allocate the RAW sensor buffer",
-            };
-        }
         OwnedObjectiveCObject denoised_buffer(
             raw_denoise_encoding
                 ? [metal_raw_device() newBufferWithLength:raw_denoise_encoding->sample_bytes()
@@ -418,8 +421,8 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             reconstruction_dimensions,
             output_dimensions,
             quality,
-            continuations.project_sensor_clipping,
-            highlight_recovery
+            highlight_recovery,
+            continuations.project_sensor_clipping
         );
         const auto pipeline =
             area_preview ? metal_raw_area_preview_pipeline() : metal_raw_reconstruction_pipeline();
@@ -447,7 +450,7 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
                 std::string diagnostic;
                 if (!raw_denoise_encoding->encode(
                         command_buffer,
-                        static_cast<id<MTLBuffer>>(input_buffer.get()),
+                        input_buffer,
                         static_cast<id<MTLBuffer>>(denoised_buffer.get()),
                         diagnostic
                     )) {
@@ -468,20 +471,22 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
             }
             [encoder setComputePipelineState:pipeline];
             [encoder setBuffer:static_cast<id<MTLBuffer>>(
-                                   raw_denoise_encoding ? denoised_buffer.get() : input_buffer.get()
+                                   raw_denoise_encoding ? denoised_buffer.get() : input_buffer
                                )
                         offset:0U
                        atIndex:0U];
             [encoder setBuffer:static_cast<id<MTLBuffer>>(tile_buffer.get()) offset:0U atIndex:1U];
             [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
-            if (continuations.project_sensor_clipping) {
-                [encoder setBuffer:static_cast<id<MTLBuffer>>(input_buffer.get())
-                            offset:0U
-                           atIndex:3U];
-                [encoder setBuffer:static_cast<id<MTLBuffer>>(clipping_tile_buffer.get())
-                            offset:0U
-                           atIndex:4U];
-            }
+            // Declared optional arguments still require bindings under Metal validation.
+            // The disabled projection never reads/writes them, so reuse existing resources.
+            [encoder setBuffer:input_buffer offset:0U atIndex:3U];
+            [encoder
+                setBuffer:static_cast<id<MTLBuffer>>(
+                              continuations.project_sensor_clipping ? clipping_tile_buffer.get()
+                                                                    : tile_buffer.get()
+                          )
+                   offset:0U
+                  atIndex:4U];
             [encoder dispatchThreads:MTLSizeMake(
                                          output_dimensions.width,
                                          parameters.output_tile_height,
@@ -548,7 +553,9 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         }
     }
     if (sensor_clipping_mask.has_value()) {
-        for (const std::uint8_t flags : sensor_clipping_mask->samples) {
+        for (std::size_t pixel = 0U; pixel < sensor_clipping_mask->samples.size(); ++pixel) {
+            const std::uint8_t packed = sensor_clipping_mask->samples[pixel];
+            const std::uint8_t flags = packed & sensor_clipping_flag_mask;
             sensor_clipping_mask->highlight_pixel_count +=
                 (flags & sensor_highlight_clipped) != 0U ? 1U : 0U;
             sensor_clipping_mask->shadow_pixel_count +=
@@ -587,6 +594,426 @@ MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
         .dcp_applied = dcp_encoding != nullptr,
         .diagnostic = {},
     };
+}
+
+MetalRawDevelopmentAttempt try_develop_bayer_linear_srgb_f32_metal(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const RawDevelopmentQuality quality,
+    const MetalRawDevelopmentContinuations continuations
+) {
+    if (!metal_raw_development_available()) {
+        return MetalRawDevelopmentAttempt{
+            .development = std::nullopt,
+            .diagnostic = metal_raw_runtime_diagnostic(),
+        };
+    }
+    std::size_t input_bytes = 0U;
+    if (!checked_multiply(frame.samples.size(), sizeof(std::uint16_t), input_bytes)
+        || input_bytes == 0U
+        || input_bytes > static_cast<std::size_t>(metal_raw_device().maxBufferLength)) {
+        return MetalRawDevelopmentAttempt{
+            .development = std::nullopt,
+            .diagnostic = "RAW sensor plane exceeds this Metal device's buffer limit",
+        };
+    }
+    std::optional<MetalRawDenoiseEncoding> raw_denoise_encoding;
+    if (continuations.raw_denoise != nullptr && continuations.raw_denoise->applied()) {
+        std::string diagnostic;
+        raw_denoise_encoding = MetalRawDenoiseEncoding::prepare(
+            frame,
+            continuations.raw_denoise->mode,
+            continuations.raw_denoise->iso_sensitivity,
+            diagnostic
+        );
+        if (!raw_denoise_encoding.has_value()) {
+            return MetalRawDevelopmentAttempt{
+                .development = std::nullopt,
+                .diagnostic = diagnostic.empty() ? "Metal could not prepare fused RAW denoise"
+                                                 : std::move(diagnostic),
+            };
+        }
+    }
+    @autoreleasepool {
+        OwnedObjectiveCObject input_buffer([metal_raw_device()
+            newBufferWithBytes:frame.samples.data()
+                        length:input_bytes
+                       options:MTLResourceStorageModeShared]);
+        if (!input_buffer) {
+            return MetalRawDevelopmentAttempt{
+                .development = std::nullopt,
+                .diagnostic = "Metal could not allocate the RAW sensor buffer",
+            };
+        }
+        return develop_bayer_linear_srgb_f32_metal_with_input(
+            frame,
+            transform,
+            preview_max_edge,
+            highlight_recovery,
+            quality,
+            continuations,
+            static_cast<id<MTLBuffer>>(input_buffer.get()),
+            input_bytes,
+            std::move(raw_denoise_encoding)
+        );
+    }
+}
+
+const std::string& metal_raw_development_diagnostic() noexcept {
+    return metal_raw_runtime_diagnostic();
+}
+
+struct MetalRawPreviewRebindingSource::Impl final {
+    const std::uint16_t* source_samples = nullptr;
+    std::size_t source_sample_count = 0U;
+    std::size_t source_bytes = 0U;
+    OwnedObjectiveCObject input_buffer;
+
+    Impl(
+        const std::uint16_t* samples,
+        const std::size_t sample_count,
+        const std::size_t bytes,
+        id<MTLBuffer> buffer
+    ) noexcept :
+        source_samples(samples), source_sample_count(sample_count), source_bytes(bytes),
+        input_buffer([buffer retain]) {}
+};
+
+MetalRawPreviewRebindingSource::MetalRawPreviewRebindingSource(
+    std::unique_ptr<Impl> implementation
+) noexcept : implementation_(std::move(implementation)) {}
+
+MetalRawPreviewRebindingSource::MetalRawPreviewRebindingSource(
+    MetalRawPreviewRebindingSource&&
+) noexcept = default;
+
+MetalRawPreviewRebindingSource&
+MetalRawPreviewRebindingSource::operator=(MetalRawPreviewRebindingSource&&) noexcept = default;
+
+MetalRawPreviewRebindingSource::~MetalRawPreviewRebindingSource() = default;
+
+std::optional<MetalRawPreviewRebindingSource>
+MetalRawPreviewRebindingSource::try_prepare(const RawFrame& frame, std::string& diagnostic) {
+    diagnostic.clear();
+    if (!metal_raw_development_available()) {
+        diagnostic = metal_raw_runtime_diagnostic();
+        return std::nullopt;
+    }
+    std::size_t source_bytes = 0U;
+    if (!checked_multiply(frame.samples.size(), sizeof(std::uint16_t), source_bytes)
+        || source_bytes == 0U
+        || source_bytes > static_cast<std::size_t>(metal_raw_device().maxBufferLength)) {
+        diagnostic = "RAW sensor plane exceeds this Metal device's buffer limit";
+        return std::nullopt;
+    }
+    @autoreleasepool {
+        OwnedObjectiveCObject input_buffer([metal_raw_device()
+            newBufferWithBytes:frame.samples.data()
+                        length:source_bytes
+                       options:MTLResourceStorageModeShared]);
+        if (!input_buffer) {
+            diagnostic = "Metal could not retain the RAW preview sensor buffer";
+            return std::nullopt;
+        }
+        return MetalRawPreviewRebindingSource{std::make_unique<Impl>(
+            frame.samples.data(),
+            frame.samples.size(),
+            source_bytes,
+            static_cast<id<MTLBuffer>>(input_buffer.get())
+        )};
+    }
+}
+
+MetalRawDevelopmentAttempt MetalRawPreviewRebindingSource::develop(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const RawDevelopmentQuality quality,
+    const MetalRawDevelopmentContinuations continuations
+) const {
+    if (!implementation_ || frame.samples.data() != implementation_->source_samples
+        || frame.samples.size() != implementation_->source_sample_count) {
+        return MetalRawDevelopmentAttempt{
+            .development = std::nullopt,
+            .diagnostic = "retained Metal RAW preview source no longer matches its RawFrame",
+        };
+    }
+    return develop_bayer_linear_srgb_f32_metal_with_input(
+        frame,
+        transform,
+        preview_max_edge,
+        highlight_recovery,
+        quality,
+        continuations,
+        static_cast<id<MTLBuffer>>(implementation_->input_buffer.get()),
+        implementation_->source_bytes,
+        std::nullopt
+    );
+}
+
+struct MetalRawPreviewResidentOutput::Impl final {
+    id<MTLDevice> device = nil;
+    id<MTLCommandQueue> queue = nil;
+    id<MTLBuffer> buffer = nil;
+    Dimensions output_dimensions{};
+    std::size_t output_row_stride_bytes = 0U;
+    std::uint64_t output_buffer_bytes = 0U;
+    std::uint64_t external_resident_buffer_bytes = 0U;
+    std::uint64_t resident_allowance = 0U;
+
+    Impl(
+        id<MTLDevice> source_device,
+        id<MTLCommandQueue> source_queue,
+        id<MTLBuffer> source_buffer,
+        const Dimensions dimensions,
+        const std::size_t row_stride_bytes,
+        const std::uint64_t buffer_bytes,
+        const std::uint64_t external_bytes,
+        const std::uint64_t allowance
+    ) :
+        device([source_device retain]), queue([source_queue retain]),
+        buffer([source_buffer retain]), output_dimensions(dimensions),
+        output_row_stride_bytes(row_stride_bytes), output_buffer_bytes(buffer_bytes),
+        external_resident_buffer_bytes(external_bytes), resident_allowance(allowance) {}
+
+    ~Impl() {
+        [buffer release];
+        [queue release];
+        [device release];
+    }
+};
+
+MetalRawPreviewResidentOutput::MetalRawPreviewResidentOutput(
+    std::unique_ptr<Impl> implementation
+) noexcept : implementation_(std::move(implementation)) {}
+
+MetalRawPreviewResidentOutput::MetalRawPreviewResidentOutput(
+    MetalRawPreviewResidentOutput&&
+) noexcept = default;
+
+MetalRawPreviewResidentOutput&
+MetalRawPreviewResidentOutput::operator=(MetalRawPreviewResidentOutput&&) noexcept = default;
+
+MetalRawPreviewResidentOutput::~MetalRawPreviewResidentOutput() = default;
+
+Dimensions MetalRawPreviewResidentOutput::dimensions() const noexcept {
+    return implementation_ == nullptr ? Dimensions{} : implementation_->output_dimensions;
+}
+
+std::size_t MetalRawPreviewResidentOutput::row_stride_bytes() const noexcept {
+    return implementation_ == nullptr ? 0U : implementation_->output_row_stride_bytes;
+}
+
+std::uint64_t MetalRawPreviewResidentOutput::output_bytes() const noexcept {
+    return implementation_ == nullptr ? 0U : implementation_->output_buffer_bytes;
+}
+
+std::uint64_t MetalRawPreviewResidentOutput::external_resident_bytes() const noexcept {
+    return implementation_ == nullptr ? 0U : implementation_->external_resident_buffer_bytes;
+}
+
+std::uint64_t MetalRawPreviewResidentOutput::resident_allowance_bytes() const noexcept {
+    return implementation_ == nullptr ? 0U : implementation_->resident_allowance;
+}
+
+void* MetalRawPreviewResidentOutput::native_device_handle() const noexcept {
+    return implementation_ == nullptr ? nullptr : reinterpret_cast<void*>(implementation_->device);
+}
+
+void* MetalRawPreviewResidentOutput::native_queue_handle() const noexcept {
+    return implementation_ == nullptr ? nullptr : reinterpret_cast<void*>(implementation_->queue);
+}
+
+void* MetalRawPreviewResidentOutput::native_buffer_handle() const noexcept {
+    return implementation_ == nullptr ? nullptr : reinterpret_cast<void*>(implementation_->buffer);
+}
+
+MetalRawPreviewResidentDevelopmentAttempt MetalRawPreviewRebindingSource::develop_resident(
+    const RawFrame& frame,
+    const RawFrameLinearTransform& transform,
+    const std::optional<std::uint32_t> preview_max_edge,
+    const RawHighlightRecoveryIntent highlight_recovery,
+    const RawDevelopmentQuality quality,
+    const MetalRawDevelopmentContinuations continuations
+) const {
+    // The public rebind contract retains this receipt field. Source-domain highlight policy no
+    // longer inserts a pre-demosaic channel clip, so it does not select a different Metal kernel.
+    (void)highlight_recovery;
+    const auto fail = [](std::string diagnostic) {
+        return MetalRawPreviewResidentDevelopmentAttempt{
+            .output = std::nullopt,
+            .demosaic_receipt = {},
+            .dcp_applied = false,
+            .diagnostic = std::move(diagnostic),
+        };
+    };
+    if (!implementation_ || frame.samples.data() != implementation_->source_samples
+        || frame.samples.size() != implementation_->source_sample_count) {
+        return fail("retained Metal RAW preview source no longer matches its RawFrame");
+    }
+    if (!metal_raw_development_available()) {
+        return fail(metal_raw_runtime_diagnostic());
+    }
+    if (continuations.raw_denoise != nullptr || continuations.project_sensor_clipping) {
+        return fail("resident RAW preview rebind only accepts its already-denoised CFA source");
+    }
+    const Dimensions reconstruction_dimensions =
+        preview_max_edge.has_value()
+            ? proxy_dimensions(frame.descriptor.active_dimensions, *preview_max_edge)
+            : frame.descriptor.active_dimensions;
+    const bool area_preview = reconstruction_dimensions != frame.descriptor.active_dimensions;
+    if (area_preview && !metal_raw_area_preview_available()) {
+        return fail(metal_raw_area_preview_diagnostic());
+    }
+    const Dimensions output_dimensions =
+        oriented_dimensions(reconstruction_dimensions, frame.descriptor.orientation);
+    std::size_t output_row_bytes = 0U;
+    std::size_t output_bytes = 0U;
+    if (!checked_multiply(
+            static_cast<std::size_t>(output_dimensions.width),
+            3U * sizeof(float),
+            output_row_bytes
+        )
+        || !checked_multiply(
+            output_row_bytes,
+            static_cast<std::size_t>(output_dimensions.height),
+            output_bytes
+        )
+        || output_bytes == 0U
+        || output_bytes > static_cast<std::size_t>(metal_raw_device().maxBufferLength)) {
+        return fail("resident RAW preview output exceeds this Metal device's buffer limit");
+    }
+    const auto pixels = output_dimensions.pixel_count();
+    if (pixels == 0U || pixels > std::numeric_limits<std::uint32_t>::max()) {
+        return fail("resident RAW preview exceeds Metal's dispatch range");
+    }
+    std::unique_ptr<MetalDcpColorEncoding> dcp_encoding;
+    if (continuations.dcp_color_transform != nullptr
+        && continuations.dcp_color_transform->has_post_matrix_stages()) {
+        std::string diagnostic;
+        dcp_encoding = MetalDcpColorEncoding::prepare(
+            *continuations.dcp_color_transform,
+            static_cast<std::uint32_t>(pixels),
+            diagnostic
+        );
+        if (!dcp_encoding) {
+            return fail(
+                diagnostic.empty() ? "Metal could not prepare resident RAW/DCP input rendering"
+                                   : std::move(diagnostic)
+            );
+        }
+    }
+    std::size_t resident_bytes = implementation_->source_bytes;
+    if (!checked_add(resident_bytes, output_bytes, resident_bytes)
+        || (dcp_encoding
+            && !checked_add(resident_bytes, dcp_encoding->resource_bytes(), resident_bytes))) {
+        return fail("resident RAW preview working-set size overflowed");
+    }
+    const auto recommended =
+        static_cast<std::uint64_t>(metal_raw_device().recommendedMaxWorkingSetSize);
+    const std::uint64_t allowance =
+        recommended == 0U ? 512ULL * 1'024ULL * 1'024ULL : recommended / 3U;
+    if (allowance == 0U || resident_bytes > allowance) {
+        return fail("resident RAW preview exceeds Shadow's Metal working-set allowance");
+    }
+    std::lock_guard execution_lock(metal_execution_mutex());
+    @autoreleasepool {
+        OwnedObjectiveCObject output_buffer([metal_raw_device()
+            newBufferWithLength:output_bytes
+                        options:MTLResourceStorageModePrivate]);
+        if (!output_buffer) {
+            return fail("Metal could not allocate resident RAW preview output");
+        }
+        RawDevelopmentParameters parameters = make_parameters(
+            frame,
+            transform,
+            reconstruction_dimensions,
+            output_dimensions,
+            quality,
+            highlight_recovery,
+            false
+        );
+        parameters.output_tile_height = output_dimensions.height;
+        const auto pipeline =
+            area_preview ? metal_raw_area_preview_pipeline() : metal_raw_reconstruction_pipeline();
+        const NSUInteger thread_width =
+            std::min<NSUInteger>(32U, std::max<NSUInteger>(1U, pipeline.threadExecutionWidth));
+        const NSUInteger thread_height = std::max<NSUInteger>(
+            1U,
+            std::min<NSUInteger>(8U, pipeline.maxTotalThreadsPerThreadgroup / thread_width)
+        );
+        id<MTLCommandBuffer> command_buffer = [metal_raw_command_queue() commandBuffer];
+        id<MTLComputeCommandEncoder> encoder =
+            command_buffer == nil ? nil : [command_buffer computeCommandEncoder];
+        if (encoder == nil) {
+            return fail("Metal could not create a resident RAW reconstruction command");
+        }
+        [encoder setComputePipelineState:pipeline];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(implementation_->input_buffer.get())
+                    offset:0U
+                   atIndex:0U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(output_buffer.get()) offset:0U atIndex:1U];
+        [encoder setBytes:&parameters length:sizeof(parameters) atIndex:2U];
+        // Clipping is already retained in the immutable source evidence. These bindings
+        // satisfy the kernel ABI while project_sensor_clipping remains false.
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(implementation_->input_buffer.get())
+                    offset:0U
+                   atIndex:3U];
+        [encoder setBuffer:static_cast<id<MTLBuffer>>(output_buffer.get()) offset:0U atIndex:4U];
+        [encoder dispatchThreads:MTLSizeMake(output_dimensions.width, output_dimensions.height, 1U)
+            threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
+        [encoder endEncoding];
+        if (dcp_encoding) {
+            id<MTLComputeCommandEncoder> dcp_encoder = [command_buffer computeCommandEncoder];
+            std::string diagnostic;
+            if (dcp_encoder == nil
+                || !dcp_encoding->encode(
+                    dcp_encoder,
+                    static_cast<id<MTLBuffer>>(output_buffer.get()),
+                    static_cast<std::uint32_t>(pixels),
+                    diagnostic
+                )) {
+                if (dcp_encoder != nil) {
+                    [dcp_encoder endEncoding];
+                }
+                return fail(
+                    diagnostic.empty() ? "Metal could not encode resident RAW/DCP input rendering"
+                                       : std::move(diagnostic)
+                );
+            }
+            [dcp_encoder endEncoding];
+        }
+        [command_buffer commit];
+        [command_buffer waitUntilCompleted];
+        if (command_buffer.status != MTLCommandBufferStatusCompleted) {
+            return fail(metal_raw_command_buffer_diagnostic(command_buffer));
+        }
+        return MetalRawPreviewResidentDevelopmentAttempt{
+            .output =
+                MetalRawPreviewResidentOutput{std::make_unique<MetalRawPreviewResidentOutput::Impl>(
+                    metal_raw_device(),
+                    metal_raw_command_queue(),
+                    static_cast<id<MTLBuffer>>(output_buffer.get()),
+                    output_dimensions,
+                    output_row_bytes,
+                    static_cast<std::uint64_t>(output_bytes),
+                    static_cast<std::uint64_t>(implementation_->source_bytes),
+                    allowance
+                )},
+            .demosaic_receipt = make_receipt(
+                frame,
+                transform,
+                area_preview ? RawDemosaicAlgorithm::bayer_area_preview_v1
+                : quality == RawDevelopmentQuality::high ? RawDemosaicAlgorithm::bayer_edge_aware_v1
+                                                         : RawDemosaicAlgorithm::bayer_bilinear_v1
+            ),
+            .dcp_applied = dcp_encoding != nullptr,
+            .diagnostic = {},
+        };
+    }
 }
 
 } // namespace shadow::image::detail

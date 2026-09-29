@@ -12,10 +12,11 @@ use std::{
 
 use anyhow::{Context, Result as AnyResult, bail};
 use shadow_bridge::{
-    AdjustmentLocalMask, AdjustmentRasterMaskEncoding, MAX_MANAGED_RASTER_MASK_BYTES,
+    AdjustmentImageCompletionPatch, AdjustmentLocalMask, AdjustmentRasterMaskEncoding,
+    MAX_ADJUSTMENT_IMAGE_COMPLETION_BYTES, MAX_MANAGED_RASTER_MASK_BYTES,
 };
 use shadow_core::FilesystemDerivedRasterStore;
-use shadow_domain::{ManagedRasterMask, RasterMaskEncoding};
+use shadow_domain::{ManagedImageCompletionPatch, ManagedRasterMask, RasterMaskEncoding};
 
 const DERIVED_RASTER_STORE_DIRECTORY: &str = "derived-rasters";
 
@@ -27,6 +28,14 @@ pub(crate) trait ManagedRasterMaskResolver {
         feather: f64,
         invert: bool,
     ) -> AnyResult<AdjustmentLocalMask>;
+}
+
+pub(crate) trait ManagedImageCompletionResolver {
+    fn resolve_completion(
+        &self,
+        patch: &ManagedImageCompletionPatch,
+        strength: f64,
+    ) -> AnyResult<AdjustmentImageCompletionPatch>;
 }
 
 #[derive(Debug)]
@@ -97,6 +106,50 @@ impl ManagedRasterMaskResolver for FilesystemManagedRasterMaskResolver {
             expansion,
             feather,
             invert,
+        })
+    }
+}
+
+impl ManagedImageCompletionResolver for FilesystemManagedRasterMaskResolver {
+    fn resolve_completion(
+        &self,
+        patch: &ManagedImageCompletionPatch,
+        strength: f64,
+    ) -> AnyResult<AdjustmentImageCompletionPatch> {
+        let byte_len = usize::try_from(patch.byte_len())
+            .context("AI completion patch length exceeds the host address space")?;
+        if byte_len > MAX_ADJUSTMENT_IMAGE_COMPLETION_BYTES {
+            bail!(
+                "AI completion patch contains {} bytes, but native execution accepts at most {}",
+                patch.byte_len(),
+                MAX_ADJUSTMENT_IMAGE_COMPLETION_BYTES
+            );
+        }
+        let file = self
+            .store
+            .open_recipe_completion_patch(patch)
+            .context("verify managed AI completion patch")?;
+        let mut rgba8 = Vec::with_capacity(byte_len);
+        file.take(patch.byte_len().saturating_add(1))
+            .read_to_end(&mut rgba8)
+            .context("read verified AI completion patch")?;
+        if rgba8.len() != byte_len {
+            bail!(
+                "verified AI completion patch changed while reading: expected {byte_len} bytes, received {}",
+                rgba8.len()
+            );
+        }
+        Ok(AdjustmentImageCompletionPatch {
+            raster_width: patch.raster_width(),
+            raster_height: patch.raster_height(),
+            coordinate_width: patch.coordinate_width(),
+            coordinate_height: patch.coordinate_height(),
+            bounds_left: patch.bounds_left().get(),
+            bounds_top: patch.bounds_top().get(),
+            bounds_right: patch.bounds_right().get(),
+            bounds_bottom: patch.bounds_bottom().get(),
+            strength,
+            rgba8,
         })
     }
 }

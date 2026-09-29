@@ -1,12 +1,93 @@
 use crate::{
-    AdjustmentLocalMask, AdjustmentRasterMaskEncoding, AdjustmentRenderOperation, BridgeError,
-    adjustment::validate_render_operation,
+    AdjustmentLocalMask, AdjustmentLocalMaskComponent, AdjustmentMaskComponentOperation,
+    AdjustmentRasterMaskEncoding, AdjustmentRenderOperation, BridgeError,
+    MAX_COMPOSITE_LOCAL_MASK_COMPONENTS, adjustment::validate_render_operation,
 };
 
 fn layer_start(mask: AdjustmentLocalMask) -> AdjustmentRenderOperation {
     AdjustmentRenderOperation::LocalMaskLayerStart {
         opacity: 1.0,
         mask: Some(mask),
+    }
+}
+
+fn linear_leaf() -> AdjustmentLocalMask {
+    AdjustmentLocalMask::LinearGradient {
+        start_x: 0.1,
+        start_y: 0.2,
+        end_x: 0.8,
+        end_y: 0.9,
+        invert: false,
+    }
+}
+
+fn component(
+    operation: AdjustmentMaskComponentOperation,
+    mask: AdjustmentLocalMask,
+) -> AdjustmentLocalMaskComponent {
+    AdjustmentLocalMaskComponent {
+        operation,
+        enabled: true,
+        mask,
+    }
+}
+
+#[test]
+fn composite_topology_is_bounded_ordered_and_non_nested() {
+    validate_render_operation(&layer_start(AdjustmentLocalMask::Composite {
+        components: vec![
+            component(AdjustmentMaskComponentOperation::Base, linear_leaf()),
+            component(AdjustmentMaskComponentOperation::Add, linear_leaf()),
+        ],
+        invert: true,
+    }))
+    .expect("bounded ordered composite mask");
+
+    for mask in [
+        AdjustmentLocalMask::Composite {
+            components: vec![],
+            invert: false,
+        },
+        AdjustmentLocalMask::Composite {
+            components: vec![component(
+                AdjustmentMaskComponentOperation::Add,
+                linear_leaf(),
+            )],
+            invert: false,
+        },
+        AdjustmentLocalMask::Composite {
+            components: vec![component(
+                AdjustmentMaskComponentOperation::Base,
+                AdjustmentLocalMask::Composite {
+                    components: vec![component(
+                        AdjustmentMaskComponentOperation::Base,
+                        linear_leaf(),
+                    )],
+                    invert: false,
+                },
+            )],
+            invert: false,
+        },
+        AdjustmentLocalMask::Composite {
+            components: (0..=MAX_COMPOSITE_LOCAL_MASK_COMPONENTS)
+                .map(|index| {
+                    component(
+                        if index == 0 {
+                            AdjustmentMaskComponentOperation::Base
+                        } else {
+                            AdjustmentMaskComponentOperation::Add
+                        },
+                        linear_leaf(),
+                    )
+                })
+                .collect(),
+            invert: false,
+        },
+    ] {
+        assert!(matches!(
+            validate_render_operation(&layer_start(mask)),
+            Err(BridgeError::InvalidEditRequest(_))
+        ));
     }
 }
 

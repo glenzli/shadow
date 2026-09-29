@@ -14,6 +14,7 @@ Item {
     property string format: "jpeg"
     property int maxEdge: 0
     property int quality: 90
+    property int tiffBitDepth: 16
     property string colorSpace: "srgb"
     property int resolutionDpi: 300
     property string metadataPolicy: "none"
@@ -30,6 +31,7 @@ Item {
         if (!preset)
             return
         format = String(preset.format || "jpeg")
+        tiffBitDepth = format === "tiff" ? Number(preset.bitDepth || 8) : 16
         maxEdge = Number(preset.maxEdge || 0)
         quality = Number(preset.quality || 90)
         colorSpace = String(preset.colorSpace || "srgb")
@@ -53,6 +55,7 @@ Item {
             "format": format,
             "maxEdge": Number.isFinite(parsedEdge) ? Math.max(0, Math.min(16384, Math.round(parsedEdge))) : 0,
             "quality": Math.round(quality),
+            "bitDepth": format === "tiff" ? Math.round(tiffBitDepth) : 8,
             "colorSpace": String(colorSpace),
             "resolutionDpi": Number.isFinite(parsedDpi) ? Math.max(1, Math.min(2400, Math.round(parsedDpi))) : 300,
             "metadataPolicy": String(metadataPolicy),
@@ -88,7 +91,7 @@ Item {
                 Label {
                     text: qsTr("FILE")
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.7
                 }
@@ -113,16 +116,41 @@ Item {
                         active: settings.format === "tiff"
                         onClicked: settings.format = "tiff"
                     }
+                    ShadowTabButton {
+                        Layout.fillWidth: true
+                        text: "DNG"
+                        active: settings.format === "dng"
+                        onClicked: settings.format = "dng"
+                    }
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: dngExplanation.implicitHeight + 16
+                    visible: settings.format === "dng"
+                    color: Theme.control
+                    radius: Theme.compactControlRadius
+                    border.width: 1
+                    border.color: Theme.border
+                    Label {
+                        id: dngExplanation
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        text: qsTr("RAW DNG preserves the original sensor mosaic and source calibration. Edits, resizing, color space, metadata, and watermarks are not applied.")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontMeta
+                        wrapMode: Text.WordWrap
+                    }
                 }
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: settings.format !== "dng"
                     Label {
                         Layout.preferredWidth: 92
                         text: qsTr("Long edge")
                         color: Theme.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
-                    TextField {
+                    ShadowTextField {
                         id: sizeField
                         Layout.fillWidth: true
                         placeholderText: qsTr("Original size")
@@ -134,59 +162,63 @@ Item {
                         color: Theme.textPrimary
                         placeholderTextColor: Theme.textPlaceholder
                         selectByMouse: true
-                        background: Rectangle {
-                            color: Theme.control
-                            radius: Theme.compactControlRadius
-                            border.width: 1
-                            border.color: sizeField.activeFocus ? Theme.focusRing : Theme.border
-                        }
                     }
                     Label {
                         text: "px"
                         color: Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                     }
                 }
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: settings.format === "tiff"
+                    Label {
+                        Layout.preferredWidth: 92
+                        text: qsTr("Bit depth")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSection
+                    }
+                    ShadowTabButton {
+                        Layout.fillWidth: true
+                        text: "8-bit"
+                        active: settings.tiffBitDepth === 8
+                        onClicked: settings.tiffBitDepth = 8
+                    }
+                    ShadowTabButton {
+                        Layout.fillWidth: true
+                        text: "16-bit"
+                        active: settings.tiffBitDepth === 16
+                        onClicked: settings.tiffBitDepth = 16
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: settings.format !== "dng"
                     Label {
                         Layout.preferredWidth: 92
                         text: qsTr("Color space")
                         color: Theme.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
-                    ComboBox {
+                    ShadowComboBox {
                         id: colorSpaceBox
                         Layout.fillWidth: true
                         implicitHeight: Theme.controlHeight
                         model: ["sRGB", "Display P3"]
                         currentIndex: settings.colorSpace === "display-p3" ? 1 : 0
                         onActivated: settings.colorSpace = currentIndex === 1 ? "display-p3" : "srgb"
-                        contentItem: Label {
-                            leftPadding: 10
-                            rightPadding: 28
-                            verticalAlignment: Text.AlignVCenter
-                            text: colorSpaceBox.displayText
-                            color: Theme.textPrimary
-                            font.pixelSize: 11
-                        }
-                        background: Rectangle {
-                            color: Theme.control
-                            radius: Theme.compactControlRadius
-                            border.width: 1
-                            border.color: colorSpaceBox.activeFocus ? Theme.focusRing : Theme.border
-                        }
                     }
                 }
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: settings.format !== "dng"
                     Label {
                         Layout.preferredWidth: 92
                         text: qsTr("Resolution")
                         color: Theme.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
-                    TextField {
+                    ShadowTextField {
                         id: resolutionField
                         Layout.fillWidth: true
                         text: "300"
@@ -197,17 +229,11 @@ Item {
                         }
                         color: Theme.textPrimary
                         selectByMouse: true
-                        background: Rectangle {
-                            color: Theme.control
-                            radius: Theme.compactControlRadius
-                            border.width: 1
-                            border.color: resolutionField.activeFocus ? Theme.focusRing : Theme.border
-                        }
                     }
                     Label {
                         text: "DPI"
                         color: Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                     }
                 }
                 RowLayout {
@@ -217,7 +243,7 @@ Item {
                         Layout.preferredWidth: 92
                         text: qsTr("Quality")
                         color: Theme.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
                     ShadowInlineSlider {
                         Layout.fillWidth: true
@@ -235,7 +261,7 @@ Item {
                         Layout.preferredWidth: 30
                         text: String(settings.quality)
                         color: Theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontMeta
                         horizontalAlignment: Text.AlignRight
                     }
                 }
@@ -245,9 +271,9 @@ Item {
                         Layout.preferredWidth: 92
                         text: qsTr("Filename suffix")
                         color: Theme.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
-                    TextField {
+                    ShadowTextField {
                         id: suffixField
                         Layout.fillWidth: true
                         placeholderText: qsTr("Optional, e.g. _web")
@@ -255,12 +281,6 @@ Item {
                         placeholderTextColor: Theme.textPlaceholder
                         selectByMouse: true
                         onTextChanged: settings.filenameSuffix = text
-                        background: Rectangle {
-                            color: Theme.control
-                            radius: Theme.compactControlRadius
-                            border.width: 1
-                            border.color: suffixField.activeFocus ? Theme.focusRing : Theme.border
-                        }
                     }
                 }
             }
@@ -268,16 +288,18 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
+                visible: settings.format !== "dng"
                 color: Theme.border
             }
 
             ColumnLayout {
                 Layout.fillWidth: true
+                visible: settings.format !== "dng"
                 spacing: 9
                 Label {
                     text: qsTr("METADATA")
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.7
                 }
@@ -287,29 +309,15 @@ Item {
                         Layout.preferredWidth: 92
                         text: qsTr("Include")
                         color: Theme.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
-                    ComboBox {
+                    ShadowComboBox {
                         id: metadataBox
                         Layout.fillWidth: true
                         implicitHeight: Theme.controlHeight
                         model: [qsTr("No metadata"), qsTr("Copyright only")]
                         currentIndex: settings.metadataPolicy === "copyright-only" ? 1 : 0
                         onActivated: settings.metadataPolicy = currentIndex === 1 ? "copyright-only" : "none"
-                        contentItem: Label {
-                            leftPadding: 10
-                            rightPadding: 28
-                            verticalAlignment: Text.AlignVCenter
-                            text: metadataBox.displayText
-                            color: Theme.textPrimary
-                            font.pixelSize: 11
-                        }
-                        background: Rectangle {
-                            color: Theme.control
-                            radius: Theme.compactControlRadius
-                            border.width: 1
-                            border.color: metadataBox.activeFocus ? Theme.focusRing : Theme.border
-                        }
                     }
                 }
                 RowLayout {
@@ -319,9 +327,9 @@ Item {
                         Layout.preferredWidth: 92
                         text: qsTr("Creator")
                         color: Theme.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
-                    TextField {
+                    ShadowTextField {
                         id: creatorField
                         Layout.fillWidth: true
                         color: Theme.textPrimary
@@ -329,12 +337,6 @@ Item {
                         placeholderTextColor: Theme.textPlaceholder
                         selectByMouse: true
                         onTextChanged: settings.creator = text
-                        background: Rectangle {
-                            color: Theme.control
-                            radius: Theme.compactControlRadius
-                            border.width: 1
-                            border.color: creatorField.activeFocus ? Theme.focusRing : Theme.border
-                        }
                     }
                 }
                 RowLayout {
@@ -344,9 +346,9 @@ Item {
                         Layout.preferredWidth: 92
                         text: qsTr("Copyright")
                         color: Theme.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontSection
                     }
-                    TextField {
+                    ShadowTextField {
                         id: copyrightField
                         Layout.fillWidth: true
                         color: Theme.textPrimary
@@ -354,12 +356,6 @@ Item {
                         placeholderTextColor: Theme.textPlaceholder
                         selectByMouse: true
                         onTextChanged: settings.copyrightNotice = text
-                        background: Rectangle {
-                            color: Theme.control
-                            radius: Theme.compactControlRadius
-                            border.width: 1
-                            border.color: copyrightField.activeFocus ? Theme.focusRing : Theme.border
-                        }
                     }
                 }
             }
@@ -367,12 +363,14 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
+                visible: settings.format !== "dng"
                 color: Theme.border
             }
 
             ExportWatermarkPane {
                 id: watermarkPane
                 Layout.fillWidth: true
+                visible: settings.format !== "dng"
                 exportController: settings.exportController
             }
         }

@@ -5,7 +5,9 @@
 #include <shadow/image/raw_pipeline.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
-#include "neural_raw_denoise.hpp"
+#include "../src/raw/bayer_sampling.hpp"
+#include "../src/raw/raw_frame_development_plan.hpp"
+#include "raw_highlight_cfa_diagnostic.hpp"
 
 #include <algorithm>
 #include <array>
@@ -53,6 +55,28 @@ void write_binary(const fs::path& path, const std::span<const std::uint8_t> byte
     output.write(
         reinterpret_cast<const char*>(bytes.data()),
         static_cast<std::streamsize>(bytes.size())
+    );
+    if (!output) {
+        throw std::runtime_error("cannot write " + path.string());
+    }
+}
+
+void write_u8_pgm(
+    const fs::path& path,
+    const image::Dimensions dimensions,
+    const std::span<const std::uint8_t> samples
+) {
+    if (dimensions.pixel_count() != samples.size()) {
+        throw std::runtime_error("PGM buffer length does not match its dimensions");
+    }
+    std::ofstream output(path, std::ios::binary);
+    if (!output) {
+        throw std::runtime_error("cannot create " + path.string());
+    }
+    output << "P5\n" << dimensions.width << ' ' << dimensions.height << "\n255\n";
+    output.write(
+        reinterpret_cast<const char*>(samples.data()),
+        static_cast<std::streamsize>(samples.size())
     );
     if (!output) {
         throw std::runtime_error("cannot write " + path.string());
@@ -249,7 +273,402 @@ void extract_best_preview(image::DecodeSession& session, const fs::path& output_
               << "timing.thumbnail_ms=" << timer.elapsed_ms() << '\n';
 }
 
-void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_directory) {
+struct RawFrameCfaSiteStatistics final {
+    std::uint64_t sample_count = 0U;
+    std::uint64_t below_black = 0U;
+    std::uint64_t at_or_above_white = 0U;
+    std::uint16_t minimum = std::numeric_limits<std::uint16_t>::max();
+    std::uint16_t maximum = 0U;
+    double maximum_normalized = -std::numeric_limits<double>::infinity();
+    long double total = 0.0L;
+};
+
+struct RawFrameInspectionRegion final {
+    std::uint32_t x = 0U;
+    std::uint32_t y = 0U;
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+};
+
+[[nodiscard]] std::uint32_t parse_inspection_coordinate(const char* text, const char* name) {
+    const unsigned long value = std::stoul(text);
+    if (value > std::numeric_limits<std::uint32_t>::max()) {
+        throw std::invalid_argument(std::string(name) + " is outside the uint32 range");
+    }
+    return static_cast<std::uint32_t>(value);
+}
+
+struct RawFrameNormalizationCandidates final {
+    std::array<double, 3U> linear_limit_clipped_camera_rgb{};
+    std::array<double, 3U> code_max_clipped_camera_rgb{};
+    std::array<double, 3U> linear_limit_clipped_srgb{};
+    std::array<double, 3U> code_max_clipped_srgb{};
+};
+
+[[nodiscard]] std::array<double, 3U> apply_camera_matrix(
+    const std::array<double, 9U>& matrix,
+    const std::array<double, 3U>& camera_rgb
+) {
+    return {
+        matrix[0] * camera_rgb[0] + matrix[1] * camera_rgb[1] + matrix[2] * camera_rgb[2],
+        matrix[3] * camera_rgb[0] + matrix[4] * camera_rgb[1] + matrix[5] * camera_rgb[2],
+        matrix[6] * camera_rgb[0] + matrix[7] * camera_rgb[1] + matrix[8] * camera_rgb[2],
+    };
+}
+
+[[nodiscard]] std::optional<std::size_t> cfa_rgb_index(const image::RawCfaColor color) noexcept {
+    switch (color) {
+    case image::RawCfaColor::red:
+        return 0U;
+    case image::RawCfaColor::green:
+        return 1U;
+    case image::RawCfaColor::blue:
+        return 2U;
+    case image::RawCfaColor::unknown:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+struct HighlightCfaDeltaSite final {
+    std::uint32_t x = 0U;
+    std::uint32_t y = 0U;
+    std::size_t channel = 0U;
+    image::detail::CfaOpposedHighlightSample sample;
+};
+
+void render_highlight_cfa_diagnostic(
+    image::DecodeSession& session,
+    const fs::path& output_directory
+) {
+    const Stopwatch timer;
+    const image::RawFrame frame = session.decode_raw_frame();
+    if (!frame.valid() || !frame.is_bayer_2x2()) {
+        throw std::runtime_error("CFA highlight diagnostic requires a valid Bayer RAW frame");
+    }
+    const auto plan = image::preview_raw_development_plan();
+    image::RawFrameLinearTransform transform =
+        image::raw_pipeline_detail::prepare_raw_frame_linear_transform(
+            frame.descriptor,
+            plan.white_balance,
+            nullptr
+        );
+    const Stopwatch compiled_chrominance_timer;
+    const auto compiled_chrominance_model =
+        image::detail::build_opposed_highlight_chrominance_model(frame);
+    const auto initial_treatment = image::detail::editable_raw_cfa_sampling_policy(transform);
+    const auto compiled_chrominance = image::detail::evaluate_opposed_highlight_chrominance_model(
+        compiled_chrominance_model,
+        &transform,
+        initial_treatment
+    );
+    transform.opposed_highlight_chrominance_offsets = compiled_chrominance.offsets;
+    const double compiled_chrominance_ms = compiled_chrominance_timer.elapsed_ms();
+    const auto treatment = image::detail::editable_raw_cfa_sampling_policy(transform);
+    const auto chrominance = image::detail::estimate_opposed_highlight_chrominance_correction(
+        frame,
+        &transform,
+        treatment
+    );
+    const auto sampled_chrominance =
+        image::detail::estimate_opposed_highlight_chrominance_correction(
+            frame,
+            &transform,
+            treatment,
+            4U
+        );
+    auto baseline = treatment;
+    baseline.reconstruct_terminal_highlights = false;
+
+    std::array<std::uint64_t, 3U> candidates{};
+    std::array<std::uint64_t, 3U> raised{};
+    std::array<long double, 3U> total_delta{};
+    std::array<float, 3U> maximum_delta{};
+    std::array<std::array<std::uint64_t, 5U>, 3U> delta_histogram{};
+    std::vector<HighlightCfaDeltaSite> largest;
+    largest.reserve(512U);
+    const auto keep_largest = [&] {
+        if (largest.size() <= 256U) {
+            return;
+        }
+        std::nth_element(
+            largest.begin(),
+            largest.begin() + 256,
+            largest.end(),
+            [](const HighlightCfaDeltaSite& left, const HighlightCfaDeltaSite& right) {
+                return left.sample.reconstructed - left.sample.measured
+                       > right.sample.reconstructed - right.sample.measured;
+            }
+        );
+        largest.resize(256U);
+    };
+
+    const auto& descriptor = frame.descriptor;
+    const std::uint32_t first_x = descriptor.active_margins.left;
+    const std::uint32_t first_y = descriptor.active_margins.top;
+    const std::uint32_t last_x = first_x + descriptor.active_dimensions.width;
+    const std::uint32_t last_y = first_y + descriptor.active_dimensions.height;
+    for (std::uint32_t y = first_y; y < last_y; ++y) {
+        for (std::uint32_t x = first_x; x < last_x; ++x) {
+            const auto channel = cfa_rgb_index(descriptor.bayer_2x2[(y & 1U) * 2U + (x & 1U)]);
+            if (!channel.has_value()) {
+                continue;
+            }
+            const auto sample =
+                image::detail::opposed_highlight_cfa_sample_at(frame, x, y, &transform, treatment);
+            if (!sample.terminal_candidate) {
+                continue;
+            }
+            ++candidates[*channel];
+            const float delta = sample.reconstructed - sample.measured;
+            const std::size_t bin = delta <= 1.0e-6F  ? 0U
+                                    : delta < 1.0e-3F ? 1U
+                                    : delta < 1.0e-2F ? 2U
+                                    : delta < 5.0e-2F ? 3U
+                                                      : 4U;
+            ++delta_histogram[*channel][bin];
+            if (delta <= 1.0e-6F) {
+                continue;
+            }
+            ++raised[*channel];
+            total_delta[*channel] += delta;
+            maximum_delta[*channel] = std::max(maximum_delta[*channel], delta);
+            largest.push_back(
+                HighlightCfaDeltaSite{
+                    .x = x,
+                    .y = y,
+                    .channel = *channel,
+                    .sample = sample,
+                }
+            );
+            if (largest.size() >= 512U) {
+                keep_largest();
+            }
+        }
+    }
+    keep_largest();
+    std::sort(
+        largest.begin(),
+        largest.end(),
+        [](const HighlightCfaDeltaSite& left, const HighlightCfaDeltaSite& right) {
+            return left.sample.reconstructed - left.sample.measured
+                   > right.sample.reconstructed - right.sample.measured;
+        }
+    );
+    if (largest.size() > 64U) {
+        largest.resize(64U);
+    }
+    const fs::path csv_path = output_directory / "highlight-cfa-largest-deltas.csv";
+    std::ofstream csv(csv_path);
+    if (!csv) {
+        throw std::runtime_error("cannot create " + csv_path.string());
+    }
+    csv << "x,y,cfa,measured,opposed_reference,reconstructed,cfa_delta,"
+           "baseline_r,baseline_g,baseline_b,reconstructed_r,reconstructed_g,reconstructed_b,"
+           "delta_r,delta_g,delta_b\n";
+    std::array<long double, 3U> demosaic_absolute_delta{};
+    std::array<float, 3U> demosaic_maximum_delta{};
+    long double demosaic_luminance_delta = 0.0L;
+    std::uint64_t demosaic_samples = 0U;
+    constexpr std::array<const char*, 3U> channel_names{"R", "G", "B"};
+    for (const auto& site : largest) {
+        const auto before = image::detail::bilinear_camera_rgb_sample_at(
+            frame,
+            site.x,
+            site.y,
+            &transform,
+            baseline
+        );
+        const auto after = image::detail::bilinear_camera_rgb_sample_at(
+            frame,
+            site.x,
+            site.y,
+            &transform,
+            treatment
+        );
+        std::array<float, 3U> delta{};
+        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+            delta[channel] = after.values[channel] - before.values[channel];
+            demosaic_absolute_delta[channel] += std::abs(delta[channel]);
+            demosaic_maximum_delta[channel] =
+                std::max(demosaic_maximum_delta[channel], std::abs(delta[channel]));
+        }
+        demosaic_luminance_delta += std::abs(0.25L * delta[0] + 0.5L * delta[1] + 0.25L * delta[2]);
+        ++demosaic_samples;
+        csv << site.x << ',' << site.y << ',' << channel_names[site.channel] << ','
+            << site.sample.measured << ',' << site.sample.opposed_reference << ','
+            << site.sample.reconstructed << ',' << site.sample.reconstructed - site.sample.measured
+            << ',' << before.values[0] << ',' << before.values[1] << ',' << before.values[2] << ','
+            << after.values[0] << ',' << after.values[1] << ',' << after.values[2] << ','
+            << delta[0] << ',' << delta[1] << ',' << delta[2] << '\n';
+    }
+    if (!csv) {
+        throw std::runtime_error("cannot write " + csv_path.string());
+    }
+
+    std::cout << "highlight_cfa_diagnostic.status=ok\n"
+              << "highlight_cfa_diagnostic.algorithm=darktable-opposed-photosite-v1\n"
+              << "highlight_cfa_diagnostic.threshold=0.987\n"
+              << "highlight_cfa_diagnostic.threshold_domain=physical-white\n"
+              << "timing.highlight_cfa_compiled_chrominance_ms=" << compiled_chrominance_ms << '\n';
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        std::cout << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".chrominance_offset=" << chrominance.offsets[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".chrominance_support=" << chrominance.supporting_samples[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".sampled_chrominance_offset=" << sampled_chrominance.offsets[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".sampled_chrominance_support="
+                  << sampled_chrominance.supporting_samples[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".compiled_chrominance_offset=" << compiled_chrominance.offsets[channel]
+                  << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".compiled_chrominance_records="
+                  << compiled_chrominance_model.support_records[channel].size() << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".candidates=" << candidates[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".raised=" << raised[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".mean_positive_delta="
+                  << (raised[channel] == 0U
+                          ? 0.0
+                          : static_cast<double>(
+                                total_delta[channel] / static_cast<long double>(raised[channel])
+                            ))
+                  << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".maximum_delta=" << maximum_delta[channel] << '\n'
+                  << "highlight_cfa_diagnostic.channel." << channel_names[channel]
+                  << ".histogram=zero:" << delta_histogram[channel][0]
+                  << ",lt0.001:" << delta_histogram[channel][1]
+                  << ",lt0.01:" << delta_histogram[channel][2]
+                  << ",lt0.05:" << delta_histogram[channel][3]
+                  << ",ge0.05:" << delta_histogram[channel][4] << '\n';
+    }
+    std::cout << "highlight_cfa_diagnostic.demosaic.representative_sites=" << demosaic_samples
+              << '\n';
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        std::cout << "highlight_cfa_diagnostic.demosaic.channel." << channel_names[channel]
+                  << ".mean_absolute_delta="
+                  << (demosaic_samples == 0U ? 0.0
+                                             : static_cast<double>(
+                                                   demosaic_absolute_delta[channel]
+                                                   / static_cast<long double>(demosaic_samples)
+                                               ))
+                  << '\n'
+                  << "highlight_cfa_diagnostic.demosaic.channel." << channel_names[channel]
+                  << ".maximum_absolute_delta=" << demosaic_maximum_delta[channel] << '\n';
+    }
+    std::cout << "highlight_cfa_diagnostic.demosaic.mean_absolute_camera_luminance_delta="
+              << (demosaic_samples == 0U
+                      ? 0.0
+                      : static_cast<double>(
+                            demosaic_luminance_delta / static_cast<long double>(demosaic_samples)
+                        ))
+              << '\n';
+    image::probe_detail::render_highlight_cfa_domain_diagnostic(frame, transform, output_directory);
+    std::cout << "highlight_cfa_diagnostic.csv=" << csv_path.string() << '\n'
+              << "timing.highlight_cfa_diagnostic_ms=" << timer.elapsed_ms() << '\n';
+}
+
+void render_highlight_threshold_ablation(
+    image::DecodeSession& session,
+    const fs::path& output_directory
+) {
+    const Stopwatch timer;
+    const image::RawFrame frame = session.decode_raw_frame();
+    if (!frame.valid() || !frame.is_bayer_2x2()) {
+        throw std::runtime_error("highlight threshold ablation requires a valid Bayer RAW frame");
+    }
+    const auto plan = image::preview_raw_development_plan();
+    image::RawFrameLinearTransform transform =
+        image::raw_pipeline_detail::prepare_raw_frame_linear_transform(
+            frame.descriptor,
+            plan.white_balance,
+            nullptr
+        );
+    const auto chrominance_model = image::detail::build_opposed_highlight_chrominance_model(frame);
+    const auto policy = image::detail::editable_raw_cfa_sampling_policy(transform);
+    const auto chrominance = image::detail::evaluate_opposed_highlight_chrominance_model(
+        chrominance_model,
+        &transform,
+        policy
+    );
+    transform.opposed_highlight_chrominance_offsets = chrominance.offsets;
+    image::probe_detail::render_highlight_threshold_ablation(frame, transform, output_directory);
+    std::cout << "timing.highlight_threshold_ablation_ms=" << timer.elapsed_ms() << '\n';
+}
+
+[[nodiscard]] RawFrameNormalizationCandidates calculate_normalization_candidates(
+    const image::RawFrame& frame,
+    const std::array<RawFrameCfaSiteStatistics, 4U>& statistics
+) {
+    if (frame.descriptor.bits_per_sample == 0U || frame.descriptor.bits_per_sample >= 32U) {
+        throw std::runtime_error("RAW-frame diagnostic requires a 1..31 bit sensor encoding");
+    }
+    const auto bounded_mean = [&](const std::size_t site, const std::uint32_t white) {
+        const auto& site_statistics = statistics[site];
+        const std::uint32_t black = frame.descriptor.black_levels[site];
+        if (site_statistics.sample_count == 0U || white <= black
+            || !std::isfinite(frame.descriptor.as_shot_neutral[site])
+            || frame.descriptor.as_shot_neutral[site] <= 0.0) {
+            throw std::runtime_error("RAW-frame diagnostic has incomplete per-site calibration");
+        }
+        const double mean = static_cast<double>(
+            site_statistics.total / static_cast<long double>(site_statistics.sample_count)
+        );
+        return std::clamp(
+            (mean - static_cast<double>(black)) / static_cast<double>(white - black),
+            0.0,
+            1.0
+        );
+    };
+    const std::uint32_t code_max =
+        (std::uint32_t{1} << frame.descriptor.bits_per_sample) - std::uint32_t{1};
+    std::array<double, 3U> linear_limit_camera_rgb{};
+    std::array<double, 3U> code_max_camera_rgb{};
+    std::array<unsigned, 3U> color_counts{};
+    for (std::size_t site = 0U; site < statistics.size(); ++site) {
+        const auto color = cfa_rgb_index(frame.descriptor.bayer_2x2[site]);
+        if (!color.has_value()) {
+            throw std::runtime_error(
+                "RAW-frame diagnostic encountered an unknown Bayer CFA colour"
+            );
+        }
+        const double white_balance = 1.0 / frame.descriptor.as_shot_neutral[site];
+        linear_limit_camera_rgb[*color] +=
+            bounded_mean(site, frame.descriptor.white_levels[site]) * white_balance;
+        code_max_camera_rgb[*color] += bounded_mean(site, code_max) * white_balance;
+        ++color_counts[*color];
+    }
+    for (std::size_t color = 0U; color < linear_limit_camera_rgb.size(); ++color) {
+        if (color_counts[color] == 0U) {
+            throw std::runtime_error("Bayer CFA statistics are missing a camera colour channel");
+        }
+        linear_limit_camera_rgb[color] /= static_cast<double>(color_counts[color]);
+        code_max_camera_rgb[color] /= static_cast<double>(color_counts[color]);
+    }
+    return RawFrameNormalizationCandidates{
+        .linear_limit_clipped_camera_rgb = linear_limit_camera_rgb,
+        .code_max_clipped_camera_rgb = code_max_camera_rgb,
+        .linear_limit_clipped_srgb = apply_camera_matrix(
+            frame.descriptor.camera_to_linear_srgb_d65,
+            linear_limit_camera_rgb
+        ),
+        .code_max_clipped_srgb =
+            apply_camera_matrix(frame.descriptor.camera_to_linear_srgb_d65, code_max_camera_rgb),
+    };
+}
+
+void inspect_raw_frame(
+    image::DecodeSession& session,
+    const fs::path& output_directory,
+    const bool write_samples,
+    const std::optional<RawFrameInspectionRegion> inspection_region
+) {
     const Stopwatch timer;
     const image::RawFrame frame = session.decode_raw_frame();
     if (!frame.valid()) {
@@ -264,8 +683,42 @@ void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_dir
         checksum *= 1'099'511'628'211ULL;
     }
 
+    std::array<RawFrameCfaSiteStatistics, 4U> cfa_site_statistics{};
+    if (!write_samples && frame.is_bayer_2x2()) {
+        const auto width = frame.descriptor.storage_dimensions.width;
+        const auto height = frame.descriptor.storage_dimensions.height;
+        const RawFrameInspectionRegion region = inspection_region.value_or(
+            RawFrameInspectionRegion{.x = 0U, .y = 0U, .width = width, .height = height}
+        );
+        if (region.width == 0U || region.height == 0U || region.x >= width || region.y >= height
+            || region.width > width - region.x || region.height > height - region.y) {
+            throw std::runtime_error("RAW-frame inspection region is outside the stored sensor");
+        }
+        for (std::uint32_t y = region.y; y < region.y + region.height; ++y) {
+            for (std::uint32_t x = region.x; x < region.x + region.width; ++x) {
+                const std::size_t site = static_cast<std::size_t>((y & 1U) * 2U + (x & 1U));
+                const std::size_t index = static_cast<std::size_t>(y) * width + x;
+                const std::uint16_t value = frame.samples[index];
+                auto& statistics = cfa_site_statistics[site];
+                const std::uint32_t black = frame.descriptor.black_levels[site];
+                const std::uint32_t white = frame.descriptor.white_levels[site];
+                const double normalized = (static_cast<double>(value) - static_cast<double>(black))
+                                          / static_cast<double>(white - black);
+                ++statistics.sample_count;
+                statistics.below_black += value < black ? 1U : 0U;
+                statistics.at_or_above_white += value >= white ? 1U : 0U;
+                statistics.minimum = std::min(statistics.minimum, value);
+                statistics.maximum = std::max(statistics.maximum, value);
+                statistics.maximum_normalized = std::max(statistics.maximum_normalized, normalized);
+                statistics.total += value;
+            }
+        }
+    }
+
     const fs::path output_path = output_directory / "raw-frame.pgm";
-    write_u16_pnm(output_path, frame.descriptor.storage_dimensions, 1U, frame.samples);
+    if (write_samples) {
+        write_u16_pnm(output_path, frame.descriptor.storage_dimensions, 1U, frame.samples);
+    }
     const auto sample_count = static_cast<long double>(frame.samples.size());
     const auto& sensor_noise = frame.descriptor.sensor_noise;
     const char* sensor_noise_model =
@@ -275,8 +728,9 @@ void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_dir
     const char* sensor_noise_source = "unavailable";
     if (sensor_noise.source == image::RawSensorNoiseCalibrationSource::embedded_metadata) {
         sensor_noise_source = "embedded-metadata";
-    } else if (sensor_noise.source
-               == image::RawSensorNoiseCalibrationSource::provider_calibration_profile) {
+    } else if (
+        sensor_noise.source == image::RawSensorNoiseCalibrationSource::provider_calibration_profile
+    ) {
         sensor_noise_source = "provider-calibration-profile";
     }
 
@@ -285,6 +739,13 @@ void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_dir
               << "raw_frame.bits=" << frame.descriptor.bits_per_sample << '\n'
               << "raw_frame.cfa=" << frame.descriptor.cfa_pattern << '\n'
               << "raw_frame.bayer_2x2=" << (frame.is_bayer_2x2() ? "yes" : "no") << '\n'
+              << "raw_frame.has_linear_response_limits="
+              << (frame.descriptor.has_linear_response_limits ? "yes" : "no") << '\n'
+              << "raw_frame.linear_response_limits="
+              << frame.descriptor.linear_response_limits[0] << ','
+              << frame.descriptor.linear_response_limits[1] << ','
+              << frame.descriptor.linear_response_limits[2] << ','
+              << frame.descriptor.linear_response_limits[3] << '\n'
               << "raw_frame.as_shot_neutral=" << frame.descriptor.as_shot_neutral[0] << ','
               << frame.descriptor.as_shot_neutral[1] << ',' << frame.descriptor.as_shot_neutral[2]
               << ',' << frame.descriptor.as_shot_neutral[3] << '\n'
@@ -324,72 +785,77 @@ void inspect_raw_frame(image::DecodeSession& session, const fs::path& output_dir
               << "raw_frame.mean=" << static_cast<double>(total / sample_count) << '\n'
               << "raw_frame.fnv1a64=" << std::hex << std::setw(16) << std::setfill('0') << checksum
               << std::dec << std::setfill(' ') << '\n'
-              << "raw_frame.output=" << output_path.string() << '\n'
+              << "raw_frame.output=" << (write_samples ? output_path.string() : "not-written")
+              << '\n'
               << "timing.raw_frame_ms=" << timer.elapsed_ms() << '\n';
-}
-
-void inspect_neural_raw_frame(image::DecodeSession& session, const fs::path& output_directory) {
-    const Stopwatch timer;
-    image::RawFrame source = session.decode_raw_frame();
-    std::vector<std::uint16_t> original_samples = source.samples;
-    const auto prepared = image::detail::prepare_neural_raw_denoise_from_environment(source, false);
-    auto result = image::detail::execute_prepared_neural_raw_denoise(std::move(source), prepared);
-    if (!result.frame.valid() || !result.receipt.valid()) {
-        throw std::runtime_error("neural RAW-only probe produced an invalid result");
+    if (!write_samples && frame.is_bayer_2x2()) {
+        const RawFrameInspectionRegion region = inspection_region.value_or(
+            RawFrameInspectionRegion{
+                .x = 0U,
+                .y = 0U,
+                .width = frame.descriptor.storage_dimensions.width,
+                .height = frame.descriptor.storage_dimensions.height,
+            }
+        );
+        std::cout << "raw_frame.inspection_region=" << region.x << ',' << region.y << ','
+                  << region.width << 'x' << region.height << '\n';
+        for (std::size_t site = 0U; site < cfa_site_statistics.size(); ++site) {
+            const auto& statistics = cfa_site_statistics[site];
+            const double mean = static_cast<double>(
+                statistics.total / static_cast<long double>(statistics.sample_count)
+            );
+            const std::uint32_t code_max =
+                (std::uint32_t{1} << frame.descriptor.bits_per_sample) - std::uint32_t{1};
+            const std::uint32_t black = frame.descriptor.black_levels[site];
+            const double mean_normalized_linear_limit =
+                (mean - static_cast<double>(black))
+                / static_cast<double>(frame.descriptor.white_levels[site] - black);
+            const double mean_normalized_code_max =
+                (mean - static_cast<double>(black)) / static_cast<double>(code_max - black);
+            std::cout << "raw_frame.cfa_site." << site
+                      << ".color=" << static_cast<unsigned>(frame.descriptor.bayer_2x2[site])
+                      << '\n'
+                      << "raw_frame.cfa_site." << site
+                      << ".black=" << frame.descriptor.black_levels[site] << '\n'
+                      << "raw_frame.cfa_site." << site
+                      << ".white=" << frame.descriptor.white_levels[site] << '\n'
+                      << "raw_frame.cfa_site." << site << ".minimum=" << statistics.minimum << '\n'
+                      << "raw_frame.cfa_site." << site << ".maximum=" << statistics.maximum << '\n'
+                      << "raw_frame.cfa_site." << site << ".mean=" << mean << '\n'
+                      << "raw_frame.cfa_site." << site
+                      << ".mean_normalized_linear_limit_unbounded=" << mean_normalized_linear_limit
+                      << '\n'
+                      << "raw_frame.cfa_site." << site
+                      << ".mean_normalized_code_max=" << mean_normalized_code_max << '\n'
+                      << "raw_frame.cfa_site." << site
+                      << ".max_normalized=" << statistics.maximum_normalized << '\n'
+                      << "raw_frame.cfa_site." << site << ".below_black=" << statistics.below_black
+                      << '\n'
+                      << "raw_frame.cfa_site." << site
+                      << ".at_or_above_white=" << statistics.at_or_above_white << '\n';
+        }
+        const RawFrameNormalizationCandidates candidates =
+            calculate_normalization_candidates(frame, cfa_site_statistics);
+        std::cout << "raw_frame.candidate.note=CFA-site-mean diagnostic only; not a demosaic or "
+                     "rendering prediction\n"
+                  << "raw_frame.candidate.rendering_path=unchanged\n"
+                  << "raw_frame.candidate.linear_limit_clipped.camera_rgb="
+                  << candidates.linear_limit_clipped_camera_rgb[0] << ','
+                  << candidates.linear_limit_clipped_camera_rgb[1] << ','
+                  << candidates.linear_limit_clipped_camera_rgb[2] << '\n'
+                  << "raw_frame.candidate.linear_limit_clipped.linear_srgb="
+                  << candidates.linear_limit_clipped_srgb[0] << ','
+                  << candidates.linear_limit_clipped_srgb[1] << ','
+                  << candidates.linear_limit_clipped_srgb[2] << '\n'
+                  << "raw_frame.candidate.code_max_clipped.camera_rgb="
+                  << candidates.code_max_clipped_camera_rgb[0] << ','
+                  << candidates.code_max_clipped_camera_rgb[1] << ','
+                  << candidates.code_max_clipped_camera_rgb[2] << '\n'
+                  << "raw_frame.candidate.code_max_clipped.linear_srgb="
+                  << candidates.code_max_clipped_srgb[0] << ','
+                  << candidates.code_max_clipped_srgb[1] << ','
+                  << candidates.code_max_clipped_srgb[2] << '\n';
     }
-
-    std::uint64_t changed_samples = 0U;
-    long double absolute_difference = 0.0L;
-    std::uint64_t checksum = 1'469'598'103'934'665'603ULL;
-    if (original_samples.size() != result.frame.samples.size()) {
-        throw std::runtime_error("neural RAW-only probe changed the sensor plane dimensions");
-    }
-    for (std::size_t index = 0U; index < result.frame.samples.size(); ++index) {
-        const std::uint16_t denoised = result.frame.samples[index];
-        const std::uint16_t original = original_samples[index];
-        changed_samples += denoised != original ? 1U : 0U;
-        absolute_difference +=
-            std::abs(static_cast<double>(denoised) - static_cast<double>(original));
-        checksum ^= denoised;
-        checksum *= 1'099'511'628'211ULL;
-    }
-    const fs::path output_path = output_directory / "neural-raw-frame.pgm";
-    write_u16_pnm(
-        output_path,
-        result.frame.descriptor.storage_dimensions,
-        1U,
-        result.frame.samples
-    );
-    const double mean_absolute_difference =
-        result.frame.samples.empty()
-            ? 0.0
-            : static_cast<double>(
-                  absolute_difference / static_cast<long double>(result.frame.samples.size())
-              );
-
-    std::cout << "neural_raw_frame.status="
-              << image::detail::neural_raw_denoise_status_identity(result.receipt.status) << '\n'
-              << "neural_raw_frame.backend="
-              << image::detail::neural_raw_denoise_backend_identity(result.receipt.backend) << '\n'
-              << "neural_raw_frame.model_identity="
-              << (result.receipt.model_content_identity.empty()
-                      ? "none"
-                      : result.receipt.model_content_identity)
-              << '\n'
-              << "neural_raw_frame.execution_identity="
-              << (result.receipt.backend_execution_identity.empty()
-                      ? "none"
-                      : result.receipt.backend_execution_identity)
-              << '\n'
-              << "neural_raw_frame.cache_identity=" << result.receipt.cache_identity << '\n'
-              << "neural_raw_frame.diagnostic="
-              << (result.receipt.diagnostic.empty() ? "none" : result.receipt.diagnostic) << '\n'
-              << "neural_raw_frame.changed_samples=" << changed_samples << '\n'
-              << "neural_raw_frame.mean_absolute_difference_dn=" << mean_absolute_difference << '\n'
-              << "neural_raw_frame.fnv1a64=" << std::hex << std::setw(16) << std::setfill('0')
-              << checksum << std::dec << std::setfill(' ') << '\n'
-              << "neural_raw_frame.output=" << output_path.string() << '\n'
-              << "timing.neural_raw_frame_ms=" << timer.elapsed_ms() << '\n';
 }
 
 void render_reference_rgb(
@@ -629,24 +1095,93 @@ void render_warm_highlight_diagnostic(
 ) {
     constexpr std::uint32_t warm_preview_edge = 1'536U;
     const std::array<image::AdjustmentNode, 0U> neutral_nodes{};
+    const std::array recovery_nodes{
+        image::AdjustmentNode{
+            .node_id = "highlight-diagnostic-recovery",
+            .parameter_schema_version = image::selective_tone_parameter_schema_version,
+            .implementation_version = image::selective_tone_implementation_version,
+            .parameters = image::SelectiveToneAdjustment{
+                .highlights = -1.0,
+                .whites = -1.0,
+            },
+        },
+    };
     auto enabled_plan = image::preview_raw_development_plan();
     auto disabled_plan = enabled_plan;
     disabled_plan.highlight_recovery = image::RawHighlightRecoveryIntent::disabled;
+    auto aggressive_plan = enabled_plan;
+    aggressive_plan.highlight_recovery = image::RawHighlightRecoveryIntent::aggressive;
     const image::WarmEditPreviewSession enabled =
         image::prepare_warm_edit_preview(session, warm_preview_edge, enabled_plan);
     const image::WarmEditPreviewSession disabled =
         image::prepare_warm_edit_preview(session, warm_preview_edge, disabled_plan);
+    const image::WarmEditPreviewSession aggressive =
+        image::prepare_warm_edit_preview(session, warm_preview_edge, aggressive_plan);
     const image::AnalyzedEditPreview enabled_preview =
         enabled.render_jpeg_with_analysis(neutral_nodes);
     const image::AnalyzedEditPreview disabled_preview =
         disabled.render_jpeg_with_analysis(neutral_nodes);
+    const image::AnalyzedEditPreview default_recovered =
+        enabled.render_jpeg_with_analysis(recovery_nodes);
+    const image::AnalyzedEditPreview disabled_recovered =
+        disabled.render_jpeg_with_analysis(recovery_nodes);
+    const image::AnalyzedEditPreview aggressive_recovered =
+        aggressive.render_jpeg_with_analysis(recovery_nodes);
     write_binary(output_directory / "warm-highlight-default.jpg", enabled_preview.proxy.bytes);
     write_binary(output_directory / "warm-highlight-disabled.jpg", disabled_preview.proxy.bytes);
+    write_binary(
+        output_directory / "warm-highlight-default-recovered.jpg",
+        default_recovered.proxy.bytes
+    );
+    write_binary(
+        output_directory / "warm-highlight-disabled-recovered.jpg",
+        disabled_recovered.proxy.bytes
+    );
+    write_binary(
+        output_directory / "warm-highlight-aggressive-recovered.jpg",
+        aggressive_recovered.proxy.bytes
+    );
+    fs::path shared_coverage_path;
+    if (const auto& clipping = enabled.sensor_clipping_mask(); clipping.has_value()) {
+        std::vector<std::uint8_t> coverage(clipping->samples.size());
+        for (std::size_t pixel = 0U; pixel < coverage.size(); ++pixel) {
+            coverage[pixel] = static_cast<std::uint8_t>(
+                std::lround(clipping->shared_highlight_coverage_at(pixel) * 255.0F)
+            );
+        }
+        shared_coverage_path = output_directory / "warm-highlight-shared-coverage.pgm";
+        write_u8_pgm(shared_coverage_path, clipping->dimensions, coverage);
+    }
+    fs::path grade_risk_path;
+    std::uint64_t grade_risk_nonzero_pixels = 0U;
+    std::uint8_t grade_risk_maximum = 0U;
+    if (const auto& risk = enabled.highlight_chroma_risk_map(); risk.has_value()) {
+        grade_risk_path = output_directory / "warm-highlight-grade-risk.pgm";
+        write_u8_pgm(grade_risk_path, risk->dimensions, risk->samples);
+        for (const auto sample : risk->samples) {
+            grade_risk_nonzero_pixels += sample != 0U ? 1U : 0U;
+            grade_risk_maximum = std::max(grade_risk_maximum, sample);
+        }
+    }
     std::cout << "highlight_diagnostic.status=ok\n"
               << "highlight_diagnostic.default_output="
               << (output_directory / "warm-highlight-default.jpg").string() << '\n'
               << "highlight_diagnostic.disabled_output="
-              << (output_directory / "warm-highlight-disabled.jpg").string() << '\n';
+              << (output_directory / "warm-highlight-disabled.jpg").string() << '\n'
+              << "highlight_diagnostic.default_recovered_output="
+              << (output_directory / "warm-highlight-default-recovered.jpg").string() << '\n'
+              << "highlight_diagnostic.disabled_recovered_output="
+              << (output_directory / "warm-highlight-disabled-recovered.jpg").string() << '\n'
+              << "highlight_diagnostic.aggressive_recovered_output="
+              << (output_directory / "warm-highlight-aggressive-recovered.jpg").string() << '\n'
+              << "highlight_diagnostic.shared_coverage_output=" << shared_coverage_path.string()
+              << '\n'
+              << "highlight_diagnostic.grade_risk_output=" << grade_risk_path.string() << '\n'
+              << "highlight_diagnostic.grade_risk_nonzero_pixels="
+              << grade_risk_nonzero_pixels << '\n'
+              << "highlight_diagnostic.grade_risk_maximum="
+              << static_cast<unsigned int>(grade_risk_maximum)
+              << '\n';
 }
 
 int run(
@@ -655,8 +1190,11 @@ int run(
     const bool preview_only,
     const bool denoise_diagnostic,
     const bool highlight_diagnostic,
+    const bool highlight_cfa_diagnostic,
+    const bool highlight_threshold_ablation,
     const bool raw_frame_only,
-    const bool neural_raw_only,
+    const bool raw_frame_statistics_only,
+    const std::optional<RawFrameInspectionRegion> raw_frame_inspection_region,
     const std::optional<image::RawWhiteBalance> white_balance
 ) {
     fs::create_directories(output_directory);
@@ -672,22 +1210,26 @@ int run(
               << "output_directory=" << output_directory.string() << '\n'
               << "timing.open_ms=" << open_timer.elapsed_ms() << '\n';
     print_session(provider->info(), *session);
-    if (neural_raw_only) {
-        if (!session->capabilities().raw_frame) {
-            std::cout << "neural_raw_frame.status=unavailable\n"
-                      << "neural_raw_frame.reason=provider-does-not-expose-raw-frame\n";
-            return 0;
-        }
-        inspect_neural_raw_frame(*session, output_directory);
+    if (highlight_cfa_diagnostic) {
+        render_highlight_cfa_diagnostic(*session, output_directory);
         return 0;
     }
-    if (raw_frame_only) {
+    if (highlight_threshold_ablation) {
+        render_highlight_threshold_ablation(*session, output_directory);
+        return 0;
+    }
+    if (raw_frame_only || raw_frame_statistics_only) {
         if (!session->capabilities().raw_frame) {
             std::cout << "raw_frame.status=unavailable\n"
                       << "raw_frame.reason=provider-does-not-expose-raw-frame\n";
             return 0;
         }
-        inspect_raw_frame(*session, output_directory);
+        inspect_raw_frame(
+            *session,
+            output_directory,
+            raw_frame_only,
+            raw_frame_statistics_only ? raw_frame_inspection_region : std::nullopt
+        );
         return 0;
     }
     extract_best_preview(*session, output_directory);
@@ -724,7 +1266,7 @@ int run(
         render_reference_rgb(*session, output_directory, white_balance);
         return 0;
     }
-    inspect_raw_frame(*session, output_directory);
+    inspect_raw_frame(*session, output_directory, true, std::nullopt);
     render_reference_rgb(*session, output_directory, white_balance);
     return 0;
 }
@@ -738,22 +1280,41 @@ int main(const int argument_count, char** arguments) {
         argument_count == 4 && std::string_view(arguments[3]) == "--denoise-diagnostic";
     const bool highlight_diagnostic =
         argument_count == 4 && std::string_view(arguments[3]) == "--highlight-diagnostic";
+    const bool highlight_cfa_diagnostic =
+        argument_count == 4 && std::string_view(arguments[3]) == "--highlight-cfa-diagnostic";
+    const bool highlight_threshold_ablation =
+        argument_count == 4 && std::string_view(arguments[3]) == "--highlight-threshold-ablation";
     const bool raw_frame_only =
         argument_count == 4 && std::string_view(arguments[3]) == "--raw-frame-only";
-    const bool neural_raw_only =
-        argument_count == 4 && std::string_view(arguments[3]) == "--neural-raw-only";
+    const bool raw_frame_statistics_only =
+        argument_count == 4 && std::string_view(arguments[3]) == "--raw-frame-stats";
+    const bool raw_frame_statistics_region =
+        argument_count == 8 && std::string_view(arguments[3]) == "--raw-frame-stats-region";
     const bool manual_white_balance =
         argument_count == 6 && std::string_view(arguments[3]) == "--manual-white-balance";
     if (argument_count != 3 && !preview_only && !denoise_diagnostic && !highlight_diagnostic
-        && !raw_frame_only && !neural_raw_only && !manual_white_balance) {
+        && !highlight_cfa_diagnostic && !raw_frame_only && !raw_frame_statistics_only
+        && !highlight_threshold_ablation && !raw_frame_statistics_region && !manual_white_balance) {
         std::cerr << "usage: shadow-raw-probe <input-raw> <output-directory> "
                      "[--preview-only|--denoise-diagnostic|--highlight-diagnostic|"
-                     "--raw-frame-only|"
-                     "--neural-raw-only|--manual-white-balance <kelvin> <tint>]\n";
+                     "--highlight-cfa-diagnostic|"
+                     "--highlight-threshold-ablation|"
+                     "--raw-frame-only|--raw-frame-stats|"
+                     "--raw-frame-stats-region <x> <y> <width> <height>|"
+                     "--manual-white-balance <kelvin> <tint>]\n";
         return 2;
     }
 
     try {
+        std::optional<RawFrameInspectionRegion> raw_frame_inspection_region;
+        if (raw_frame_statistics_region) {
+            raw_frame_inspection_region = RawFrameInspectionRegion{
+                .x = parse_inspection_coordinate(arguments[4], "inspection x"),
+                .y = parse_inspection_coordinate(arguments[5], "inspection y"),
+                .width = parse_inspection_coordinate(arguments[6], "inspection width"),
+                .height = parse_inspection_coordinate(arguments[7], "inspection height"),
+            };
+        }
         std::optional<image::RawWhiteBalance> white_balance;
         if (manual_white_balance) {
             const auto temperature = std::stoul(arguments[4]);
@@ -778,8 +1339,11 @@ int main(const int argument_count, char** arguments) {
             preview_only,
             denoise_diagnostic,
             highlight_diagnostic,
+            highlight_cfa_diagnostic,
+            highlight_threshold_ablation,
             raw_frame_only,
-            neural_raw_only,
+            raw_frame_statistics_only || raw_frame_statistics_region,
+            raw_frame_inspection_region,
             white_balance
         );
     } catch (const image::DecodeError& error) {

@@ -2,14 +2,17 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QThread>
 
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 
 namespace {
 
@@ -47,6 +50,8 @@ struct FakeService final {
     BackendLibraryServerConfig last_config;
     int starts = 0;
     int stops = 0;
+    int snapshot_reads = 0;
+    bool fail_stop_after_transition = false;
 };
 
 [[nodiscard]] bool require(const bool condition, const char* const message) {
@@ -68,6 +73,19 @@ void waitForIdle(LibraryServerController& controller) {
     }
 }
 
+template <typename Predicate> [[nodiscard]] bool waitFor(Predicate predicate) {
+    QElapsedTimer elapsed;
+    elapsed.start();
+    while (!predicate()) {
+        QCoreApplication::processEvents();
+        if (elapsed.elapsed() > 2'000) {
+            return false;
+        }
+        QThread::msleep(2);
+    }
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -85,7 +103,19 @@ int main(int argc, char* argv[]) {
     auto secret_value = std::make_shared<QString>();
     service->snapshot.provider_mode = QStringLiteral("private");
     LibraryServerControllerOperations operations{
-        .snapshot = [service] { return service->snapshot; },
+        .snapshot =
+            [service] {
+                ++service->snapshot_reads;
+                if (service->snapshot.running
+                    && service->snapshot.index_state == QStringLiteral("scanning")) {
+                    service->snapshot.index_state = QStringLiteral("ready");
+                    service->snapshot.photo_count = 31;
+                    service->snapshot.discovered_file_count = 34;
+                    service->snapshot.inspection_completed_count = 31;
+                    service->snapshot.published_preview_count = 29;
+                }
+                return service->snapshot;
+            },
         .start =
             [service](const BackendLibraryServerConfig& config) {
                 service->last_config = config;
@@ -99,6 +129,10 @@ int main(int argc, char* argv[]) {
                     .cache_byte_len = 1'024,
                     .shared_root_count = static_cast<std::uint64_t>(config.share_roots.size()),
                     .serves_originals = config.serves_originals,
+                    .index_state = QStringLiteral("scanning"),
+                    .discovered_file_count = 12,
+                    .inspection_completed_count = 7,
+                    .published_preview_count = 6,
                 };
                 return service->snapshot;
             },
@@ -107,6 +141,9 @@ int main(int argc, char* argv[]) {
                 ++service->stops;
                 service->snapshot.running = false;
                 service->snapshot.local_address.clear();
+                if (service->fail_stop_after_transition) {
+                    throw std::runtime_error("synthetic listener shutdown failure");
+                }
                 return service->snapshot;
             },
         .reset_cache =
@@ -149,7 +186,7 @@ int main(int argc, char* argv[]) {
             )
             || !require(
                 service->last_config.share_roots == QStringList{canonical_photo_root},
-                "the exact Unicode root reaches the backend"
+                "the exact configured root reaches the backend"
             )
             || !require(
                 !service->last_config.serves_originals,
@@ -158,14 +195,84 @@ int main(int argc, char* argv[]) {
             || !require(
                 service->last_config.authorization.size() >= 32,
                 "start creates a bounded local token without exposing it as a property"
+            )
+            || !require(controller.indexing(), "start projects background indexing state")
+            || !require(
+                controller.statusCode() == QStringLiteral("indexing"),
+                "start explains that the published generation remains available"
+            )
+            || !require(
+                controller.discoveredFileCount() == 12 && controller.inspectionCompletedCount() == 7
+                    && controller.publishedPreviewCount() == 6,
+                "background progress counters are projected independently"
             )) {
             return EXIT_FAILURE;
         }
 
+        if (!require(
+                waitFor([&controller] { return !controller.indexing(); }),
+                "controller polls until background indexing reaches a terminal state"
+            )
+            || !require(service->snapshot_reads >= 1, "indexing performs a bounded status refresh")
+            || !require(controller.photoCount() == 31, "completed generation updates the photo count")
+            || !require(
+                controller.statusCode() == QStringLiteral("running"),
+                "completed indexing returns to the ordinary running state"
+            )) {
+            return EXIT_FAILURE;
+        }
+
+        service->snapshot.index_state = QStringLiteral("failed");
+        service->snapshot.index_diagnostic = QStringLiteral("synthetic scan failure");
+        controller.refresh();
+        waitForIdle(controller);
+        if (!require(controller.running(), "a failed reindex does not stop sharing")
+            || !require(
+                controller.statusCode() == QStringLiteral("indexing-failed"),
+                "failed reindex has a distinct non-terminal status"
+            )
+            || !require(
+                controller.indexDiagnosticText() == QStringLiteral("synthetic scan failure"),
+                "failed reindex projects its bounded diagnostic"
+            )) {
+            return EXIT_FAILURE;
+        }
+
+        service->fail_stop_after_transition = true;
         controller.stopServer();
         waitForIdle(controller);
-        if (!require(!controller.running(), "stop publishes the terminal snapshot")
-            || !require(service->stops == 1, "stop is admitted exactly once")) {
+        if (!require(!controller.running(), "failed stop refreshes the terminal backend snapshot")
+            || !require(service->stops == 1, "stop is admitted exactly once")
+            || !require(
+                controller.statusCode() == QStringLiteral("operation-failed"),
+                "failed stop preserves its operation diagnostic"
+            )
+            || !require(
+                controller.diagnosticText().contains(QStringLiteral("synthetic listener")),
+                "failed stop explains the teardown failure"
+            )) {
+            return EXIT_FAILURE;
+        }
+
+        service->fail_stop_after_transition = false;
+        controller.startServer();
+        waitForIdle(controller);
+        controller.stopServer();
+        waitForIdle(controller);
+        if (!require(!controller.running(), "a recovered controller can start and stop again")
+            || !require(service->stops == 2, "the second stop is admitted exactly once")
+            || !require(controller.removeSharedFolder(0), "a stopped server permits root removal")) {
+            return EXIT_FAILURE;
+        }
+        QSettings removed(settings_path, QSettings::IniFormat);
+        if (!require(
+                removed.value(QStringLiteral("library-server/shared_folders")).toStringList().isEmpty(),
+                "folder removal is durable"
+            )
+            || !require(
+                controller.addSharedFolder(QUrl::fromLocalFile(photo_root)),
+                "the Unicode root can be restored before restart"
+            )) {
             return EXIT_FAILURE;
         }
     }
@@ -178,7 +285,7 @@ int main(int argc, char* argv[]) {
         );
         waitForIdle(restored);
         if (!require(restored.running(), "auto-start restores the listener after restart")
-            || !require(service->starts == 2, "restart starts exactly one restored listener")
+            || !require(service->starts == 3, "restart starts exactly one restored listener")
             || !require(
                 service->last_config.share_roots == QStringList{canonical_photo_root},
                 "restart retains the persisted Unicode shared root"
@@ -190,7 +297,7 @@ int main(int argc, char* argv[]) {
             return EXIT_FAILURE;
         }
     }
-    if (!require(service->stops == 2, "controller teardown stops a restored listener")) {
+    if (!require(service->stops == 3, "controller teardown stops a restored listener")) {
         return EXIT_FAILURE;
     }
 
@@ -213,8 +320,8 @@ int main(int argc, char* argv[]) {
         // The controller must query and stop the actual service after the
         // worker completes instead of trusting its stale UI snapshot.
     }
-    if (!require(service->starts == 3, "teardown waits for an in-flight start")
-        || !require(service->stops == 3, "teardown stops an in-flight start")) {
+    if (!require(service->starts == 4, "teardown waits for an in-flight start")
+        || !require(service->stops == 4, "teardown stops an in-flight start")) {
         return EXIT_FAILURE;
     }
 

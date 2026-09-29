@@ -37,6 +37,8 @@ Item {
         layer.enabled: visible
         layer.smooth: true
         layer.effect: MultiEffect {
+            // Monochrome SVG assets use white RGB and preserve coverage in
+            // alpha, so the requested theme color reaches every stroke.
             colorization: 1.0
             colorizationColor: root.color
         }

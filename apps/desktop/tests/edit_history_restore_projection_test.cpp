@@ -20,6 +20,15 @@ void require(const bool condition, const std::string& message) {
     };
 }
 
+[[nodiscard]] BackendMaskComponent mask_component() {
+    return {
+        .component_id = QStringLiteral("11111111-1111-4111-8111-111111111111"),
+        .operation = 0,
+        .enabled = true,
+        .kind = 3,
+    };
+}
+
 void inserted_node_undo_restores_its_predecessor() {
     BackendGradeStack restored{
         .grade_nodes = {
@@ -51,10 +60,16 @@ void list_projection_detects_mask_type_changes() {
         .grade_nodes = {grade_node(QStringLiteral("node"))},
     };
     BackendGradeStack after = before;
-    after.grade_nodes[0].local_mask_kind = 3;
+    after.grade_nodes[0].local_mask_components = {mask_component()};
     require(
         EditHistoryRestoreProjection::gradeNodeListChanged(before, after),
         "adding or removing a mask must refresh the node-row icon"
+    );
+    before = after;
+    after.grade_nodes[0].local_mask_components[0].kind = 2;
+    require(
+        EditHistoryRestoreProjection::gradeNodeListChanged(before, after),
+        "changing the sole component kind must refresh the node-row icon"
     );
     after = before;
     after.grade_nodes[0].basic.exposure_stops = 1.0;
@@ -67,67 +82,68 @@ void list_projection_detects_mask_type_changes() {
 void parameter_projection_detects_every_mask_field() {
     const BackendGradeNode before = grade_node(QStringLiteral("node"));
     BackendGradeNode after = before;
-    after.local_mask_kind = 3;
+    after.local_mask_components = {mask_component()};
     require(
         EditHistoryRestoreProjection::localMaskChanged(before, after),
         "mask kind changes must refresh selected-mask parameters"
     );
-    after = before;
-    after.local_mask_x0 = 0.1;
+    const BackendGradeNode masked = after;
+    after = masked;
+    after.local_mask_components[0].x0 = 0.1;
     require(
-        EditHistoryRestoreProjection::localMaskChanged(before, after),
+        EditHistoryRestoreProjection::localMaskChanged(masked, after),
         "mask x0 must refresh selected-mask parameters"
     );
-    after = before;
-    after.local_mask_y0 = 0.1;
+    after = masked;
+    after.local_mask_components[0].y0 = 0.1;
     require(
-        EditHistoryRestoreProjection::localMaskChanged(before, after),
+        EditHistoryRestoreProjection::localMaskChanged(masked, after),
         "mask y0 must refresh selected-mask parameters"
     );
-    after = before;
-    after.local_mask_x1 = 0.8;
+    after = masked;
+    after.local_mask_components[0].x1 = 0.8;
     require(
-        EditHistoryRestoreProjection::localMaskChanged(before, after),
+        EditHistoryRestoreProjection::localMaskChanged(masked, after),
         "mask x1 must refresh selected-mask parameters"
     );
-    after = before;
-    after.local_mask_y1 = 0.8;
+    after = masked;
+    after.local_mask_components[0].y1 = 0.8;
     require(
-        EditHistoryRestoreProjection::localMaskChanged(before, after),
+        EditHistoryRestoreProjection::localMaskChanged(masked, after),
         "mask y1 must refresh selected-mask parameters"
     );
-    after = before;
-    after.local_mask_radius_x = 0.2;
+    after = masked;
+    after.local_mask_components[0].radius_x = 0.2;
     require(
-        EditHistoryRestoreProjection::localMaskChanged(before, after),
+        EditHistoryRestoreProjection::localMaskChanged(masked, after),
         "mask radius x must refresh selected-mask parameters"
     );
-    after = before;
-    after.local_mask_radius_y = 0.2;
+    after = masked;
+    after.local_mask_components[0].radius_y = 0.2;
     require(
-        EditHistoryRestoreProjection::localMaskChanged(before, after),
+        EditHistoryRestoreProjection::localMaskChanged(masked, after),
         "mask radius y must refresh selected-mask parameters"
     );
-    after = before;
-    after.local_mask_feather = 0.4;
+    after = masked;
+    after.local_mask_components[0].feather = 0.4;
     require(
-        EditHistoryRestoreProjection::localMaskChanged(before, after),
+        EditHistoryRestoreProjection::localMaskChanged(masked, after),
         "mask feather must refresh selected-mask parameters"
     );
-    after = before;
+    after = masked;
     after.local_mask_invert = true;
     require(
-        EditHistoryRestoreProjection::localMaskChanged(before, after),
+        EditHistoryRestoreProjection::localMaskChanged(masked, after),
         "mask inversion must refresh selected-mask parameters"
     );
-    after = before;
-    after.local_mask_brush_points = {0.2, 0.3, 1.0};
+    after = masked;
+    after.local_mask_components[0].brush_points = {0.2, 0.3, 1.0};
     require(
-        EditHistoryRestoreProjection::localMaskChanged(before, after),
+        EditHistoryRestoreProjection::localMaskChanged(masked, after),
         "brush coverage must refresh selected-mask parameters"
     );
     require(
-        !EditHistoryRestoreProjection::localMaskChanged(before, before),
+        !EditHistoryRestoreProjection::localMaskChanged(masked, masked),
         "an identical mask must not emit a redundant parameter refresh"
     );
 }

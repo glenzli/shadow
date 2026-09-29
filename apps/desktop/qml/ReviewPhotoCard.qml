@@ -42,12 +42,20 @@ Item {
     readonly property int visualWidth: Number(entry.visualWidth || 0)
     readonly property int visualHeight: Number(entry.visualHeight || 0)
     readonly property string visualSource: String(entry.visualSource || "")
+    readonly property bool visualAutoTransform: Boolean(entry.visualAutoTransform)
+    readonly property string localBackingPhotoId:
+        String(entry.localBackingPhotoId || "")
+    readonly property string localBackingRepresentationId:
+        String(entry.localBackingRepresentationId || "")
     readonly property bool visualLoadFailed: thumbnail.status === Image.Error
     readonly property bool remotePreviewUnavailable: isRemote
         && (visualSource.length === 0 || visualLoadFailed)
-    readonly property bool remoteServerOffline: remotePreviewUnavailable
+    readonly property bool remoteServerOffline: isRemote
+        && remoteConnectionId.length > 0
         && workspace.remoteLibraryConnectionOffline(remoteConnectionId)
     readonly property bool hasMetadata: Boolean(entry.hasMetadata)
+    readonly property int metadataSchemaVersion:
+        Number(entry.metadataSchemaVersion || 0)
     readonly property string cameraMake: String(entry.cameraMake || "")
     readonly property string cameraModel: String(entry.cameraModel || "")
     readonly property string lensMake: String(entry.lensMake || "")
@@ -60,6 +68,15 @@ Item {
     readonly property real focalLength35mm: Number(entry.focalLength35mm || 0)
     readonly property int rawWidth: Number(entry.rawWidth || 0)
     readonly property int rawHeight: Number(entry.rawHeight || 0)
+    readonly property int imageWidth: Number(entry.imageWidth || 0)
+    readonly property int imageHeight: Number(entry.imageHeight || 0)
+    readonly property bool hasOrientation: Boolean(entry.hasOrientation)
+    readonly property int orientation: Number(entry.orientation || 0)
+    readonly property bool hasCoordinates: Boolean(entry.hasCoordinates)
+    readonly property real latitude: Number(entry.latitude || 0)
+    readonly property real longitude: Number(entry.longitude || 0)
+    readonly property bool hasAltitude: Boolean(entry.hasAltitude)
+    readonly property real altitudeMeters: Number(entry.altitudeMeters || 0)
     readonly property int sensorBits: Number(entry.sensorBits || 0)
     readonly property string cfaPattern: String(entry.cfaPattern || "")
     readonly property string dngVersion: String(entry.dngVersion || "")
@@ -142,6 +159,7 @@ Item {
             anchors.bottom: caption.top
             anchors.bottomMargin: -card.surfaceRadius
             source: card.visualSource
+            autoTransform: card.visualAutoTransform
             radius: card.surfaceRadius
             // The card is an edge-to-edge browsing surface. Its geometry still
             // follows visualWidth/visualHeight, while crop avoids letterboxed
@@ -216,6 +234,7 @@ Item {
                 ReviewRemoteSourceIndicator {
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: card.remoteServerOffline
+                    cached: card.remoteOriginalCached
                     offline: true
                     iconSize: 28
                 }
@@ -224,7 +243,7 @@ Item {
                     visible: !card.remoteServerOffline
                     text: "RAW"
                     color: Theme.rawPlaceholderText
-                    font.pixelSize: 20
+                    font.pixelSize: Theme.fontHero
                     font.weight: Font.DemiBold
                     font.letterSpacing: 2
                 }
@@ -239,7 +258,7 @@ Item {
                         : card.visualError.length > 0
                             ? qsTr("PREVIEW PENDING") : qsTr("NO VISUAL")
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
                 }
@@ -309,14 +328,14 @@ Item {
                     text: card.title
                     color: Theme.textPrimary
                     elide: Text.ElideRight
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSection
                 }
                 Label {
                     text: card.visualWidth > 0
                         ? qsTr("%L1 × %L2").arg(card.visualWidth)
                             .arg(card.visualHeight) : "—"
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontCaption
                 }
             }
 
@@ -335,7 +354,6 @@ Item {
                         objectName: "cardCaptionRemoteSourceIndicator"
                         visible: card.isRemote
                         cached: card.remoteOriginalCached
-                            && !card.remotePreviewUnavailable
                         offline: card.remoteServerOffline
                         iconSize: 13
                     }
@@ -346,7 +364,7 @@ Item {
                             && card.hasRasterRepresentation
                         text: "RAW+JPEG"
                         color: Theme.textMuted
-                        font.pixelSize: 8
+                        font.pixelSize: Theme.fontMicro
                         font.weight: Font.DemiBold
                         Accessible.name: qsTr("RAW and JPEG representations")
                     }
@@ -364,7 +382,7 @@ Item {
                         Label {
                             text: card.sourceLocationCount
                             color: Theme.textSecondary
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontCaption
                             font.weight: Font.DemiBold
                         }
 
@@ -427,6 +445,7 @@ Item {
             cursorShape: Qt.PointingHandCursor
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onClicked: mouse => {
+                card.workspace.focusGallery()
                 const preserveSelection = mouse.button === Qt.RightButton
                     && card.selected
                 if (!preserveSelection)

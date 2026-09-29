@@ -80,12 +80,12 @@ Item {
                       ? qsTr("SAVE EXPORT PRESET")
                       : qsTr("EDIT EXPORT PRESET")
                 color: Theme.textPrimary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.8
             }
 
-            TextField {
+            ShadowTextField {
                 id: presetNameField
                 Layout.fillWidth: true
                 placeholderText: qsTr("Preset name")
@@ -156,7 +156,7 @@ Item {
             Label {
                 text: qsTr("REMOVE PRESET")
                 color: Theme.textPrimary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSection
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.8
             }
@@ -167,7 +167,7 @@ Item {
                           String(menus.pendingRemoval
                                  ? menus.pendingRemoval.name : ""))
                 color: Theme.textPrimary
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 font.weight: Font.Medium
                 wrapMode: Text.WordWrap
             }
@@ -176,7 +176,7 @@ Item {
                 Layout.fillWidth: true
                 text: qsTr("Only this local preset will be removed. Exported files and other presets are unchanged.")
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 wrapMode: Text.WordWrap
             }
 

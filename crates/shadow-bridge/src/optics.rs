@@ -168,7 +168,7 @@ pub fn query_raw_white_balance_presentation_from_metadata(
         })
 }
 
-fn ffi_metadata_snapshot(metadata: &RawMetadataSnapshot) -> ffi::FfiMetadataSnapshot {
+pub(crate) fn ffi_metadata_snapshot(metadata: &RawMetadataSnapshot) -> ffi::FfiMetadataSnapshot {
     ffi::FfiMetadataSnapshot {
         make: metadata.make.clone(),
         model: metadata.model.clone(),

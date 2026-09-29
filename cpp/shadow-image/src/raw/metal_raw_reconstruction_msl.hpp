@@ -177,6 +177,7 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
     const uint raw_y
 ) {
     CameraRgbSample result = camera_rgb_at(samples, parameters, raw_x, raw_y);
+    const CameraRgbSample bilinear = result;
     const DirectionalGreenEstimate green =
         directional_green_estimate(samples, parameters, raw_x, raw_y);
     if (!green.valid) {
@@ -201,6 +202,97 @@ inline CameraRgbSample edge_aware_camera_rgb_at(
         green.value,
         result.values.z
     );
+
+    // Keep the 7x7 evidence walk off ordinary pixels in the hot edge-aware path. Aggressive mode
+    // opens at its zero-support boundary; the default opens only for the final response shoulder.
+    const float reconstructed_peak = max(result.values.x, max(result.values.y, result.values.z));
+    const float bilinear_evidence_peak = max(
+        result.highlight_channel_evidence.x,
+        max(result.highlight_channel_evidence.y, result.highlight_channel_evidence.z)
+    );
+    const float bilinear_white_peak = max(
+        result.physical_white_coverage.x,
+        max(result.physical_white_coverage.y, result.physical_white_coverage.z)
+    );
+    const float extended_scan_threshold =
+        parameters.feather_highlight_chroma_neutralization != 0u ? 0.45f : 0.90f;
+    if (bilinear_evidence_peak <= 0.0f && bilinear_white_peak <= 0.0f
+        && reconstructed_peak < extended_scan_threshold) {
+        return result;
+    }
+
+    uint channel_observed[3] = {0u, 0u, 0u};
+    uint channel_at_white[3] = {0u, 0u, 0u};
+    float channel_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
+    uint observed = 0u;
+    uint at_white = 0u;
+    for (int dy = -3; dy <= 3; ++dy) {
+        for (int dx = -3; dx <= 3; ++dx) {
+            const int candidate_x = int(raw_x) + dx;
+            const int candidate_y = int(raw_y) + dy;
+            if (candidate_x < 0 || candidate_y < 0
+                || candidate_x >= int(parameters.storage_width)
+                || candidate_y >= int(parameters.storage_height)) {
+                continue;
+            }
+            const uint x = uint(candidate_x);
+            const uint y = uint(candidate_y);
+            const uint channel = parameters.cfa_channels[cfa_site(x, y)];
+            if (channel > 2u) {
+                continue;
+            }
+            observed += 1u;
+            channel_observed[channel] += 1u;
+            const float channel_evidence =
+                highlight_sensor_evidence(samples, parameters, x, y);
+            channel_evidence_totals[channel] += channel_evidence;
+            const bool is_at_white = physical_sensor_white(samples, parameters, x, y);
+            at_white += is_at_white ? 1u : 0u;
+            channel_at_white[channel] += is_at_white ? 1u : 0u;
+        }
+    }
+    result.physical_white_coverage = float3(
+        channel_observed[0] == 0u ? 0.0f : float(channel_at_white[0]) / float(channel_observed[0]),
+        channel_observed[1] == 0u ? 0.0f : float(channel_at_white[1]) / float(channel_observed[1]),
+        channel_observed[2] == 0u ? 0.0f : float(channel_at_white[2]) / float(channel_observed[2])
+    );
+    result.highlight_channel_evidence = float3(
+        channel_observed[0] == 0u ? 0.0f : channel_evidence_totals[0] / float(channel_observed[0]),
+        channel_observed[1] == 0u ? 0.0f : channel_evidence_totals[1] / float(channel_observed[1]),
+        channel_observed[2] == 0u ? 0.0f : channel_evidence_totals[2] / float(channel_observed[2])
+    );
+    // A physically clipped sample invalidates the directional colour-difference gradient around
+    // it. Reuse the already-computed bilinear estimate on only the bright side of that frontier;
+    // this prevents Bayer phase from becoming horizontal teeth without another read or pass.
+    const float clipped_channel_support = max(
+        result.physical_white_coverage.x,
+        max(result.physical_white_coverage.y, result.physical_white_coverage.z)
+    );
+    const float topology_support = smoothstep(0.0f, 0.08f, clipped_channel_support);
+    const float bilinear_peak = max(bilinear.values.x, max(bilinear.values.y, bilinear.values.z));
+    const float bright_support = smoothstep(0.35f, 0.75f, bilinear_peak);
+    result.values = mix(result.values, bilinear.values, topology_support * bright_support);
+    const float exact_physical_white_coverage = observed == 0u
+        ? 0.0f : float(at_white) / float(observed);
+    const float physical_white_coverage = parameters.feather_highlight_chroma_neutralization != 0u
+        ? feathered_highlight_sensor_evidence(samples, parameters, raw_x, raw_y, 3u)
+        : exact_physical_white_coverage;
+    result.highlight_chroma_neutralization = 0.0f;
+    if (parameters.feather_highlight_chroma_neutralization != 0u) {
+        result.highlight_chroma_neutralization = max(
+            max(
+                highlight_chroma_neutralization(
+                    result.values,
+                    result.highlight_channel_evidence
+                ),
+                shared_physical_white_neutralization(result.physical_white_coverage)
+            ),
+            aggressive_highlight_chroma_risk(
+                physical_white_coverage,
+                exact_physical_white_coverage
+            ) * aggressive_highlight_edge_support(result.values)
+        );
+    }
     return result;
 }
 
@@ -231,10 +323,13 @@ inline float3 develop_bayer_scene_linear_at(
 
     const uint raw_x = parameters.margin_left + source_x;
     const uint raw_y = parameters.margin_top + source_y;
-    const CameraRgbSample camera = parameters.reconstruction_quality == 2u
+    CameraRgbSample camera = parameters.reconstruction_quality == 2u
         ? edge_aware_camera_rgb_at(samples, parameters, raw_x, raw_y)
         : camera_rgb_at(samples, parameters, raw_x, raw_y);
-    const float3 camera_values = camera.values;
+    const float3 camera_values = neutralize_untrusted_camera_highlight_chroma(
+        camera.values,
+        camera.highlight_chroma_neutralization
+    );
     const float red =
         parameters.camera_to_linear_srgb[0] * camera_values.x
         + parameters.camera_to_linear_srgb[1] * camera_values.y
@@ -369,6 +464,13 @@ kernel void develop_bayer_area_preview(
     );
     float totals[3] = {0.0f, 0.0f, 0.0f};
     float weights[3] = {0.0f, 0.0f, 0.0f};
+    float channel_evidence_totals[3] = {0.0f, 0.0f, 0.0f};
+    float channel_physical_white_weights[3] = {0.0f, 0.0f, 0.0f};
+    float observed_weight = 0.0f;
+    float physical_white_weight = 0.0f;
+    // Match the point/detail source-stage owner exactly: reconstruct only terminal candidates,
+    // then integrate each photosite once. No wider shoulder mask or RGB damaged layer belongs to
+    // the default area path.
     for (uint raw_y = first_source_y; raw_y < last_source_y; ++raw_y) {
         const float overlap_y = max(
             0.0f,
@@ -381,9 +483,18 @@ kernel void develop_bayer_area_preview(
             );
             const uint channel = parameters.cfa_channels[cfa_site(raw_x, raw_y)];
             const float weight = overlap_x * overlap_y;
-            const float normalized = normalized_sample(samples, parameters, raw_x, raw_y);
-            totals[channel] += normalized * weight;
+            const float evidence =
+                highlight_sensor_evidence(samples, parameters, raw_x, raw_y);
+            const float reconstructed = normalized_sample(samples, parameters, raw_x, raw_y);
+            totals[channel] += reconstructed * weight;
             weights[channel] += weight;
+            channel_evidence_totals[channel] += evidence * weight;
+            observed_weight += weight;
+            const bool at_white = physical_sensor_white(samples, parameters, raw_x, raw_y);
+            if (at_white) {
+                channel_physical_white_weights[channel] += weight;
+                physical_white_weight += weight;
+            }
         }
     }
     // An active footprint always contains each CFA colour for supported previews. Preserve the
@@ -396,20 +507,69 @@ kernel void develop_bayer_area_preview(
         parameters.storage_height - 1u,
         uint((source_top + source_bottom) * 0.5f)
     );
-    const CameraRgbSample camera = (
-        weights[0] <= 0.0f || weights[1] <= 0.0f || weights[2] <= 0.0f
-    ) ? camera_rgb_at(samples, parameters, center_x, center_y) : CameraRgbSample{
+    const bool complete_area_footprint =
+        weights[0] > 0.0f && weights[1] > 0.0f && weights[2] > 0.0f;
+    const float exact_physical_white_coverage = observed_weight <= 0.0f
+        ? 0.0f : physical_white_weight / observed_weight;
+    CameraRgbSample camera = !complete_area_footprint
+        ? camera_rgb_at(samples, parameters, center_x, center_y) : CameraRgbSample{
         float3(
             totals[0] / weights[0],
             totals[1] / weights[1],
             totals[2] / weights[2]
-        )
+        ),
+        float3(
+            channel_evidence_totals[0] / weights[0],
+            channel_evidence_totals[1] / weights[1],
+            channel_evidence_totals[2] / weights[2]
+        ),
+        float3(
+            channel_physical_white_weights[0] / weights[0],
+            channel_physical_white_weights[1] / weights[1],
+            channel_physical_white_weights[2] / weights[2]
+        ),
+        0.0f
     };
+    if (complete_area_footprint) {
+        camera.highlight_chroma_neutralization = 0.0f;
+        if (parameters.feather_highlight_chroma_neutralization != 0u) {
+            const float physical_white_coverage = feathered_highlight_sensor_evidence(
+                samples,
+                parameters,
+                center_x,
+                center_y,
+                clamp(
+                    uint(ceil(1.5f * max(
+                        float(parameters.active_width) / float(parameters.reconstruction_width),
+                        float(parameters.active_height) / float(parameters.reconstruction_height)
+                    ))),
+                    2u,
+                    16u
+                )
+            );
+            camera.highlight_chroma_neutralization = max(
+                max(
+                    highlight_chroma_neutralization(
+                        camera.values,
+                        camera.highlight_channel_evidence
+                    ),
+                    shared_physical_white_neutralization(camera.physical_white_coverage)
+                ),
+                aggressive_highlight_chroma_risk(
+                    physical_white_coverage,
+                    exact_physical_white_coverage
+                ) * aggressive_highlight_edge_support(camera.values)
+            );
+        }
+    }
     if (parameters.project_sensor_clipping != 0u) {
         clipping_output[position.y * parameters.output_width + output_x] =
             sensor_clipping_flags(clipping_source, parameters, output_x, output_y);
     }
-    const float3 camera_values = camera.values;
+    const float3 camera_values = neutralize_untrusted_camera_highlight_chroma(
+        camera.values,
+        camera.highlight_chroma_neutralization
+    );
     const float red =
         parameters.camera_to_linear_srgb[0] * camera_values.x
         + parameters.camera_to_linear_srgb[1] * camera_values.y

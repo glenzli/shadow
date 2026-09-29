@@ -99,7 +99,7 @@ Button {
 
     readonly property color resolvedSurfaceColor: !enabled
         ? (variant === ShadowButton.Ghost
-            ? Theme.buttonDisabledGhostSurface : Theme.buttonDisabledSurface)
+            ? Theme.transparent : Theme.buttonDisabledSurface)
         : selected
             ? (down ? selectedPressedSurfaceColor
                 : hovered ? selectedHoverSurfaceColor

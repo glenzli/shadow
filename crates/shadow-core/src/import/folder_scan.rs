@@ -1,3 +1,7 @@
+//! Controlled imports accept either a directory or one explicit regular file.
+//! A file root is retained in the import journal and on resume; its siblings are never
+//! scanned. The historical `scan_folder*` names are kept for API compatibility.
+
 //! Public start/resume orchestration for folder scans.
 
 use std::path::Path;

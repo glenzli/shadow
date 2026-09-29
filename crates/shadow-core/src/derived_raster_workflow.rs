@@ -209,6 +209,7 @@ fn payload_artifact(payload: &AiGeneratedPayload) -> &GeneratedArtifactReference
     match payload {
         AiGeneratedPayload::SoftMask(mask) => &mask.artifact,
         AiGeneratedPayload::DenoisedRaster(raster) => &raster.artifact,
+        AiGeneratedPayload::ImageCompletionPatch(patch) => &patch.artifact,
     }
 }
 

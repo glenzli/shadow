@@ -278,3 +278,34 @@ fn production_actor_keeps_scanning_off_the_writer_thread() {
         }
     }
 }
+
+#[test]
+fn explicit_file_import_excludes_siblings_and_remains_idempotent() {
+    let root = std::env::temp_dir().join(format!("shadow-composite-import-{}", PhotoId::new_v7()));
+    fs::create_dir_all(root.join("nested")).expect("fixture directory");
+    let selected = root.join("composite.tif");
+    fs::write(&selected, b"composite").expect("selected fixture");
+    fs::write(root.join("sibling.jpg"), b"jpeg").expect("sibling fixture");
+    fs::write(root.join("nested/other.NEF"), b"raw").expect("nested fixture");
+    let mut catalog = Catalog::open_in_memory().expect("catalog");
+    let report = scan_folder(&mut catalog, &selected).expect("file import");
+    assert_eq!(report.files_seen, 1);
+    assert_eq!(report.inserted, 1);
+    assert_eq!(catalog.stats().expect("stats").photos, 1);
+    let repeated = scan_folder(&mut catalog, &selected).expect("repeated file import");
+    assert_eq!(repeated.unchanged, 1);
+    let folder = scan_folder(&mut catalog, &root).expect("later folder import");
+    assert_eq!(folder.unchanged, 1);
+    assert_eq!(folder.inserted, 2);
+    let mut interrupted_catalog = Catalog::open_in_memory().expect("interrupted catalog");
+    let interrupted = interrupted_catalog
+        .begin_import_session(&encode_location(&selected), now_ms())
+        .expect("begin exact-file session");
+    let resumed = resume_scan(&mut interrupted_catalog, interrupted).expect("resume exact file");
+    assert_eq!(resumed.inserted, 1);
+    assert_eq!(
+        interrupted_catalog.stats().expect("resumed stats").photos,
+        1
+    );
+    fs::remove_dir_all(root).expect("remove fixture");
+}

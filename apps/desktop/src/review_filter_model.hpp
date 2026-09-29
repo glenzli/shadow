@@ -1,8 +1,8 @@
 #pragma once
 
-#include <QSortFilterProxyModel>
 #include <QHash>
 #include <QSet>
+#include <QSortFilterProxyModel>
 #include <QStringList>
 
 /// A client-side Lightroom-style library filter over the locally loaded page.
@@ -33,6 +33,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     [[nodiscard]] QString colorFilter() const;
     [[nodiscard]] QString editFilter() const;
     [[nodiscard]] QString likedFilter() const;
+    [[nodiscard]] bool hideOfflineUncached() const noexcept;
+    [[nodiscard]] bool onlyEditable() const noexcept;
     [[nodiscard]] QString excludedFlagFilter() const;
     [[nodiscard]] QString excludedColorFilter() const;
     [[nodiscard]] QString captureMonth() const;
@@ -56,6 +58,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     void setColorFilter(const QString& filter);
     void setEditFilter(const QString& filter);
     void setLikedFilter(const QString& filter);
+    void setHideOfflineUncached(bool enabled);
+    void setOnlyEditable(bool enabled);
     void setExcludedFlagFilter(const QString& filter);
     void setExcludedColorFilter(const QString& filter);
     /// Metadata facets are catalog-side values. They intentionally do not
@@ -80,10 +84,17 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     /// Restricts the loaded Review model to exact members of one published
     /// smart category. Unlike semantic search this filter preserves grid order.
     void setSmartCategoryRepresentationKeys(const QStringList& member_keys);
+    /// Immediately projects a navigation scope over retained rows while its
+    /// authoritative catalog page loads. An enabled empty scope shows no photos.
+    /// Ordinary filter clearing preserves this separately owned navigation scope.
+    void setPhotoScope(bool enabled, const QStringList& photo_ids);
     Q_INVOKABLE void clearFilters();
+    /// Resolves a visible-model row without instantiating offscreen delegates.
+    Q_INVOKABLE int indexOfPhoto(const QString& photo_id, const QString& representation_id) const;
 
   signals:
     void filtersChanged();
+    void availabilityFiltersChanged();
     void semanticFilterChanged();
     void smartCategoryFilterChanged();
 
@@ -109,6 +120,8 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     QString color_filter_ = QStringLiteral("all");
     QString edit_filter_ = QStringLiteral("all");
     QString liked_filter_ = QStringLiteral("all");
+    bool hide_offline_uncached_ = false;
+    bool only_editable_ = false;
     QString excluded_flag_filter_ = QStringLiteral("all");
     QString excluded_color_filter_ = QStringLiteral("all");
     QString capture_month_;
@@ -125,4 +138,6 @@ class ReviewFilterModel final : public QSortFilterProxyModel {
     QStringList excluded_keyword_ids_any_;
     QHash<QString, qsizetype> semantic_rank_by_key_;
     QSet<QString> smart_category_keys_;
+    bool photo_scope_enabled_ = false;
+    QSet<QString> photo_scope_ids_;
 };

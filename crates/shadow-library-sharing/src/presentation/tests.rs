@@ -5,7 +5,7 @@ use shadow_domain::{EntityId, ImageDimensions, PreviewByteOrder, PreviewCodec, R
 
 use crate::{
     CachedRemotePreview,
-    protocol::{RemotePreviewManifest, RemotePreviewRole},
+    protocol::{RemotePreviewManifest, RemotePreviewPixelOrientation, RemotePreviewRole},
 };
 
 use super::{BrowseVisual, select_browse_visual};
@@ -50,6 +50,7 @@ fn current_local_recipe_preview_wins_over_remote_proxy() {
                 width: 640,
                 height: 480,
             },
+            pixel_orientation: RemotePreviewPixelOrientation::EncodedMetadata,
         },
     };
     assert!(matches!(

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{Result as AnyResult, bail};
+use anyhow::{Context, Result as AnyResult, bail};
 use shadow_bridge::{
     ColorRangeParameters, MAX_POINT_COLOR_RANGES, OklabColorWarperParameters,
     OklabLightnessToneCurve, PERCEPTUAL_COLOR_PARAMETER_SCHEMA_VERSION, PerceptualColorParameters,
@@ -19,13 +19,15 @@ use shadow_domain::operation::{
     CPU_REFERENCE_IMPLEMENTATION_VERSION, CPU_REFERENCE_PARAMETER_SCHEMA_VERSION,
     DETAIL_EFFECTS_PARAMETERS_KEY, EXPOSURE_OPERATION_ID, EXPOSURE_STOPS_PARAMETER_KEY,
     FINISHING_EFFECTS_IMPLEMENTATION_VERSION, FINISHING_EFFECTS_OPERATION_ID,
-    GLOBAL_A_BALANCE_PARAMETER_KEY, GLOBAL_B_BALANCE_PARAMETER_KEY, HIGHLIGHTS_PARAMETER_KEY,
-    LUT_3D_OPERATION_ID, LUT_INTENSITY_PARAMETER_KEY, LUT_MANAGED_PATH_PARAMETER_KEY,
-    LUT_RESOURCE_ID_PARAMETER_KEY, LUT_TITLE_PARAMETER_KEY,
-    OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY, OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION,
-    OKLAB_COLOR_WARPER_OPERATION_ID, OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION,
-    OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY, OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION,
-    OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID, OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
+    GLOBAL_A_BALANCE_PARAMETER_KEY, GLOBAL_B_BALANCE_PARAMETER_KEY,
+    HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY, HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY,
+    HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY, HIGHLIGHTS_PARAMETER_KEY, LUT_3D_OPERATION_ID,
+    LUT_INTENSITY_PARAMETER_KEY, LUT_MANAGED_PATH_PARAMETER_KEY, LUT_RESOURCE_ID_PARAMETER_KEY,
+    LUT_TITLE_PARAMETER_KEY, OKLAB_COLOR_WARPER_CONTROL_POINTS_PARAMETER_KEY,
+    OKLAB_COLOR_WARPER_IMPLEMENTATION_VERSION, OKLAB_COLOR_WARPER_OPERATION_ID,
+    OKLAB_COLOR_WARPER_PARAMETER_SCHEMA_VERSION, OKLAB_COLOR_WARPER_STRENGTH_PARAMETER_KEY,
+    OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION, OKLAB_LIGHTNESS_TONE_CURVE_OPERATION_ID,
+    OKLAB_LIGHTNESS_TONE_CURVE_PARAMETER_SCHEMA_VERSION,
     OKLAB_LIGHTNESS_TONE_CURVE_POINTS_PARAMETER_KEY, PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION,
     PERCEPTUAL_COLOR_OPERATION_ID, POINT_COLOR_RANGES_PARAMETER_KEY,
     RGB_WHITE_BALANCE_OPERATION_ID, SATURATION_FACTOR_PARAMETER_KEY, SATURATION_OPERATION_ID,
@@ -40,16 +42,17 @@ use shadow_domain::operation::{
 };
 use shadow_domain::{
     AdjustmentNode, AdjustmentScope, BlendMode, CURRENT_RECIPE_SCHEMA_VERSION, EditGraph,
-    FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerRevisionSelector, MaskDefinition,
-    MaskRevision, NodeId, NodeInput, OperationDescriptor, OperationId, ParameterBlock,
-    ParameterKey, ParameterValue, PhotoStructuralNodes, PortType, ProcessingStage, RecipeSnapshot,
+    FiniteF64, ImageDomain, LayerContent, LayerInstance, LayerInstanceId, LayerRevisionSelector,
+    MaskComponent, MaskComponentId, MaskComponentOperation, MaskDefinition, MaskRevision, NodeId,
+    NodeInput, OperationDescriptor, OperationId, ParameterBlock, ParameterKey, ParameterValue,
+    PhotoStructuralNodes, PortType, ProcessingStage, RecipeSnapshot,
 };
 
 use super::{
     CONTRAST_PIVOT, GradeNodeDraft, GradeStackDraft, LutEditParameters,
-    oklab_color_warper_ffi_values, recipe_v1_local_mask_revision,
-    validate_grade_stack_draft_against_recipe_v1_template, validate_grade_stack_draft_recipe_v1,
-    validate_tone_curve,
+    MaskComponentDraftDefinition, PreservedManagedRasterSettings, oklab_color_warper_ffi_values,
+    recipe_v1_local_mask_revision, validate_grade_stack_draft_against_recipe_v1_template,
+    validate_grade_stack_draft_recipe_v1, validate_tone_curve,
 };
 
 #[cfg(test)]
@@ -116,6 +119,14 @@ pub(crate) fn grade_stack_recipe_v1_snapshot(
         structural_nodes,
         recipe_v1_layers,
     )
+    .map(|snapshot| snapshot.with_retouch_enabled(grade_stack.retouch_enabled))
+    .and_then(|snapshot| {
+        snapshot.with_image_completions(
+            grade_stack.image_completions.clone(),
+            grade_stack.image_completion_enabled,
+        )
+    })
+    .and_then(|snapshot| snapshot.with_paint_layers(grade_stack.paint_layers.clone()))
     .map_err(Into::into)
 }
 
@@ -125,7 +136,55 @@ fn materialize_preserved_managed_rasters(
 ) -> AnyResult<GradeStackDraft> {
     let mut effective = grade_stack.clone();
     for grade_node in &mut effective.grade_nodes {
-        let Some(settings) = grade_node.preserved_managed_raster else {
+        if let Some(composite) = grade_node.composite_mask.take() {
+            if grade_node.local_mask.is_some() || grade_node.preserved_managed_raster.is_some() {
+                bail!(
+                    "Grade Node {} cannot materialize multiple local-mask representations",
+                    grade_node.recipe_v1_identity.grade_node_id
+                );
+            }
+            let components = composite
+                .components
+                .into_iter()
+                .map(|component| {
+                    let definition = match component.definition {
+                        MaskComponentDraftDefinition::Definition(definition) => definition,
+                        MaskComponentDraftDefinition::PreservedManagedRaster(settings) => {
+                            let definition = preserved_component_definition(
+                                    template,
+                                    grade_node.recipe_v1_identity.grade_node_id,
+                                    component.id,
+                                    component.operation,
+                                )
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Grade Node {} cannot recover opaque managed mask component {} from its base Recipe",
+                                        grade_node.recipe_v1_identity.grade_node_id,
+                                        component.id
+                                    )
+                                })?;
+                            managed_raster_with_settings(definition, &settings).with_context(|| {
+                                format!(
+                                    "recover Grade Node {} managed mask component {}",
+                                    grade_node.recipe_v1_identity.grade_node_id,
+                                    component.id
+                                )
+                            })?
+                        }
+                    };
+                    MaskComponent::new(
+                        component.id,
+                        component.operation,
+                        component.enabled,
+                        definition,
+                    )
+                    .map_err(Into::into)
+                })
+                .collect::<AnyResult<Vec<_>>>()?;
+            grade_node.local_mask = Some(MaskDefinition::composite(components, composite.invert)?);
+            continue;
+        }
+        let Some(settings) = grade_node.preserved_managed_raster.as_ref() else {
             continue;
         };
         if grade_node.local_mask.is_some() {
@@ -162,21 +221,61 @@ fn materialize_preserved_managed_rasters(
                 grade_node.recipe_v1_identity.grade_node_id
             )
         })?;
-        let MaskDefinition::ManagedRaster { raster, .. } = revision.definition() else {
-            bail!(
-                "Grade Node {} opaque mask marker does not match a managed raster in its base Recipe",
-                grade_node.recipe_v1_identity.grade_node_id
-            );
-        };
-        grade_node.local_mask = Some(MaskDefinition::managed_raster_with_refinement(
-            raster.clone(),
-            settings.expansion_percent,
-            settings.feather_percent,
-            settings.invert,
+        grade_node.local_mask = Some(managed_raster_with_settings(
+            revision.definition(),
+            settings,
         )?);
         grade_node.preserved_managed_raster = None;
     }
     Ok(effective)
+}
+
+fn preserved_component_definition(
+    template: Option<&RecipeSnapshot>,
+    grade_node_id: LayerInstanceId,
+    component_id: MaskComponentId,
+    operation: MaskComponentOperation,
+) -> Option<&MaskDefinition> {
+    let snapshot = template?;
+    let base = snapshot
+        .layers()
+        .iter()
+        .find(|layer| layer.id() == grade_node_id)
+        .and_then(LayerInstance::mask)
+        .and_then(|reference| snapshot.resolve_mask(reference))?
+        .definition();
+    match base {
+        MaskDefinition::Composite { composite } => composite
+            .components()
+            .iter()
+            .find(|candidate| candidate.id() == component_id)
+            .map(MaskComponent::definition),
+        // A single enabled Base is persisted as its legacy leaf byte shape.
+        // Qt gives that leaf a transient component ID; recover it only as the
+        // Base of the exact Grade Node whose template was already resolved.
+        MaskDefinition::ManagedRaster { .. } if operation == MaskComponentOperation::Base => {
+            Some(base)
+        }
+        _ => None,
+    }
+}
+
+fn managed_raster_with_settings(
+    definition: &MaskDefinition,
+    settings: &PreservedManagedRasterSettings,
+) -> AnyResult<MaskDefinition> {
+    let MaskDefinition::ManagedRaster { raster, .. } = definition else {
+        bail!("opaque mask marker does not match a managed raster in its base Recipe");
+    };
+    Ok(
+        MaskDefinition::managed_raster_with_semantic_intent_and_refinement(
+            raster.clone(),
+            settings.semantic_intent.clone(),
+            settings.expansion_percent,
+            settings.feather_percent,
+            settings.invert,
+        )?,
+    )
 }
 
 #[allow(clippy::too_many_lines)] // The canonical persisted graph is clearest as one explicit chain.
@@ -318,6 +417,18 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
     // here, not in the UI: foundational color and the user curve run before
     // technical recovery; color wheels stay in CreativeColor, and physical
     // finishing is last.
+    let perceptual_tone_input = if let Some(curves) = &fine.rgb_tone_curves {
+        nodes.push(super::rgb_tone_curves::rgb_tone_curves_render_op(
+            identity.rgb_tone_curves_render_op_id,
+            NodeInput::Node {
+                node_id: perceptual_tone_input,
+            },
+            curves,
+        )?);
+        identity.rgb_tone_curves_render_op_id
+    } else {
+        perceptual_tone_input
+    };
     nodes.push(recipe_detail_effects_render_op(
         technical_detail_id,
         TECHNICAL_DETAIL_OPERATION_ID,
@@ -437,6 +548,18 @@ pub(crate) fn recipe_selective_tone_render_op(
             (
                 BLACKS_PARAMETER_KEY,
                 ParameterValue::Float(FiniteF64::new(parameters.blacks)?),
+            ),
+            (
+                HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(parameters.highlight_red_suppression)?),
+            ),
+            (
+                HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(parameters.highlight_green_suppression)?),
+            ),
+            (
+                HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY,
+                ParameterValue::Float(FiniteF64::new(parameters.highlight_blue_suppression)?),
             ),
         ])?,
         None,

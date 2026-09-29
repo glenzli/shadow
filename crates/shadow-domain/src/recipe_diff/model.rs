@@ -353,6 +353,7 @@ impl LayerModification {
 /// removals follow the `before` order. Movement is sorted by destination.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct RecipeDiff {
+    pub(super) paint_layers: Option<ValueChange<Vec<crate::PaintLayer>>>,
     pub(super) schema_version: Option<ValueChange<u32>>,
     pub(super) input_settings: Option<ValueChange<RecipeInputSettings>>,
     pub(super) added_layers: Vec<IndexedLayer>,
@@ -362,6 +363,9 @@ pub struct RecipeDiff {
 }
 
 impl RecipeDiff {
+    pub fn paint_layers(&self) -> Option<&ValueChange<Vec<crate::PaintLayer>>> {
+        self.paint_layers.as_ref()
+    }
     pub const fn schema_version(&self) -> Option<&ValueChange<u32>> {
         self.schema_version.as_ref()
     }
@@ -387,7 +391,8 @@ impl RecipeDiff {
     }
 
     pub const fn is_empty(&self) -> bool {
-        self.schema_version.is_none()
+        self.paint_layers.is_none()
+            && self.schema_version.is_none()
             && self.input_settings.is_none()
             && self.added_layers.is_empty()
             && self.removed_layers.is_empty()

@@ -53,7 +53,7 @@ Item {
                 Layout.minimumWidth: 0
                 text: root.label
                 color: Theme.textPrimary
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 elide: Text.ElideRight
                 horizontalAlignment: Text.AlignRight
             }
@@ -64,7 +64,7 @@ Item {
                 text: qsTr("%1°–%2°").arg(Math.round(root.lowerValue))
                     .arg(Math.round(root.upperValue))
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
                 horizontalAlignment: Text.AlignRight
             }
         }

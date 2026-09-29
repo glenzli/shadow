@@ -1,14 +1,133 @@
 use std::{fs, path::PathBuf};
 
-use shadow_catalog::{Catalog, ImportPhotoGrouping, RegisterAsset};
-use shadow_domain::{AssetLocation, Platform, RepresentationKind};
+use shadow_catalog::{
+    CachedArtifact, CachedArtifactRecord, CachedArtifactRole, Catalog, ImportPhotoGrouping,
+    RecordDecodeSnapshot, RecordDecodeSnapshotStatus, RegisterAsset,
+};
+use shadow_domain::{
+    AssetLocation, DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport,
+    DecoderSnapshot, EntityId, GpsMetadataSnapshot, ImageDimensions, ImageMargins,
+    PendingCorrectionsSnapshot, Platform, PreviewByteOrder, PreviewCodec,
+    RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot, RepresentationKind,
+};
 use shadow_native_path::{current_platform, native_location};
 
-use super::{CatalogSharePolicy, CatalogShareSource, native_path};
+use super::{CatalogSharePolicy, CatalogShareSource, native_path, remote_preview_manifest};
 use crate::{
     LibraryShareSource,
-    protocol::{CapabilityAvailability, RemoteOriginalIdentity},
+    protocol::{
+        CapabilityAvailability, REMOTE_PHOTO_METADATA_SCHEMA_VERSION, RemoteOriginalIdentity,
+        RemotePreviewPixelOrientation,
+    },
 };
+
+#[test]
+fn manifest_projects_bounded_orientation_location_and_display_metadata() {
+    let root = temporary_directory("metadata-projection");
+    let shared = root.join("shared");
+    fs::create_dir_all(&shared).expect("create shared root");
+    let path = shared.join("metadata.nef");
+    fs::write(&path, b"remote metadata fixture").expect("write fixture");
+    let catalog_path = root.join("catalog.sqlite");
+    let mut catalog = Catalog::open(&catalog_path).expect("open catalog");
+    let registered = catalog
+        .register_asset(&registration(
+            &path,
+            fs::metadata(&path).expect("metadata").len(),
+        ))
+        .expect("register fixture");
+    let source = catalog
+        .representation_fingerprint(registered.representation_id)
+        .expect("source fingerprint");
+    let snapshot = metadata_snapshot();
+    assert_eq!(
+        catalog
+            .record_decode_snapshot(&RecordDecodeSnapshot {
+                representation_id: registered.representation_id,
+                expected_source: source,
+                snapshot,
+                inspected_at_ms: 2,
+            })
+            .expect("record metadata"),
+        RecordDecodeSnapshotStatus::Recorded
+    );
+    drop(catalog);
+
+    let source = CatalogShareSource::open_with_policy(
+        &catalog_path,
+        root.join("cache"),
+        root.join("state"),
+        "Studio",
+        false,
+        CatalogSharePolicy::for_roots(vec![shared], false),
+    )
+    .expect("open source");
+    let page = source.list_photos(None, 96).expect("list photos");
+    let metadata = &page.items[0].metadata;
+    assert_eq!(
+        metadata.schema_version,
+        REMOTE_PHOTO_METADATA_SCHEMA_VERSION
+    );
+    assert_eq!(metadata.orientation, Some(6));
+    assert_eq!(
+        metadata.image_dimensions,
+        Some(ImageDimensions {
+            width: 3_000,
+            height: 4_000
+        })
+    );
+    assert_eq!(metadata.focal_length_35mm, Some(52.0));
+    assert_eq!(
+        metadata.gps,
+        Some(GpsMetadataSnapshot {
+            latitude_degrees: 31.2304,
+            longitude_degrees: 121.4737,
+            altitude_meters: Some(18.5),
+        })
+    );
+    fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn shared_preview_declares_whether_pixels_are_already_display_oriented() {
+    let representation_id = shadow_domain::RepresentationId::new_v7();
+    let source = shadow_catalog::RepresentationFingerprint {
+        byte_len: 10,
+        modified_at_ms: Some(2),
+    };
+    let record = |role| CachedArtifactRecord {
+        representation_id,
+        source,
+        artifact: CachedArtifact {
+            role,
+            variant_key: "fixture".into(),
+            generator_id: "fixture".into(),
+            generator_version: "1".into(),
+            recipe_snapshot_digest: None,
+            provider_preview_id: None,
+            blob_algorithm: "blake3-256".into(),
+            blob_digest: [1; 32],
+            blob_byte_len: 10,
+            codec: PreviewCodec::Jpeg,
+            byte_order: PreviewByteOrder::NotApplicable,
+            dimensions: ImageDimensions {
+                width: 40,
+                height: 30,
+            },
+            bits_per_channel: 8,
+            channels: 3,
+            created_at_ms: 3,
+        },
+    };
+    assert_eq!(
+        remote_preview_manifest(&record(CachedArtifactRole::EmbeddedPreview)).pixel_orientation,
+        RemotePreviewPixelOrientation::EncodedMetadata
+    );
+    assert_eq!(
+        remote_preview_manifest(&record(CachedArtifactRole::GeneratedProxy)).pixel_orientation,
+        RemotePreviewPixelOrientation::DisplayOriented
+    );
+}
 
 #[test]
 fn server_identity_is_stable_across_source_reopen() {
@@ -209,6 +328,66 @@ fn registration_from_file(path: &std::path::Path, kind: RepresentationKind) -> R
                 .and_then(|duration| i64::try_from(duration.as_millis()).ok())
         }),
         now_ms: 1,
+    }
+}
+
+fn metadata_snapshot() -> DecoderSnapshot {
+    DecoderSnapshot {
+        provider: DecodeProviderSnapshot {
+            id: "fixture".into(),
+            version: "1".into(),
+            dng_sdk: false,
+            rawspeed: false,
+            jpeg: true,
+        },
+        metadata: RawMetadataSnapshot {
+            make: "Fixture".into(),
+            model: "Camera".into(),
+            normalized_make: "Fixture".into(),
+            normalized_model: "Camera".into(),
+            dng_version: None,
+            raw_count: 1,
+            raw_dimensions: ImageDimensions {
+                width: 4_000,
+                height: 3_000,
+            },
+            image_dimensions: ImageDimensions {
+                width: 3_000,
+                height: 4_000,
+            },
+            margins: ImageMargins::default(),
+            orientation: 6,
+            cfa_pattern: "RGGB".into(),
+            sensor_colors: 3,
+            sensor_bits: 14,
+            black_level: 0,
+            white_level: 16_383,
+            as_shot_neutral: [1.0, 1.0, 1.0, 0.0],
+            baseline_exposure: 0.0,
+            iso_speed: 100.0,
+            exposure_time_seconds: 1.0 / 125.0,
+            aperture_f_number: 4.0,
+            focal_length_mm: 35.0,
+            focus_observation: None,
+            captured_at_unix_seconds: 1_700_000_000,
+            gps: Some(GpsMetadataSnapshot {
+                latitude_degrees: 31.2304,
+                longitude_degrees: 121.4737,
+                altitude_meters: Some(18.5),
+            }),
+            lens_make: "Fixture".into(),
+            lens_model: "35mm".into(),
+            focal_length_35mm: 52.0,
+        },
+        capabilities: DecodeCapabilitySnapshot {
+            metadata: DecodeSupport::Available,
+            embedded_previews: DecodeSupport::Unavailable,
+            raw_frame: DecodeSupport::Available,
+            reference_rgb: DecodeSupport::Unavailable,
+            pending_corrections: PendingCorrectionsSnapshot::default(),
+            raw_development: RawDevelopmentCapabilitySnapshot::default(),
+        },
+        previews: Vec::new(),
     }
 }
 

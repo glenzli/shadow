@@ -84,20 +84,23 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
         result.denoise = WarmDenoiseParameters{
             .width = dimensions.width,
             .height = dimensions.height,
-            .radius =
-                static_cast<std::uint32_t>(std::clamp(std::ceil(1.0 + 3.0 * authority), 1.0, 4.0)),
-            // A single edge-aware pass gives the normal interactive controls a light hand. At
-            // the top end, run the exact same bilateral stage once more while both rasters are
-            // already resident. This keeps a 100% request visibly decisive without widening a
-            // single support enough to bleed across the mast, horizon, or specular highlights.
-            .passes = authority >= 0.70 ? 2U : 1U,
+            // Both passes must fit the technical-detail owner's declared halo
+            // (ceil(2 + 5 * authority)); tile edges must match a complete render.
+            .radius = static_cast<std::uint32_t>(
+                std::clamp(std::floor(std::ceil(2.0 + 5.0 * authority) / 2.0), 1.0, 4.0)
+            ),
+            // Keep the two resident passes at every nonzero strength. Switching to
+            // two only at the maximum made the slider response abrupt; each pass
+            // already blends by the requested strength and protects real edges.
+            .passes = 2U,
             .luminance_strength = static_cast<float>(detail->denoise_luminance),
             .color_strength = static_cast<float>(detail->denoise_color),
             .spatial_sigma = static_cast<float>(0.90 + 0.52 * authority),
-            // A high ISO warm proxy needs enough range tolerance to identify independent
-            // pixel noise as a flat region, while the luma edge term still protects real
-            // subject boundaries. This mirrors the CPU path's epsilon authority mapping.
-            .edge_sigma = static_cast<float>(0.010 + 0.085 * authority),
+            // Epsilon is a variance in the CPU guided filter. Convert that variance
+            // to a standard deviation for the bilateral range kernel. Applying the
+            // squared slider authority directly to sigma made low/mid strengths
+            // reject ordinary noise as edges and almost reproduce the input.
+            .edge_sigma = static_cast<float>(std::sqrt(0.0003 + 0.006 * authority)),
             .red_luminance = static_cast<float>(working_space.luminance_coefficients[0]),
             .green_luminance = static_cast<float>(working_space.luminance_coefficients[1]),
             .blue_luminance = static_cast<float>(working_space.luminance_coefficients[2]),
@@ -704,7 +707,8 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
     const Dimensions dimensions,
     const WorkingRgbSpace& working_space,
     const double scale_x,
-    const double scale_y
+    const double scale_y,
+    const bool resident_highlight_evidence_available
 ) {
     std::optional<std::size_t> neighbourhood_segment;
     for (std::size_t index = 0U; index < plan.segments.size(); ++index) {
@@ -737,9 +741,11 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
     const PreparedGuidedSelectiveTone prepared =
         prepare_guided_selective_tone(parameters, scale_x, scale_y);
     constexpr std::uint32_t maximum_selective_tone_box_radius = 64U;
-    if (prepared.neutral() || prepared.mask_radius_x() == 0U || prepared.mask_radius_y() == 0U
-        || prepared.mask_radius_x() > maximum_selective_tone_box_radius
-        || prepared.mask_radius_y() > maximum_selective_tone_box_radius) {
+    if (prepared.neutral()
+        || (prepared.guided_tone_active()
+            && (prepared.mask_radius_x() == 0U || prepared.mask_radius_y() == 0U
+                || prepared.mask_radius_x() > maximum_selective_tone_box_radius
+                || prepared.mask_radius_y() > maximum_selective_tone_box_radius))) {
         return std::nullopt;
     }
     const AdjustmentNode& node = nodes[step.node_index];
@@ -769,10 +775,16 @@ is_gpu_warm_technical_detail_supported(const SharpenAdjustment& parameters) noex
         .parameters = WarmSelectiveToneParameters{
             .width = dimensions.width,
             .height = dimensions.height,
+            .guided_tone_active = prepared.guided_tone_active() ? 1U : 0U,
+            .highlight_evidence_available = resident_highlight_evidence_available ? 1U : 0U,
             .highlights = static_cast<float>(prepared.highlights()),
             .shadows = static_cast<float>(prepared.shadows()),
             .whites = static_cast<float>(prepared.whites()),
             .blacks = static_cast<float>(prepared.blacks()),
+            .highlight_red_suppression = static_cast<float>(prepared.highlight_red_suppression()),
+            .highlight_green_suppression =
+                static_cast<float>(prepared.highlight_green_suppression()),
+            .highlight_blue_suppression = static_cast<float>(prepared.highlight_blue_suppression()),
             .red_luminance = static_cast<float>(working_space.luminance_coefficients[0]),
             .green_luminance = static_cast<float>(working_space.luminance_coefficients[1]),
             .blue_luminance = static_cast<float>(working_space.luminance_coefficients[2]),
@@ -839,7 +851,8 @@ std::optional<WarmGpuNeighbourhoodStage> prepare_warm_gpu_neighbourhood_stage(
     const WorkingRgbSpace& working_space,
     const double level_zero_to_raster_scale_x,
     const double level_zero_to_raster_scale_y,
-    const AdjustmentExecutionContext context
+    const AdjustmentExecutionContext context,
+    const bool resident_highlight_evidence_available
 ) {
     if (step.node_index >= nodes.size()
         || operation(nodes[step.node_index].parameters) != step.operation) {
@@ -908,7 +921,8 @@ std::optional<WarmGpuNeighbourhoodStage> prepare_warm_gpu_neighbourhood_stage(
             dimensions,
             working_space,
             level_zero_to_raster_scale_x,
-            level_zero_to_raster_scale_y
+            level_zero_to_raster_scale_y,
+            resident_highlight_evidence_available
         );
         stage.has_value()) {
         return isolate_stage_post_program(std::move(stage));

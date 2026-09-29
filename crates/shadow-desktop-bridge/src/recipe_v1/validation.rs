@@ -49,6 +49,7 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
             spot.source_flip_horizontal(),
             spot.source_flip_vertical(),
         )?
+        .with_frequency_radius(spot.frequency_radius())?
         .with_strength(spot.strength());
     }
     if grade_stack.retouch_strokes.len() > MAX_RETOUCH_STROKES_PER_RECIPE {
@@ -73,15 +74,61 @@ pub(crate) fn validate_grade_stack_draft_recipe_v1(grade_stack: &GradeStackDraft
                     stroke.source_flip_horizontal(),
                     stroke.source_flip_vertical(),
                 )?
+                .with_frequency_radius(stroke.frequency_radius())?
                 .with_strength(stroke.strength());
     }
     let mut grade_node_ids = HashSet::with_capacity(grade_stack.grade_nodes.len());
     let mut render_op_ids = HashSet::with_capacity(grade_stack.grade_nodes.len() * 11);
     for (index, grade_node) in grade_stack.grade_nodes.iter().enumerate() {
-        if grade_node.local_mask.is_some() && grade_node.preserved_managed_raster.is_some() {
+        let mask_representation_count = usize::from(grade_node.local_mask.is_some())
+            + usize::from(grade_node.composite_mask.is_some())
+            + usize::from(grade_node.preserved_managed_raster.is_some());
+        if mask_representation_count > 1 {
             bail!(
-                "Grade Node {index} cannot carry both an editable local mask and an opaque managed raster marker"
+                "Grade Node {index} cannot carry more than one editable local-mask representation"
             );
+        }
+        if let Some(composite) = &grade_node.composite_mask {
+            if !(1..=shadow_domain::MAX_MASK_COMPONENTS).contains(&composite.components.len()) {
+                bail!(
+                    "Grade Node {index} composite mask must contain 1 through {} components",
+                    shadow_domain::MAX_MASK_COMPONENTS
+                );
+            }
+            let mut component_ids = HashSet::with_capacity(composite.components.len());
+            for (component_index, component) in composite.components.iter().enumerate() {
+                if !component_ids.insert(component.id) {
+                    bail!(
+                        "Grade Node {index} composite mask contains duplicate component id {}",
+                        component.id
+                    );
+                }
+                let operation_is_valid = if component_index == 0 {
+                    component.operation == shadow_domain::MaskComponentOperation::Base
+                } else {
+                    component.operation != shadow_domain::MaskComponentOperation::Base
+                };
+                if !operation_is_valid {
+                    bail!(
+                        "Grade Node {index} composite mask component {component_index} has an invalid operation order"
+                    );
+                }
+                if let super::MaskComponentDraftDefinition::Definition(definition) =
+                    &component.definition
+                {
+                    shadow_domain::MaskComponent::new(
+                        component.id,
+                        component.operation,
+                        component.enabled,
+                        definition.clone(),
+                    )
+                    .with_context(|| {
+                        format!(
+                            "validate Grade Node {index} composite mask component {component_index}"
+                        )
+                    })?;
+                }
+            }
         }
         let identity = &grade_node.recipe_v1_identity;
         if !grade_node_ids.insert(identity.grade_node_id) {
@@ -239,9 +286,27 @@ pub(crate) fn validate_fine_parameters(parameters: &FineEditParameters) -> AnyRe
     ] {
         validate_range(value, -1.0, 1.0, name)?;
     }
+    for (name, value) in [
+        ("highlight red suppression", tone.highlight_red_suppression),
+        (
+            "highlight green suppression",
+            tone.highlight_green_suppression,
+        ),
+        (
+            "highlight blue suppression",
+            tone.highlight_blue_suppression,
+        ),
+    ] {
+        validate_range(value, 0.0, 1.0, name)?;
+    }
     validate_perceptual_color_parameters(parameters)?;
     if let Some(curve) = &parameters.oklab_lightness_curve {
         validate_tone_curve(&curve.lightness).context("validate Oklab lightness curve")?;
+    }
+    if let Some(curves) = &parameters.rgb_tone_curves {
+        for points in &curves.channels {
+            validate_tone_curve(points)?;
+        }
     }
     validate_lut_parameters(&parameters.lut)?;
     validate_detail_and_finishing_parameters(parameters)

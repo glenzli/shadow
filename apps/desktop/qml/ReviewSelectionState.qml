@@ -36,6 +36,7 @@ QtObject {
     property var selectedRemoteInspection: ({})
     property string selectedRole: ""
     property string selectedVisualSource: ""
+    property bool selectedVisualAutoTransform: false
     property int selectedWidth: 0
     property int selectedHeight: 0
     // Detailed inspection is selected by exact identity and survives delegate
@@ -191,11 +192,16 @@ QtObject {
             "remoteConnectionId": String(card.remoteConnectionId || ""),
             "remotePreviewUnavailableReason":
                 String(card.remotePreviewUnavailableReason || ""),
+            "localBackingPhotoId": String(card.localBackingPhotoId || ""),
+            "localBackingRepresentationId":
+                String(card.localBackingRepresentationId || ""),
             "visualRole": String(card.visualRole || ""),
             "visualSource": String(card.visualSource || ""),
+            "visualAutoTransform": Boolean(card.visualAutoTransform),
             "visualWidth": Number(card.visualWidth || 0),
             "visualHeight": Number(card.visualHeight || 0),
             "hasMetadata": Boolean(card.hasMetadata),
+            "metadataSchemaVersion": Number(card.metadataSchemaVersion || 0),
             "cameraMake": String(card.cameraMake || ""),
             "cameraModel": String(card.cameraModel || ""),
             "lensMake": String(card.lensMake || ""),
@@ -205,8 +211,18 @@ QtObject {
             "exposureTimeSeconds": Number(card.exposureTimeSeconds || 0),
             "apertureFNumber": Number(card.apertureFNumber || 0),
             "focalLengthMm": Number(card.focalLengthMm || 0),
+            "focalLength35mm": Number(card.focalLength35mm || 0),
             "rawWidth": Number(card.rawWidth || 0),
-            "rawHeight": Number(card.rawHeight || 0)
+            "rawHeight": Number(card.rawHeight || 0),
+            "imageWidth": Number(card.imageWidth || 0),
+            "imageHeight": Number(card.imageHeight || 0),
+            "hasOrientation": Boolean(card.hasOrientation),
+            "orientation": Number(card.orientation || 0),
+            "hasCoordinates": Boolean(card.hasCoordinates),
+            "latitude": Number(card.latitude || 0),
+            "longitude": Number(card.longitude || 0),
+            "hasAltitude": Boolean(card.hasAltitude),
+            "altitudeMeters": Number(card.altitudeMeters || 0)
         }
     }
 
@@ -233,6 +249,7 @@ QtObject {
                 selectedRemotePreviewUnavailableReason,
             "visualRole": selectedRole,
             "visualSource": selectedVisualSource,
+            "visualAutoTransform": selectedVisualAutoTransform,
             "visualWidth": selectedWidth,
             "visualHeight": selectedHeight,
             "hasMetadata": selectedHasMetadata,
@@ -241,10 +258,14 @@ QtObject {
             "lensMake": selectedLensMake,
             "lensModel": selectedLensModel,
             "capturedAtUnixSeconds": selectedCapturedAtUnixSeconds,
+            "hasCoordinates": selectedHasCoordinates,
+            "latitude": selectedLatitude,
+            "longitude": selectedLongitude,
             "isoSpeed": selectedIsoSpeed,
             "exposureTimeSeconds": selectedExposureTimeSeconds,
             "apertureFNumber": selectedApertureFNumber,
             "focalLengthMm": selectedFocalLengthMm,
+            "focalLength35mm": selectedFocalLength35mm,
             "rawWidth": selectedRawWidth,
             "rawHeight": selectedRawHeight
         })
@@ -270,6 +291,8 @@ QtObject {
     function updatePrimaryPhoto(card) {
         const identityChanged = selectedPhotoId !== card.photoId
             || selectedRepresentationId !== card.representationId
+        const retainedRemoteInspection = !identityChanged && selectedIsRemote
+            ? selectedRemoteInspection : null
         selectedPhotoId = card.photoId
         selectedRepresentationId = card.representationId
         selectedVisualHandle = card.visualHandle
@@ -288,7 +311,7 @@ QtObject {
         selectedRemoteConnectionId = String(card.remoteConnectionId || "")
         selectedRemotePreviewUnavailableReason =
             String(card.remotePreviewUnavailableReason || "")
-        selectedRemoteInspection = selectedIsRemote ? {
+        const remoteSnapshot = selectedIsRemote ? {
             "available": true,
             "photoId": card.photoId,
             "representationId": card.representationId,
@@ -298,15 +321,28 @@ QtObject {
             "lensMake": String(card.lensMake || ""),
             "lensModel": String(card.lensModel || ""),
             "capturedAtUnixSeconds": card.capturedAtUnixSeconds || 0,
+            "hasCoordinates": Boolean(card.hasCoordinates),
+            "latitude": Number(card.latitude || 0),
+            "longitude": Number(card.longitude || 0),
+            "hasAltitude": Boolean(card.hasAltitude),
+            "altitudeMeters": Number(card.altitudeMeters || 0),
             "isoSpeed": Number(card.isoSpeed || 0),
             "exposureTimeSeconds": Number(card.exposureTimeSeconds || 0),
             "apertureFNumber": Number(card.apertureFNumber || 0),
             "focalLengthMm": Number(card.focalLengthMm || 0),
+            "focalLength35mm": Number(card.focalLength35mm || 0),
             "rawWidth": Number(card.rawWidth || 0),
-            "rawHeight": Number(card.rawHeight || 0)
+            "rawHeight": Number(card.rawHeight || 0),
+            "imageWidth": Number(card.imageWidth || 0),
+            "imageHeight": Number(card.imageHeight || 0),
+            "hasOrientation": Boolean(card.hasOrientation),
+            "orientation": Number(card.orientation || 0)
         } : ({})
+        selectedRemoteInspection = retainedRemoteInspection
+            ? Object.assign({}, remoteSnapshot, retainedRemoteInspection) : remoteSnapshot
         selectedRole = card.visualRole
         selectedVisualSource = card.visualSource
+        selectedVisualAutoTransform = Boolean(card.visualAutoTransform)
         selectedWidth = card.visualWidth
         selectedHeight = card.visualHeight
         if (identityChanged) {
@@ -361,7 +397,7 @@ QtObject {
                 selectedPhotoTargets = updated
                 if (selectedPhotoId === card.photoId
                         && selectedRepresentationId === card.representationId)
-                    clearPrimaryPhoto()
+                    selectRemainingPrimary()
                 return
             }
         }
@@ -392,11 +428,22 @@ QtObject {
         selectedRemoteInspection = ({})
         selectedRole = ""
         selectedVisualSource = ""
+        selectedVisualAutoTransform = false
         selectedWidth = 0
         selectedHeight = 0
         controller.clearPhotoInspection()
         controller.clearFocusDetail()
         primaryContextInvalidated()
+    }
+
+    function applyRemoteInspectionChanged(photoId, inspection) {
+        if (!selectedIsRemote || selectedPhotoId !== String(photoId || ""))
+            return
+        if (!inspection || String(inspection.photoId || "") !== selectedPhotoId
+                || String(inspection.representationId || "")
+                    !== selectedRepresentationId)
+            return
+        selectedRemoteInspection = inspection
     }
 
     function refreshFocusDetail() {
@@ -419,6 +466,39 @@ QtObject {
         selectionAnchorPhotoId = ""
         selectionAnchorRepresentationId = ""
         clearPrimaryPhoto()
+    }
+
+    function selectRemainingPrimary() {
+        const keys = Object.keys(selectedPhotoTargets)
+        if (keys.length === 0) {
+            clearPrimaryPhoto()
+            return
+        }
+        updatePrimaryPhoto(selectedPhotoTargets[keys[keys.length - 1]])
+    }
+
+    function reconcileSelection() {
+        // A reset keeps the previous page until its replacement arrives. Do
+        // not interpret the intermediate page as the settled query result.
+        if (controller.refreshing || controller.scanning || selectedPhotoCount === 0)
+            return
+        const current = controller.currentSelectionTargets(batchSelectionTargets())
+        const updated = ({})
+        for (let index = 0; index < current.length; ++index) {
+            const target = snapshotForCard(current[index])
+            updated[selectionKey(target.photoId, target.representationId)] = target
+        }
+        selectedPhotoTargets = updated
+        const primary = updated[selectionKey(selectedPhotoId, selectedRepresentationId)]
+        if (primary !== undefined)
+            updatePrimaryPhoto(primary)
+        else
+            selectRemainingPrimary()
+        if (updated[selectionKey(selectionAnchorPhotoId,
+                                 selectionAnchorRepresentationId)] === undefined) {
+            selectionAnchorPhotoId = selectedPhotoId
+            selectionAnchorRepresentationId = selectedRepresentationId
+        }
     }
 
     function applyDecisionChanged(photoId, headSequence, flag, rating) {

@@ -12,6 +12,14 @@ fn settings_snapshot_must_be_a_single_json_object() {
 }
 
 #[test]
+fn raw_dng_execution_requires_the_frozen_dng_format() {
+    ensure_raw_dng_settings(r#"{"schema":"test","format":"dng"}"#)
+        .expect("DNG settings are accepted");
+    assert!(ensure_raw_dng_settings(r#"{"format":"jpeg"}"#).is_err());
+    assert!(ensure_raw_dng_settings("[]").is_err());
+}
+
+#[test]
 fn export_target_requires_complete_absolute_identity() {
     let output_path = std::env::temp_dir().join("shadow-durable-export-test.jpg");
     let valid = ffi::FfiDurableExportTarget {

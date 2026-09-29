@@ -339,9 +339,6 @@ impl RawFoundationService {
                     RawFoundationJobResult::Unavailable(diagnostic)
                 }
                 Ok(RawFoundationRuntimeOutcome::Cancelled) => RawFoundationJobResult::Cancelled,
-                Ok(RawFoundationRuntimeOutcome::Failed { diagnostic }) => {
-                    RawFoundationJobResult::Failed(diagnostic)
-                }
                 Err(error) => RawFoundationJobResult::Failed(error.to_string()),
             }
         };

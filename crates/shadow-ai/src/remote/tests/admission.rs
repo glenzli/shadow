@@ -5,8 +5,9 @@ use shadow_domain::PhotoId;
 
 use crate::{
     AI_JOB_REQUEST_CONTRACT_VERSION, AiJobRequest, AiTaskKind, AiTaskParameters, ArtifactReference,
-    InputRole, ObservationTarget, PrivacyClass, RasterExtent, RemoteExecutionPolicy,
-    RemoteUploadPreparation, RemoteUploadStore, ResourceEstimate, TaskPriority,
+    ImageCompletionParameters, InputRole, ObservationTarget, PrivacyClass, RasterExtent,
+    RemoteExecutionPolicy, RemoteUploadPreparation, RemoteUploadStore, ResourceEstimate,
+    TaskPriority,
     remote::{
         PreparedRemoteUpload, PreparedRemoteUploadCommit, REMOTE_EXECUTION_REQUEST_SCHEMA_VERSION,
         RemoteDataRetention, RemoteExecutionContext, RemoteProviderBlocker, RemoteTrainingUse,
@@ -50,7 +51,11 @@ fn request() -> AiJobRequest {
             artifact(InputRole::CurrentRenderedCrop, 'a', PrivacyClass::Personal),
             artifact(InputRole::Mask, 'b', PrivacyClass::Personal),
         ],
-        parameters: AiTaskParameters::None,
+        parameters: AiTaskParameters::ImageCompletion(ImageCompletionParameters {
+            coordinate_extent: RasterExtent::new(1024, 768).expect("fixture extent"),
+            source_recipe_blake3: "e".repeat(64),
+            mask_revision: "f".repeat(64),
+        }),
         estimate: ResourceEstimate {
             upload_bytes: 8192,
             cpu_threads: 1,

@@ -11,6 +11,7 @@
 #include <shadow/image/reference_pixels.hpp>
 
 #include "dng_noise_profile.hpp"
+#include "libraw_raw_geometry.hpp"
 #include "libraw_reference_development.hpp"
 #include "libraw_runtime.hpp"
 
@@ -174,11 +175,36 @@ raw_frame_black_level(const libraw_colordata_t& color, const int color_index) no
     return combined_black_level(color.black, color.cblack[index]);
 }
 
-[[nodiscard]] std::uint32_t
-raw_frame_white_level(const libraw_colordata_t& color, const int color_index) noexcept {
-    const auto channel_maximum = color.linear_max[static_cast<std::size_t>(color_index)];
-    const auto black_level = raw_frame_black_level(color, color_index);
-    return channel_maximum > black_level ? channel_maximum : color.maximum;
+[[nodiscard]] std::uint32_t raw_frame_white_level(const libraw_colordata_t& color) noexcept {
+    // `linear_max` is LibRaw's per-channel boundary for the recorded linear-response region,
+    // not the CFA sample coding white.  Using it here silently makes the Bayer normalisation
+    // and sensor-clipping stages discard the remaining sensor headroom one channel at a time.
+    // LibRaw's `maximum` is the calibrated code-value white reference for this RAW frame; keep
+    // it shared across CFA sites and leave channel relationships available to later highlight
+    // treatment rather than clipping them during source preparation.
+    return color.maximum;
+}
+
+[[nodiscard]] std::optional<std::array<std::uint32_t, 4U>> raw_frame_linear_response_limits(
+    const libraw_colordata_t& color,
+    const std::array<int, 4U>& color_indices,
+    const std::array<std::uint32_t, 4U>& black_levels,
+    const std::array<std::uint32_t, 4U>& white_levels
+) noexcept {
+    std::array<std::uint32_t, 4U> limits{};
+    for (std::size_t site = 0U; site < limits.size(); ++site) {
+        const auto color_index = static_cast<std::size_t>(color_indices[site]);
+        const auto limit = color.linear_max[color_index];
+        // LibRaw leaves this field at zero when the camera has no calibrated
+        // response-boundary metadata.  Partial metadata is not enough to make
+        // a colour-confidence decision, so keep the entire optional contract
+        // unavailable rather than filling missing channels heuristically.
+        if (limit <= black_levels[site] || limit > white_levels[site]) {
+            return std::nullopt;
+        }
+        limits[site] = limit;
+    }
+    return limits;
 }
 
 [[nodiscard]] bool positive_finite(const double value) noexcept {
@@ -436,12 +462,18 @@ preview_format(const LibRaw_internal_thumbnail_formats format) noexcept {
     }
 }
 
-[[nodiscard]] Margins image_margins(const libraw_image_sizes_t& sizes) noexcept {
-    const auto used_width = static_cast<std::uint32_t>(sizes.left_margin) + sizes.width;
-    const auto used_height = static_cast<std::uint32_t>(sizes.top_margin) + sizes.height;
-    const auto right = sizes.raw_width > used_width ? sizes.raw_width - used_width : 0U;
-    const auto bottom = sizes.raw_height > used_height ? sizes.raw_height - used_height : 0U;
-    return Margins{sizes.left_margin, sizes.top_margin, right, bottom};
+[[nodiscard]] detail::LibRawRawFrameGeometryInput
+raw_frame_geometry_input(const libraw_image_sizes_t& sizes) noexcept {
+    const auto& inset = sizes.raw_inset_crops[0];
+    return {
+        sizes.raw_width,
+        sizes.raw_height,
+        sizes.width,
+        sizes.height,
+        sizes.left_margin,
+        sizes.top_margin,
+        detail::LibRawRawInsetCrop{inset.cleft, inset.ctop, inset.cwidth, inset.cheight},
+    };
 }
 
 [[nodiscard]] std::optional<double> libraw_gps_coordinate(
@@ -482,8 +514,9 @@ preview_format(const LibRaw_internal_thumbnail_formats format) noexcept {
     metadata.dng_version = dng_version_string(identity.dng_version);
     metadata.raw_count = identity.raw_count;
     metadata.raw_dimensions = Dimensions{sizes.raw_width, sizes.raw_height};
-    metadata.image_dimensions = Dimensions{sizes.width, sizes.height};
-    metadata.margins = image_margins(sizes);
+    const auto raw_geometry = detail::raw_frame_geometry(raw_frame_geometry_input(sizes));
+    metadata.image_dimensions = raw_geometry.active_dimensions;
+    metadata.margins = raw_geometry.active_margins;
     metadata.orientation = sizes.flip;
     metadata.cfa_pattern = cfa_pattern(decoder);
     metadata.sensor_colors = static_cast<std::uint32_t>(identity.colors);
@@ -778,7 +811,16 @@ class LibRawSession final : public DecodeSession {
         const auto& color = decoder_.imgdata.color;
         for (std::size_t site = 0U; site < descriptor.black_levels.size(); ++site) {
             descriptor.black_levels[site] = raw_frame_black_level(color, color_indices[site]);
-            descriptor.white_levels[site] = raw_frame_white_level(color, color_indices[site]);
+            descriptor.white_levels[site] = raw_frame_white_level(color);
+        }
+        if (const auto limits = raw_frame_linear_response_limits(
+                color,
+                color_indices,
+                descriptor.black_levels,
+                descriptor.white_levels
+            )) {
+            descriptor.linear_response_limits = *limits;
+            descriptor.has_linear_response_limits = true;
         }
         descriptor.sensor_noise =
             resolve_dng_noise_profile(dng_noise_profile_, descriptor, metadata_.iso_speed);
@@ -897,18 +939,22 @@ class LibRawProvider final : public DecoderProvider {
         validate_libraw_development_settings(settings_);
         const unsigned capabilities = LibRaw::capabilities();
         info_.id = "libraw";
-        // Provider version participates in generated-proxy/cache identity. Include Shadow's
-        // reference/output contracts so a transfer or gamut-mapping change cannot reuse bytes
-        // generated under the same linked LibRaw release.
-        info_.version = "lr=" + std::string(LibRaw::version()) + ";cap="
-                        + std::to_string(libraw_reference_development_contract_version) + ";linear="
-                        + std::to_string(processed_linear_reference_rgb_contract_version)
-                        + ";receipt=" + std::to_string(raw_development_receipt_schema_version)
-                        + ";plan=" + std::to_string(raw_development_plan_schema_version)
-                        + ";frame=" + std::to_string(raw_frame_schema_version) + "-n"
-                        + std::to_string(dng_noise_profile_contract_version) + ";preview="
-                        + std::to_string(libraw_embedded_preview_geometry_contract_version)
-                        + ";display=" + std::to_string(display_srgb8_output_transform_version)
+        // Provider version participates in generated-proxy/cache identity. Its compact field
+        // names retain every contract dimension under the Catalog's bounded identity limit:
+        // c=reference, l=linear RGB, r=receipt, p=plan, f=RawFrame/noise/geometry, v=preview,
+        // d=display.
+        // Thus a transfer or gamut-mapping change cannot reuse bytes generated under the same
+        // linked LibRaw release.
+        info_.version = "lr=" + std::string(LibRaw::version())
+                        + ";cap=" + std::to_string(libraw_reference_development_contract_version)
+                        + ";l=" + std::to_string(processed_linear_reference_rgb_contract_version)
+                        + ";r=" + std::to_string(raw_development_receipt_schema_version)
+                        + ";p=" + std::to_string(raw_development_plan_schema_version)
+                        + ";f=" + std::to_string(raw_frame_schema_version) + "-n"
+                        + std::to_string(dng_noise_profile_contract_version) + "-g"
+                        + std::to_string(detail::libraw_raw_frame_geometry_contract_version)
+                        + ";v=" + std::to_string(libraw_embedded_preview_geometry_contract_version)
+                        + ";d=" + std::to_string(display_srgb8_output_transform_version)
                         + ";s=" + compact_libraw_development_settings_identity(settings_);
         if (info_.version.size() > 128U) {
             throw std::invalid_argument("LibRaw provider cache identity exceeds 128 bytes");

@@ -283,6 +283,8 @@ void ExportController::startExport(
     }
     const QString extension = export_options.format == QStringLiteral("png")
         ? QStringLiteral("png")
+        : export_options.format == QStringLiteral("dng")
+            ? QStringLiteral("dng")
         : export_options.format == QStringLiteral("tiff")
             ? QStringLiteral("tif")
             : QStringLiteral("jpg");

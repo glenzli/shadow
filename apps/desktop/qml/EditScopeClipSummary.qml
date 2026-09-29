@@ -80,7 +80,7 @@ RowLayout {
                 : qsTranslate("EditHistogram", "SHADOWS  —")
             color: summary.hasData && summary.shadowPixels > 0
                 ? Theme.shadowClipText : summary.mutedTextColor
-            font.pixelSize: 8
+            font.pixelSize: Theme.fontMicro
             font.weight: Font.Bold
             font.letterSpacing: 0.35
         }
@@ -113,7 +113,7 @@ RowLayout {
                 : qsTranslate("EditHistogram", "HIGHLIGHTS  —")
             color: summary.hasData && summary.highlightPixels > 0
                 ? Theme.highlightClipText : summary.mutedTextColor
-            font.pixelSize: 8
+            font.pixelSize: Theme.fontMicro
             font.weight: Font.Bold
             font.letterSpacing: 0.35
         }

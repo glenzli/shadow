@@ -13,11 +13,13 @@ ColumnLayout {
 
     signal openMetadataRequested()
 
-    readonly property bool remotePreviewUnavailable:
-        exifSection.review.selectedIsRemote
-        && exifSection.review.selectedVisualSource.length === 0
+    // Keep long translated field names within the inspector instead of
+    // letting right-aligned text overflow its fixed column to the left.
+    readonly property real fieldLabelWidth: Math.min(108, Math.max(76, width * 0.4))
+
     readonly property bool remoteServerOffline:
-        exifSection.remotePreviewUnavailable
+        exifSection.review.selectedIsRemote
+        && exifSection.review.selectedRemoteConnectionId.length > 0
         && exifSection.review.remoteLibraryConnectionOffline(
             exifSection.review.selectedRemoteConnectionId)
 
@@ -30,7 +32,7 @@ ColumnLayout {
         Label {
             text: qsTranslate("ReviewWorkspace", "EXIF")
             color: exifSection.review.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             font.weight: Font.DemiBold
             font.letterSpacing: 1.2
         }
@@ -53,17 +55,17 @@ ColumnLayout {
         spacing: 8
 
         Label {
-            Layout.preferredWidth: 76
+            Layout.preferredWidth: exifSection.fieldLabelWidth
+            wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignRight
             text: qsTranslate("ReviewWorkspace", "SOURCE")
             color: exifSection.review.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
         }
 
         ReviewRemoteSourceIndicator {
             visible: exifSection.review.selectedIsRemote
             cached: exifSection.review.selectedRemoteOriginalCached
-                && !exifSection.remotePreviewUnavailable
             offline: exifSection.remoteServerOffline
             iconSize: 13
         }
@@ -79,16 +81,20 @@ ColumnLayout {
             Layout.fillWidth: true
             text: exifSection.review.selectedIsRemote
                 ? (exifSection.remoteServerOffline
+                    && exifSection.review.selectedRemoteOriginalCached
+                    ? qsTranslate(
+                        "ReviewWorkspace",
+                        "Server Library · offline · cached locally")
+                    : exifSection.remoteServerOffline
                     ? qsTranslate(
                         "ReviewWorkspace", "Server Library · offline")
                     : exifSection.review.selectedRemoteOriginalCached
-                        && !exifSection.remotePreviewUnavailable
                     ? qsTranslate(
                         "ReviewWorkspace", "Server Library · cached locally")
                     : qsTranslate("ReviewWorkspace", "Server Library"))
                 : qsTranslate("ReviewWorkspace", "Local Library")
             color: exifSection.review.textPrimary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMeta
             elide: Text.ElideRight
         }
     }
@@ -107,7 +113,7 @@ ColumnLayout {
                     "ReviewWorkspace",
                     "No metadata is available for this photo")
         color: Theme.textQuiet
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMeta
     }
 
     ShadowButton {
@@ -150,11 +156,12 @@ ColumnLayout {
             spacing: 8
 
             Label {
-                Layout.preferredWidth: 76
+                Layout.preferredWidth: exifSection.fieldLabelWidth
+                wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignRight
                 text: exifRow.modelData.label
                 color: exifSection.review.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontCaption
             }
 
             Label {
@@ -162,7 +169,7 @@ ColumnLayout {
                 text: exifSection.metadataPresentation.exifValue(
                     exifRow.modelData.id)
                 color: exifSection.review.textPrimary
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMeta
                 elide: Text.ElideRight
             }
         }

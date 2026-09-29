@@ -86,7 +86,22 @@ WarmEditPreviewGpuStats WarmEditGpuSession::stats() const noexcept {
     return {};
 }
 
-WarmEditGpuPreparation prepare_warm_edit_gpu_session(const FloatRgbImage&) {
+WarmEditGpuHostSourceAttempt WarmEditGpuSession::host_source_for_cpu_replay(
+    const std::stop_token cancellation
+) const {
+    return {
+        .cancelled = cancellation.stop_requested(),
+        .diagnostic = cancellation.stop_requested()
+                          ? std::string{}
+                          : "resident warm-preview CPU replay is unavailable on this platform",
+    };
+}
+
+WarmEditGpuPreparation prepare_warm_edit_gpu_session(
+    const FloatRgbImage&,
+    const SensorClippingMask*,
+    const HighlightChromaRiskMap*
+) {
     return WarmEditGpuPreparation{
         .session = nullptr,
         .diagnostic = "session-resident Metal warm preview is unavailable on this platform",

@@ -45,6 +45,8 @@ public:
     [[nodiscard]] bool mask_coverage_available() const noexcept;
     [[nodiscard]] rust::String mask_coverage_version() const;
     [[nodiscard]] std::uint32_t mask_coverage_layer_index() const noexcept;
+    [[nodiscard]] bool mask_coverage_component_selected() const noexcept;
+    [[nodiscard]] std::uint32_t mask_coverage_component_index() const noexcept;
     [[nodiscard]] std::uint32_t mask_coverage_width() const noexcept;
     [[nodiscard]] std::uint32_t mask_coverage_height() const noexcept;
     [[nodiscard]] std::uint32_t mask_coverage_row_stride_bytes() const noexcept;

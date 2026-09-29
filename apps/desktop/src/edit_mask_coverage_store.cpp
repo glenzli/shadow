@@ -8,9 +8,7 @@
 
 namespace {
 
-[[nodiscard]] bool valid_mask_coverage_descriptor(
-    const EditMaskCoveragePayload& payload
-) noexcept {
+[[nodiscard]] bool valid_mask_coverage_descriptor(const EditMaskCoveragePayload& payload) noexcept {
     if (payload.version != EDIT_MASK_COVERAGE_VERSION || !payload.dimensions.isValid()
         || payload.dimensions.isEmpty()
         || payload.dimensions.width() > std::numeric_limits<int>::max()
@@ -20,23 +18,17 @@ namespace {
     const std::uint64_t width = static_cast<std::uint64_t>(payload.dimensions.width());
     const std::uint64_t height = static_cast<std::uint64_t>(payload.dimensions.height());
     return payload.row_stride_bytes == width
-           && width * height
-               <= static_cast<std::uint64_t>(
-                   std::numeric_limits<qsizetype>::max()
-               );
+           && width * height <= static_cast<std::uint64_t>(std::numeric_limits<qsizetype>::max());
 }
 
-[[nodiscard]] bool valid_materialized_mask_coverage(
-    const EditMaskCoveragePayload& payload
-) noexcept {
+[[nodiscard]] bool
+valid_materialized_mask_coverage(const EditMaskCoveragePayload& payload) noexcept {
     if (!valid_mask_coverage_descriptor(payload)) {
         return false;
     }
-    const auto expected_bytes =
-        static_cast<std::uint64_t>(payload.dimensions.width())
-        * static_cast<std::uint64_t>(payload.dimensions.height());
-    return static_cast<std::uint64_t>(payload.samples.size())
-           == expected_bytes;
+    const auto expected_bytes = static_cast<std::uint64_t>(payload.dimensions.width())
+                                * static_cast<std::uint64_t>(payload.dimensions.height());
+    return static_cast<std::uint64_t>(payload.samples.size()) == expected_bytes;
 }
 
 } // namespace
@@ -56,8 +48,7 @@ bool EditPreviewStore::publishMaskCoverage(
     EditMaskCoveragePayload payload,
     const MaskCoverageGeneration generation
 ) {
-    if (!payload.samples.isEmpty()
-        && !valid_materialized_mask_coverage(payload)) {
+    if (!payload.samples.isEmpty() && !valid_materialized_mask_coverage(payload)) {
         return false;
     }
 
@@ -67,35 +58,30 @@ bool EditPreviewStore::publishMaskCoverage(
         || generation.paired_preview_generation != current_.generation
         || (current_.frame == nullptr && current_.bytes.isEmpty())
         || payload.target_layer_index != generation.target_layer_index
+        || payload.target_component_index != generation.target_component_index
         || payload.selection_revision != generation.selection_revision
-        || payload.dimensions != current_.dimensions
-        || !valid_mask_coverage_descriptor(payload)) {
+        || payload.dimensions != current_.dimensions || !valid_mask_coverage_descriptor(payload)) {
         return false;
     }
 
     std::shared_ptr<const BackendEditPreviewFrame> frame;
-    qsizetype row_stride_bytes =
-        static_cast<qsizetype>(payload.row_stride_bytes);
+    qsizetype row_stride_bytes = static_cast<qsizetype>(payload.row_stride_bytes);
     if (current_.frame != nullptr) {
         const auto coverage = current_.frame->maskCoverage();
         if (!payload.samples.isEmpty() || !coverage.has_value()
             || coverage->version != payload.version
             || coverage->target_layer_index != payload.target_layer_index
+            || coverage->target_component_index != payload.target_component_index
             || coverage->selection_revision != payload.selection_revision
             || coverage->dimensions != payload.dimensions
             || coverage->row_stride_bytes != payload.row_stride_bytes
             || static_cast<std::uint64_t>(coverage->samples.size())
-                != static_cast<std::uint64_t>(
-                       payload.dimensions.width()
-                   )
-                    * static_cast<std::uint64_t>(
-                        payload.dimensions.height()
-                    )) {
+                   != static_cast<std::uint64_t>(payload.dimensions.width())
+                          * static_cast<std::uint64_t>(payload.dimensions.height())) {
             return false;
         }
         frame = current_.frame;
-        row_stride_bytes =
-            static_cast<qsizetype>(coverage->row_stride_bytes);
+        row_stride_bytes = static_cast<qsizetype>(coverage->row_stride_bytes);
     } else if (!valid_materialized_mask_coverage(payload)) {
         return false;
     }

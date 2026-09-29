@@ -1,14 +1,24 @@
 //! Recipe-local spatial-mask definitions and immutable revisions.
 
 mod managed_raster;
+mod semantic;
 
-use serde::{Deserialize, Serialize};
+use std::{collections::HashSet, fmt};
 
-use crate::MaskId;
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{Error as _, MapAccess, Visitor},
+};
+
+use crate::{MaskComponentId, MaskId};
 
 pub use managed_raster::{
     MANAGED_RASTER_MASK_REFERENCE_VERSION, MAX_MANAGED_RASTER_MASK_DIMENSION, ManagedRasterMask,
     RasterMaskEncoding,
+};
+pub use semantic::{
+    MAX_SEMANTIC_MASK_QUERY_BYTES, MAX_SEMANTIC_MASK_REGIONS,
+    SEMANTIC_MASK_INTENT_CONTRACT_VERSION, SemanticMaskAggregation, SemanticMaskIntent,
 };
 
 use super::{
@@ -54,6 +64,317 @@ impl MaskReference {
 
     pub const fn coordinate_space(self) -> MaskCoordinateSpace {
         self.coordinate_space
+    }
+}
+
+/// Maximum number of ordered mask components in one immutable mask revision.
+pub const MAX_MASK_COMPONENTS: usize = 8;
+
+/// Ordered soft-coverage operation for one component of a composite mask.
+///
+/// Operations use bounded min/max set algebra so binary masks retain ordinary
+/// Boolean behavior while feathered authoring remains continuous and
+/// idempotent: Base returns the new coverage, Add takes the larger coverage,
+/// Subtract caps coverage by the complement, and Intersect takes the smaller
+/// coverage.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MaskComponentOperation {
+    Base,
+    Add,
+    Subtract,
+    Intersect,
+}
+
+impl MaskComponentOperation {
+    /// Combines one scalar soft-coverage sample with the accumulated coverage.
+    ///
+    /// This is the renderer-neutral reference operation used to keep CPU,
+    /// accelerated preview, detail, and export implementations equivalent.
+    pub fn combine_coverage(
+        self,
+        accumulated: UnitInterval,
+        component: UnitInterval,
+    ) -> UnitInterval {
+        let accumulated = accumulated.get();
+        let component = component.get();
+        let coverage = match self {
+            Self::Base => component,
+            Self::Add => accumulated.max(component),
+            Self::Subtract => accumulated.min(1.0 - component),
+            Self::Intersect => accumulated.min(component),
+        };
+        UnitInterval(FiniteF64(coverage.clamp(0.0, 1.0)))
+    }
+}
+
+/// One stable, independently bypassable leaf in a composite mask.
+///
+/// The definition is always an existing non-composite mask definition. This
+/// makes one MaskRevision the sole persistence owner while preventing an
+/// unbounded second expression tree.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct MaskComponent {
+    id: MaskComponentId,
+    operation: MaskComponentOperation,
+    enabled: bool,
+    definition: MaskDefinition,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnvalidatedMaskComponent {
+    id: MaskComponentId,
+    operation: MaskComponentOperation,
+    enabled: bool,
+    definition: MaskDefinition,
+}
+
+impl TryFrom<UnvalidatedMaskComponent> for MaskComponent {
+    type Error = RecipeValidationError;
+
+    fn try_from(value: UnvalidatedMaskComponent) -> Result<Self, Self::Error> {
+        Self::new(value.id, value.operation, value.enabled, value.definition)
+    }
+}
+
+impl<'de> Deserialize<'de> for MaskComponent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        UnvalidatedMaskComponent::deserialize(deserializer)?
+            .try_into()
+            .map_err(D::Error::custom)
+    }
+}
+
+impl MaskComponent {
+    /// Creates one validated non-nested component.
+    ///
+    /// Position-specific operation rules are validated by MaskComposite::new.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a nested composite or invalid leaf definition.
+    pub fn new(
+        id: MaskComponentId,
+        operation: MaskComponentOperation,
+        enabled: bool,
+        definition: MaskDefinition,
+    ) -> Result<Self, RecipeValidationError> {
+        let component = Self {
+            id,
+            operation,
+            enabled,
+            definition,
+        };
+        component.validate()?;
+        Ok(component)
+    }
+
+    pub const fn id(&self) -> MaskComponentId {
+        self.id
+    }
+
+    pub const fn operation(&self) -> MaskComponentOperation {
+        self.operation
+    }
+
+    pub const fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub const fn definition(&self) -> &MaskDefinition {
+        &self.definition
+    }
+
+    /// Preserves the component identity and authored leaf while changing only
+    /// its local bypass state.
+    #[must_use]
+    pub const fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    fn validate(&self) -> Result<(), RecipeValidationError> {
+        if matches!(self.definition, MaskDefinition::Composite { .. }) {
+            return Err(RecipeValidationError::NestedMaskComposite);
+        }
+        self.definition.validate()
+    }
+}
+
+/// One bounded, ordered composition owned by an existing mask revision.
+///
+/// Component order is authored state. The first component establishes the
+/// base; every later component modifies the accumulated soft coverage.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct MaskComposite {
+    components: Vec<MaskComponent>,
+    invert: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(field_identifier, rename_all = "snake_case")]
+enum MaskCompositeField {
+    Components,
+    Invert,
+}
+
+impl<'de> Deserialize<'de> for MaskComposite {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(MaskCompositeVisitor)
+    }
+}
+
+struct MaskCompositeVisitor;
+
+impl<'de> Visitor<'de> for MaskCompositeVisitor {
+    type Value = MaskComposite;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a composite mask with explicit components and final inversion")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut components = None;
+        let mut invert = None;
+        while let Some(field) = map.next_key()? {
+            match field {
+                MaskCompositeField::Components => {
+                    if components.is_some() {
+                        return Err(A::Error::duplicate_field("components"));
+                    }
+                    components = Some(map.next_value()?);
+                }
+                MaskCompositeField::Invert => {
+                    if invert.is_some() {
+                        return Err(A::Error::duplicate_field("invert"));
+                    }
+                    invert = Some(map.next_value()?);
+                }
+            }
+        }
+        let components = components.ok_or_else(|| A::Error::missing_field("components"))?;
+        let invert = invert.ok_or_else(|| A::Error::missing_field("invert"))?;
+        MaskComposite::new(components, invert).map_err(A::Error::custom)
+    }
+}
+
+impl MaskComposite {
+    /// Creates one validated, ordered composition.
+    ///
+    /// A one-component enabled Base with no final inversion is valid here so
+    /// editing code can remove a component atomically. Use
+    /// MaskDefinition::composite to normalize that reducible case back to the
+    /// legacy single-mask wire shape.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty or oversized composition, duplicate
+    /// identity, nested composition, or invalid operation order.
+    pub fn new(
+        components: Vec<MaskComponent>,
+        invert: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        let composite = Self { components, invert };
+        composite.validate()?;
+        Ok(composite)
+    }
+
+    pub fn components(&self) -> &[MaskComponent] {
+        &self.components
+    }
+
+    pub const fn invert(&self) -> bool {
+        self.invert
+    }
+
+    /// Reports whether this composition carries no authored state beyond one
+    /// legacy leaf definition.
+    pub fn is_reducible_to_single_definition(&self) -> bool {
+        self.components.len() == 1
+            && self.components[0].operation == MaskComponentOperation::Base
+            && self.components[0].enabled
+            && !self.invert
+    }
+
+    /// Evaluates one scalar coverage sample in stable component order.
+    ///
+    /// component_coverages includes one entry for every component, including
+    /// bypassed entries. Disabled components are skipped without changing
+    /// alignment, and final inversion is applied after all enabled operations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when coverage arity differs from the persisted
+    /// component count.
+    pub fn reference_coverage(
+        &self,
+        component_coverages: &[UnitInterval],
+    ) -> Result<UnitInterval, RecipeValidationError> {
+        if component_coverages.len() != self.components.len() {
+            return Err(RecipeValidationError::MaskComponentCoverageArity {
+                expected: self.components.len(),
+                actual: component_coverages.len(),
+            });
+        }
+        let coverage = self
+            .components
+            .iter()
+            .zip(component_coverages)
+            .filter(|(component, _)| component.enabled)
+            .fold(UnitInterval::ZERO, |coverage, (component, next)| {
+                component.operation.combine_coverage(coverage, *next)
+            });
+        if self.invert {
+            Ok(UnitInterval(FiniteF64(1.0 - coverage.get())))
+        } else {
+            Ok(coverage)
+        }
+    }
+
+    /// Returns the legacy leaf representation when no composite-only authored
+    /// state would be lost.
+    pub fn into_single_definition(mut self) -> Result<MaskDefinition, Self> {
+        if self.is_reducible_to_single_definition() {
+            if let Some(component) = self.components.pop() {
+                return Ok(component.definition);
+            }
+        }
+        Err(self)
+    }
+
+    fn validate(&self) -> Result<(), RecipeValidationError> {
+        if self.components.is_empty() {
+            return Err(RecipeValidationError::EmptyMaskComposite);
+        }
+        if self.components.len() > MAX_MASK_COMPONENTS {
+            return Err(RecipeValidationError::TooManyMaskComponents(
+                self.components.len(),
+            ));
+        }
+        if self.components[0].operation != MaskComponentOperation::Base {
+            return Err(RecipeValidationError::FirstMaskComponentMustBeBase);
+        }
+        let mut component_ids = HashSet::with_capacity(self.components.len());
+        for (index, component) in self.components.iter().enumerate() {
+            if index > 0 && component.operation == MaskComponentOperation::Base {
+                return Err(RecipeValidationError::BaseMaskComponentMustBeFirst);
+            }
+            if !component_ids.insert(component.id) {
+                return Err(RecipeValidationError::DuplicateMaskComponent(component.id));
+            }
+            component.validate()?;
+        }
+        Ok(())
     }
 }
 
@@ -133,12 +454,23 @@ pub enum MaskDefinition {
     /// raster's shorter edge.
     ManagedRaster {
         raster: ManagedRasterMask,
+        /// Optional provider-neutral instruction that can regenerate a
+        /// photo-specific variant when this mask is copied elsewhere.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        semantic_intent: Option<SemanticMaskIntent>,
         #[serde(default)]
         expansion_percent: i8,
         #[serde(default)]
         feather_percent: u8,
         #[serde(default)]
         invert: bool,
+    },
+    /// A bounded ordered composition of existing leaf masks. This variant is
+    /// still one definition owned by one MaskRevision, not a second mask graph
+    /// or independently referenced subsystem.
+    Composite {
+        #[serde(flatten)]
+        composite: MaskComposite,
     },
 }
 
@@ -343,6 +675,27 @@ impl MaskDefinition {
         }
     }
 
+    /// Creates one bounded ordered mask composition.
+    ///
+    /// A single enabled Base component with no final inversion is normalized
+    /// back to its legacy leaf definition. Existing one-mask Recipes therefore
+    /// retain their original serialized byte shape until composition-only
+    /// state is actually authored.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the composition violates its count, identity,
+    /// operation-order, nesting, or leaf-definition contract.
+    pub fn composite(
+        components: Vec<MaskComponent>,
+        invert: bool,
+    ) -> Result<Self, RecipeValidationError> {
+        match MaskComposite::new(components, invert)?.into_single_definition() {
+            Ok(definition) => Ok(definition),
+            Err(composite) => Ok(Self::Composite { composite }),
+        }
+    }
+
     /// Stores an accepted managed soft-mask raster as immutable Recipe state.
     ///
     /// # Errors
@@ -374,8 +727,33 @@ impl MaskDefinition {
         feather_percent: u8,
         invert: bool,
     ) -> Result<Self, RecipeValidationError> {
+        Self::managed_raster_with_semantic_intent_and_refinement(
+            raster,
+            None,
+            expansion_percent,
+            feather_percent,
+            invert,
+        )
+    }
+
+    /// Stores accepted raster bytes together with the semantic instruction
+    /// used to produce them. Renderers consume only the raster; cross-photo
+    /// authoring may rerun the intent and replace it with a new accepted one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the raster, semantic intent, or refinement
+    /// values violate their fixed contracts.
+    pub fn managed_raster_with_semantic_intent_and_refinement(
+        raster: ManagedRasterMask,
+        semantic_intent: Option<SemanticMaskIntent>,
+        expansion_percent: i8,
+        feather_percent: u8,
+        invert: bool,
+    ) -> Result<Self, RecipeValidationError> {
         let definition = Self::ManagedRaster {
             raster,
+            semantic_intent,
             expansion_percent,
             feather_percent,
             invert,
@@ -446,11 +824,15 @@ impl MaskDefinition {
             }
             Self::ManagedRaster {
                 raster,
+                semantic_intent,
                 expansion_percent,
                 feather_percent,
                 ..
             } => {
                 raster.validate()?;
+                if let Some(intent) = semantic_intent {
+                    intent.validate()?;
+                }
                 if !(-100..=100).contains(expansion_percent) {
                     return Err(RecipeValidationError::InvalidManagedRasterMaskExpansion(
                         *expansion_percent,
@@ -462,8 +844,34 @@ impl MaskDefinition {
                     ));
                 }
             }
+            Self::Composite { composite } => {
+                composite.validate()?;
+                if composite.is_reducible_to_single_definition() {
+                    return Err(RecipeValidationError::NonCanonicalMaskComposite);
+                }
+            }
         }
         Ok(())
+    }
+
+    /// Returns the re-evaluable instruction attached to an accepted semantic
+    /// raster, if this managed mask was created semantically.
+    pub const fn semantic_intent(&self) -> Option<&SemanticMaskIntent> {
+        match self {
+            Self::ManagedRaster {
+                semantic_intent, ..
+            } => semantic_intent.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Returns the ordered composite owner when this definition actually
+    /// contains composition-only authored state.
+    pub const fn composite_definition(&self) -> Option<&MaskComposite> {
+        match self {
+            Self::Composite { composite } => Some(composite),
+            _ => None,
+        }
     }
 }
 

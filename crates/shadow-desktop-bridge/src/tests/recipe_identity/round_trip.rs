@@ -31,8 +31,10 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         assert_eq!(id.get_version_num(), 7);
     }
     let decoded = decode_grade_stack_draft_recipe_v1(&ffi::FfiEditSettings {
+        paint_layers: Vec::new(),
         foundation: ffi::FfiPhotoFoundationSettings {
             enabled: true,
+            raw_highlight_repair_enabled: false,
             optics: ffi::FfiOpticsSettings {
                 enabled: true,
                 correct_distortion: true,
@@ -64,6 +66,9 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         grade_nodes: vec![created.clone()],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
@@ -100,8 +105,10 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     assert!(created.fine.oklab_lightness_curve_points.is_empty());
 
     let incoming = ffi::FfiEditSettings {
+        paint_layers: Vec::new(),
         foundation: ffi::FfiPhotoFoundationSettings {
             enabled: true,
+            raw_highlight_repair_enabled: true,
             optics: ffi::FfiOpticsSettings {
                 enabled: true,
                 correct_distortion: false,
@@ -133,6 +140,9 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
         grade_nodes: vec![created],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify_enabled: false,
         liquify_strokes: Vec::new(),
         geometry: ffi::FfiPhotoGeometry {
@@ -153,6 +163,7 @@ fn new_basic_grade_node_allocates_complete_stable_identity_and_round_trips() {
     let decoded = decode_grade_stack_draft_recipe_v1(&incoming).expect("decode Grade Stack");
     let outgoing = encode_grade_stack_draft_recipe_v1(decoded).expect("encode Grade Stack");
     assert_eq!(outgoing.grade_nodes.len(), 1);
+    assert!(outgoing.foundation.raw_highlight_repair_enabled);
     assert_eq!(
         outgoing.grade_nodes[0].grade_node_id,
         incoming.grade_nodes[0].grade_node_id
@@ -215,11 +226,15 @@ fn explicit_fine_edit_render_op_ids_survive_recipe_ffi_recipe_round_trip() {
 
     let snapshot = grade_stack_recipe_v1_snapshot(
         &GradeStackDraft {
+            paint_layers: Vec::new(),
             raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
             foundation: PhotoFoundationNode::default(),
             grade_nodes: vec![grade_node],
             retouch_spots: Vec::new(),
             retouch_strokes: Vec::new(),
+            retouch_enabled: true,
+            image_completions: Vec::new(),
+            image_completion_enabled: true,
             liquify: None,
             canvas: PhotoCanvasNode::identity(),
         },
@@ -341,11 +356,15 @@ fn current_single_layer_snapshot_round_trips_without_identity_or_label_loss() {
     let mut grade_node = GradeNodeDraft::neutral("Custom grade");
     grade_node.basic.exposure_stops = 0.75;
     let grade_stack = GradeStackDraft {
+        paint_layers: Vec::new(),
         raw_ai_denoise: shadow_domain::RawFoundationDenoise::disabled(),
         foundation: PhotoFoundationNode::default(),
         grade_nodes: vec![grade_node],
         retouch_spots: Vec::new(),
         retouch_strokes: Vec::new(),
+        retouch_enabled: true,
+        image_completions: Vec::new(),
+        image_completion_enabled: true,
         liquify: None,
         canvas: PhotoCanvasNode::identity(),
     };

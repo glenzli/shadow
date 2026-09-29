@@ -12,7 +12,9 @@ Rectangle {
     signal advancedFilterRequested()
 
     readonly property bool anyFilterActive:
-        filterBar.controller.filterFlag !== "all"
+        filterBar.controller.filterHideOfflineUncached === true
+        || filterBar.controller.filterOnlyEditable === true
+        || filterBar.controller.filterFlag !== "all"
         || filterBar.controller.filterMinimumRating > 0
         || filterBar.controller.filterColorLabel !== "all"
         || filterBar.controller.filterEditState !== "all"
@@ -60,7 +62,7 @@ Rectangle {
     }
 
     implicitWidth: filterControls.implicitWidth + 12
-    implicitHeight: 28
+    implicitHeight: Theme.controlHeight
     radius: 7
     color: filterBar.anyFilterActive
         ? Theme.accentSurfaceQuiet : Theme.surfaceSubtle
@@ -105,7 +107,8 @@ Rectangle {
             buttonSize: 24
             iconSize: 14
             variant: ShadowIconButton.Ghost
-            selected: filterBar.controller.filterExcludedFlag !== "all"
+            selected: filterBar.controller.filterHideOfflineUncached
+                || filterBar.controller.filterExcludedFlag !== "all"
                 || filterBar.controller.filterExcludedColorLabel !== "all"
                 || filterBar.controller.filterChineseLunarMonth > 0
                 || filterBar.controller.filterChineseLunarDay > 0
@@ -121,7 +124,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             text: qsTranslate("Main", "FILTER")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontCaption
             font.letterSpacing: 0.7
 
             TapHandler {
@@ -139,6 +142,19 @@ Rectangle {
             toolTipText: qsTranslate("Main", "Clear all Library filters")
             accessibleName: toolTipText
             onClicked: filterBar.controller.clearFilters()
+        }
+
+        ShadowIconButton {
+            objectName: "originalAvailableButton"
+            anchors.verticalCenter: parent.verticalCenter
+            source: "qrc:/icons/source-available.svg"
+            buttonSize: 24
+            iconSize: 17
+            checkable: true
+            checked: filterBar.controller.filterOnlyEditable
+            accessibleName: qsTr("Original available")
+            toolTipText: qsTr("Show only photos whose original is available locally or can be retrieved online")
+            onToggled: filterBar.controller.filterOnlyEditable = checked
         }
 
         Repeater {

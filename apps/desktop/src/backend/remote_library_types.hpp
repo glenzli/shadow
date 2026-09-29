@@ -37,7 +37,9 @@ struct BackendRemoteLibraryPhoto final {
     QString preview_role;
     std::uint32_t preview_width = 0;
     std::uint32_t preview_height = 0;
+    bool preview_auto_transform = false;
     QString preview_unavailable_reason;
+    std::uint32_t metadata_schema_version = 0;
     bool has_captured_at = false;
     std::int64_t captured_at_unix_seconds = 0;
     QString camera_make;
@@ -52,9 +54,21 @@ struct BackendRemoteLibraryPhoto final {
     double aperture_f_number = 0.0;
     bool has_focal_length = false;
     double focal_length_mm = 0.0;
+    bool has_focal_length_35mm = false;
+    double focal_length_35mm = 0.0;
     bool has_raw_dimensions = false;
     std::uint32_t raw_width = 0;
     std::uint32_t raw_height = 0;
+    bool has_image_dimensions = false;
+    std::uint32_t image_width = 0;
+    std::uint32_t image_height = 0;
+    bool has_orientation = false;
+    std::int32_t orientation = 0;
+    bool has_coordinates = false;
+    double latitude_degrees = 0.0;
+    double longitude_degrees = 0.0;
+    bool has_altitude = false;
+    double altitude_meters = 0.0;
     BackendReviewDecisionFlag decision_flag = BackendReviewDecisionFlag::Unflagged;
     std::uint8_t decision_rating = 0;
     bool liked = false;
@@ -77,7 +91,28 @@ struct BackendRemoteLibrarySyncResult final {
     std::uint64_t page_count = 0;
     std::uint64_t photo_count = 0;
     std::uint64_t downloaded_previews = 0;
+    std::uint64_t preview_failures = 0;
     std::uint64_t removed = 0;
+};
+
+struct BackendRemoteLibrarySyncStart final {
+    std::uint64_t job_id = 0;
+    BackendRemoteLibrarySnapshot snapshot;
+};
+
+struct BackendRemoteLibrarySyncStep final {
+    std::uint64_t job_id = 0;
+    BackendRemoteLibrarySnapshot snapshot;
+    QString stage;
+    std::uint64_t page_count = 0;
+    std::uint64_t photo_count = 0;
+    std::uint64_t preview_completed_count = 0;
+    std::uint64_t downloaded_previews = 0;
+    std::uint64_t preview_failures = 0;
+    std::uint64_t removed = 0;
+    bool manifest_complete = false;
+    bool complete = false;
+    QString diagnostic;
 };
 
 struct BackendRemoteLibraryMaterialization final {
@@ -86,4 +121,35 @@ struct BackendRemoteLibraryMaterialization final {
     QString local_source_path;
     QString title;
     bool reused_existing = false;
+    QString inspection_diagnostic;
+    std::uint32_t metadata_schema_version = 0;
+    bool has_captured_at = false;
+    std::int64_t captured_at_unix_seconds = 0;
+    QString camera_make;
+    QString camera_model;
+    QString lens_make;
+    QString lens_model;
+    bool has_iso_speed = false;
+    double iso_speed = 0.0;
+    bool has_exposure_time = false;
+    double exposure_time_seconds = 0.0;
+    bool has_aperture = false;
+    double aperture_f_number = 0.0;
+    bool has_focal_length = false;
+    double focal_length_mm = 0.0;
+    bool has_focal_length_35mm = false;
+    double focal_length_35mm = 0.0;
+    bool has_raw_dimensions = false;
+    std::uint32_t raw_width = 0;
+    std::uint32_t raw_height = 0;
+    bool has_image_dimensions = false;
+    std::uint32_t image_width = 0;
+    std::uint32_t image_height = 0;
+    bool has_orientation = false;
+    std::int32_t orientation = 0;
+    bool has_coordinates = false;
+    double latitude_degrees = 0.0;
+    double longitude_degrees = 0.0;
+    bool has_altitude = false;
+    double altitude_meters = 0.0;
 };

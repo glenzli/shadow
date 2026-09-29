@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shadow.local/schemas/raw-highlight-fixture-matrix-v1.json",
+  "title": "Shadow local RAW highlight fixture matrix",
+  "type": "object",
+  "required": [
+    "schema",
+    "matrix_version",
+    "created_utc",
+    "definition",
+    "payload_policy",
+    "required_classes",
+    "fixtures",
+    "candidates"
+  ],
+  "properties": {
+    "schema": { "const": "shadow.raw-highlight-fixture-matrix.v1" },
+    "matrix_version": { "type": "string", "minLength": 1 },
+    "created_utc": { "type": "string" },
+    "definition": { "$ref": "#/$defs/fileIdentity" },
+    "payload_policy": {
+      "type": "object",
+      "required": [
+        "raw_files_copied",
+        "catalog_is_local_only",
+        "coordination_payload_forbidden"
+      ],
+      "properties": {
+        "raw_files_copied": { "const": false },
+        "catalog_is_local_only": { "const": true },
+        "coordination_payload_forbidden": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "required_classes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/caseClass" }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "source", "cases"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "source": {
+            "type": "object",
+            "required": [
+              "absolute_path",
+              "basename",
+              "size_bytes",
+              "sha256",
+              "license",
+              "copied_into_catalog"
+            ],
+            "properties": {
+              "absolute_path": { "type": "string" },
+              "basename": { "type": "string" },
+              "size_bytes": { "type": "integer", "minimum": 0 },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "license": { "type": "string", "minLength": 1 },
+              "copied_into_catalog": { "const": false }
+            },
+            "additionalProperties": false
+          },
+          "cases": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/$defs/case" }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/candidate" }
+    }
+  },
+  "$defs": {
+    "fileIdentity": {
+      "type": "object",
+      "required": ["basename", "size_bytes", "sha256"],
+      "properties": {
+        "basename": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "caseClass": {
+      "enum": [
+        "nikon-he-smooth-clipping",
+        "lamp-dark-neighbour",
+        "sony-sun-disc-gradient",
+        "specular-highlight",
+        "saturated-single-colour-emitter",
+        "ordinary-unclipped-control"
+      ]
+    },
+    "case": {
+      "type": "object",
+      "required": ["id", "class", "region"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "class": { "$ref": "#/$defs/caseClass" },
+        "region": { "type": "object" }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "required": [
+        "id",
+        "write_ownership",
+        "context_radius",
+        "reusable_upstream_state",
+        "recomputation_frontier",
+        "residency_and_transfers",
+        "cache_identity_impact",
+        "cancellation_behavior",
+        "preview_detail_export_equivalence"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "write_ownership": {},
+        "context_radius": {
+          "type": "object",
+          "required": ["unit"],
+          "properties": {
+            "unit": { "enum": ["pixels", "tiles", "full-frame"] },
+            "value": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "reusable_upstream_state": {},
+        "recomputation_frontier": {},
+        "residency_and_transfers": {},
+        "cache_identity_impact": {},
+        "cancellation_behavior": {},
+        "preview_detail_export_equivalence": {}
+      }
+    }
+  }
+}

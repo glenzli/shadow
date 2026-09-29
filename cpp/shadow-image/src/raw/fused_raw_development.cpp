@@ -60,7 +60,8 @@ void validate_request(
         );
     }
     if (highlight_recovery != RawHighlightRecoveryIntent::provider_default
-        && highlight_recovery != RawHighlightRecoveryIntent::disabled) {
+        && highlight_recovery != RawHighlightRecoveryIntent::disabled
+        && highlight_recovery != RawHighlightRecoveryIntent::aggressive) {
         throw DecodeError(
             DecodeErrorCode::unsupported,
             0,
@@ -146,6 +147,12 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
             ? proxy_dimensions(descriptor.active_dimensions, *preview_max_edge)
             : descriptor.active_dimensions;
     const bool area_preview = reconstruction_dimensions != descriptor.active_dimensions;
+    const detail::BayerCfaSamplingPolicy cfa_sampling =
+        highlight_recovery == RawHighlightRecoveryIntent::provider_default
+            ? detail::editable_raw_cfa_sampling_policy(transform)
+        : highlight_recovery == RawHighlightRecoveryIntent::aggressive
+            ? detail::aggressive_highlight_repair_cfa_sampling_policy(transform)
+            : detail::BayerCfaSamplingPolicy{};
     const auto area_sampling =
         area_preview ? std::optional<detail::BayerAreaSamplingGrid>(
                            detail::make_bayer_area_sampling_grid(frame, reconstruction_dimensions)
@@ -184,7 +191,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
              reconstruction_dimensions,
              output_dimensions,
              area_sampling,
-             highlight_recovery](const std::uint32_t first_row, const std::uint32_t last_row) {
+             cfa_sampling](const std::uint32_t first_row, const std::uint32_t last_row) {
                 for (std::uint32_t output_y = first_row; output_y < last_row; ++output_y) {
                     for (std::uint32_t output_x = 0U; output_x < output_dimensions.width;
                          ++output_x) {
@@ -200,8 +207,7 @@ oriented_dimensions(const Dimensions dimensions, const std::int32_t orientation)
                             source_x,
                             source_y,
                             &transform,
-                            highlight_recovery == RawHighlightRecoveryIntent::provider_default
-                                && transform.apply_cfa_white_balance
+                            cfa_sampling
                         );
                         const auto output_index =
                             (static_cast<std::size_t>(output_y) * output_dimensions.width
@@ -255,12 +261,19 @@ std::string_view
 raw_highlight_treatment_identity(const RawHighlightRecoveryIntent intent) noexcept {
     switch (intent) {
     case RawHighlightRecoveryIntent::provider_default:
-        return "sensor-highlights=cfa-white-point-before-demosaic-20260809.1";
+        return "sensor-highlights=cfa-opposed-point+cached-chrominance@20260826.1;"
+               "recovery=local-opposed+cached-global-chrominance;"
+               "headroom=physical-white-wb-fp32;"
+               "clipped-highlight=cfa-opposed-physical-white-chrominance-v24";
     case RawHighlightRecoveryIntent::disabled:
         return "sensor-highlights=disabled";
     case RawHighlightRecoveryIntent::conservative:
-    case RawHighlightRecoveryIntent::aggressive:
         return "sensor-highlights=unsupported";
+    case RawHighlightRecoveryIntent::aggressive:
+        return "sensor-highlights=cfa-opposed-cached-chrominance-feathered@20260826.1;"
+               "recovery=local-opposed+cached-global-chrominance+explicit-spatial-chroma;"
+               "headroom=physical-white-wb-fp32;"
+               "clipped-highlight=cfa-opposed-physical-white-chrominance-v24";
     }
     return "sensor-highlights=unknown";
 }
@@ -311,6 +324,11 @@ bool RawFrameLinearTransform::valid() const noexcept {
             return false;
         }
     }
+    for (const float offset : opposed_highlight_chrominance_offsets) {
+        if (!std::isfinite(offset)) {
+            return false;
+        }
+    }
     return non_zero;
 }
 
@@ -321,7 +339,8 @@ bool FusedRawFrameDevelopment::valid() const noexcept {
         backend == RawDevelopmentBackend::cpu || backend == RawDevelopmentBackend::metal;
     const bool known_highlight_treatment =
         highlight_recovery == RawHighlightRecoveryIntent::provider_default
-        || highlight_recovery == RawHighlightRecoveryIntent::disabled;
+        || highlight_recovery == RawHighlightRecoveryIntent::disabled
+        || highlight_recovery == RawHighlightRecoveryIntent::aggressive;
     if (!known_backend || !known_highlight_treatment || width == 0U || height == 0U
         || !scene_linear.valid() || !valid_demosaic_receipt(demosaic_receipt)) {
         return false;

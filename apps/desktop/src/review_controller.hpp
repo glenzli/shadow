@@ -12,11 +12,11 @@
 #include "review_library_keyword_coordinator.hpp"
 #include "review_library_map_coordinator.hpp"
 #include "review_library_metadata_coordinator.hpp"
-#include "review_location_completion_coordinator.hpp"
-#include "review_location_reference_coordinator.hpp"
 #include "review_library_organization_coordinator.hpp"
 #include "review_library_place_resolution_coordinator.hpp"
 #include "review_library_query_coordinator.hpp"
+#include "review_location_completion_coordinator.hpp"
+#include "review_location_reference_coordinator.hpp"
 #include "review_model.hpp"
 #include "review_photo_inspection_coordinator.hpp"
 #include "review_remote_library_coordinator.hpp"
@@ -32,6 +32,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <QSettings>
 #include <cstdint>
 #include <memory>
 
@@ -39,6 +40,9 @@ class MapProviderPreferences;
 
 class ReviewController final : public QObject {
     Q_OBJECT
+    Q_PROPERTY(QString personFilterId READ personFilterId NOTIFY filtersChanged)
+    Q_PROPERTY(QString personFilterName READ personFilterName NOTIFY filtersChanged)
+    Q_PROPERTY(int personPhotoCount READ personPhotoCount NOTIFY filtersChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
     Q_PROPERTY(bool refreshing READ refreshing NOTIFY refreshingChanged)
@@ -78,6 +82,14 @@ class ReviewController final : public QObject {
         QString filterEditState READ filterEditState WRITE setFilterEditState NOTIFY filtersChanged
     )
     Q_PROPERTY(QString filterLiked READ filterLiked WRITE setFilterLiked NOTIFY filtersChanged)
+    Q_PROPERTY(
+        bool filterHideOfflineUncached READ filterHideOfflineUncached WRITE
+            setFilterHideOfflineUncached NOTIFY filtersChanged
+    )
+    Q_PROPERTY(
+        bool filterOnlyEditable READ filterOnlyEditable WRITE setFilterOnlyEditable NOTIFY
+            filtersChanged
+    )
     Q_PROPERTY(
         QString librarySortKey READ librarySortKey WRITE setLibrarySortKey NOTIFY
             libraryOrderChanged
@@ -371,6 +383,8 @@ class ReviewController final : public QObject {
     [[nodiscard]] QString filterColorLabel() const;
     [[nodiscard]] QString filterEditState() const;
     [[nodiscard]] QString filterLiked() const;
+    [[nodiscard]] bool filterHideOfflineUncached() const;
+    [[nodiscard]] bool filterOnlyEditable() const;
     [[nodiscard]] QString librarySortKey() const;
     [[nodiscard]] bool librarySortDescending() const noexcept;
     [[nodiscard]] QString filterExcludedFlag() const;
@@ -465,6 +479,8 @@ class ReviewController final : public QObject {
     void setFilterColorLabel(const QString& color_label);
     void setFilterEditState(const QString& edit_state);
     void setFilterLiked(const QString& liked);
+    void setFilterHideOfflineUncached(bool enabled);
+    void setFilterOnlyEditable(bool enabled);
     void setLibrarySortKey(const QString& sort_key);
     void setLibrarySortDescending(bool descending);
     void setFilterExcludedFlag(const QString& flag);
@@ -487,6 +503,7 @@ class ReviewController final : public QObject {
     void setLibraryAlbumId(const QString& album_id);
 
     Q_INVOKABLE void scanFolder(const QUrl& folder_url);
+    Q_INVOKABLE void refreshSelectedPreviews(const QVariantList& targets);
     Q_INVOKABLE void cancelScan();
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void
@@ -509,6 +526,9 @@ class ReviewController final : public QObject {
         const QString& photo_id,
         const QString& representation_id
     ) const;
+    /// Refreshes only identities still present in the filtered presentation.
+    /// Selection must not retain removed sources or hidden batch targets.
+    Q_INVOKABLE QVariantList currentSelectionTargets(const QVariantList& targets) const;
     Q_INVOKABLE QVariantMap
     prepareComparison(const QString& left_visual_handle, const QString& right_visual_handle);
     Q_INVOKABLE bool confirmComparisonReady(
@@ -536,7 +556,21 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void syncRemoteLibrary(const QString& connection_id);
     Q_INVOKABLE void syncAllRemoteLibraries();
     Q_INVOKABLE void materializeRemotePhoto(const QString& photo_id);
+    Q_INVOKABLE bool prepareRemoteExport(const QVariantList& targets);
     Q_INVOKABLE void clearFilters();
+    Q_INVOKABLE void openPerson(const QString& id, const QString& name, const QStringList& photos);
+    QString personFilterId() const {
+        return person_filter_id_;
+    }
+    QString personFilterName() const {
+        return person_filter_name_;
+    }
+    int personPhotoCount() const {
+        return int(person_photo_ids_.size());
+    }
+    Q_INVOKABLE void
+    setPersonFilter(const QString& id, const QString& name, const QStringList& photos);
+    Q_INVOKABLE void clearPersonFilter();
     Q_INVOKABLE void refreshVisibleLibrary();
     Q_INVOKABLE void refreshLibraryFacets();
     Q_INVOKABLE void refreshTravelCollections();
@@ -565,10 +599,8 @@ class ReviewController final : public QObject {
     );
     Q_INVOKABLE QString locationCompletionVisualSource(const QString& visual_handle) const;
     Q_INVOKABLE void refreshLocationReferenceLibraries();
-    Q_INVOKABLE void addLocationReferenceLibrary(
-        const QUrl& root_url,
-        qlonglong clock_offset_seconds = 0
-    );
+    Q_INVOKABLE void
+    addLocationReferenceLibrary(const QUrl& root_url, qlonglong clock_offset_seconds = 0);
     Q_INVOKABLE void removeLocationReferenceLibrary(const QString& id);
     Q_INVOKABLE void refreshLibraryAlbums();
     Q_INVOKABLE void refreshLibrarySourceHealth();
@@ -689,17 +721,21 @@ class ReviewController final : public QObject {
         const QString& photoId,
         const QString& representationId,
         const QString& sourcePath,
-        const QString& title
+        const QString& title,
+        const QVariantMap& captureMetadata
     );
+    void remoteInspectionChanged(const QString& photoId, const QVariantMap& inspection);
+    void remoteExportReady(const QVariantList& targets);
+    void remoteExportPreparationFailed(const QString& statusCode);
     void decisionUndone();
 
   private:
     void initializeCoordinatorWiring();
     void requestLibraryReset();
     void scheduleFilterQuery();
+    void clearLibraryFilterControls();
     void refreshRemoteLibraryPresentation();
     [[nodiscard]] bool remoteLibraryPresentationEligible() const;
-    [[nodiscard]] int visibleRemotePhotoCount() const;
     [[nodiscard]] BackendLibraryPhotoFilter currentLibraryFilter() const;
     [[nodiscard]] BackendLibraryPhotoOrder currentLibraryOrder() const noexcept;
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -740,9 +776,13 @@ class ReviewController final : public QObject {
     ReviewSourceAvailabilityMonitor source_availability_monitor_;
     ReviewRemoteLibraryCoordinator remote_library_coordinator_;
     ReviewFilterModel filtered_model_;
+    std::unique_ptr<QSettings> availability_filter_settings_;
     QString library_sort_key_ = QStringLiteral("capture_time");
     bool library_sort_descending_ = true;
     ReviewLibraryQueryCoordinator query_coordinator_;
+    QString person_filter_id_;
+    QString person_filter_name_;
+    QStringList person_photo_ids_;
     ReviewLibraryOrganizationCoordinator organization_coordinator_;
     ReviewSharedGradeCoordinator shared_grade_coordinator_;
     ReviewComparisonCoordinator comparison_coordinator_;

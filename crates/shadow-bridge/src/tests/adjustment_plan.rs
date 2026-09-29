@@ -153,6 +153,9 @@ fn selective_tone_and_detail_flatten_the_stable_ffi_contract() {
                         shadows: -0.25,
                         whites: 0.5,
                         blacks: 1.0,
+                        highlight_red_suppression: 0.2,
+                        highlight_green_suppression: 0.4,
+                        highlight_blue_suppression: 0.6,
                     },
                 },
             },
@@ -185,7 +188,10 @@ fn selective_tone_and_detail_flatten_the_stable_ffi_contract() {
         selective_ffi.operation,
         ffi::FfiAdjustmentOperation::SelectiveTone
     ));
-    assert_eq!(selective_ffi.parameters, [-1.0, -0.25, 0.5, 1.0]);
+    assert_eq!(
+        selective_ffi.parameters,
+        [-1.0, -0.25, 0.5, 1.0, 0.2, 0.4, 0.6]
+    );
 
     let sharpen_ffi = ffi_render_node(&plan.nodes[1]);
     assert!(matches!(
@@ -303,9 +309,9 @@ fn typed_plan_rejects_unsupported_contract_versions() {
         ));
     }
 
-    let one_pass_v2 = AdjustmentRenderPlan {
+    let future_selective_tone_v2 = AdjustmentRenderPlan {
         nodes: vec![AdjustmentRenderNode {
-            node_id: "discarded-selective-tone-v2".to_owned(),
+            node_id: "future-selective-tone-v2".to_owned(),
             parameter_schema_version: 2,
             implementation_version: 2,
             enabled: true,
@@ -320,7 +326,7 @@ fn typed_plan_rejects_unsupported_contract_versions() {
         geometry: AdjustmentGeometry::identity(),
     };
     assert!(matches!(
-        one_pass_v2.validate(),
+        future_selective_tone_v2.validate(),
         Err(BridgeError::InvalidEditRequest(
             "adjustment node uses an unsupported schema or implementation version"
         ))
@@ -351,6 +357,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
                 source_flip_vertical: false,
                 feather: 0.4,
                 strength: 0.65,
+                frequency_radius: 8,
             }],
         },
     };
@@ -366,7 +373,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
     assert_eq!(
         flattened.parameters,
         [
-            24.0, 1.0, 18.5, -0.75, 30.0, 1.25, 1.0, 0.0, 0.4, 0.65, 0.2, 0.3, 0.7, 0.6
+            24.0, 1.0, 18.5, -0.75, 30.0, 1.25, 1.0, 0.0, 0.4, 0.65, 8.0, 0.2, 0.3, 0.7, 0.6
         ]
     );
 
@@ -384,6 +391,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
             source_flip_vertical: false,
             feather: 0.28,
             strength: 1.0,
+            frequency_radius: 8,
         }],
     };
     assert!(validate_render_operation(&invalid).is_err());
@@ -402,6 +410,7 @@ fn continuous_retouch_strokes_validate_and_flatten_with_their_point_groups() {
             source_flip_vertical: false,
             feather: 0.28,
             strength: 1.01,
+            frequency_radius: 8,
         }],
     };
     assert!(validate_render_operation(&invalid_strength).is_err());
@@ -428,6 +437,7 @@ fn structure_preserving_heal_mode_validates_and_flattens_without_schema_expansio
                 source_flip_vertical: false,
                 feather: 0.28,
                 strength: 1.0,
+                frequency_radius: 8,
             }],
             strokes: Vec::new(),
         },
@@ -441,6 +451,6 @@ fn structure_preserving_heal_mode_validates_and_flattens_without_schema_expansio
     let AdjustmentRenderOperation::SpotHeal { targets, .. } = &mut invalid.operation else {
         unreachable!("test operation is retouch")
     };
-    targets[0].mode = 3;
+    targets[0].mode = 5;
     assert!(validate_render_operation(&invalid.operation).is_err());
 }
