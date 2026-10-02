@@ -1,12 +1,13 @@
 //! Catalog connection lifecycle, schema initialization, and aggregate statistics.
 
-use std::{path::Path, time::Duration};
+use std::{cell::RefCell, path::Path, time::Duration};
 
 use rusqlite::Connection;
 use shadow_domain::LocationStatus;
 
 use crate::{
     CatalogError,
+    recipe::decoded_cache::DecodedRecipeCache,
     row_codec::{count_rows, non_negative_count},
     schema,
 };
@@ -14,6 +15,8 @@ use crate::{
 #[derive(Debug)]
 pub struct Catalog {
     pub(crate) connection: Connection,
+    // Pure decoded values only; Recipe reads still consult all durable columns.
+    pub(crate) decoded_recipes: RefCell<DecodedRecipeCache>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
@@ -38,7 +41,10 @@ impl Catalog {
         let mut connection = Connection::open(path)?;
         configure_connection(&connection, true)?;
         schema::initialize(&mut connection)?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            decoded_recipes: RefCell::new(DecodedRecipeCache::default()),
+        })
     }
 
     /// Opens an isolated in-memory catalog, primarily for tests.
@@ -51,7 +57,10 @@ impl Catalog {
         let mut connection = Connection::open_in_memory()?;
         configure_connection(&connection, false)?;
         schema::initialize(&mut connection)?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            decoded_recipes: RefCell::new(DecodedRecipeCache::default()),
+        })
     }
 
     /// Returns the active catalog schema version.

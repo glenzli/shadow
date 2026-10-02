@@ -7,6 +7,7 @@ use shadow_domain::{
 
 use crate::{Catalog, CatalogError, cache_artifact::digest, row_codec::read_id};
 
+pub(crate) mod decoded_cache;
 mod history_browse;
 mod variants;
 pub use history_browse::{
@@ -163,7 +164,7 @@ impl Catalog {
         for row in rows {
             let (stored_id, stored_recipe_id, json, snapshot_digest) = row?;
             records.push(decode_recipe_record(
-                &self.connection,
+                self,
                 photo_id,
                 stored_id,
                 stored_recipe_id,
@@ -208,7 +209,7 @@ impl Catalog {
         stored
             .map(|(stored_id, stored_recipe_id, json, snapshot_digest)| {
                 decode_recipe_record(
-                    &self.connection,
+                    self,
                     photo_id,
                     stored_id,
                     stored_recipe_id,
@@ -402,29 +403,46 @@ pub(crate) fn commit_recipe_in_transaction(
 }
 
 fn decode_recipe_record(
-    connection: &rusqlite::Connection,
+    catalog: &Catalog,
     photo_id: PhotoId,
     stored_id: RecipeCommitId,
     stored_recipe_id: RecipeId,
     json: &str,
     snapshot_digest: [u8; 32],
 ) -> Result<RecipeCommitRecord, CatalogError> {
-    let commit: RecipeCommit = serde_json::from_str(json).map_err(CatalogError::RecipeJson)?;
-    commit
-        .validate()
-        .map_err(|error| CatalogError::InvalidRecipe(error.to_string()))?;
+    // Reuse only a fully validated decode of these exact JSON bytes. Every
+    // read still checks the current indexed identities and normalized graph;
+    // refs, row selection/order, and legacy digest repair are never cached.
+    let cached = catalog
+        .decoded_recipes
+        .borrow()
+        .get(photo_id, stored_id, json);
+    let cache_miss = cached.is_none();
+    let (commit, known_digest) = if let Some(value) = cached {
+        (value.commit, Some(value.snapshot_digest))
+    } else {
+        let commit: RecipeCommit = serde_json::from_str(json).map_err(CatalogError::RecipeJson)?;
+        commit
+            .validate()
+            .map_err(|error| CatalogError::InvalidRecipe(error.to_string()))?;
+        (commit, None)
+    };
     if commit.id() != stored_id || commit.recipe_id() != stored_recipe_id {
         return Err(CatalogError::InvalidRecipe(
             "stored Recipe JSON identity disagrees with its indexed columns".into(),
         ));
     }
-    if commit.parents() != stored_parents(connection, stored_id)? {
+    if commit.parents() != stored_parents(&catalog.connection, stored_id)? {
         return Err(CatalogError::InvalidRecipe(
             "stored Recipe JSON parents disagree with normalized parent edges".into(),
         ));
     }
-    let canonical_digest =
-        canonical_recipe_snapshot_digest(commit.snapshot()).map_err(CatalogError::RecipeJson)?;
+    let canonical_digest = match known_digest {
+        Some(digest) => digest,
+        None => {
+            canonical_recipe_snapshot_digest(commit.snapshot()).map_err(CatalogError::RecipeJson)?
+        }
+    };
     if canonical_digest != snapshot_digest {
         // The digest is a cache identity for the semantic Recipe snapshot, not
         // a checksum of one incidental JSON object-key order. Older v1 writers
@@ -432,7 +450,7 @@ fn decode_recipe_record(
         // round trip could reorder nested flattened maps without changing a
         // single Recipe value. Repair that redundant identity in place after
         // the full Recipe and normalized parent edges have validated.
-        connection.execute(
+        catalog.connection.execute(
             "UPDATE recipe_commits
              SET snapshot_digest = ?1
              WHERE photo_id = ?2 AND id = ?3 AND snapshot_digest = ?4",
@@ -443,6 +461,12 @@ fn decode_recipe_record(
                 snapshot_digest.as_slice(),
             ],
         )?;
+    }
+    if cache_miss {
+        catalog
+            .decoded_recipes
+            .borrow_mut()
+            .insert(photo_id, json, &commit, canonical_digest);
     }
     Ok(RecipeCommitRecord {
         photo_id,
