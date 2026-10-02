@@ -22,10 +22,19 @@ bool write(const QString& path, const QByteArray& data) {
 bool run(const QString& executable, const QString& scenario) {
     QTemporaryDir root;
     const bool unsupported = scenario == "unsupported";
+    const bool auto_ui = scenario == "auto-start-ui";
+    const bool auto_identity = scenario == "auto-start-identity" || auto_ui;
     const QString first = root.filePath(unsupported ? "first.png" : "first.jpg");
     const QString second = root.filePath("second.jpg");
     QImage image(96, 64, QImage::Format_RGB32);
     image.fill(QColor(90, 120, 140));
+    if (auto_identity) {
+        for (int y = 0; y < image.height(); ++y)
+            for (int x = 0; x < image.width(); ++x) {
+                const int value = 25 + 105 * x / (image.width() - 1);
+                image.setPixel(x, y, qRgb(value, value, value));
+            }
+    }
     if (!image.save(first))
         return false;
     image.fill(QColor(160, 110, 80));
@@ -35,7 +44,8 @@ bool run(const QString& executable, const QString& scenario) {
     const bool paint = scenario == "paint";
     const bool paint_interaction = scenario == "paint-interaction";
     const bool retry = scenario == "retry";
-    const bool direct = scenario == "interactive" || paint || paint_interaction || retry;
+    const bool direct =
+        scenario == "interactive" || paint || paint_interaction || retry || auto_identity;
     const bool single = scenario == "legacy";
     const bool cancel = scenario == "cancel";
     const QString output1 = root.filePath("output1.png");
@@ -64,19 +74,40 @@ bool run(const QString& executable, const QString& scenario) {
         return false;
     const QByteArray sentinel_bytes = contents(sentinel);
     auto env = QProcessEnvironment::systemEnvironment();
+    // Each subprocess owns its acceptance scenario; developer shell flags must
+    // not activate an unrelated harness or write captures outside this fixture.
+    for (const QString& name : env.keys())
+        if (name.startsWith("SHADOW_AUTO_START_")
+            || name.startsWith("SHADOW_SUBJECT_EMPHASIS_SMOKE"))
+            env.remove(name);
     env.insert("QT_QPA_PLATFORM", "offscreen");
     env.insert("QT_QUICK_BACKEND", "software");
     env.insert("SHADOW_DESKTOP_DATA_ROOT", normal_root);
     env.insert(
         "SHADOW_PIPELINE_SMOKE_ACTION",
-        cancel              ? "cancel"
+        auto_identity       ? "auto-start"
+        : cancel            ? "cancel"
         : paint_interaction ? "paint-interaction"
         : paint             ? "paint"
         : retry             ? "retry"
                             : "complete"
     );
     env.insert("SHADOW_PIPELINE_SMOKE_OUTPUT", root.path());
-    const QString collision = root.filePath("first-edited.png");
+    if (auto_identity) {
+        env.insert("SHADOW_AUTO_START_SMOKE_MEASURED_ONLY", "1");
+        env.insert("SHADOW_AUTO_START_SMOKE_VARIANT", "1");
+        env.remove("SHADOW_AUTO_START_REQUIRE_AI");
+        env.remove("SHADOW_AUTO_START_SMOKE_UI");
+        if (auto_ui) {
+            const QString evidence = root.filePath("auto-ui-evidence");
+            if (!QDir().mkpath(evidence))
+                return false;
+            env.insert("SHADOW_AUTO_START_SMOKE_UI", "1");
+            env.insert("SHADOW_AUTO_START_EVIDENCE_DIR", evidence);
+        }
+    }
+    const QString collision =
+        root.filePath(auto_identity ? "first-edited.jpg" : "first-edited.png");
     if (direct && !write(collision, "existing output stays unchanged"))
         return false;
     QProcess process;
@@ -120,6 +151,40 @@ bool run(const QString& executable, const QString& scenario) {
         }
         if (contents(collision) != "existing output stays unchanged")
             return false;
+        if (auto_identity) {
+            const QImage edited(root.filePath("first-edited-1.jpg"));
+            if (edited.isNull() || edited.size() != image.size()
+                || QImage(root.filePath("second-edited.jpg")).isNull()
+                || edited.pixelColor(48, 32).red() <= QImage(first).pixelColor(48, 32).red()
+                || !diagnostics.contains("Auto start Variant identity acceptance passed")
+                || !diagnostics.contains(
+                    "Auto start acceptance passed: cancel, temporary preview, atomic apply, undo, "
+                    "redo"
+                )) {
+                qCritical() << "Auto identity native acceptance failed" << diagnostics;
+                return false;
+            }
+            if (auto_ui) {
+                if (!diagnostics.contains("Auto start UI pointer acceptance passed")) {
+                    qCritical() << "Missing actual-control acceptance" << diagnostics;
+                    return false;
+                }
+                for (const QString& name :
+                     {QStringLiteral("01-auto-ready-window.png"),
+                      QStringLiteral("02-auto-before-window.png"),
+                      QStringLiteral("03-auto-candidate-window.png"),
+                      QStringLiteral("04-auto-applied-window.png"),
+                      QStringLiteral("05-auto-undone-window.png"),
+                      QStringLiteral("06-auto-redone-window.png")}) {
+                    if (QImage(root.filePath("auto-ui-evidence/" + name)).isNull()) {
+                        qCritical() << "Missing application window evidence" << name;
+                        return false;
+                    }
+                }
+            }
+            qInfo() << "Pipeline packaged session passed:" << scenario;
+            return true;
+        }
         if (QImage(root.filePath("first-edited-1.png")).isNull()
             || QImage(root.filePath("second-edited.png")).isNull())
             return false;

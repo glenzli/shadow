@@ -3,8 +3,8 @@
 #include "color_warper_smoke_harness.hpp"
 #include "direct_edit_smoke_harness.hpp"
 #include "edit_controller.hpp"
-#include "paint_smoke_harness.hpp"
 #include "paint_interaction_smoke_harness.hpp"
+#include "paint_smoke_harness.hpp"
 #include "pipeline_run_controller.hpp"
 #include "precision_editing_smoke_harness.hpp"
 #include "rgb_curve_smoke_harness.hpp"
@@ -21,7 +21,8 @@
 void installPipelineSmokeHarness(
     QQmlApplicationEngine& engine,
     PipelineRunController& pipeline,
-    EditController& editor
+    EditController& editor,
+    AiPreferences& ai_preferences
 ) {
     const QString action = qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_ACTION");
     if (action == QStringLiteral("color-warper")) {
@@ -29,7 +30,7 @@ void installPipelineSmokeHarness(
         return;
     }
     if (action == QStringLiteral("auto-start")) {
-        installAutoStartSmokeHarness(engine, pipeline, editor);
+        installAutoStartSmokeHarness(engine, pipeline, editor, ai_preferences);
         return;
     }
     if (action == QStringLiteral("paint-interaction")) {

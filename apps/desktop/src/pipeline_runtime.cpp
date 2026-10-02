@@ -163,7 +163,7 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
             title_bar == nullptr ? 44 : qRound(title_bar->property("height").toReal())
         );
 #endif
-        installPipelineSmokeHarness(engine, pipeline, editor);
+        installPipelineSmokeHarness(engine, pipeline, editor, ai_preferences);
         installSubjectEmphasisSmokeHarness(engine, pipeline, editor);
         QTimer::singleShot(0, &pipeline, &PipelineRunController::start);
         return application.exec();

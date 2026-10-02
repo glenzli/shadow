@@ -108,6 +108,19 @@ Application startup is split from environment-driven automation:
   owns the independent window; [`qml/PipelineExportDialog.qml`](qml/PipelineExportDialog.qml)
   owns interactive output choices. [`src/pipeline_smoke_harness.*`](src/pipeline_smoke_harness.hpp)
   drives opt-in packaged session acceptance, registered in `ShadowDesktopPipelineTests.cmake`.
+  [`src/auto_start_smoke_harness.*`](src/auto_start_smoke_harness.hpp) owns disposable Auto
+  preview, apply and undo/redo acceptance. The `shadow-desktop-pipeline-auto-start-identity`
+  registration uses a synthetic ramp and `SHADOW_AUTO_START_SMOKE_MEASURED_ONLY=1` to disable
+  inference only in its temporary session; `SHADOW_AUTO_START_SMOKE_VARIANT=1` additionally
+  checks same-head Variant retirement, including its pending preview timer, before applying a fresh
+  suggestion. These are acceptance
+  hooks, not the external agent editing protocol. With `BUILD_TESTING=ON`, adding
+  `SHADOW_AUTO_START_SMOKE_UI=1` exercises the actual packaged Auto, compare, apply and undo/redo controls through QtTest window pointer
+  events and verifies that each press reaches its target. [`src/auto_start_ui_smoke.*`](src/auto_start_ui_smoke.hpp) captures only that app
+  window in an existing `SHADOW_AUTO_START_EVIDENCE_DIR`; it requests no OS accessibility
+  permission and is inert in ordinary launches. The `shadow-desktop-pipeline-auto-start-ui`
+  registration runs those controls offscreen with its own disposable capture directory;
+  visible-window acceptance additionally uses the same hooks with the normal platform backend.
   [`src/rgb_curve_smoke_harness.*`](src/rgb_curve_smoke_harness.hpp) owns five-channel curve
   history, photo isolation, persisted checkout and export acceptance.
   [`src/direct_edit_smoke_harness.*`](src/direct_edit_smoke_harness.hpp) owns sampled curve gestures

@@ -2,4 +2,10 @@
 class QQmlApplicationEngine;
 class PipelineRunController;
 class EditController;
-void installAutoStartSmokeHarness(QQmlApplicationEngine&, PipelineRunController&, EditController&);
+class AiPreferences;
+void installAutoStartSmokeHarness(
+    QQmlApplicationEngine&,
+    PipelineRunController&,
+    EditController&,
+    AiPreferences&
+);

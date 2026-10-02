@@ -379,6 +379,8 @@ qt_add_executable(
     src/edit_auto_start_controller.hpp
     src/auto_start_smoke_harness.cpp
     src/auto_start_smoke_harness.hpp
+    src/auto_start_ui_smoke.cpp
+    src/auto_start_ui_smoke.hpp
     src/color_warper_smoke_harness.cpp
     src/color_warper_smoke_harness.hpp
     src/edit_subject_emphasis_controller.cpp
@@ -1094,6 +1096,11 @@ target_link_libraries(
         Qt6::WebView
         Qt6::Widgets
 )
+if(BUILD_TESTING)
+    find_package(Qt6 6.11.1 REQUIRED COMPONENTS Test)
+    target_link_libraries(shadow-desktop PRIVATE Qt6::Test)
+    target_compile_definitions(shadow-desktop PRIVATE SHADOW_DESKTOP_UI_SMOKE)
+endif()
 add_dependencies(shadow-desktop shadow-image-decode-helper)
 add_dependencies(shadow-desktop shadow-server-manager)
 add_custom_command(

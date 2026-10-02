@@ -1,4 +1,6 @@
 #include "auto_start_smoke_harness.hpp"
+#include "ai_preferences.hpp"
+#include "auto_start_ui_smoke.hpp"
 #include "edit_auto_start_controller.hpp"
 #include "edit_controller.hpp"
 #include "pipeline_run_controller.hpp"
@@ -17,25 +19,40 @@ struct State {
     BackendGradeStack before, after;
     bool undo = false, fast = false, automatic = false;
     QString candidate, source;
+    bool variant_checked = false, seed_requested = false, ui_reviewed = false;
+    qint64 variant_switched_at = 0;
     QElapsedTimer elapsed;
 };
 } // namespace
 void installAutoStartSmokeHarness(
     QQmlApplicationEngine& engine,
     PipelineRunController& pipeline,
-    EditController& editor
+    EditController& editor,
+    AiPreferences& ai_preferences
 ) {
+    // Only the explicitly selected acceptance harness changes its temporary
+    // session preferences; ordinary Auto behavior and user preferences stay intact.
+    if (qEnvironmentVariableIsSet("SHADOW_AUTO_START_SMOKE_MEASURED_ONLY")) {
+        ai_preferences.setImageUnderstandingExecutionAllowed(false);
+        ai_preferences.setSubjectMaskExecutionAllowed(false);
+    }
     auto* feature = qobject_cast<EditAutoStartController*>(editor.autoStart());
     auto state = std::make_shared<State>();
+    auto ui = std::make_shared<AutoStartUiSmoke>(engine);
     state->elapsed.start();
     auto* timer = new QTimer(&pipeline);
     timer->setInterval(50);
-    QObject::connect(timer, &QTimer::timeout, &pipeline, [&, feature, state, timer] {
+    QObject::connect(timer, &QTimer::timeout, &pipeline, [&, feature, state, timer, ui] {
         const auto fail = [&](const QString& message) {
             qCritical() << "Auto start acceptance failed" << state->stage << message
                         << feature->status() << editor.statusText();
             timer->stop();
             QCoreApplication::exit(3);
+        };
+        const auto ui_pending = [&](AutoStartUiStep result, const QString& error) {
+            if (result == AutoStartUiStep::Failed)
+                fail(error);
+            return result != AutoStartUiStep::Passed;
         };
         if (state->elapsed.elapsed() > 300000) {
             fail(QStringLiteral("timeout"));
@@ -84,6 +101,18 @@ void installAutoStartSmokeHarness(
             return;
         switch (state->stage) {
         case 0:
+            if (qEnvironmentVariableIsSet("SHADOW_AUTO_START_SMOKE_VARIANT")
+                && editor.durableWorkingCommitId().isEmpty()) {
+                if (!state->seed_requested) {
+                    state->seed_requested = true;
+                    editor.setExposureStops(editor.exposureStops() + .1);
+                    // Normal Auto admission requests autosave first. Cancel only
+                    // the proposal, leaving that ordinary save to establish H.
+                    feature->analyze();
+                    feature->cancel();
+                }
+                return;
+            }
             state->before = editor.gradeStackForInterchange();
             state->undo = editor.canUndo();
             if (qEnvironmentVariableIsSet("SHADOW_AUTO_START_SMOKE_LIFECYCLE")) {
@@ -114,6 +143,41 @@ void installAutoStartSmokeHarness(
             if (!feature->ready() || feature->previewSource().isEmpty()
                 || editor.gradeStackForInterchange() != state->before) {
                 fail(QStringLiteral("proposal must remain disposable"));
+                return;
+            }
+            if (qEnvironmentVariableIsSet("SHADOW_AUTO_START_SMOKE_MEASURED_ONLY")
+                && feature->sceneAnalyzed()) {
+                fail(QStringLiteral("measured-only acceptance must not run scene inference"));
+                return;
+            }
+            if (ui->enabled() && !state->ui_reviewed) {
+                QString error;
+                const auto result = ui->reviewAndHide(*feature, error);
+                if (ui_pending(result, error))
+                    return;
+                state->ui_reviewed = true;
+            }
+            if (qEnvironmentVariableIsSet("SHADOW_AUTO_START_SMOKE_VARIANT")
+                && !state->variant_checked) {
+                const auto captured_variant = editor.activeVariantId();
+                const auto captured_head = editor.durableWorkingCommitId();
+                // Retire a pending debounce timer before it dispatches a candidate preview.
+                feature->setStrength(.5);
+                editor.createVariant(QStringLiteral("Auto identity acceptance"));
+                if (editor.activeVariantId() == captured_variant
+                    || editor.durableWorkingCommitId() != captured_head
+                    || editor.gradeStackForInterchange() != state->before) {
+                    fail(QStringLiteral("same-head Variant fixture changed content or failed"));
+                    return;
+                }
+                if (feature->active() || feature->canApply()
+                    || !feature->previewSource().isEmpty()) {
+                    fail(QStringLiteral("Variant switch retained a stale automatic suggestion"));
+                    return;
+                }
+                state->variant_checked = true;
+                state->variant_switched_at = state->elapsed.elapsed();
+                state->stage = 30;
                 return;
             }
             const QString evidence = qEnvironmentVariable("SHADOW_AUTO_START_EVIDENCE_DIR");
@@ -155,7 +219,18 @@ void installAutoStartSmokeHarness(
                 return;
             }
             state->candidate = feature->previewSource();
-            feature->apply();
+            if (ui->enabled()) {
+                QString error;
+                const auto result = ui->openForApply(error);
+                if (ui_pending(result, error))
+                    return;
+                if (!ui->click(QStringLiteral("autoStartApply"), error)) {
+                    fail(error);
+                    return;
+                }
+            } else {
+                feature->apply();
+            }
             state->stage = 5;
             return;
         case 5:
@@ -164,7 +239,19 @@ void installAutoStartSmokeHarness(
                 fail(QStringLiteral("apply did not add editable adjustments"));
                 return;
             }
-            editor.undo();
+            if (ui->enabled()) {
+                QString error;
+                const auto result =
+                    ui->captureSettled(QStringLiteral("04-auto-applied-window.png"), error);
+                if (ui_pending(result, error))
+                    return;
+                if (!ui->click(QStringLiteral("pipelineUndoButton"), error)) {
+                    fail(error);
+                    return;
+                }
+            } else {
+                editor.undo();
+            }
             state->stage = 6;
             return;
         case 6:
@@ -172,13 +259,34 @@ void installAutoStartSmokeHarness(
                 fail(QStringLiteral("one undo did not restore all starting values"));
                 return;
             }
-            editor.redo();
+            if (ui->enabled()) {
+                QString error;
+                const auto result =
+                    ui->captureSettled(QStringLiteral("05-auto-undone-window.png"), error);
+                if (ui_pending(result, error))
+                    return;
+                if (!ui->click(QStringLiteral("pipelineRedoButton"), error)) {
+                    fail(error);
+                    return;
+                }
+            } else {
+                editor.redo();
+            }
             state->stage = 7;
             return;
         case 7:
             if (editor.gradeStackForInterchange() != state->after) {
                 fail(QStringLiteral("redo did not restore exact adjustments"));
                 return;
+            }
+            if (ui->enabled()) {
+                QString error;
+                const auto result =
+                    ui->captureSettled(QStringLiteral("06-auto-redone-window.png"), error);
+                if (ui_pending(result, error))
+                    return;
+                qInfo() << "Auto start UI pointer acceptance passed: open, compare, hide, apply, "
+                           "undo, redo";
             }
             qInfo() << "Auto start acceptance passed: cancel, temporary preview, atomic apply, "
                        "undo, redo"
@@ -192,6 +300,17 @@ void installAutoStartSmokeHarness(
                 return;
             }
             pipeline.complete();
+            return;
+        case 30:
+            if (state->elapsed.elapsed() - state->variant_switched_at < 200)
+                return;
+            if (feature->active() || feature->canApply() || !feature->previewSource().isEmpty()) {
+                fail(QStringLiteral("retired Variant suggestion reappeared after queued preview"));
+                return;
+            }
+            qInfo() << "Auto start Variant identity acceptance passed";
+            feature->analyze();
+            state->stage = 2;
             return;
         case 21:
             feature->analyze();
