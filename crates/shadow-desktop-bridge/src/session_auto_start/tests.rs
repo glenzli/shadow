@@ -76,6 +76,11 @@ fn bindings_reject_duplicate_targets_and_missing_tokens_before_apply() {
 #[test]
 fn applying_multiple_adjustments_is_one_commit_and_rejects_a_stale_head() {
     let f = Fixture::new();
+    let variant = f
+        .session
+        .active_photo_variant_id(f.photo)
+        .unwrap()
+        .to_string();
     let mut settings = settings();
     let mut second = crate::recipe_v1::new_basic_grade_node("Skin").unwrap();
     second.basic.exposure_stops = 0.12;
@@ -83,13 +88,29 @@ fn applying_multiple_adjustments_is_one_commit_and_rejects_a_stale_head() {
     settings.grade_nodes.push(second);
     let applied = f
         .session
-        .apply_auto_start(&f.photo.to_string(), &f.source, "", "", &settings, &[])
+        .apply_auto_start(
+            &f.photo.to_string(),
+            &f.source,
+            "",
+            "",
+            &variant,
+            &settings,
+            &[],
+        )
         .unwrap();
     assert_eq!(applied.settings.grade_nodes.len(), 2);
     assert_eq!(f.session.catalog.recipe_commits(f.photo).unwrap().len(), 1);
     assert!(
         f.session
-            .apply_auto_start(&f.photo.to_string(), &f.source, "", "", &settings, &[])
+            .apply_auto_start(
+                &f.photo.to_string(),
+                &f.source,
+                "",
+                "",
+                &variant,
+                &settings,
+                &[]
+            )
             .is_err()
     );
     assert_eq!(f.session.catalog.recipe_commits(f.photo).unwrap().len(), 1);

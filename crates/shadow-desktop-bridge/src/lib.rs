@@ -3151,6 +3151,7 @@ mod ffi {
             source_path: &str,
             base_commit_id: &str,
             expected_working_commit_id: &str,
+            expected_variant_id: &str,
             settings: &FfiEditSettings,
             masks: &[FfiAutoStartMask],
         ) -> Result<FfiPhotoEditState>;

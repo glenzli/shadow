@@ -126,7 +126,7 @@ class EditAutoStartController final : public QObject {
     BackendGradeStack before_;
     BackendGradeNode tone_node_;
     AutoStartProposal proposal_;
-    QString photo_, source_, base_, status_, original_source_, preview_source_;
+    QString photo_, source_, base_, variant_, status_, original_source_, preview_source_;
     QSet<QString> automatically_attempted_;
     std::uint64_t generation_ = 0, photo_generation_ = 0, preview_revision_ = 0,
                   presented_revision_ = 0, render_token_ = 0;

@@ -75,6 +75,10 @@ impl DesktopSession {
         request: &ffi::FfiEditPreviewRequest,
         masks: &[ffi::FfiAutoStartMask],
     ) -> Result<ResolvedRecipeRender> {
+        for binding in masks {
+            self.subject_masks
+                .validate_proposal_photo(binding.proposal_token, photo)?;
+        }
         resolve_candidate_render(
             &self.catalog,
             &self.cache_root,
@@ -96,11 +100,15 @@ impl DesktopSession {
         source: &str,
         base: &str,
         expected: &str,
+        expected_variant: &str,
         settings: &ffi::FfiEditSettings,
         masks: &[ffi::FfiAutoStartMask],
     ) -> Result<ffi::FfiPhotoEditState> {
         let (photo_id, validated_source) = self.validated_photo_source(photo, source)?;
-        let variant = self.active_photo_variant_id(photo_id)?;
+        self.require_active_photo_variant(photo_id, expected_variant)?;
+        // Repeat the caller's captured expectation in the atomic publication;
+        // reading the active Variant again would admit a same-head switch.
+        let variant = expected_variant.parse()?;
         let expected = if expected.is_empty() {
             None
         } else {
@@ -126,6 +134,8 @@ impl DesktopSession {
         validate_bindings(settings, masks)?;
         // Validate every candidate before consuming any move-only authority.
         for binding in masks {
+            self.subject_masks
+                .validate_proposal_photo(binding.proposal_token, photo_id)?;
             if self
                 .subject_masks
                 .proposal_preview(binding.proposal_token)?

@@ -48,6 +48,7 @@ EditAutoStartController::EditAutoStartController(
         if (active_ && !applying_ && !current())
             cancel();
     };
+    connect(&owner_, &EditController::photoVariantsChanged, this, edited);
     connect(&owner_, &EditController::parametersChanged, this, edited);
     connect(&owner_, &EditController::foundationChanged, this, edited);
     connect(&owner_, &EditController::gradeNodesChanged, this, edited);
@@ -102,7 +103,8 @@ EditAutoStartController::~EditAutoStartController() {
 }
 bool EditAutoStartController::current() const {
     return active_ && photo_ == owner_.photo_id_ && source_ == owner_.source_path_
-           && photo_generation_ == owner_.photo_generation_ && before_ == owner_.grade_stack_;
+           && photo_generation_ == owner_.photo_generation_
+           && variant_ == owner_.active_variant_id_ && before_ == owner_.grade_stack_;
 }
 bool EditAutoStartController::canApply() const {
     return current() && ready() && !pending_ && !applying_ && !preview_.isRunning()
@@ -204,6 +206,7 @@ void EditAutoStartController::analyze() {
     photo_ = owner_.photo_id_;
     source_ = owner_.source_path_;
     photo_generation_ = owner_.photo_generation_;
+    variant_ = owner_.active_variant_id_;
     ++generation_;
     active_ = pending_ = true;
     strength_ = 1;
@@ -383,11 +386,13 @@ void EditAutoStartController::apply() {
                            source = source_,
                            base = owner_.base_commit_id_,
                            expected = owner_.durable_working_commit_id_,
+                           variant = variant_,
                            stack = candidate(),
                            masks] {
             AutoStartApplyResult result;
             try {
-                result.state = backend->applyAutoStart(photo, source, base, expected, stack, masks);
+                result.state =
+                    backend->applyAutoStart(photo, source, base, expected, variant, stack, masks);
             } catch (const std::exception& e) {
                 result.error = QString::fromUtf8(e.what());
             }

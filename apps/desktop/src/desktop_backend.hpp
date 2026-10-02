@@ -479,6 +479,7 @@ class DesktopBackend final {
         const QString& source,
         const QString& base,
         const QString& expected,
+        const QString& expected_variant,
         const BackendGradeStack& stack,
         const QVector<BackendAutoStartMask>& masks
     ) const;

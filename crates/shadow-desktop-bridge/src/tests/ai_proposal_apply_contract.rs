@@ -31,12 +31,13 @@ use crate::{
 enum Kind {
     Mask,
     Completion,
+    AutoStart,
 }
 
 fn stage(session: &DesktopSession, root: &Path, photo_id: PhotoId, kind: Kind) -> u64 {
     let extent = RasterExtent::new(2, 2).unwrap();
     let (task, capability, bytes, media, parameters) = match kind {
-        Kind::Mask => (
+        Kind::Mask | Kind::AutoStart => (
             AiTaskKind::ProposeSubjectMask,
             AiCapability::SubjectMask,
             vec![0, 64, 192, 255],
@@ -72,7 +73,7 @@ fn stage(session: &DesktopSession, root: &Path, photo_id: PhotoId, kind: Kind) -
     )
     .unwrap();
     let payload = match kind {
-        Kind::Mask => AiGeneratedPayload::SoftMask(SoftMaskArtifact {
+        Kind::Mask | Kind::AutoStart => AiGeneratedPayload::SoftMask(SoftMaskArtifact {
             artifact,
             raster_extent: extent,
             coordinate_extent: extent,
@@ -159,7 +160,7 @@ fn stage(session: &DesktopSession, root: &Path, photo_id: PhotoId, kind: Kind) -
         capability,
     };
     let store = match kind {
-        Kind::Mask => session.subject_masks.store(),
+        Kind::Mask | Kind::AutoStart => session.subject_masks.store(),
         Kind::Completion => session.image_completions.store(),
     };
     let receipt = execute_and_stage_derived_raster(
@@ -172,7 +173,7 @@ fn stage(session: &DesktopSession, root: &Path, photo_id: PhotoId, kind: Kind) -
     )
     .unwrap();
     match kind {
-        Kind::Mask => {
+        Kind::Mask | Kind::AutoStart => {
             let job = session.subject_masks.begin_job().unwrap();
             let SubjectMaskCompletion::Staged { proposal_token, .. } =
                 session.subject_masks.complete_job(job, receipt).unwrap()
@@ -214,6 +215,15 @@ fn apply(
     kind: Kind,
 ) -> anyhow::Result<ffi::FfiPhotoEditState> {
     match kind {
+        Kind::AutoStart => session.apply_auto_start(
+            photo,
+            source,
+            &state.working_commit_id,
+            &state.working_commit_id,
+            &state.active_variant_id,
+            &state.settings,
+            &[auto_start_mask(token, &state.settings, 0)],
+        ),
         Kind::Completion => session.apply_image_completion_proposal(
             photo,
             source,
@@ -323,7 +333,7 @@ fn another_photo(kind: Kind) {
             error.downcast_ref::<ImageCompletionServiceError>(),
             Some(ImageCompletionServiceError::ProposalPhotoMismatch)
         )),
-        Kind::Mask => assert!(matches!(
+        Kind::Mask | Kind::AutoStart => assert!(matches!(
             error.downcast_ref::<SubjectMaskServiceError>(),
             Some(SubjectMaskServiceError::ProposalPhotoMismatch)
         )),
@@ -390,6 +400,177 @@ fn completion_rejects_another_photo() {
 #[test]
 fn mask_rejects_another_photo() {
     another_photo(Kind::Mask);
+}
+
+fn auto_start_mask(
+    token: u64,
+    settings: &ffi::FfiEditSettings,
+    node: usize,
+) -> ffi::FfiAutoStartMask {
+    ffi::FfiAutoStartMask {
+        proposal_token: token,
+        generation: 7,
+        node_id: settings.grade_nodes[node].grade_node_id.clone(),
+    }
+}
+
+fn auto_start_preview_request(state: &ffi::FfiPhotoEditState) -> ffi::FfiEditPreviewRequest {
+    ffi::FfiEditPreviewRequest {
+        base_commit_id: state.working_commit_id.clone(),
+        settings: state.settings.clone(),
+        render_token: 0,
+        max_edge: 1024,
+        jpeg_quality: 95,
+        policy: ffi::FfiEditPreviewPolicy::Settled,
+        use_working_recipe: true,
+        mask_coverage_requested: false,
+        mask_coverage_target_layer_index: 0,
+        mask_coverage_component_requested: false,
+        mask_coverage_target_component_index: 0,
+        mask_selection_revision: 0,
+    }
+}
+
+fn register_other_photo(session: &DesktopSession, root: &Path) -> (PhotoId, String) {
+    let source = root
+        .join("auto-start-other.dng")
+        .to_string_lossy()
+        .into_owned();
+    let asset = session
+        .catalog
+        .register_asset(&RegisterAsset {
+            kind: RepresentationKind::OriginalRaw,
+            location: AssetLocation::new(
+                Platform::MacOs,
+                source.as_bytes().to_vec(),
+                source.clone(),
+            ),
+            byte_len: 8192,
+            modified_at_ms: Some(234),
+            now_ms: 200,
+        })
+        .unwrap();
+    (asset.photo_id, source)
+}
+
+#[test]
+fn auto_start_requires_captured_variant() {
+    empty_variant(Kind::AutoStart);
+}
+
+#[test]
+fn auto_start_rejects_same_head_variant_switch() {
+    same_head_variant_switch(Kind::AutoStart);
+}
+
+#[test]
+fn auto_start_rejects_another_photo() {
+    another_photo(Kind::AutoStart);
+}
+
+#[test]
+fn auto_start_preview_rejects_another_photo_without_consuming_authority() {
+    let (root, session, photo, source) = test_edit_session();
+    let photo_id = photo.parse().unwrap();
+    let original = session.photo_edit_state(&photo, &source).unwrap();
+    let token = stage(&session, &root, photo_id, Kind::AutoStart);
+    let (other_photo, other_source) = register_other_photo(&session, &root);
+    let other = session
+        .photo_edit_state(&other_photo.to_string(), &other_source)
+        .unwrap();
+    let result = session.resolve_auto_start_render(
+        other_photo,
+        &auto_start_preview_request(&other),
+        &[auto_start_mask(token, &other.settings, 0)],
+    );
+    assert!(
+        result.is_err(),
+        "Auto-start preview accepted another Photo's mask"
+    );
+    assert!(matches!(
+        result
+            .unwrap_err()
+            .downcast_ref::<SubjectMaskServiceError>(),
+        Some(SubjectMaskServiceError::ProposalPhotoMismatch)
+    ));
+    assert!(
+        session
+            .catalog
+            .recipe_commits(other_photo)
+            .unwrap()
+            .is_empty()
+    );
+    session
+        .resolve_auto_start_render(
+            photo_id,
+            &auto_start_preview_request(&original),
+            &[auto_start_mask(token, &original.settings, 0)],
+        )
+        .unwrap();
+    assert!(session.catalog.recipe_commits(photo_id).unwrap().is_empty());
+    apply(&session, &photo, &source, &original, token, Kind::AutoStart).unwrap();
+    drop(session);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn auto_start_checks_every_photo_binding_before_consuming_any_mask() {
+    let (root, session, photo, source) = test_edit_session();
+    let photo_id = photo.parse().unwrap();
+    let original = session.photo_edit_state(&photo, &source).unwrap();
+    let valid = stage(&session, &root, photo_id, Kind::AutoStart);
+    let (other_photo, other_source) = register_other_photo(&session, &root);
+    let other = session
+        .photo_edit_state(&other_photo.to_string(), &other_source)
+        .unwrap();
+    let foreign = stage(&session, &root, other_photo, Kind::AutoStart);
+    let mut settings = original.settings.clone();
+    settings
+        .grade_nodes
+        .push(crate::recipe_v1::new_basic_grade_node("Second").unwrap());
+    let result = session.apply_auto_start(
+        &photo,
+        &source,
+        &original.working_commit_id,
+        &original.working_commit_id,
+        &original.active_variant_id,
+        &settings,
+        &[
+            auto_start_mask(valid, &settings, 0),
+            auto_start_mask(foreign, &settings, 1),
+        ],
+    );
+    assert!(
+        result.is_err(),
+        "Auto-start applied a batch containing another Photo's mask"
+    );
+    assert!(matches!(
+        result
+            .unwrap_err()
+            .downcast_ref::<SubjectMaskServiceError>(),
+        Some(SubjectMaskServiceError::ProposalPhotoMismatch)
+    ));
+    assert!(session.catalog.recipe_commits(photo_id).unwrap().is_empty());
+    assert!(
+        session
+            .catalog
+            .recipe_commits(other_photo)
+            .unwrap()
+            .is_empty()
+    );
+    // The valid first token and the foreign token both retain their captured authority.
+    apply(&session, &photo, &source, &original, valid, Kind::AutoStart).unwrap();
+    apply(
+        &session,
+        &other_photo.to_string(),
+        &other_source,
+        &other,
+        foreign,
+        Kind::AutoStart,
+    )
+    .unwrap();
+    drop(session);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[derive(Debug)]
