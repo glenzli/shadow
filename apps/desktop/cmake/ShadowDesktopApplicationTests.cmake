@@ -492,6 +492,30 @@
     )
 
     add_executable(
+        shadow-export-output-file-contract-test
+        tests/export_output_file_contract_test.cpp
+        src/backend/export_output_file.cpp
+        src/backend/export_output_file.hpp
+    )
+    target_compile_features(shadow-export-output-file-contract-test PRIVATE cxx_std_20)
+    target_include_directories(
+        shadow-export-output-file-contract-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(shadow-export-output-file-contract-test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(shadow-export-output-file-contract-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(
+            shadow-export-output-file-contract-test
+            PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        )
+    endif()
+    add_test(
+        NAME shadow-desktop-export-output-file-contract
+        COMMAND shadow-export-output-file-contract-test
+    )
+
+    add_executable(
         shadow-export-raster-encoder-contract-test
         tests/export_raster_encoder_contract_test.cpp
         src/backend/export_raster_encoder.cpp

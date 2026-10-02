@@ -303,6 +303,27 @@ impl ImageCompletionService {
             .ok_or(ImageCompletionServiceError::UnknownProposal(proposal_token))
     }
 
+    /// Validate the lease-bound Photo before consuming proposal authority.
+    /// Tokens are never reused and proposals are immutable; concurrent removal
+    /// after this check can only make promotion fail with UnknownProposal.
+    pub(crate) fn validate_proposal_photo(
+        &self,
+        proposal_token: u64,
+        photo_id: shadow_domain::PhotoId,
+    ) -> Result<(), ImageCompletionServiceError> {
+        let proposals = self
+            .proposals
+            .lock()
+            .map_err(|_| ImageCompletionServiceError::StatePoisoned)?;
+        let proposal = proposals
+            .get(&proposal_token)
+            .ok_or(ImageCompletionServiceError::UnknownProposal(proposal_token))?;
+        if proposal.staged.target() != &(shadow_ai::ObservationTarget::Photo { photo_id }) {
+            return Err(ImageCompletionServiceError::ProposalPhotoMismatch);
+        }
+        Ok(())
+    }
+
     pub(crate) fn promote_proposal(
         &self,
         proposal_token: u64,
@@ -353,6 +374,8 @@ fn next_token(sequence: &AtomicU64) -> Result<u64, ImageCompletionServiceError> 
 
 #[derive(Debug, Error)]
 pub(crate) enum ImageCompletionServiceError {
+    #[error("AI proposal belongs to a different photo")]
+    ProposalPhotoMismatch,
     #[error("image-completion service state is poisoned")]
     StatePoisoned,
     #[error("too many image-completion jobs are active")]

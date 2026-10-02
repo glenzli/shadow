@@ -5,6 +5,7 @@
 //! index for contracts that genuinely cross desktop bridge responsibilities.
 
 mod adjustment_contract;
+mod ai_proposal_apply_contract;
 mod edit_sessions;
 mod facade;
 mod fixtures;

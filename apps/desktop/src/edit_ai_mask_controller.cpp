@@ -50,6 +50,10 @@ namespace {
         result.state = backend->applySubjectMaskProposal(photo_id, source_path, request);
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
+        // Apply owns this token; a preflight rejection may leave it staged.
+        try {
+            backend->discardSubjectMaskProposal(request.proposal_token);
+        } catch (...) {}
     }
     return result;
 }
@@ -607,6 +611,7 @@ bool EditAiMaskController::beginSelection(
     context_ = CapturedContext{
         .photo_id = owner_.photo_id_,
         .source_path = owner_.source_path_,
+        .expected_variant_id = owner_.active_variant_id_,
         .target_grade_node_id = target->grade_node_id,
         .target_grade_node_index = static_cast<std::uint32_t>(owner_.selected_grade_node_index_),
         .target_mask_operation = target_mask_operation,
@@ -914,6 +919,7 @@ void EditAiMaskController::applyCandidate() {
         .generation = candidate_generation_,
         .base_commit_id = owner_.base_commit_id_,
         .expected_working_commit_id = owner_.durable_working_commit_id_,
+        .expected_variant_id = context_->expected_variant_id,
         .grade_stack = owner_.grade_stack_,
         .target_grade_node_index = context_->target_grade_node_index,
         .target_grade_node_id = context_->target_grade_node_id,
@@ -1181,6 +1187,7 @@ void EditAiMaskController::publishStateChange(
 bool EditAiMaskController::contextIsCurrent() const noexcept {
     if (!active_ || !context_ || owner_.photo_generation_ != context_->photo_generation
         || owner_.photo_id_ != context_->photo_id || owner_.source_path_ != context_->source_path
+        || owner_.active_variant_id_ != context_->expected_variant_id
         || owner_.selected_grade_node_index_ != static_cast<int>(context_->target_grade_node_index)
         || owner_.grade_stack_ != context_->grade_stack) {
         return false;

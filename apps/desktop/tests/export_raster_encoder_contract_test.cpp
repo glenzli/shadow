@@ -1,5 +1,6 @@
 #include "backend/export_raster_encoder.hpp"
 
+#include <QBuffer>
 #include <QColorSpace>
 #include <QFile>
 #include <QImage>
@@ -22,6 +23,22 @@ namespace {
     }
     return condition;
 }
+
+// A classic TIFF patches its first-IFD offset at byte 4 while finalizing.
+// Fail that late write after raster encoding, without relying on disk capacity.
+class TiffDirectoryWriteFailure final : public QBuffer {
+  public:
+    bool injected = false;
+
+  protected:
+    qint64 writeData(const char* data, const qint64 length) override {
+        if (pos() == 4) {
+            injected = true;
+            return -1;
+        }
+        return QBuffer::writeData(data, length);
+    }
+};
 
 } // namespace
 
@@ -178,7 +195,21 @@ int main() {
     } catch (const std::invalid_argument&) {
         rejected_fake_high_bit = true;
     }
-    return valid && high_bit_valid
+    TiffDirectoryWriteFailure final_write_failure;
+    if (!require(final_write_failure.open(QIODevice::ReadWrite), "fault injection buffer opens")) {
+        return EXIT_FAILURE;
+    }
+    bool rejected_final_write = false;
+    try {
+        writeEncodedOutputRaster(final_write_failure, image, options);
+    } catch (const std::runtime_error&) {
+        rejected_final_write = true;
+    }
+    const bool final_write_valid = require(
+        final_write_failure.injected && rejected_final_write,
+        "TIFF final directory write failure must prevent publication"
+    );
+    return valid && high_bit_valid && final_write_valid
                    && require(
                        rejected_fake_high_bit,
                        "RGB8 input cannot be relabeled as a 16-bit TIFF"

@@ -1,17 +1,16 @@
 #include "backend/export_backend.hpp"
+#include "backend/export_output_file.hpp"
 #include "backend/export_raster_encoder.hpp"
 #include "backend/native_path_input.hpp"
 
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
 #include <QColorSpace>
-#include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPainter>
-#include <QSaveFile>
 
 #include <algorithm>
 #include <cmath>
@@ -42,15 +41,6 @@ namespace {
     }
     return static_cast<qsizetype>(size);
 }
-
-class ExportOutputConflict final : public std::runtime_error {
-public:
-    explicit ExportOutputConflict(const QString& destination_path)
-        : std::runtime_error(
-              std::string("export destination already exists: ")
-              + destination_path.toStdString()
-          ) {}
-};
 
 [[nodiscard]] shadow::desktop::FfiDurableExportItemState ffi_durable_export_stage(
     const std::uint8_t stage
@@ -250,34 +240,9 @@ public:
     );
     image.setDotsPerMeterX(dots_per_meter);
     image.setDotsPerMeterY(dots_per_meter);
-    if (QFileInfo::exists(destination_path)) {
-        throw ExportOutputConflict(destination_path);
-    }
-    QSaveFile destination(destination_path);
-    // A durable queue records completion only after atomic publication. Never
-    // silently fall back to an in-place write if the filesystem cannot stage
-    // and rename the temporary output alongside its destination.
-    destination.setDirectWriteFallback(false);
-    if (!destination.open(QIODevice::WriteOnly)) {
-        throw std::runtime_error(
-            std::string("could not open export destination: ")
-            + destination.errorString().toStdString()
-        );
-    }
-    try {
-        writeEncodedOutputRaster(destination, image, options);
-    } catch (...) {
-        destination.cancelWriting();
-        throw;
-    }
-    const std::uint64_t byte_length =
-        static_cast<std::uint64_t>(destination.size());
-    if (!destination.commit()) {
-        throw std::runtime_error(
-            std::string("could not publish export atomically: ")
-            + destination.errorString().toStdString()
-        );
-    }
+    ExportOutputFile destination(destination_path);
+    writeEncodedOutputRaster(destination.device(), image, options);
+    const std::uint64_t byte_length = destination.commit();
     return {
         .destination_path = destination_path,
         .width = static_cast<std::uint32_t>(image.width()),

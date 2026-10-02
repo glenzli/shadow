@@ -1974,6 +1974,7 @@ mod ffi {
         generation: u64,
         base_commit_id: String,
         expected_working_commit_id: String,
+        expected_variant_id: String,
         settings: FfiEditSettings,
         target_grade_node_index: u32,
         target_grade_node_id: String,
@@ -2038,6 +2039,7 @@ mod ffi {
         generation: u64,
         base_commit_id: String,
         expected_working_commit_id: String,
+        expected_variant_id: String,
         settings: FfiEditSettings,
         replace_region_index: i32,
     }

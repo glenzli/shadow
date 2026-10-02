@@ -554,7 +554,10 @@ impl DesktopSession {
     ) -> AnyResult<ffi::FfiPhotoEditState> {
         // Reject a stale or forged photo/source pair before consuming the
         // move-only proposal authority.
-        self.validated_photo_source(photo_id, source_path)?;
+        let (parsed_photo_id, _) = self.validated_photo_source(photo_id, source_path)?;
+        self.require_active_photo_variant(parsed_photo_id, &request.expected_variant_id)?;
+        self.subject_masks
+            .validate_proposal_photo(request.proposal_token, parsed_photo_id)?;
         let mut grade_stack = decode_grade_stack_draft_recipe_v1(&request.settings)?;
         validate_subject_mask_target(
             &grade_stack,
@@ -595,13 +598,14 @@ impl DesktopSession {
             .get_mut(request.target_grade_node_index as usize)
             .context("subject-mask target Grade Node index is unavailable")?;
         append_subject_mask_component(target, mask, operation)?;
-        self.autosave_grade_stack_working_at(
+        self.autosave_grade_stack_working_for_variant_at(
             photo_id,
             source_path,
             &request.base_commit_id,
             &request.expected_working_commit_id,
             &grade_stack,
             current_time_ms()?,
+            Some(&request.expected_variant_id),
         )
     }
 

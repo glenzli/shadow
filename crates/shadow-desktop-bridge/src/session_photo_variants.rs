@@ -88,6 +88,28 @@ impl DesktopSession {
             .ok_or_else(|| anyhow!("photo has no active Variant"))
     }
 
+    /// Preflight before consuming a proposal; publication still repeats the
+    /// Variant expectation inside the existing Recipe transaction.
+    pub(crate) fn require_active_photo_variant(
+        &self,
+        photo_id: PhotoId,
+        expected_variant_id: &str,
+    ) -> AnyResult<()> {
+        let expected = parse_variant_id(expected_variant_id)?;
+        let actual = self.active_photo_variant_id(photo_id)?;
+        if expected != actual {
+            return Err(
+                shadow_catalog::CatalogError::PhotoVariantExpectationMismatch {
+                    photo_id,
+                    expected,
+                    actual,
+                }
+                .into(),
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) fn ffi_photo_variants(
         &self,
         photo_id: PhotoId,

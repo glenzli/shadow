@@ -958,6 +958,11 @@ admission, background execution, preset persistence, and backend publication:
   renderer's RGB16 boundary and rejects an expanded RGB8 input; it retains lossless Deflate,
   output-profile, resolution, and explicit metadata behavior. The DNG route instead preserves the
   original up-to-16-bit CFA samples and is not a rendered RGB image.
+- [`src/backend/export_output_file.*`](src/backend/export_output_file.hpp) owns raster-output
+  staging, file synchronization, and exclusive publication. A destination created while encoding,
+  including a dangling symbolic link, remains untouched and becomes a queue conflict. Abandoned
+  writers remove their staging files. Unsupported exclusive publication fails without an overwrite
+  fallback.
 
 `DesktopBackend` composes that export component with the shared session but does not forward its
 workflow operations. [`tests/backend_export_contract_test.cpp`](tests/backend_export_contract_test.cpp)
@@ -967,6 +972,8 @@ normalization, persistence, stable built-in identities, runtime retranslation, a
 user-authored names; [`tests/export_raster_encoder_contract_test.cpp`](tests/export_raster_encoder_contract_test.cpp)
 reopens generated 8-bit and 16-bit TIFF files and verifies their sample depth, high-bit values,
 profile, lossless compression, resolution, and explicit copyright fields.
+[`tests/export_output_file_contract_test.cpp`](tests/export_output_file_contract_test.cpp) verifies
+publication races, complete-output visibility, and failed-encoder cleanup.
 
 Review presentation keeps the workspace as the composition and compatibility surface:
 

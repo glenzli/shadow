@@ -54,6 +54,10 @@ namespace {
         result.state = backend->applyImageCompletionProposal(photo_id, source_path, request);
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
+        // Apply owns this token; a preflight rejection may leave it staged.
+        try {
+            backend->discardImageCompletionProposal(request.proposal_token);
+        } catch (...) {}
     }
     return result;
 }
@@ -212,6 +216,7 @@ bool EditAiCompletionController::begin() {
     context_ = Context{
         .photo_id = owner_.photo_id_,
         .source_path = owner_.source_path_,
+        .expected_variant_id = owner_.active_variant_id_,
         .photo_generation = owner_.photo_generation_,
     };
     owner_.setStatusMessage(completion_message(QT_TRANSLATE_NOOP(
@@ -432,6 +437,7 @@ void EditAiCompletionController::applyCandidate() {
         .generation = candidate_generation_,
         .base_commit_id = owner_.base_commit_id_,
         .expected_working_commit_id = owner_.durable_working_commit_id_,
+        .expected_variant_id = context_->expected_variant_id,
         .grade_stack = owner_.grade_stack_,
         .replace_region_index = refresh_region_index_,
     };
@@ -651,8 +657,8 @@ void EditAiCompletionController::publishStateChange() {
 
 bool EditAiCompletionController::contextIsCurrent() const noexcept {
     return active_ && context_ && owner_.photo_generation_ == context_->photo_generation
-           && owner_.photo_id_ == context_->photo_id
-           && owner_.source_path_ == context_->source_path;
+           && owner_.photo_id_ == context_->photo_id && owner_.source_path_ == context_->source_path
+           && owner_.active_variant_id_ == context_->expected_variant_id;
 }
 
 bool EditAiCompletionController::hasPaintedPoint() const noexcept {

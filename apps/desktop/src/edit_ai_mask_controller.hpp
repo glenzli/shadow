@@ -84,6 +84,7 @@ class EditAiMaskController final {
     struct CapturedContext final {
         QString photo_id;
         QString source_path;
+        QString expected_variant_id;
         QString target_grade_node_id;
         std::uint32_t target_grade_node_index = 0;
         std::uint8_t target_mask_operation = 0;

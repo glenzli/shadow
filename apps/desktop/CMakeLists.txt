@@ -169,6 +169,8 @@ add_library(
     OBJECT
     src/backend/export_backend.cpp
     src/backend/export_backend.hpp
+    src/backend/export_output_file.cpp
+    src/backend/export_output_file.hpp
     src/backend/export_raster_encoder.cpp
     src/backend/export_raster_encoder.hpp
     src/backend/export_settings_codec.cpp

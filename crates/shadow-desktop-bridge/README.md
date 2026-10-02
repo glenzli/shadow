@@ -179,6 +179,10 @@ without publishing a commit or replacing another editor's adjustments. Ordinary 
 keeps the unsaved draft and surfaces its existing save-failure recovery; the caller must reconcile before retrying
 against a newly observed head. A checked-out named Version remains the content parent, separately
 from the expected movable working ref. Merely assigning a newer parent is not a content merge.
+AI mask/completion apply carries the Variant captured by the UI and validates the existing
+lease-bound Photo target before consuming the proposal. An empty expected Variant is rejected;
+publication repeats the Variant/head CAS in the Catalog transaction. These checks do not prove
+freshness of replaced source bytes or another representation of the same Photo.
 AI mask/completion publication may already have consumed its proposal before the final CAS; a
 stale proposal must be prepared again after reconciliation rather than replaying that token.
 

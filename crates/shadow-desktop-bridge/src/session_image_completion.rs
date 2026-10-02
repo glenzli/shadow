@@ -512,7 +512,10 @@ impl DesktopSession {
         source_path: &str,
         request: &ffi::FfiImageCompletionApplyRequest,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
-        self.validated_photo_source(photo_id, source_path)?;
+        let (parsed_photo_id, _) = self.validated_photo_source(photo_id, source_path)?;
+        self.require_active_photo_variant(parsed_photo_id, &request.expected_variant_id)?;
+        self.image_completions
+            .validate_proposal_photo(request.proposal_token, parsed_photo_id)?;
         let mut grade_stack = decode_grade_stack_draft_recipe_v1(&request.settings)?;
         let replace_index = usize::try_from(request.replace_region_index).ok();
         if replace_index.is_some_and(|index| index >= grade_stack.image_completions.len()) {
@@ -532,13 +535,14 @@ impl DesktopSession {
                 .push(region.with_pre_grade(true));
         }
         grade_stack.image_completion_enabled = true;
-        self.autosave_grade_stack_working_at(
+        self.autosave_grade_stack_working_for_variant_at(
             photo_id,
             source_path,
             &request.base_commit_id,
             &request.expected_working_commit_id,
             &grade_stack,
             current_time_ms()?,
+            Some(&request.expected_variant_id),
         )
     }
 

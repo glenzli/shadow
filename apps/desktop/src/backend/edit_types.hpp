@@ -611,6 +611,7 @@ struct BackendSubjectMaskApplyRequest final {
     std::uint64_t generation = 0;
     QString base_commit_id;
     QString expected_working_commit_id;
+    QString expected_variant_id;
     BackendGradeStack grade_stack;
     std::uint32_t target_grade_node_index = 0;
     QString target_grade_node_id;
@@ -663,6 +664,7 @@ struct BackendImageCompletionApplyRequest final {
     std::uint64_t generation = 0;
     QString base_commit_id;
     QString expected_working_commit_id;
+    QString expected_variant_id;
     BackendGradeStack grade_stack;
     int replace_region_index = -1;
 };

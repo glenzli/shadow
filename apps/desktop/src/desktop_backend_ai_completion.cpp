@@ -89,6 +89,7 @@ BackendPhotoEditState DesktopBackend::applyImageCompletionProposal(
     ffi_request.generation = request.generation;
     ffi_request.base_commit_id = request.base_commit_id.toStdString();
     ffi_request.expected_working_commit_id = request.expected_working_commit_id.toStdString();
+    ffi_request.expected_variant_id = request.expected_variant_id.toStdString();
     ffi_request.settings = ffi_grade_stack(request.grade_stack);
     ffi_request.replace_region_index = request.replace_region_index;
     return edit_state(impl_->session->apply_image_completion_proposal(

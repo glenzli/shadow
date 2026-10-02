@@ -1,6 +1,6 @@
 #![allow(clippy::missing_errors_doc)]
 
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use shadow_domain::{
     EntityId, PhotoId, RecipeCommit, RecipeCommitId, RecipeId, canonical_recipe_snapshot_digest,
 };
@@ -123,7 +123,13 @@ impl Catalog {
         request: &CommitRecipe,
         expected_variant_id: shadow_domain::PhotoVariantId,
     ) -> Result<RecipeCommitRecord, CatalogError> {
-        let transaction = self.connection.transaction()?;
+        // Reserve the writer before reading Variant/head expectations. With a
+        // deferred transaction, two sessions can both read the old head, then
+        // one fails to upgrade its WAL snapshot with SQLITE_BUSY instead of
+        // observing the winner and returning the semantic CAS conflict.
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         variants::ensure_active_variant(&transaction, request.photo_id, expected_variant_id)?;
         let record = commit_recipe_in_transaction(&transaction, request)?;
         transaction.commit()?;

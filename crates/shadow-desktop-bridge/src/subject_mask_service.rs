@@ -668,6 +668,27 @@ impl SubjectMaskService {
             .ok_or(SubjectMaskServiceError::UnknownProposal(proposal_token))
     }
 
+    /// Validate the lease-bound Photo before consuming proposal authority.
+    /// Tokens are never reused and proposals are immutable; concurrent removal
+    /// after this check can only make promotion fail with UnknownProposal.
+    pub(crate) fn validate_proposal_photo(
+        &self,
+        proposal_token: u64,
+        photo_id: shadow_domain::PhotoId,
+    ) -> Result<(), SubjectMaskServiceError> {
+        let proposals = self
+            .proposals
+            .lock()
+            .map_err(|_| SubjectMaskServiceError::StatePoisoned)?;
+        let proposal = proposals
+            .get(&proposal_token)
+            .ok_or(SubjectMaskServiceError::UnknownProposal(proposal_token))?;
+        if proposal.target() != &(shadow_ai::ObservationTarget::Photo { photo_id }) {
+            return Err(SubjectMaskServiceError::ProposalPhotoMismatch);
+        }
+        Ok(())
+    }
+
     /// Consumes one opaque proposal token. Stale generation consumes the
     /// runtime authority without publishing a durable object.
     pub(crate) fn promote_proposal(
@@ -849,6 +870,8 @@ fn next_token(sequence: &AtomicU64) -> Result<u64, SubjectMaskServiceError> {
 
 #[derive(Debug, Error)]
 pub(crate) enum SubjectMaskServiceError {
+    #[error("AI proposal belongs to a different photo")]
+    ProposalPhotoMismatch,
     #[error("subject-mask service state is poisoned")]
     StatePoisoned,
     #[error("too many subject-mask jobs are active")]
