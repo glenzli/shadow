@@ -1,5 +1,5 @@
 use super::{catalog, decode::LibRawInspector};
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use shadow_core::{
     DecodeInspectionActor, DecodeInspector, ScanReport, resume_scan, scan_folder,
     scan_folder_with_inspection,
@@ -8,6 +8,7 @@ use shadow_domain::ImportSessionId;
 use std::path::Path;
 
 pub(super) fn folder(catalog_path: &str, folder: &str) -> Result<()> {
+    require_directory(folder)?;
     let actor = catalog::open(catalog_path)?;
     let mut catalog = actor.handle();
     let report = scan_folder(&mut catalog, Path::new(folder))?;
@@ -26,6 +27,7 @@ pub(super) fn folder_with_cache_and_inspector(
     folder: &str,
     inspector: impl DecodeInspector,
 ) -> Result<()> {
+    require_directory(folder)?;
     let actor = catalog::open(catalog_path)?;
     let mut catalog = actor.handle();
     let inspector =
@@ -47,6 +49,16 @@ pub(super) fn resume(catalog_path: &str, session_id: ImportSessionId) -> Result<
     Ok(())
 }
 
+fn require_directory(folder: &str) -> Result<()> {
+    let metadata =
+        std::fs::metadata(folder).with_context(|| format!("read scan directory {folder}"))?;
+    ensure!(
+        metadata.is_dir(),
+        "scan input must be a directory: {folder}"
+    );
+    Ok(())
+}
+
 fn print_report(report: ScanReport) {
     println!(
         "scan: session={} seen={} supported={} inserted={} unchanged={} revalidate={} decode_queued={} skipped={} issues={}",
@@ -64,3 +76,6 @@ fn print_report(report: ScanReport) {
         eprintln!("{}: {}", issue.path.display(), issue.message);
     }
 }
+
+#[cfg(test)]
+mod tests;

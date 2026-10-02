@@ -349,6 +349,30 @@ ApplicationWindow {
         )) {
         return EXIT_FAILURE;
     }
+    // Declarative visibility does not mean a ScrollView exposes the button's
+    // hit target. Keep the constrained-window case and scroll before clicking.
+    auto* const flickable = body_scroll->property("contentItem").value<QQuickItem*>();
+    if (!require(
+            flickable
+                && flickable->setProperty(
+                    "contentY",
+                    qMax(0.0, flickable->property("contentHeight").toDouble() - flickable->height())
+                ),
+            "the review body exposes its scroll position"
+        )
+        || !require(
+            QTest::qWaitFor([&] {
+                const QPointF center = suggestion_button->mapToItem(
+                    body_scroll,
+                    QPointF(suggestion_button->width() / 2.0, suggestion_button->height() / 2.0)
+                );
+                return body_scroll->boundingRect().contains(center)
+                       && itemFitsWindow(*suggestion_button, *window, 8.0);
+            }),
+            "scrolling exposes the suggestion's hit target inside the viewport"
+        )) {
+        return EXIT_FAILURE;
+    }
     click(*window, *suggestion_button);
     if (!require(
             image_understanding.accepted_count == 1 && popup->property("visible").toBool(),

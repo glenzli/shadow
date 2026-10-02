@@ -14,6 +14,7 @@ serde.workspace = true
 serde_json.workspace = true
 shadow-ai.workspace = true
 shadow-domain.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 

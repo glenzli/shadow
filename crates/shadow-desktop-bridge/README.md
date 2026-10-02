@@ -169,8 +169,18 @@ curves retain one deterministic Grade-local slot and independent point sets.
 `session_auto_start` owns exact transient candidate-mask rendering and strict-CAS starting-point
 publication. Temporary render plans resolve staged raster bytes without promoting them or writing
 Recipe/cache state; apply promotes every selected mask and publishes all nodes in one working-head
-transaction. Stale proposals fail instead of using autosave rebasing. Its adjacent tests compare
+transaction. Stale proposals fail against the exact expected working head. Its adjacent tests compare
 transient and durable native plans at different strengths and verify atomic/stale-head behavior.
+
+`session_edit_history` uses exact working-head CAS for ordinary autosave and internal
+full-draft publication. The desktop entry also carries the caller’s expected active Variant;
+internal callers without an explicit Variant bind it at invocation. A stale head returns a conflict
+without publishing a commit or replacing another editor's adjustments. Ordinary desktop autosave
+keeps the unsaved draft and surfaces its existing save-failure recovery; the caller must reconcile before retrying
+against a newly observed head. A checked-out named Version remains the content parent, separately
+from the expected movable working ref. Merely assigning a newer parent is not a content merge.
+AI mask/completion publication may already have consumed its proposal before the final CAS; a
+stale proposal must be prepared again after reconciliation rather than replaying that token.
 
 [`src/people_library_store/scan.rs`](src/people_library_store/scan.rs) stores completed input
 identities for incremental analysis. It keeps no biometric vectors. Each completed batch is

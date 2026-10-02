@@ -1730,6 +1730,14 @@ be new files in existing directories. DNG source-stage export is excluded becaus
 apply editing adjustments. Relative paths, when supplied, resolve against the process working
 directory. Requests are limited to 1 MiB and 256 photos.
 
+Requests hand off to the human editor; they do not execute an `operations` list or import a
+`recipe` field. Unknown request, per-photo, and export fields are rejected before opening the
+session so unsupported intent cannot be silently dropped. Export fields use the shared desktop
+export codec and its normalization rules; preset `id`/`name` metadata and `filenameSuffix`
+are not accepted because output paths are explicit. Batch
+requests continue to tolerate legacy root `input`/`output` fields, with `photos` authoritative.
+`requestId` is echoed correlation, not a durable deduplication or replay key.
+
 After a partial export, the session opens the first unfinished photo for further editing and retry.
 Completed photos remain viewable but read-only; retry leaves their exported bytes untouched.
 

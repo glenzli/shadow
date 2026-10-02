@@ -81,6 +81,17 @@ int main() {
             "missing result accepted"
         ))
         return EXIT_FAILURE;
+    object["operations"] = QJsonArray{QJsonObject{{"exposure", 1.0}}};
+    if (!require(!parse() && error.contains("unsupported"), "unsupported edit intent ignored"))
+        return EXIT_FAILURE;
+    object.remove("operations");
+    object["export"] = QJsonObject{{"format", "png"}, {"width", 1024}};
+    if (!require(!parse() && error.contains("unsupported"), "unsupported export option ignored"))
+        return EXIT_FAILURE;
+    object["export"] = QJsonObject{{"format", "png"}, {"filenameSuffix", "-adjusted"}};
+    if (!require(!parse() && error.contains("unsupported"), "unused filename suffix accepted"))
+        return EXIT_FAILURE;
+    object["export"] = QJsonObject{{"format", "jpeg"}};
     object["output"] = result;
     if (!require(!parse(), "result/output collision accepted"))
         return EXIT_FAILURE;
@@ -91,6 +102,12 @@ int main() {
     object["schema"] = "shadow-pipeline-edit-20260920.1";
     const QJsonObject first{{"input", input}, {"output", output}};
     const QJsonObject next{{"input", second}, {"output", canonical.filePath("second-out.jpg")}};
+    object["photos"] = QJsonArray{first, next};
+    QJsonObject with_recipe = first;
+    with_recipe["recipe"] = "unimplemented.shadowrecipe";
+    object["photos"] = QJsonArray{with_recipe, next};
+    if (!require(!parse() && error.contains("unsupported"), "unsupported per-photo recipe ignored"))
+        return EXIT_FAILURE;
     object["photos"] = QJsonArray{first, next};
     const auto batch = parse();
     if (!require(batch && batch->photos.size() == 2 && !batch->legacy_single, "batch admission"))

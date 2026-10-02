@@ -15,6 +15,14 @@
 namespace {
 constexpr qsizetype max_photos = 256;
 
+std::optional<QString> unsupportedField(const QJsonObject& object, const QSet<QString>& fields) {
+    for (auto entry = object.constBegin(); entry != object.constEnd(); ++entry) {
+        if (!fields.contains(entry.key()))
+            return entry.key();
+    }
+    return std::nullopt;
+}
+
 QString existingFile(const QString& value) {
     const QFileInfo file(value);
     return !value.isEmpty() && file.isFile() ? file.canonicalFilePath() : QString{};
@@ -117,6 +125,19 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
     request.legacy_single = schema == QStringLiteral("shadow-pipeline-edit-20260814.1");
     if (!request.legacy_single && schema != QStringLiteral("shadow-pipeline-edit-20260920.1"))
         return fail(QStringLiteral("unsupported pipeline request schema"));
+    QSet<QString> request_fields{
+        QStringLiteral("schema"),
+        QStringLiteral("requestId"),
+        QStringLiteral("input"),
+        QStringLiteral("output"),
+        QStringLiteral("export")
+    };
+    // Batch callers may retain the old single-photo fields when upgrading the
+    // envelope. The photos array remains authoritative, as in the original contract.
+    if (!request.legacy_single)
+        request_fields.insert(QStringLiteral("photos"));
+    if (const auto field = unsupportedField(object, request_fields))
+        return fail(QStringLiteral("unsupported pipeline request field: %1").arg(*field));
     request.request_id = object.value(QStringLiteral("requestId")).toString();
     if (request.request_id.trimmed().isEmpty())
         return fail(QStringLiteral("pipeline requestId is required"));
@@ -129,6 +150,11 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
     QSet<QString> outputs{pathKey(request.result_path), pathKey(request_path)};
     for (const auto& value : photos) {
         const auto photo = value.toObject();
+        if (!request.legacy_single) {
+            if (const auto field =
+                    unsupportedField(photo, {QStringLiteral("input"), QStringLiteral("output")}))
+                return fail(QStringLiteral("unsupported pipeline photo field: %1").arg(*field));
+        }
         const QString input = existingFile(photo.value(QStringLiteral("input")).toString());
         const QString output = newFile(photo.value(QStringLiteral("output")).toString());
         if (input.isEmpty() || output.isEmpty())
@@ -148,7 +174,21 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
     if (object.contains(QStringLiteral("export"))
         && !object.value(QStringLiteral("export")).isObject())
         return fail(QStringLiteral("pipeline export must be an object"));
-    request.export_options = object.value(QStringLiteral("export")).toObject().toVariantMap();
+    const auto export_object = object.value(QStringLiteral("export")).toObject();
+    // Reuse the shared codec's field inventory; preset identity is UI metadata,
+    // not an instruction this external request boundary can execute. Explicit
+    // output paths also leave no filename-suffix planning step.
+    auto export_defaults = ExportSettingsCodec::normalizedPreset({}, {}, {});
+    export_defaults.remove(QStringLiteral("id"));
+    export_defaults.remove(QStringLiteral("name"));
+    export_defaults.remove(QStringLiteral("filenameSuffix"));
+    const auto export_keys = export_defaults.keys();
+    if (const auto field = unsupportedField(
+            export_object,
+            QSet<QString>(export_keys.cbegin(), export_keys.cend())
+        ))
+        return fail(QStringLiteral("unsupported pipeline export field: %1").arg(*field));
+    request.export_options = export_object.toVariantMap();
     try {
         const auto checked = ExportSettingsCodec::fromVariantMap(request.export_options);
         if (checked.format == QStringLiteral("dng"))

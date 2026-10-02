@@ -357,7 +357,10 @@ int main(int argc, char* argv[]) {
     QObject* const swatch_flickable =
         section->findChild<QObject*>(QStringLiteral("pointColorSwatchFlickable"));
     if (swatch_flickable != nullptr) {
-        swatch_flickable->setProperty("width", 120.0);
+        // Resize the unowned host/root; the Flickable width belongs to its layout.
+        focus_window.setWidth(220);
+        section->setProperty("width", 220.0);
+        drainBindings();
         QMetaObject::invokeMethod(sample_bar, "revealSelectedSwatch");
         drainBindings();
     }
@@ -384,6 +387,15 @@ int main(int argc, char* argv[]) {
     QQuickItem* const nonselected_last_sample = findSample(section_item, 11);
     if (nonselected_last_sample != nullptr) {
         nonselected_last_sample->forceActiveFocus(Qt::TabFocusReason);
+    }
+    // A deferred selection reveal can arrive after keyboard focus, for example
+    // when the row width changes during layout. It must not hide the focused swatch.
+    if (!require(
+            swatch_flickable->property("contentX").toDouble() > 0.0
+                && QMetaObject::invokeMethod(sample_bar, "queueRevealSelectedSwatch"),
+            "keyboard focus reveals its target before a queued selection refresh"
+        )) {
+        return EXIT_FAILURE;
     }
     drainBindings();
     if (!require(
