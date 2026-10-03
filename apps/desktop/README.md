@@ -29,6 +29,15 @@ remote Mac manifest / client-local proxy cache
 
 QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests use a stable URL across Library generations, allowing Qt to reuse decoded images and textures when the ticket is unchanged; comparison requests retain their generation identity. Grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
 
+## Single-photo external edit tools
+
+[`edit_tool_protocol.*`](src/edit_tool_protocol.hpp), [`edit_tool_stdio.*`](src/edit_tool_stdio.hpp),
+and [`edit_tool_controller.*`](src/edit_tool_controller.hpp) own the bounded process protocol,
+transport, and same-owner snapshot/proposal lifecycle. The [wire contract and invocation](../../docs/development/agent-edit-stdio.md)
+define its explicit independent-session scope. Existing Recipe CAS, Undo, transient preview and
+durable export remain with their original owners; opt-in UI acceptance is in
+[`edit_tool_ui_smoke.*`](src/edit_tool_ui_smoke.hpp), separately from the formal entry.
+
 ## HDR and panorama composition
 
 Select 2–12 photos in Review, then use **Merge → HDR merge / Panorama merge**. Remote originals

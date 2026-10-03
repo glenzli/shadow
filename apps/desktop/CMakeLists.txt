@@ -377,6 +377,14 @@ qt_add_executable(
     src/desktop_backend_auto_start.cpp
     src/edit_auto_start_controller.cpp
     src/edit_auto_start_controller.hpp
+    src/edit_tool_controller.cpp
+    src/edit_tool_controller.hpp
+    src/edit_tool_protocol.cpp
+    src/edit_tool_protocol.hpp
+    src/edit_tool_stdio.cpp
+    src/edit_tool_stdio.hpp
+    src/edit_tool_ui_smoke.cpp
+    src/edit_tool_ui_smoke.hpp
     src/auto_start_smoke_harness.cpp
     src/auto_start_smoke_harness.hpp
     src/auto_start_ui_smoke.cpp

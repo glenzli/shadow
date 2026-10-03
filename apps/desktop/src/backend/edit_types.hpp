@@ -780,6 +780,11 @@ struct BackendPhotoVariant final {
     std::int64_t updated_at_ms = 0;
 };
 
+struct BackendEditCommitReceipt final {
+    QString photo_id, representation_id, variant_id, commit_id, recipe_id, snapshot_digest;
+    BackendGradeStack grade_stack;
+};
+
 struct BackendPhotoEditState final {
     QString photo_id;
     QString source_path;

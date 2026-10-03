@@ -2390,6 +2390,22 @@ mod ffi {
         photo_id: String,
         source_path: String,
         output_path: FfiNativePath,
+        /// Both empty selects current working; both present pins an immutable
+        /// commit and source representation without creating a neutral edit.
+        recipe_commit_id: String,
+        representation_id: String,
+    }
+
+    /// The acknowledged transaction, never a read of the movable current state.
+    #[derive(Debug)]
+    struct FfiEditCommitReceipt {
+        photo_id: String,
+        representation_id: String,
+        variant_id: String,
+        commit_id: String,
+        recipe_id: String,
+        snapshot_digest: String,
+        settings: FfiEditSettings,
     }
 
     /// Opaque durable job identity returned immediately after its immutable
@@ -3367,6 +3383,16 @@ mod ffi {
             expected_variant_id: &str,
             settings: &FfiEditSettings,
         ) -> Result<FfiPhotoEditState>;
+        fn commit_edit_tool_draft(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            representation_id: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            expected_variant_id: &str,
+            settings: &FfiEditSettings,
+        ) -> Result<FfiEditCommitReceipt>;
         fn checkout_basic_edit_version(
             self: &DesktopSession,
             photo_id: &str,

@@ -88,7 +88,7 @@ PipelineRunController::~PipelineRunController() {
 
 bool PipelineRunController::busy() const noexcept {
     return admission_watcher_.isRunning() || exporting() || completion_requested_
-           || editor_.stateBusy();
+           || (editor_.stateBusy() || editor_.toolOperationRunning());
 }
 
 bool PipelineRunController::navigationEnabled() const noexcept {
@@ -406,6 +406,10 @@ void PipelineRunController::stopExport() {
 }
 
 void PipelineRunController::cancel() {
+    // A tool owns an exact transaction/receipt in this same temporary session.
+    // Closing cannot destroy it or race the other global export-queue consumer.
+    if (editor_.toolOperationRunning())
+        return;
     if (terminal_)
         return;
     cancel_requested_ = true;

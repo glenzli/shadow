@@ -201,8 +201,7 @@ EditWorkAdmissionState EditController::workAdmissionState() const noexcept {
         .active = active_,
         .state_task_running = stateTaskRunning(),
         .preview_running = current_rendering_ || before_rendering_,
-        .preview_scheduled = preview_queued_ || preview_debounce_.isActive()
-            || before_requested_,
+        .preview_scheduled = preview_queued_ || preview_debounce_.isActive() || before_requested_,
         .detail_running = detail_rendering_,
         .detail_scheduled = detail_queued_ || detail_debounce_.isActive(),
         .warmup_running = detail_warmup_watcher_.isRunning(),
@@ -223,7 +222,9 @@ QObject* EditController::retouchSources() const noexcept {
     return retouch_sources_.get();
 }
 
-QObject* EditController::autoStart() const noexcept { return auto_start_controller_.get(); }
+QObject* EditController::autoStart() const noexcept {
+    return auto_start_controller_.get();
+}
 
 QObject* EditController::subjectEmphasis() const noexcept {
     return subject_emphasis_controller_.get();
@@ -234,7 +235,8 @@ bool EditController::active() const noexcept {
 }
 
 bool EditController::busy() const noexcept {
-    return stateTaskRunning() || current_rendering_ || before_rendering_ || detail_rendering_
+    return tool_operation_running_ || tool_commit_reserved_ || stateTaskRunning()
+           || current_rendering_ || before_rendering_ || detail_rendering_
            || (auto_start_controller_ && auto_start_controller_->busy())
            || (subject_emphasis_controller_ && subject_emphasis_controller_->busy())
            || (ai_mask_controller_ && ai_mask_controller_->busy())
@@ -252,7 +254,8 @@ bool EditController::interactionLocked() const noexcept {
     // head when the transaction returns. Opening a photo, creating a named
     // Version, and loading a Version still replace controller state, so they
     // remain interaction-locking operations.
-    return persistence_state_.hasPendingVersionSave() || persistence_state_.hasPendingVersionLoad()
+    return tool_commit_reserved_ || persistence_state_.hasPendingVersionSave()
+           || persistence_state_.hasPendingVersionLoad()
            || (stateTaskRunning() && stateTaskKind() != EditStateTaskKind::Autosave)
            || (auto_start_controller_ && auto_start_controller_->applying())
            || (subject_emphasis_controller_ && subject_emphasis_controller_->active())

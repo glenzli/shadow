@@ -55,7 +55,8 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
         error->clear();
     const bool direct = arguments.contains(QStringLiteral("--isolate"));
     const bool protocol = arguments.contains(QStringLiteral("--pipeline-edit"));
-    if (!direct && !protocol)
+    const bool agent = arguments.contains(QStringLiteral("--agent-stdio"));
+    if (!direct && !protocol && !agent)
         return std::nullopt;
     const auto fail = [error](const QString& message) -> std::optional<PipelineLaunchRequest> {
         if (error)
@@ -64,15 +65,26 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
     };
     if (direct && protocol)
         return fail(QStringLiteral("choose --isolate or --pipeline-edit"));
+    if (agent && (!direct || protocol))
+        return fail(QStringLiteral("--agent-stdio requires --isolate and one explicit photo"));
+#if !defined(Q_OS_UNIX)
+    if (agent)
+        return fail(QStringLiteral("--agent-stdio is supported only on POSIX platforms"));
+#endif
+    if (arguments.count(QStringLiteral("--agent-stdio")) > 1)
+        return fail(QStringLiteral("duplicate --agent-stdio option"));
 
     PipelineLaunchRequest request;
     request.interactive = direct;
+    request.agent_stdio = agent;
     if (direct) {
         bool positional = false;
         QSet<QString> inputs;
         for (qsizetype i = 1; i < arguments.size(); ++i) {
             const QString& argument = arguments[i];
-            if (!positional && argument == QStringLiteral("--isolate"))
+            if (!positional
+                && (argument == QStringLiteral("--isolate")
+                    || argument == QStringLiteral("--agent-stdio")))
                 continue;
             if (!positional && argument == QStringLiteral("--")) {
                 positional = true;
@@ -88,6 +100,8 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
                 request.photos.push_back({input, {}});
             }
         }
+        if (agent && request.photos.size() != 1)
+            return fail(QStringLiteral("--agent-stdio requires exactly one explicit photo"));
         if (request.photos.size() > max_photos)
             return fail(QStringLiteral("an isolated session accepts at most 256 photos"));
         return request;

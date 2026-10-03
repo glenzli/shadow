@@ -20,6 +20,7 @@ struct PipelineLaunchRequest final {
     QString result_path;
     QVariantMap export_options;
     bool interactive = false;
+    bool agent_stdio = false;
     bool legacy_single = false;
 };
 

@@ -7,12 +7,14 @@ use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::query_raw_white_balance_presentation_from_metadata;
 use shadow_catalog::{
     CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository, EditObjectPackWrite,
-    EditRepositoryRefUpdate, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget,
+    EditRepositoryRefUpdate, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind,
+    RecipeRefTarget,
 };
 use shadow_domain::{
     EditEntityMapV1, EditObject, EditObjectKind, EditObjectPack, EditRepositoryCommit,
     EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation, EditRepositoryRefKind, EntityId,
-    LibraryRootV1, PhotoId, PhotoVariantId, RecipeCommit, RecipeCommitId, RecipeId, VersionName,
+    LibraryRootV1, PhotoId, PhotoVariantId, RecipeCommit, RecipeCommitId, RecipeId,
+    RepresentationId, VersionName,
 };
 
 use super::{
@@ -447,7 +449,87 @@ impl DesktopSession {
         created_at_ms: i64,
         expected_variant_id: Option<&str>,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
+        let (record, _, _) = self.commit_grade_stack_working_for_variant_at(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            grade_stack,
+            created_at_ms,
+            expected_variant_id,
+            None,
+        )?;
+        self.photo_edit_state_for(record.photo_id, source_path)
+    }
+
+    /// The tool owner holds the in-memory draft reservation; Catalog still
+    /// arbitrates other sessions through its existing head + Variant CAS.
+    /// All fallible projection happens before publication. No postcommit query
+    /// can turn an acknowledged write into an apparent failure or another head.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_edit_tool_draft(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        representation_id: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        expected_variant_id: &str,
+        settings: &ffi::FfiEditSettings,
+    ) -> AnyResult<ffi::FfiEditCommitReceipt> {
+        if expected_variant_id.is_empty() || representation_id.is_empty() {
+            bail!("tool commit requires an explicit Variant and representation");
+        }
+        let draft = decode_grade_stack_draft_recipe_v1(settings)?;
+        let canonical_settings = encode_grade_stack_draft_recipe_v1(draft.clone())?;
+        let (record, representation, variant) = self.commit_grade_stack_working_for_variant_at(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            &draft,
+            current_time_ms()?,
+            Some(expected_variant_id),
+            Some(representation_id),
+        )?;
+        Ok(ffi::FfiEditCommitReceipt {
+            photo_id: record.photo_id.to_string(),
+            representation_id: representation.to_string(),
+            variant_id: variant.to_string(),
+            commit_id: record.commit.id().to_string(),
+            recipe_id: record.commit.recipe_id().to_string(),
+            snapshot_digest: crate::digest_hex::encode_hex(&record.snapshot_digest),
+            settings: canonical_settings,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    fn commit_grade_stack_working_for_variant_at(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        grade_stack: &GradeStackDraft,
+        created_at_ms: i64,
+        expected_variant_id: Option<&str>,
+        expected_representation_id: Option<&str>,
+    ) -> AnyResult<(RecipeCommitRecord, RepresentationId, PhotoVariantId)> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        if expected_representation_id
+            .is_some_and(|expected| expected != source.representation_id.to_string())
+        {
+            bail!("tool commit source representation changed");
+        }
+        if expected_representation_id.is_some() {
+            let native_path = shadow_core::native_path_from_location(&source.location)?;
+            if shadow_core::fingerprint_source(&native_path)
+                .context("read tool commit source metadata")?
+                != source.source
+            {
+                bail!("tool commit source changed since Catalog registration");
+            }
+        }
         let expected_variant_id = expected_variant_id
             .filter(|value| !value.is_empty())
             .map(|value| {
@@ -521,9 +603,10 @@ impl DesktopSession {
         // or AI edits with stale values. The controller serializes its own
         // saves and carries their acknowledged heads. A conflict must return
         // to that caller, which retains the draft for explicit reconciliation.
-        self.catalog
+        let record = self
+            .catalog
             .commit_recipe_for_variant(&request, expected_variant_id)?;
-        self.photo_edit_state_for(photo_id, &source.location.display_path)
+        Ok((record, source.representation_id, expected_variant_id))
     }
 
     pub(crate) fn checkout_basic_edit_version(

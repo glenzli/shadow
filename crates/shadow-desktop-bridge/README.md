@@ -74,6 +74,11 @@ presentation, SQLite schema details, or native image algorithms.
 | Cache ownership and explicit maintenance | [`src/cache_maintenance_service.rs`](src/cache_maintenance_service.rs) |
 | Cross-responsibility facade contracts and responsibility-owned fixtures | [`src/tests/mod.rs`](src/tests/mod.rs), [`src/tests/fixtures/mod.rs`](src/tests/fixtures/mod.rs) |
 
+The single-photo [external tool contract](../../docs/development/agent-edit-stdio.md) reuses
+`session_edit_history` for exact transaction receipts and `export_queue_service` for explicit
+immutable commit/representation selection. These paths do not infer the result from a later
+movable working ref or define another Recipe format.
+
 Add behavior to the module that owns its lifecycle and failure policy. Change `lib.rs` only when
 the CXX contract, session composition, or a narrow delegation must change. A new independent
 desktop workflow should begin in a responsibility-named service and be wired through the facade

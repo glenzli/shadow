@@ -164,5 +164,33 @@ int main() {
     writeFile(output, "do not replace");
     if (!require(!parse(), "existing output accepted"))
         return EXIT_FAILURE;
+#if defined(Q_OS_UNIX)
+    const auto tool = parsePipelineLaunch({"Shadow", "--agent-stdio", "--isolate", input}, &error);
+    if (!require(
+            tool && tool->agent_stdio && tool->photos.size() == 1,
+            "formal tool entry missing"
+        ))
+        return EXIT_FAILURE;
+#endif
+    if (!require(
+            !parsePipelineLaunch({"Shadow", "--agent-stdio", input}, &error),
+            "implicit Library tool scope accepted"
+        )
+        || !require(
+            !parsePipelineLaunch({"Shadow", "--agent-stdio", "--isolate"}, &error),
+            "empty tool scope accepted"
+        )
+        || !require(
+            !parsePipelineLaunch({"Shadow", "--agent-stdio", "--isolate", input, second}, &error),
+            "multi-photo tool scope accepted"
+        )
+        || !require(
+            !parsePipelineLaunch(
+                {"Shadow", "--agent-stdio", "--agent-stdio", "--isolate", input},
+                &error
+            ),
+            "duplicate tool option accepted"
+        ))
+        return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

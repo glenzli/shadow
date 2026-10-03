@@ -11,6 +11,9 @@
 #include "edit_preview_presentation_context.hpp"
 #include "edit_preview_presentation_registry.hpp"
 #include "edit_preview_provider.hpp"
+#include "edit_tool_controller.hpp"
+#include "edit_tool_stdio.hpp"
+#include "edit_tool_ui_smoke.hpp"
 #include "export_task_runner.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
@@ -35,6 +38,7 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QThreadPool>
 #include <QTimer>
 #include <QtConcurrent>
 
@@ -112,6 +116,57 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
         EditController editor(backend, preview_store, preview_context, &ai_preferences);
         EditInterchangeController interchange(*backend, editor);
         PipelineRunController pipeline(backend, editor, request);
+        std::unique_ptr<EditToolStdio> tool_stdio;
+        std::unique_ptr<EditToolController> tools;
+        if (request.agent_stdio) {
+            QThreadPool::globalInstance()->setMaxThreadCount(2);
+            try {
+                tool_stdio = std::make_unique<EditToolStdio>();
+                tools = std::make_unique<EditToolController>(
+                    editor,
+                    backend,
+                    request.photos.front().input_path
+                );
+            } catch (const std::exception& error) {
+                qCritical().noquote() << "Cannot start edit tools:" << error.what();
+                return EXIT_FAILURE;
+            }
+            QObject::connect(&pipeline, &PipelineRunController::changed, tools.get(), [&] {
+                tools->setAdmissionError(
+                    !pipeline.busy() && !editor.active() ? pipeline.errorText() : QString{}
+                );
+            });
+            QObject::connect(
+                tool_stdio.get(),
+                &EditToolStdio::lineReceived,
+                tools.get(),
+                &EditToolController::receive
+            );
+            QObject::connect(
+                tools.get(),
+                &EditToolController::reply,
+                tool_stdio.get(),
+                &EditToolStdio::send
+            );
+            QObject::connect(
+                tools.get(),
+                &EditToolController::shutdownRequested,
+                tool_stdio.get(),
+                &EditToolStdio::finish
+            );
+            QObject::connect(
+                tool_stdio.get(),
+                &EditToolStdio::drained,
+                &application,
+                &QCoreApplication::quit
+            );
+            QObject::connect(
+                tool_stdio.get(),
+                &EditToolStdio::inputClosed,
+                tools.get(),
+                &EditToolController::disconnectClient
+            );
+        }
 
         QQmlApplicationEngine engine;
         preferences.attachEngine(engine);
@@ -163,8 +218,21 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
             title_bar == nullptr ? 44 : qRound(title_bar->property("height").toReal())
         );
 #endif
-        installPipelineSmokeHarness(engine, pipeline, editor, ai_preferences);
-        installSubjectEmphasisSmokeHarness(engine, pipeline, editor);
+        if (!request.agent_stdio) {
+            if (qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_ACTION") == "agent-tools"
+                && request.photos.size() == 1) {
+                installEditToolUiSmoke(
+                    engine,
+                    pipeline,
+                    editor,
+                    backend,
+                    request.photos.front().input_path
+                );
+            } else {
+                installPipelineSmokeHarness(engine, pipeline, editor, ai_preferences);
+                installSubjectEmphasisSmokeHarness(engine, pipeline, editor);
+            }
+        }
         QTimer::singleShot(0, &pipeline, &PipelineRunController::start);
         return application.exec();
     }();

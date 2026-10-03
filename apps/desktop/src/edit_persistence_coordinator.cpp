@@ -1,8 +1,8 @@
 #include "edit_controller.hpp"
 #include "edit_paint_controller.hpp"
+#include "edit_performance_diagnostics.hpp"
 #include "edit_persistence_task_coordinator.hpp"
 #include "edit_source_admission.hpp"
-#include "edit_performance_diagnostics.hpp"
 
 #include <QtConcurrent>
 
@@ -35,6 +35,8 @@ bool EditController::openPhoto(
     const QString& title,
     const QString& provisional_preview_source
 ) {
+    if (tool_commit_reserved_)
+        return false;
     if (photo_id.isEmpty() || representation_id.isEmpty() || source_path.isEmpty()) {
         setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
             "EditController",
@@ -208,6 +210,8 @@ bool EditController::openPhoto(
 }
 
 void EditController::closePhoto() {
+    if (tool_commit_reserved_)
+        return;
     if (presentation_commit_requested_
         && in_flight_preview_policy_ == EditPreviewPolicy::PresentationCommit
         && current_rendering_) {
@@ -486,6 +490,8 @@ bool EditController::discardFailedAutosaveAndOpenPendingPhoto() {
 }
 
 bool EditController::prepareToClose() {
+    if (tool_commit_reserved_)
+        return false;
     persistence_state_.stopAutosaveDebounce();
     preview_debounce_.stop();
     detail_debounce_.stop();
@@ -530,7 +536,9 @@ void EditController::finishStateTask() {
     EditStateTaskResult result = completeStateTask();
     if (result.kind == EditStateTaskKind::Open) {
         log_edit_performance_checkpoint(
-            "edit-state-task-finished", result.photo_generation, render_revision_
+            "edit-state-task-finished",
+            result.photo_generation,
+            render_revision_
         );
     }
     if (result.photo_generation != photo_generation_) {

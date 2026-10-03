@@ -346,6 +346,23 @@ void EditController::applySubjectMaskState(
     if (state.photo_id != photo_id_ || state.source_path != source_path_) {
         return;
     }
+    applyCommittedGradeStack(
+        std::move(state.grade_stack),
+        state.base_commit_id,
+        before,
+        target_grade_node_id,
+        transaction_key
+    );
+    versions_.replace(std::move(state.versions));
+}
+
+void EditController::applyCommittedGradeStack(
+    BackendGradeStack stack,
+    const QString& commit_id,
+    const BackendGradeStack& before,
+    const QString& target_grade_node_id,
+    const QString& transaction_key
+) {
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
     setVersionDraft(false);
@@ -355,10 +372,10 @@ void EditController::applySubjectMaskState(
         emit autosavePendingChanged();
     }
     const QString before_base_commit_id = base_commit_id_;
-    base_commit_id_ = state.base_commit_id;
-    durable_working_commit_id_ = state.base_commit_id;
-    committed_grade_stack_ = state.grade_stack;
-    setGradeStack(std::move(state.grade_stack), target_grade_node_id);
+    base_commit_id_ = commit_id;
+    durable_working_commit_id_ = commit_id;
+    committed_grade_stack_ = stack;
+    setGradeStack(std::move(stack), target_grade_node_id);
     const auto* const applied_target = selectedGradeNode();
     if (transaction_key.isEmpty() && applied_target != nullptr
         && applied_target->grade_node_id == target_grade_node_id
@@ -381,7 +398,7 @@ void EditController::applySubjectMaskState(
     }
     working_revision_ = 0;
     persistence_state_.resetAutosaveSnapshot();
-    versions_.replace(std::move(state.versions));
+    versions_.setSelectedCommit(commit_id);
     setDirty(false);
     schedulePreview(0);
 }

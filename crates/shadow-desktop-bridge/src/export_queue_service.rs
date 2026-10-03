@@ -71,26 +71,44 @@ impl ExportQueueService {
             }
             let (photo_id, source) =
                 session.validated_photo_source(&target.photo_id, &target.source_path)?;
-            let state = session.photo_edit_state_for(photo_id, &source.location.display_path)?;
-            let state = if state.has_working_version {
-                state
+            let recipe_commit_id: RecipeCommitId = if !target.recipe_commit_id.is_empty()
+                || !target.representation_id.is_empty()
+            {
+                if target.recipe_commit_id.is_empty()
+                    || target.representation_id != source.representation_id.to_string()
+                {
+                    bail!(
+                        "pinned export requires an exact commit and current source representation"
+                    );
+                }
+                target
+                    .recipe_commit_id
+                    .parse()
+                    .context("parse pinned export Recipe commit")?
             } else {
-                // A neutral photo still needs a durable, exact source Recipe.
-                // This is the same autosave path used by regular editing and
-                // deliberately does not create a named Version checkpoint.
-                session.autosave_basic_edit_working_at(
-                    &target.photo_id,
-                    &target.source_path,
-                    "",
-                    "",
-                    &state.settings,
-                    now_ms,
-                )?
+                let state =
+                    session.photo_edit_state_for(photo_id, &source.location.display_path)?;
+                let state = if state.has_working_version {
+                    state
+                } else {
+                    // A neutral photo still needs a durable, exact source Recipe.
+                    // This is the same autosave path used by regular editing and
+                    // deliberately does not create a named Version checkpoint.
+                    session.autosave_basic_edit_working_at(
+                        &target.photo_id,
+                        &target.source_path,
+                        "",
+                        "",
+                        &state.settings,
+                        now_ms,
+                    )?
+                };
+                let recipe_commit_id: RecipeCommitId = state
+                    .working_commit_id
+                    .parse()
+                    .context("parse frozen working Recipe commit for export")?;
+                recipe_commit_id
             };
-            let recipe_commit_id: RecipeCommitId = state
-                .working_commit_id
-                .parse()
-                .context("parse frozen working Recipe commit for export")?;
             let recipe = self
                 .catalog
                 .recipe_commit(photo_id, recipe_commit_id)?

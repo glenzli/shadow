@@ -527,6 +527,9 @@ class EditController final : public QObject {
 
     [[nodiscard]] bool active() const noexcept;
     [[nodiscard]] bool busy() const noexcept;
+    [[nodiscard]] bool toolOperationRunning() const noexcept {
+        return tool_operation_running_;
+    }
     [[nodiscard]] bool stateBusy() const noexcept;
     [[nodiscard]] bool rendering() const noexcept;
     [[nodiscard]] bool beforeRendering() const noexcept;
@@ -1117,6 +1120,13 @@ class EditController final : public QObject {
         const QString& target_grade_node_id,
         const QString& transaction_key = {}
     );
+    void applyCommittedGradeStack(
+        BackendGradeStack stack,
+        const QString& commit_id,
+        const BackendGradeStack& before,
+        const QString& target_grade_node_id,
+        const QString& transaction_key
+    );
     void applyImageCompletionState(BackendPhotoEditState state, const BackendGradeStack& before);
     void setGradeStack(BackendGradeStack grade_stack, const QString& preferred_grade_node_id = {});
     [[nodiscard]] const BackendGradeNode* selectedGradeNode() const noexcept;
@@ -1214,6 +1224,7 @@ class EditController final : public QObject {
     friend class EditAiMaskController;
     friend class EditSubjectEmphasisController;
     friend class EditAutoStartController;
+    friend class EditToolController;
     friend class EditPaintController;
     friend class EditTargetedCurveController;
     friend class EditRetouchSources;
@@ -1225,6 +1236,8 @@ class EditController final : public QObject {
     std::shared_ptr<EditPreviewPresentationContext> preview_presentation_context_;
     AiPreferences* ai_preferences_ = nullptr;
     EditPersistenceState persistence_state_;
+    bool tool_commit_reserved_ = false;
+    bool tool_operation_running_ = false;
     std::unique_ptr<EditAiCompletionController> image_completion_controller_;
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
     std::unique_ptr<EditAutoStartController> auto_start_controller_;

@@ -821,3 +821,33 @@ BackendPhotoEditState DesktopBackend::loadEditVersionDraft(
         commit_id.toStdString()
     ));
 }
+
+BackendEditCommitReceipt DesktopBackend::commitEditToolDraft(
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& representation_id,
+    const QString& base_commit_id,
+    const QString& expected_working_commit_id,
+    const QString& expected_variant_id,
+    const BackendGradeStack& stack
+) const {
+    const auto settings = ffi_grade_stack(stack);
+    const auto receipt = impl_->session->commit_edit_tool_draft(
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        representation_id.toStdString(),
+        base_commit_id.toStdString(),
+        expected_working_commit_id.toStdString(),
+        expected_variant_id.toStdString(),
+        settings
+    );
+    return {
+        qstring(receipt.photo_id),
+        qstring(receipt.representation_id),
+        qstring(receipt.variant_id),
+        qstring(receipt.commit_id),
+        qstring(receipt.recipe_id),
+        qstring(receipt.snapshot_digest),
+        grade_stack(receipt.settings)
+    };
+}

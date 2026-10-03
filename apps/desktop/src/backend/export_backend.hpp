@@ -26,6 +26,8 @@ struct BackendDurableExportTarget final {
     QString photo_id;
     QString source_path;
     QString output_path;
+    QString recipe_commit_id{};
+    QString representation_id{};
 };
 
 /// One immutable work item claimed from the catalog-backed export queue. The
@@ -68,10 +70,8 @@ struct BackendDurableExportProgress final {
 /// publication, terminal completion, cancellation, and progress projection.
 /// Rust owns RAW DNG staging/encoding/publication so CFA bytes never cross CXX.
 class ExportBackend final {
-public:
-    explicit ExportBackend(
-        shadow::desktop::DesktopSession& session
-    ) noexcept;
+  public:
+    explicit ExportBackend(shadow::desktop::DesktopSession& session) noexcept;
 
     ExportBackend(const ExportBackend&) = delete;
     ExportBackend& operator=(const ExportBackend&) = delete;
@@ -81,16 +81,12 @@ public:
         const QString& settings_json
     ) const;
     [[nodiscard]] BackendDurableExportRecovery recoverDurableExportQueue() const;
-    [[nodiscard]] std::optional<BackendDurableExportItem>
-    claimNextDurableExportItem() const;
-    [[nodiscard]] BackendExportReceipt executeDurableExportItem(
-        const BackendDurableExportItem& item
-    ) const;
+    [[nodiscard]] std::optional<BackendDurableExportItem> claimNextDurableExportItem() const;
+    [[nodiscard]] BackendExportReceipt
+    executeDurableExportItem(const BackendDurableExportItem& item) const;
     void cancelDurableExportJob(const QString& job_id) const;
-    [[nodiscard]] BackendDurableExportProgress durableExportProgress(
-        const QString& job_id
-    ) const;
+    [[nodiscard]] BackendDurableExportProgress durableExportProgress(const QString& job_id) const;
 
-private:
+  private:
     shadow::desktop::DesktopSession* session_;
 };
