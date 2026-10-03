@@ -65,7 +65,7 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
     };
     if (direct && protocol)
         return fail(QStringLiteral("choose --isolate or --pipeline-edit"));
-    if (agent && (!direct || protocol))
+    if (agent && !direct && !protocol)
         return fail(QStringLiteral("--agent-stdio requires --isolate and one explicit photo"));
 #if !defined(Q_OS_UNIX)
     if (agent)
@@ -110,7 +110,8 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
     QMap<QString, QString> options;
     for (qsizetype i = 1; i < arguments.size(); ++i) {
         const QString argument = arguments[i];
-        if (argument == QStringLiteral("--pipeline-edit"))
+        if (argument == QStringLiteral("--pipeline-edit")
+            || argument == QStringLiteral("--agent-stdio"))
             continue;
         const auto split = argument.indexOf(QLatin1Char('='));
         const QString key = split >= 0 ? argument.first(split) : argument;
@@ -136,6 +137,20 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
         return fail(QStringLiteral("pipeline request must be one JSON object"));
     const auto object = document.object();
     const QString schema = object.value(QStringLiteral("schema")).toString();
+    if (schema == QStringLiteral("shadow.external-edit/1")) {
+        request.external =
+            ExternalEditContract::parse(object, request_path, request.result_path, error);
+        if (!request.external)
+            return std::nullopt;
+        request.request_id = request.external->request_id;
+        request.photos.push_back({request.external->input_path, request.external->output_path});
+        request.export_options = {{"format", "png"}};
+        return request;
+    }
+    if (agent)
+        return fail(
+            QStringLiteral("--agent-stdio with --pipeline-edit requires shadow.external-edit/1")
+        );
     request.legacy_single = schema == QStringLiteral("shadow-pipeline-edit-20260814.1");
     if (!request.legacy_single && schema != QStringLiteral("shadow-pipeline-edit-20260920.1"))
         return fail(QStringLiteral("unsupported pipeline request schema"));
@@ -219,7 +234,8 @@ bool writePipelineResult(
     const PipelineLaunchRequest& request,
     const QString& outcome,
     const QStringList& errors,
-    const QSet<QString>& completed
+    const QSet<QString>& completed,
+    const std::optional<BackendExportReceipt>& receipt
 ) {
     if (request.interactive)
         return true;
@@ -252,6 +268,8 @@ bool writePipelineResult(
             );
         result.insert(QStringLiteral("photos"), photos);
     }
+    if (request.external)
+        result = ExternalEditContract::result(*request.external, outcome, errors, receipt);
     // Same-directory staging plus an exclusive hard link publishes one complete
     // result without replacing a file created since request admission.
     QTemporaryFile staging(

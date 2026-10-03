@@ -7,14 +7,26 @@ Shadow --agent-stdio --isolate /absolute/path/photo.jpg
 ```
 
 This opt-in POSIX entry runs the ordinary independent editor and its existing EditController.
-It accepts exactly one explicit source supported by the native photo router (JPEG and available RAW providers).
-PNG export support does not imply PNG original admission. It does not attach to an already running Library, listen
+It accepts exactly one explicit source supported by the native photo router, including JPEG, bounded
+opaque sRGB8 PNG and available RAW providers. PNG input rejects alpha, ICC/HDR overrides and compressed
+metadata; see the [external stage contract](external-edit-stage.md) for its precise bounds. It does not attach to an already running Library, listen
 on a socket, expose arbitrary Recipe JSON, execute models, or introduce a second draft owner.
 Windows rejects the flag. Use a subprocess with both streams set to PIPE; diagnostics go to stderr.
 
 The independent editor has a **temporary Catalog**. Commits and Undo are real within this session;
 export a new file before shutdown. Restart creates a different session and rejects all old tokens.
 A flattened PNG is an output artifact, not an editable-original or portable Recipe round trip.
+
+## Material editing stage
+
+`--pipeline-edit --request request.json --result result.json --agent-stdio` accepts the additive
+[`shadow.external-edit/1` envelope](external-edit-stage.md). Human and AI use the same editor.
+Discovery adds `externalStage` and `complete`; `complete` takes only the exact `expected` snapshot,
+waits through the existing save/export lifecycle, and writes a terminal result file. Its immediate
+`accepted` response is not a completion receipt. A neutral Recipe may be returned through this path.
+`shutdown` cancels this bound stage and writes `cancelled`, whereas pipe EOF only detaches the client.
+The normal `--isolate` shutdown/export contracts below are unchanged. Source binding for this profile
+uses a verified private SHA-256 snapshot; it does not replace the editor's existing Recipe CAS.
 
 ## Wire contract
 

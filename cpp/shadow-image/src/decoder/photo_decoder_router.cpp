@@ -1,21 +1,21 @@
 #include <shadow/image/decoder_error.hpp>
-#include <shadow/image/linear_raster.hpp>
 #include <shadow/image/decoder_metadata.hpp>
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/decoder_types.hpp>
+#include <shadow/image/linear_raster.hpp>
 #include <shadow/image/private_decoder_plugin.hpp>
 #include <shadow/image/raw_development_plan.hpp>
 #include <shadow/image/raw_frame.hpp>
 #include <shadow/image/reference_pixels.hpp>
-#include <shadow/image/source_rendering.hpp>
 #include <shadow/image/source_profile_catalog.hpp>
+#include <shadow/image/source_rendering.hpp>
 
 #include "decode_session_isolation.hpp"
 
 #include <algorithm>
 #include <array>
-#include <cstdlib>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -38,10 +38,8 @@ inline constexpr std::uint32_t photo_decoder_router_contract_version = 1U;
 inline constexpr const char* private_decoder_plugin_path_environment =
     "SHADOW_PRIVATE_DECODER_PLUGIN_PATH";
 inline constexpr const char* plugin_directory_environment = "SHADOW_PLUGIN_DIRECTORY";
-inline constexpr const char* disable_private_decoder_environment =
-    "SHADOW_DISABLE_PRIVATE_DECODER";
-inline constexpr std::string_view private_decoder_link_header =
-    "shadow-private-decoder-link-v1";
+inline constexpr const char* disable_private_decoder_environment = "SHADOW_DISABLE_PRIVATE_DECODER";
+inline constexpr std::string_view private_decoder_link_header = "shadow-private-decoder-link-v1";
 inline constexpr std::string_view private_decoder_link_extension = "shadow-decoder-link";
 inline constexpr std::uintmax_t maximum_private_decoder_link_bytes = 8U * 1024U;
 
@@ -99,8 +97,7 @@ inline constexpr std::uintmax_t maximum_private_decoder_link_bytes = 8U * 1024U;
     throw DecodeError(
         DecodeErrorCode::unsupported,
         0,
-        "private decoder plugin link " + utf8_path_text(link_path) + ": "
-            + std::string(detail)
+        "private decoder plugin link " + utf8_path_text(link_path) + ": " + std::string(detail)
     );
 }
 
@@ -117,18 +114,15 @@ inline constexpr std::uintmax_t maximum_private_decoder_link_bytes = 8U * 1024U;
     const std::uintmax_t effective_size = error ? 0U : size;
     error.clear();
     const auto write_time = std::filesystem::last_write_time(effective_path, error);
-    const std::intmax_t ticks = error
-        ? 0
-        : static_cast<std::intmax_t>(write_time.time_since_epoch().count());
+    const std::intmax_t ticks =
+        error ? 0 : static_cast<std::intmax_t>(write_time.time_since_epoch().count());
     return compact_component_identity(
         utf8_path_text(effective_path) + ";size=" + std::to_string(effective_size)
         + ";mtime=" + std::to_string(ticks)
     );
 }
 
-[[nodiscard]] std::string private_module_concurrency_identity(
-    const std::filesystem::path& path
-) {
+[[nodiscard]] std::string private_module_concurrency_identity(const std::filesystem::path& path) {
     std::error_code error;
     const std::filesystem::path canonical = std::filesystem::weakly_canonical(path, error);
     const std::filesystem::path effective_path = error ? path : canonical;
@@ -140,12 +134,11 @@ inline constexpr std::uintmax_t maximum_private_decoder_link_bytes = 8U * 1024U;
 // beside a private RawFrame session, without allowing the JPEG to become an
 // editable source or to affect the private decoder's metadata/RAW plan.
 class PrivateRawWithPublicPreviewSession final : public DecodeSession {
-public:
+  public:
     PrivateRawWithPublicPreviewSession(
         std::unique_ptr<DecodeSession> raw_session,
         std::unique_ptr<DecodeSession> preview_session
-    )
-        : preview_session_(std::move(preview_session)), raw_session_(std::move(raw_session)) {
+    ) : preview_session_(std::move(preview_session)), raw_session_(std::move(raw_session)) {
         if (raw_session_ == nullptr || preview_session_ == nullptr) {
             throw DecodeError(
                 DecodeErrorCode::internal,
@@ -178,22 +171,18 @@ public:
         return previews_;
     }
 
-    [[nodiscard]] const RawDevelopmentCapabilities& raw_development_capabilities() const noexcept override {
+    [[nodiscard]] const RawDevelopmentCapabilities&
+    raw_development_capabilities() const noexcept override {
         return raw_session_->raw_development_capabilities();
     }
 
-    [[nodiscard]] RawDevelopmentPlanNegotiation negotiate_raw_development_plan(
-        const RawDevelopmentPlan& plan
-    ) const noexcept override {
+    [[nodiscard]] RawDevelopmentPlanNegotiation
+    negotiate_raw_development_plan(const RawDevelopmentPlan& plan) const noexcept override {
         return raw_session_->negotiate_raw_development_plan(plan);
     }
 
     [[nodiscard]] PreviewPayload decode_preview(const std::size_t id) override {
-        const auto preview = std::ranges::find(
-            previews_,
-            id,
-            &PreviewDescriptor::id
-        );
+        const auto preview = std::ranges::find(previews_, id, &PreviewDescriptor::id);
         if (preview == previews_.end()) {
             throw DecodeError(
                 DecodeErrorCode::no_preview,
@@ -212,15 +201,12 @@ public:
         return raw_session_->render_reference_rgb();
     }
 
-    [[nodiscard]] PixelBuffer render_reference_rgb(
-        const RawDevelopmentPlan& plan
-    ) const override {
+    [[nodiscard]] PixelBuffer render_reference_rgb(const RawDevelopmentPlan& plan) const override {
         return raw_session_->render_reference_rgb(plan);
     }
 
-    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
-        const std::uint32_t max_edge
-    ) const override {
+    [[nodiscard]] PixelBuffer
+    render_reference_rgb_for_preview(const std::uint32_t max_edge) const override {
         return raw_session_->render_reference_rgb_for_preview(max_edge);
     }
 
@@ -231,7 +217,7 @@ public:
         return raw_session_->render_reference_rgb_for_preview(max_edge, plan);
     }
 
-private:
+  private:
     // Both children are already session-isolated by their original providers.
     // Reverse destruction releases the private RAW session first, before its
     // public LibRaw browse-only companion.
@@ -250,16 +236,16 @@ private:
     result.reserve(extension.size() - 1U);
     for (std::size_t index = 1U; index < extension.size(); ++index) {
         const char8_t byte = extension[index];
-        result.push_back(static_cast<char>(
-            byte >= u8'A' && byte <= u8'Z' ? byte - u8'A' + u8'a' : byte
-        ));
+        result.push_back(
+            static_cast<char>(byte >= u8'A' && byte <= u8'Z' ? byte - u8'A' + u8'a' : byte)
+        );
     }
     return result;
 }
 
 [[nodiscard]] bool is_raster_extension(const std::string_view extension) noexcept {
-    return extension == "jpg" || extension == "jpeg" || extension == "heic"
-        || extension == "heif";
+    return extension == "jpg" || extension == "jpeg" || extension == "png" || extension == "heic"
+           || extension == "heif";
 }
 
 [[nodiscard]] bool has_jpeg_signature(const std::filesystem::path& path) {
@@ -270,7 +256,7 @@ private:
     std::array<unsigned char, 3U> bytes{};
     file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     return file.gcount() == static_cast<std::streamsize>(bytes.size()) && bytes[0] == 0xffU
-        && bytes[1] == 0xd8U && bytes[2] == 0xffU;
+           && bytes[1] == 0xd8U && bytes[2] == 0xffU;
 }
 
 [[nodiscard]] std::filesystem::path configured_private_decoder_plugin_path() {
@@ -316,9 +302,8 @@ private:
 #endif
 }
 
-[[nodiscard]] std::filesystem::path read_private_decoder_link(
-    const std::filesystem::path& link_path
-) {
+[[nodiscard]] std::filesystem::path
+read_private_decoder_link(const std::filesystem::path& link_path) {
     std::error_code error;
     if (!std::filesystem::is_regular_file(link_path, error) || error) {
         throw_private_decoder_link_error(link_path, "is not a readable regular file");
@@ -345,9 +330,8 @@ private:
         if (!value.starts_with(module_prefix) || module_path.has_value()) {
             throw_private_decoder_link_error(link_path, "contains an invalid entry");
         }
-        const std::filesystem::path module = utf8_text_path(
-            trim_ascii(std::string_view(value).substr(module_prefix.size()))
-        );
+        const std::filesystem::path module =
+            utf8_text_path(trim_ascii(std::string_view(value).substr(module_prefix.size())));
         if (!module.is_absolute()) {
             throw_private_decoder_link_error(link_path, "module path must be absolute");
         }
@@ -396,17 +380,12 @@ private:
     }
 
     std::vector<std::filesystem::path> link_paths;
-    for (
-        std::filesystem::directory_iterator entry(decoder_directory, error), end;
-        !error && entry != end;
-        entry.increment(error)
-    ) {
+    for (std::filesystem::directory_iterator entry(decoder_directory, error), end;
+         !error && entry != end;
+         entry.increment(error)) {
         std::error_code entry_error;
-        if (
-            entry->is_regular_file(entry_error)
-            && !entry_error
-            && lowercase_extension(entry->path()) == private_decoder_link_extension
-        ) {
+        if (entry->is_regular_file(entry_error) && !entry_error
+            && lowercase_extension(entry->path()) == private_decoder_link_extension) {
             link_paths.push_back(entry->path());
         }
         if (entry_error) {
@@ -440,9 +419,9 @@ private:
 }
 
 class PhotoDecoderRouter final : public DecoderProvider {
-public:
-    explicit PhotoDecoderRouter(std::vector<std::filesystem::path> private_decoder_plugin_paths)
-        : raw_(make_libraw_decoder_provider()), raster_(make_raster_decoder_provider()) {
+  public:
+    explicit PhotoDecoderRouter(std::vector<std::filesystem::path> private_decoder_plugin_paths) :
+        raw_(make_libraw_decoder_provider()), raster_(make_raster_decoder_provider()) {
         for (const auto& private_decoder_plugin_path : private_decoder_plugin_paths) {
             private_raw_.emplace_back(private_decoder_plugin_path);
         }
@@ -450,16 +429,17 @@ public:
         const auto& raster_info = raster_->info();
         info_.id = "shadow-photo-router";
         info_.version = "router=" + std::to_string(photo_decoder_router_contract_version)
-            + ";raw=" + compact_component_identity(raw_info.version)
-            + ";raster=" + compact_component_identity(raster_info.version)
-            + ";display=" + std::to_string(display_srgb8_output_transform_version)
-            + ";source-render=" + std::to_string(source_rendering_implementation_version)
-            + ";source-profiles=" + load_local_source_profile_catalog().identity;
+                        + ";raw=" + compact_component_identity(raw_info.version)
+                        + ";raster=" + compact_component_identity(raster_info.version) + ";display="
+                        + std::to_string(display_srgb8_output_transform_version) + ";source-render="
+                        + std::to_string(source_rendering_implementation_version)
+                        + ";source-profiles=" + load_local_source_profile_catalog().identity;
         for (const auto& module : private_raw_) {
             const auto& private_info = module.info();
-            info_.version += ";private=" + compact_component_identity(
-                private_info.id + ";" + private_info.version
-            ) + ";private_module=" + private_module_identity(module.path());
+            info_.version +=
+                ";private="
+                + compact_component_identity(private_info.id + ";" + private_info.version)
+                + ";private_module=" + private_module_identity(module.path());
             info_.dng_sdk = info_.dng_sdk || private_info.dng_sdk;
             info_.rawspeed = info_.rawspeed || private_info.rawspeed;
             info_.jpeg = info_.jpeg || private_info.jpeg;
@@ -473,9 +453,8 @@ public:
         return info_;
     }
 
-    [[nodiscard]] std::unique_ptr<DecodeSession> open(
-        const std::filesystem::path& path
-    ) const override {
+    [[nodiscard]] std::unique_ptr<DecodeSession>
+    open(const std::filesystem::path& path) const override {
         const std::string extension = lowercase_extension(path);
         if ((extension == "tif" || extension == "tiff") && is_shadow_linear_tiff(path))
             return detail::isolate_decode_session(open_linear_tiff(path));
@@ -507,9 +486,8 @@ public:
             if (public_raw_session->capabilities().reference_rgb) {
                 return detail::isolate_decode_session(std::move(public_raw_session));
             }
-            retain_public_embedded_preview = select_best_preview(
-                public_raw_session->previews()
-            ).has_value();
+            retain_public_embedded_preview =
+                select_best_preview(public_raw_session->previews()).has_value();
         } catch (const DecodeError&) {
             // A private provider can legitimately handle a source LibRaw
             // cannot even open, so keep probing below.  If none claims it we
@@ -543,17 +521,13 @@ public:
         return detail::isolate_decode_session(raw_->open(path));
     }
 
-private:
+  private:
     class PrivateModule final {
-    public:
-        explicit PrivateModule(std::filesystem::path path)
-            : path_(std::move(path)),
-              gate_(detail::shared_decode_provider_gate(
-                  private_module_concurrency_identity(path_)
-              )),
-              provider_(gate_.synchronize([this] {
-                  return load_private_decoder_plugin(path_);
-              })) {
+      public:
+        explicit PrivateModule(std::filesystem::path path) :
+            path_(std::move(path)),
+            gate_(detail::shared_decode_provider_gate(private_module_concurrency_identity(path_))),
+            provider_(gate_.synchronize([this] { return load_private_decoder_plugin(path_); })) {
             try {
                 info_ = gate_.synchronize([this] { return provider_->info(); });
             } catch (...) {
@@ -590,16 +564,12 @@ private:
             return info_;
         }
 
-        [[nodiscard]] std::unique_ptr<DecodeSession> open(
-            const std::filesystem::path& path
-        ) const {
-            auto session = gate_.synchronize([this, &path] {
-                return provider_->open(path);
-            });
+        [[nodiscard]] std::unique_ptr<DecodeSession> open(const std::filesystem::path& path) const {
+            auto session = gate_.synchronize([this, &path] { return provider_->open(path); });
             return detail::isolate_decode_session(std::move(session), gate_);
         }
 
-    private:
+      private:
         std::filesystem::path path_;
         detail::SharedDecodeProviderGate gate_;
         std::unique_ptr<DecoderProvider> provider_;
@@ -627,9 +597,8 @@ std::unique_ptr<DecoderProvider> make_photo_decoder_provider() {
 
 PhotoDecoderProviderInventory photo_decoder_provider_inventory() {
     if (!private_decoder_plugins_enabled()) {
-        const auto provider = std::make_unique<PhotoDecoderRouter>(
-            std::vector<std::filesystem::path>{}
-        );
+        const auto provider =
+            std::make_unique<PhotoDecoderRouter>(std::vector<std::filesystem::path>{});
         return PhotoDecoderProviderInventory{false, provider->info().version};
     }
     const std::filesystem::path explicit_path = configured_private_decoder_plugin_path();
@@ -645,9 +614,8 @@ PhotoDecoderProviderInventory photo_decoder_provider_inventory() {
     };
 }
 
-std::unique_ptr<DecoderProvider> make_photo_decoder_provider(
-    const std::filesystem::path& private_decoder_plugin_path
-) {
+std::unique_ptr<DecoderProvider>
+make_photo_decoder_provider(const std::filesystem::path& private_decoder_plugin_path) {
     std::vector<std::filesystem::path> paths;
     if (private_decoder_plugins_enabled() && !private_decoder_plugin_path.empty()) {
         paths.push_back(private_decoder_plugin_path);
@@ -655,9 +623,8 @@ std::unique_ptr<DecoderProvider> make_photo_decoder_provider(
     return std::make_unique<PhotoDecoderRouter>(std::move(paths));
 }
 
-PhotoDecoderProviderInventory photo_decoder_provider_inventory(
-    const std::filesystem::path& private_decoder_plugin_path
-) {
+PhotoDecoderProviderInventory
+photo_decoder_provider_inventory(const std::filesystem::path& private_decoder_plugin_path) {
     std::vector<std::filesystem::path> paths;
     if (private_decoder_plugins_enabled() && !private_decoder_plugin_path.empty()) {
         paths.push_back(private_decoder_plugin_path);

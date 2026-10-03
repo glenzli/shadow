@@ -2,7 +2,9 @@ if(BUILD_TESTING)
     add_executable(
         shadow-desktop-pipeline-launch
         tests/pipeline_launch_test.cpp
-        src/pipeline_launch.cpp
+        src/external_edit_contract.cpp
+    src/external_edit_contract.hpp
+    src/pipeline_launch.cpp
         src/pipeline_launch.hpp
     )
     target_compile_features(shadow-desktop-pipeline-launch PRIVATE cxx_std_20)
@@ -21,4 +23,13 @@ if(BUILD_TESTING)
             COMMAND shadow-desktop-pipeline-session $<TARGET_FILE:shadow-desktop> ${scenario})
         set_tests_properties(shadow-desktop-pipeline-${scenario} PROPERTIES TIMEOUT 120 LABELS "desktop;pipeline")
     endforeach()
+endif()
+
+if(BUILD_TESTING AND UNIX)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME shadow-desktop-external-edit-stage
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/external_edit_stage_integration.py"
+            $<TARGET_FILE:shadow-desktop>)
+    set_tests_properties(shadow-desktop-external-edit-stage PROPERTIES
+        TIMEOUT 300 LABELS "desktop;pipeline;protocol")
 endif()

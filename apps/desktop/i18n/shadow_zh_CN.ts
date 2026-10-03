@@ -6872,6 +6872,14 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PipelineEditor</name>
     <message>
+        <source>Shadow · Material Editor</source>
+        <translation>Shadow · 素材编辑</translation>
+    </message>
+    <message>
+        <source>Return edited image</source>
+        <translation>返回编辑后的图片</translation>
+    </message>
+    <message>
         <location filename="../qml/PipelineEditor.qml" line="25"/>
         <source>Shadow · Independent Editor</source>
         <translation>Shadow · 独立编辑器</translation>

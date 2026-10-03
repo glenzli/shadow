@@ -522,6 +522,8 @@ qt_add_executable(
     src/catalog_startup_recovery.cpp
     src/catalog_startup_recovery.hpp
     src/main.cpp
+    src/external_edit_contract.cpp
+    src/external_edit_contract.hpp
     src/pipeline_launch.cpp
     src/pipeline_launch.hpp
     src/paint_smoke_harness.cpp

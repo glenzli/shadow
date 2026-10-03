@@ -156,6 +156,11 @@ bool EditToolController::current() const {
            && capture.stack == owner_.grade_stack_;
 }
 bool EditToolController::admit(const EditToolProtocol::Request& request) {
+    if (owner_.presentation_commit_requested_
+        || owner_.persistence_state_.closePhotoAfterAutosave()) {
+        fail(request.id, "session_finishing", "the human editor is saving or closing this photo");
+        return false;
+    }
     if (!current() || request.expected != snapshot_->identity) {
         fail(
             request.id,
@@ -184,6 +189,21 @@ bool EditToolController::admit(const EditToolProtocol::Request& request) {
 }
 void EditToolController::setAdmissionError(const QString& message) {
     admission_error_ = message;
+}
+void EditToolController::setExternalStage(
+    const QJsonObject& description,
+    const QString& session_id
+) {
+    external_stage_ = description;
+    session_id_ = session_id;
+}
+void EditToolController::setStageReturning(const bool returning) {
+    stage_returning_ = returning;
+}
+void EditToolController::sealSession() {
+    stage_finishing_ = true;
+    reserveCommit(true);
+    operationRunning(true);
 }
 void EditToolController::capture(const QString& id) {
     if (!owner_.active_ && !admission_error_.isEmpty()) {
@@ -280,7 +300,30 @@ void EditToolController::receive(const QByteArray& line) {
         seen_ids_.remove(id_order_.dequeue());
     using enum EditToolProtocol::Command;
     if (request.command == Discover) {
-        emit reply(EditToolProtocol::success(request.id, EditToolProtocol::discovery()));
+        auto capabilities = EditToolProtocol::discovery();
+        if (!external_stage_.isEmpty()) {
+            auto operations = capabilities.value("operations").toArray();
+            operations.append("complete");
+            capabilities.insert("operations", operations);
+            capabilities.insert("externalStage", external_stage_);
+        }
+        emit reply(EditToolProtocol::success(request.id, capabilities));
+        return;
+    }
+    if (stage_finishing_ || stage_returning_) {
+        fail(
+            request.id,
+            "session_finishing",
+            "the stage is returning or cancelling; read its terminal result"
+        );
+        return;
+    }
+    if (request.command == Complete && external_stage_.isEmpty()) {
+        fail(
+            request.id,
+            "unsupported_operation",
+            "complete is only available in an external edit stage"
+        );
         return;
     }
     if (request.command == Cancel) {
@@ -324,6 +367,17 @@ void EditToolController::receive(const QByteArray& line) {
             );
             return;
         }
+        if (!external_stage_.isEmpty()) {
+            stage_finishing_ = true;
+            emit reply(
+                EditToolProtocol::success(
+                    request.id,
+                    {{"closing", true}, {"outcome", "cancel_requested"}}
+                )
+            );
+            emit shutdownRequested();
+            return;
+        }
         reserveCommit(true);
         operationRunning(true); // Hold the clean state through stdout backpressure and drain.
         emit reply(EditToolProtocol::success(request.id, {{"closing", true}}));
@@ -334,6 +388,15 @@ void EditToolController::receive(const QByteArray& line) {
         return;
     try {
         switch (request.command) {
+        case Complete:
+            emit reply(
+                EditToolProtocol::success(
+                    request.id,
+                    {{"accepted", true}, {"resultPath", external_stage_.value("resultPath")}}
+                )
+            );
+            emit completeRequested();
+            break;
         case Preview:
             preview(request);
             break;
@@ -541,6 +604,22 @@ void EditToolController::exportFile(const EditToolProtocol::Request& request) {
             "export requires an applied committed Recipe, not a neutral or historical draft"
         );
     const auto output = newOutput(request.output_path, false);
+    for (const auto* field : {"outputPath", "resultPath"}) {
+        if (external_stage_.isEmpty())
+            break;
+        const QFileInfo reserved(external_stage_.value(field).toString());
+        auto path = QDir(reserved.dir().canonicalPath()).filePath(reserved.fileName());
+        auto candidate = output;
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+        path = path.toCaseFolded();
+        candidate = candidate.toCaseFolded();
+#endif
+        if (path == candidate)
+            throw std::invalid_argument(
+                "the stage return path is reserved; use complete to return its artifact"
+            );
+    }
+
     const BackendDurableExportTarget target{
         id.value("photoId").toString(),
         snapshot_->source,

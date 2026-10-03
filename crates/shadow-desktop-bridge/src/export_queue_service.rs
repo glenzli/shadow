@@ -200,6 +200,9 @@ impl ExportQueueService {
                 source_path: source.location.display_path,
                 output_path: crate::native_path_ffi::location_to_ffi(&item.output)?,
                 settings_json: job.settings_json,
+                recipe_commit_id: item.recipe_commit_id.to_string(),
+                representation_id: item.representation_id.to_string(),
+                recipe_snapshot_digest: encode_hex(&item.recipe_snapshot_digest),
             }));
         }
     }
@@ -536,7 +539,12 @@ impl ExportQueueService {
         let job_id = parse_job_id(&item.job_id)?;
         let persisted = self.item_by_id_for_job(job_id, item_id)?;
         let received_output = crate::native_path_ffi::location_from_ffi(&item.output_path)?;
-        if persisted.photo_id.to_string() != item.photo_id || persisted.output != received_output {
+        if persisted.photo_id.to_string() != item.photo_id
+            || persisted.output != received_output
+            || persisted.recipe_commit_id.to_string() != item.recipe_commit_id
+            || persisted.representation_id.to_string() != item.representation_id
+            || encode_hex(&persisted.recipe_snapshot_digest) != item.recipe_snapshot_digest
+        {
             bail!("durable export item identity changed after it was claimed");
         }
         Ok(persisted)

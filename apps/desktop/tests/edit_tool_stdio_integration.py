@@ -37,12 +37,12 @@ def digest(path):
 
 
 class Client:
-    def __init__(self, executable, source, root, suffix):
+    def __init__(self, executable, source, root, suffix, launch_args=None):
         env = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
                    RAYON_NUM_THREADS="2", OMP_NUM_THREADS="2")
         # The production tool route suppresses all existing test harnesses.
         self.log = (root / (suffix + ".stderr.log")).open("wb")
-        self.process = subprocess.Popen([executable, "--agent-stdio", "--isolate", str(source)],
+        self.process = subprocess.Popen([executable] + (launch_args if launch_args is not None else ["--agent-stdio", "--isolate", str(source)]),
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=self.log, env=env, bufsize=0)
         self.selector = selectors.DefaultSelector()
@@ -292,6 +292,12 @@ def run(executable, fixture_executable, root):
         bad_source = root / name
         if bad_source.suffix == ".png":
             png_fixture(bad_source)
+            # Compressed metadata is deliberately outside the bounded PNG profile.
+            data = bad_source.read_bytes()
+            payload = b"note\x00\x00" + zlib.compress(b"unsupported fixture")
+            tagged = b"zTXt" + payload
+            extra = struct.pack(">I", len(payload)) + tagged + struct.pack(">I", zlib.crc32(tagged))
+            bad_source.write_bytes(data[:33] + extra + data[33:])
         else:
             bad_source.write_bytes(b"not a JPEG")
         bad = Client(executable, bad_source, root, name)

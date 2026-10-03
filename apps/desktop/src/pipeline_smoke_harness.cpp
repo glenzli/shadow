@@ -13,8 +13,13 @@
 #include <QDir>
 #include <QFile>
 #include <QQmlApplicationEngine>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QTimer>
 #include <QWindow>
+#ifdef SHADOW_DESKTOP_UI_SMOKE
+#include <QtTest/QTest>
+#endif
 #include <cmath>
 #include <memory>
 
@@ -179,7 +184,39 @@ void installPipelineSmokeHarness(
                     return;
                 }
                 *stage = 3;
-                pipeline.complete();
+                if (pipeline.externalEdit()) {
+#ifdef SHADOW_DESKTOP_UI_SMOKE
+                    auto* button = window->findChild<QQuickItem*>("externalEditReturnButton");
+                    if (!button || !button->isVisible() || !button->isEnabled()) {
+                        fail("Material return control is unavailable");
+                        return;
+                    }
+                    const auto screenshot_path =
+                        qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_SCREENSHOT");
+                    if (!screenshot_path.isEmpty()) {
+                        QFile screenshot(screenshot_path);
+                        auto* quick_window = qobject_cast<QQuickWindow*>(window);
+                        if (!quick_window
+                            || !screenshot.open(QIODevice::WriteOnly | QIODevice::NewOnly)
+                            || !quick_window->grabWindow().save(&screenshot, "PNG")) {
+                            fail("Could not capture the material return control");
+                            return;
+                        }
+                    }
+                    const auto point =
+                        button->mapToScene({button->width() / 2, button->height() / 2}).toPoint();
+                    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, point);
+                    if (!button->property("down").toBool()) {
+                        fail("Material return pointer did not arm the control");
+                        return;
+                    }
+                    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, point);
+                    qInfo() << "Material return pointer invoked shared completion";
+#else
+                    fail("Material pointer acceptance requires BUILD_TESTING");
+#endif
+                } else
+                    pipeline.complete();
                 return;
             }
             if (action != QStringLiteral("retry"))

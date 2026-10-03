@@ -35,7 +35,7 @@ bool run(const QString& executable, const QString& scenario) {
                 image.setPixel(x, y, qRgb(value, value, value));
             }
     }
-    if (!image.save(first))
+    if (!(unsupported ? image.convertToFormat(QImage::Format_Grayscale8) : image).save(first))
         return false;
     image.fill(QColor(160, 110, 80));
     if (!image.save(second))

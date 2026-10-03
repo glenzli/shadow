@@ -1,5 +1,6 @@
 #pragma once
 
+#include "external_edit_contract.hpp"
 #include <QSet>
 #include <QString>
 #include <QStringList>
@@ -22,6 +23,7 @@ struct PipelineLaunchRequest final {
     bool interactive = false;
     bool agent_stdio = false;
     bool legacy_single = false;
+    std::optional<ExternalEditBinding> external;
 };
 
 [[nodiscard]] std::optional<PipelineLaunchRequest>
@@ -31,5 +33,6 @@ parsePipelineLaunch(const QStringList& arguments, QString* error);
     const PipelineLaunchRequest& request,
     const QString& outcome,
     const QStringList& errors,
-    const QSet<QString>& completed = {}
+    const QSet<QString>& completed = {},
+    const std::optional<BackendExportReceipt>& receipt = std::nullopt
 );

@@ -2427,6 +2427,9 @@ mod ffi {
         source_path: String,
         output_path: FfiNativePath,
         settings_json: String,
+        recipe_commit_id: String,
+        representation_id: String,
+        recipe_snapshot_digest: String,
     }
 
     /// Product RAW DNG is encoded and atomically published in Rust so the

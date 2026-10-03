@@ -58,7 +58,8 @@ void configurePipelineDecodeHelper() {
 
 } // namespace
 
-int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& request) {
+int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& launch_request) {
+    auto request = launch_request;
     QCoreApplication::setOrganizationName(QStringLiteral("Shadow"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow Pipeline"));
@@ -82,6 +83,11 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
             {QStringLiteral("private pipeline runtime unavailable")}
         );
         return EXIT_FAILURE;
+    }
+    if (request.external) {
+        request.external->private_source_path =
+            QDir(runtime_root.path()).filePath(QStringLiteral("source.png"));
+        request.photos.front().input_path = request.external->private_source_path;
     }
     const int exit_code = [&]() -> int {
         const QString catalog_path =
@@ -118,6 +124,21 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
         PipelineRunController pipeline(backend, editor, request);
         std::unique_ptr<EditToolStdio> tool_stdio;
         std::unique_ptr<EditToolController> tools;
+        int terminal_exit_code = EXIT_SUCCESS;
+        QObject::connect(
+            &pipeline,
+            &PipelineRunController::terminationRequested,
+            &application,
+            [&](const int code) {
+                terminal_exit_code = code;
+                if (tools)
+                    tools->sealSession();
+                if (tool_stdio)
+                    tool_stdio->finish();
+                else
+                    QCoreApplication::exit(code);
+            }
+        );
         if (request.agent_stdio) {
             QThreadPool::globalInstance()->setMaxThreadCount(2);
             try {
@@ -129,9 +150,21 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
                 );
             } catch (const std::exception& error) {
                 qCritical().noquote() << "Cannot start edit tools:" << error.what();
+                (void)writePipelineResult(
+                    request,
+                    QStringLiteral("failed"),
+                    {QString::fromUtf8(error.what())}
+                );
                 return EXIT_FAILURE;
             }
+            if (request.external)
+                tools->setExternalStage(
+                    ExternalEditContract::discovery(*request.external, request.result_path),
+                    request.external->session_id
+                );
             QObject::connect(&pipeline, &PipelineRunController::changed, tools.get(), [&] {
+                if (request.external)
+                    tools->setStageReturning(pipeline.exportPending() || pipeline.exporting());
                 tools->setAdmissionError(
                     !pipeline.busy() && !editor.active() ? pipeline.errorText() : QString{}
                 );
@@ -148,18 +181,30 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& requ
                 tool_stdio.get(),
                 &EditToolStdio::send
             );
-            QObject::connect(
-                tools.get(),
-                &EditToolController::shutdownRequested,
-                tool_stdio.get(),
-                &EditToolStdio::finish
-            );
-            QObject::connect(
-                tool_stdio.get(),
-                &EditToolStdio::drained,
-                &application,
-                &QCoreApplication::quit
-            );
+            if (request.external) {
+                QObject::connect(
+                    tools.get(),
+                    &EditToolController::shutdownRequested,
+                    &pipeline,
+                    &PipelineRunController::cancel
+                );
+                QObject::connect(
+                    tools.get(),
+                    &EditToolController::completeRequested,
+                    &pipeline,
+                    &PipelineRunController::complete
+                );
+            } else {
+                QObject::connect(
+                    tools.get(),
+                    &EditToolController::shutdownRequested,
+                    tool_stdio.get(),
+                    &EditToolStdio::finish
+                );
+            }
+            QObject::connect(tool_stdio.get(), &EditToolStdio::drained, &application, [&] {
+                QCoreApplication::exit(terminal_exit_code);
+            });
             QObject::connect(
                 tool_stdio.get(),
                 &EditToolStdio::inputClosed,

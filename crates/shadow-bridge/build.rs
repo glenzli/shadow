@@ -82,6 +82,7 @@ const EMBEDDED_IMAGE_ADDITIONAL_INPUTS: &[&str] = &[
     "src/decoder/decode_session_isolation.hpp",
     "src/decoder/dng_noise_profile.hpp",
     "src/decoder/heif_decoder.hpp",
+    "src/decoder/png_decoder.hpp",
     "src/decoder/libraw_reference_development.hpp",
     "src/decoder/libraw_runtime.hpp",
     "src/decoder/raster_exif.hpp",
@@ -349,6 +350,14 @@ fn main() {
         .cargo_metadata(false)
         .probe("lensfun")
         .ok();
+    let zlib = pkg_config::Config::new()
+        .cargo_metadata(false)
+        .probe("zlib")
+        .expect("zlib is required for PNG chunk integrity");
+    let libpng = pkg_config::Config::new()
+        .cargo_metadata(false)
+        .probe("libpng")
+        .expect("libpng is required");
     let libtiff = pkg_config::Config::new()
         .cargo_metadata(false)
         .probe("libtiff-4")
@@ -436,6 +445,12 @@ fn main() {
             build.include(include_path);
         }
     }
+    for include_path in &zlib.include_paths {
+        build.include(include_path);
+    }
+    for include_path in &libpng.include_paths {
+        build.include(include_path);
+    }
     for include_path in &libtiff.include_paths {
         build.include(include_path);
     }
@@ -481,6 +496,18 @@ fn main() {
         println!("cargo:rustc-link-search=native={}", link_path.display());
     }
     for library in &libjpeg.libs {
+        println!("cargo:rustc-link-lib={library}");
+    }
+    for link_path in &zlib.link_paths {
+        println!("cargo:rustc-link-search=native={}", link_path.display());
+    }
+    for library in &zlib.libs {
+        println!("cargo:rustc-link-lib={library}");
+    }
+    for link_path in &libpng.link_paths {
+        println!("cargo:rustc-link-search=native={}", link_path.display());
+    }
+    for library in &libpng.libs {
         println!("cargo:rustc-link-lib={library}");
     }
     for link_path in &libtiff.link_paths {

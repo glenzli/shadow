@@ -207,7 +207,9 @@ void installEditToolUiSmoke(
                                  "enabled_only_undo_redo_clears_terminal_feedback",
                                  "export_blocks_second_runner",
                                  "human_edit_during_pinned_export",
-                                 "shutdown_reserves_clean_draft"
+                                 "shutdown_reserves_clean_draft",
+                                 "external_returning_rejects_tool_admission",
+                                 "terminal_seal_blocks_owner_mutation_and_undo"
                              }}
                         }
                     ).toJson()
@@ -604,18 +606,44 @@ void installEditToolUiSmoke(
                     s.step = 12;
                     break;
                 }
+                s.tools->setStageReturning(true);
+                rejected(s, send(s, "snapshot"), "session_finishing");
+                s.tools->setStageReturning(false);
+                {
+                    EditToolController terminal_guard(editor, backend, source);
+                    terminal_guard.sealSession();
+                    require(editor.stateBusy(), "terminal drain did not reserve the owner");
+                    const auto nodes = editor.gradeNodes();
+                    editor.setExposureStops(3);
+                    require(
+                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
+                        "terminal drain admitted a parameter mutation"
+                    );
+                    editor.undo();
+                    require(
+                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
+                        "terminal drain admitted Undo"
+                    );
+                }
                 ok(s, send(s, "shutdown"));
                 require(
                     editor.stateBusy() && pipeline.busy(),
                     "draining shutdown did not reserve clean draft"
                 );
-                editor.setExposureStops(3);
-                editor.undo();
-                pipeline.cancel();
-                require(
-                    editor.exposureStops() == 0.25,
-                    "new draft entered while shutdown was draining"
-                );
+                {
+                    const auto nodes = editor.gradeNodes();
+                    editor.setExposureStops(3);
+                    require(
+                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
+                        "new draft entered while shutdown was draining"
+                    );
+                    editor.undo();
+                    require(
+                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
+                        "Undo entered while shutdown was draining"
+                    );
+                    pipeline.cancel();
+                }
                 record("passed");
                 timer->stop();
                 QCoreApplication::exit(0);

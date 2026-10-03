@@ -31,9 +31,13 @@ class EditToolController final : public QObject {
     void receive(const QByteArray& line);
     void disconnectClient();
     void setAdmissionError(const QString& message);
+    void setExternalStage(const QJsonObject& description, const QString& session_id);
+    void setStageReturning(bool returning);
+    void sealSession();
   signals:
     void reply(const QJsonObject& response);
     void shutdownRequested();
+    void completeRequested();
 
   private:
     struct Snapshot final {
@@ -67,6 +71,8 @@ class EditToolController final : public QObject {
     EditController& owner_;
     std::shared_ptr<DesktopBackend> backend_;
     QString session_id_, admitted_source_, admission_error_;
+    QJsonObject external_stage_;
+    bool stage_finishing_ = false, stage_returning_ = false;
     std::optional<Snapshot> snapshot_;
     std::optional<Proposal> proposal_, pending_proposal_;
     std::optional<TerminalFeedback> terminal_feedback_;

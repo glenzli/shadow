@@ -41,6 +41,7 @@ struct BackendDurableExportItem final {
     QString source_path;
     QString output_path;
     QString settings_json;
+    QString recipe_commit_id, representation_id, recipe_snapshot_digest;
 };
 
 struct BackendDurableExportJob final {

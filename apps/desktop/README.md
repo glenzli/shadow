@@ -42,6 +42,16 @@ define its explicit independent-session scope. Existing Recipe CAS, Undo, transi
 durable export remain with their original owners; opt-in UI acceptance is in
 [`edit_tool_ui_smoke.*`](src/edit_tool_ui_smoke.hpp), separately from the formal entry.
 
+## External material edit stage
+
+[`external_edit_contract.*`](src/external_edit_contract.hpp) owns the strict single-material
+request, bounded SHA-256 input snapshot and terminal receipt projection. The existing
+`PipelineRunController` owns admission/save/export/return; `EditController` remains the shared human
+and AI draft owner. `complete` joins this lifecycle, with result publication before stdio drain.
+The durable export owner supplies frozen Recipe/representation identities and hashes the same
+staging artifact before exclusive publication. The [wire contract](../../docs/development/external-edit-stage.md)
+defines the supported PNG materialization and the caller-owned Candidate/Accept boundary.
+
 ## HDR and panorama composition
 
 Select 2–12 photos in Review, then use **Merge → HDR merge / Panorama merge**. Remote originals

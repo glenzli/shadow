@@ -6,6 +6,7 @@
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
 #include <QColorSpace>
+#include <QCryptographicHash>
 #include <QImage>
 #include <QImageReader>
 #include <QJsonDocument>
@@ -216,6 +217,14 @@ export_receipt_json(const BackendExportOptions& options, const QImage& image) {
     image.setDotsPerMeterY(dots_per_meter);
     ExportOutputFile destination(destination_path);
     writeEncodedOutputRaster(destination.device(), image, options);
+    // Hash the same open staging file before exclusive publication. A later
+    // replacement of the public path cannot rewrite the renderer's receipt.
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!destination.device().seek(0) || !hash.addData(&destination.device()))
+        throw std::runtime_error("could not hash the staged export artifact");
+    auto receipt_json =
+        QJsonDocument::fromJson(export_receipt_json(options, image).toUtf8()).object();
+    receipt_json.insert("sha256", QString::fromLatin1(hash.result().toHex()));
     const std::uint64_t byte_length = destination.commit();
     return {
         .destination_path = destination_path,
@@ -223,7 +232,8 @@ export_receipt_json(const BackendExportOptions& options, const QImage& image) {
         .height = static_cast<std::uint32_t>(image.height()),
         .byte_length = byte_length,
         .output_format = options.format,
-        .receipt_json = export_receipt_json(options, image),
+        .receipt_json =
+            QString::fromUtf8(QJsonDocument(receipt_json).toJson(QJsonDocument::Compact)),
     };
 }
 
@@ -276,6 +286,9 @@ std::optional<BackendDurableExportItem> ExportBackend::claimNextDurableExportIte
         .source_path = qstring(item.source_path),
         .output_path = native_path_input::qstring(item.output_path),
         .settings_json = qstring(item.settings_json),
+        .recipe_commit_id = qstring(item.recipe_commit_id),
+        .representation_id = qstring(item.representation_id),
+        .recipe_snapshot_digest = qstring(item.recipe_snapshot_digest),
     };
 }
 
@@ -296,6 +309,9 @@ ExportBackend::executeDurableExportItem(const BackendDurableExportItem& item) co
         ffi_item.source_path = item.source_path.toStdString();
         ffi_item.output_path = native_path_input::path(item.output_path);
         ffi_item.settings_json = item.settings_json.toStdString();
+        ffi_item.recipe_commit_id = item.recipe_commit_id.toStdString();
+        ffi_item.representation_id = item.representation_id.toStdString();
+        ffi_item.recipe_snapshot_digest = item.recipe_snapshot_digest.toStdString();
         if (options.format == QStringLiteral("dng")) {
             const auto receipt = session_->execute_durable_raw_dng_item(ffi_item);
             if (receipt.status == shadow::desktop::FfiRawDngExportStatus::OutputConflict) {
@@ -320,8 +336,14 @@ ExportBackend::executeDurableExportItem(const BackendDurableExportItem& item) co
 
         session_->begin_durable_export_write(item.item_id.toStdString());
         stage = 3;
-        const BackendExportReceipt receipt =
-            encode_export_raster(raster, item.output_path, options);
+        BackendExportReceipt receipt = encode_export_raster(raster, item.output_path, options);
+        auto frozen = QJsonDocument::fromJson(receipt.receipt_json.toUtf8()).object();
+        frozen.insert("photoId", item.photo_id);
+        frozen.insert("representationId", item.representation_id);
+        frozen.insert("recipeCommitId", item.recipe_commit_id);
+        frozen.insert("recipeSnapshotDigest", item.recipe_snapshot_digest);
+        receipt.receipt_json =
+            QString::fromUtf8(QJsonDocument(frozen).toJson(QJsonDocument::Compact));
         session_->complete_durable_export_item(
             item.item_id.toStdString(),
             item.job_id.toStdString(),

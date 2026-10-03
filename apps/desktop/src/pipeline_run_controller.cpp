@@ -180,8 +180,19 @@ void PipelineRunController::admit(const QStringList& paths) {
     error_text_.clear();
     admission_cancellation_ = std::make_shared<std::atomic_bool>(false);
     admission_watcher_.setFuture(
-        QtConcurrent::run([backend = backend_, paths, cancel = admission_cancellation_] {
+        QtConcurrent::run([backend = backend_,
+                           paths,
+                           cancel = admission_cancellation_,
+                           binding = request_.external] {
             AdmissionResult result;
+            if (binding) {
+                try {
+                    ExternalEditContract::snapshotSource(*binding, *cancel);
+                } catch (const std::exception& error) {
+                    result.errors.append(QString::fromUtf8(error.what()));
+                    return result;
+                }
+            }
             for (const auto& path : paths) {
                 if (cancel->load(std::memory_order_relaxed))
                     break;
@@ -340,15 +351,32 @@ void PipelineRunController::beginExport() {
                 );
             };
         export_watcher_.setFuture(
-            QtConcurrent::run(
-                ExportTaskRunner::runDurableExport,
-                backend,
-                targets,
-                ExportSettingsCodec::toDurableJson(options),
-                false,
-                cancellation_token_,
-                progress
-            )
+            QtConcurrent::run([backend,
+                               targets,
+                               options,
+                               progress,
+                               cancel = cancellation_token_,
+                               binding = request_.external] {
+                ExportTaskResult result;
+                try {
+                    if (binding)
+                        ExternalEditContract::verifyOriginal(*binding);
+                    result = ExportTaskRunner::runDurableExport(
+                        backend,
+                        targets,
+                        ExportSettingsCodec::toDurableJson(options),
+                        false,
+                        cancel,
+                        progress
+                    );
+                    if (binding && result.completed > 0)
+                        ExternalEditContract::verifyOriginal(*binding);
+                } catch (const std::exception& error) {
+                    ++result.failed;
+                    result.errors.append(QString::fromUtf8(error.what()));
+                }
+                return result;
+            })
         );
     } catch (const std::exception& error) {
         completion_requested_ = false;
@@ -365,6 +393,8 @@ void PipelineRunController::finishExport() {
     const auto result = export_watcher_.result();
     cancellation_token_.reset();
     completion_requested_ = false;
+    if (request_.external && result.receipts.size() == 1)
+        external_receipt_ = result.receipts.front();
     for (const auto& path : result.destination_paths)
         completed_paths_.insert(path);
     if (cancel_requested_) {
@@ -433,8 +463,9 @@ void PipelineRunController::finish(
 ) {
     if (terminal_)
         return;
-    const bool written = writePipelineResult(request_, outcome, errors, completed_paths_);
+    const bool written =
+        writePipelineResult(request_, outcome, errors, completed_paths_, external_receipt_);
     terminal_ = true;
     emit changed();
-    QCoreApplication::exit(written ? exit_code : EXIT_FAILURE);
+    emit terminationRequested(written ? exit_code : EXIT_FAILURE);
 }

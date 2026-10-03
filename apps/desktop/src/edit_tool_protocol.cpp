@@ -76,6 +76,11 @@ ParseResult parse(const QByteArray& line) {
         request.command = operation == "discover"   ? Command::Discover
                           : operation == "snapshot" ? Command::Snapshot
                                                     : Command::Shutdown;
+    } else if (operation == "complete") {
+        if (!fields(params, {"expected"}) || !identity(params.value("expected")))
+            return reject("complete requires an exact snapshot identity");
+        request.command = Command::Complete;
+        request.expected = params.value("expected").toObject();
     } else if (operation == "cancel") {
         if (!fields(params, {"requestId"}) || !text(params.value("requestId")))
             return reject("cancel requires a requestId");

@@ -1,4 +1,5 @@
 #include "pipeline_launch.hpp"
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -7,6 +8,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <cstdlib>
+#include <stdexcept>
 
 namespace {
 bool writeFile(const QString& path, const QByteArray& bytes) {
@@ -190,6 +192,79 @@ int main() {
                 &error
             ),
             "duplicate tool option accepted"
+        ))
+        return EXIT_FAILURE;
+    const auto png = canonical.filePath("material.png");
+    const auto derived = canonical.filePath("derived.png");
+    const QByteArray source_bytes("bounded source snapshot fixture");
+    writeFile(png, source_bytes);
+    const auto hash = QString::fromLatin1(
+        QCryptographicHash::hash(source_bytes, QCryptographicHash::Sha256).toHex()
+    );
+    object = {
+        {"schema", "shadow.external-edit/1"},
+        {"requestId", "shape-session"},
+        {"input", QJsonObject{{"path", png}, {"revision", "version-7"}, {"sha256", hash}}},
+        {"output", QJsonObject{{"path", derived}}}
+    };
+    auto external = parse();
+    if (!require(
+            external && external->external && !external->interactive,
+            "external stage request missing"
+        ))
+        return EXIT_FAILURE;
+#if defined(Q_OS_UNIX)
+    if (!require(
+            parsePipelineLaunch(args + QStringList{"--agent-stdio"}, &error).has_value(),
+            "external stage tools rejected"
+        ))
+        return EXIT_FAILURE;
+#endif
+    auto binding = *external->external;
+    binding.private_source_path = canonical.filePath("private.png");
+    try {
+        ExternalEditContract::snapshotSource(binding, std::atomic_bool(false));
+        writeFile(png, "changed original");
+        bool rejected = false;
+        try {
+            ExternalEditContract::verifyOriginal(binding);
+        } catch (const std::exception&) {
+            rejected = true;
+        }
+        QFile snapshot(binding.private_source_path);
+        if (!require(
+                rejected && snapshot.open(QIODevice::ReadOnly)
+                    && snapshot.readAll() == source_bytes,
+                "input change altered the pinned source or passed digest verification"
+            ))
+            return EXIT_FAILURE;
+    } catch (const std::exception& exception) {
+        qCritical() << exception.what();
+        return EXIT_FAILURE;
+    }
+    object["unknown"] = true;
+    if (!require(!parse(), "external unknown field accepted"))
+        return EXIT_FAILURE;
+    object.remove("unknown");
+    auto bad_input = object.value("input").toObject();
+    bad_input["sha256"] = "bad";
+    object["input"] = bad_input;
+    if (!require(!parse(), "malformed digest accepted"))
+        return EXIT_FAILURE;
+    if (!require(
+            writePipelineResult(*external, "cancelled", {}),
+            "cancelled external receipt missing"
+        ))
+        return EXIT_FAILURE;
+    QFile returned(result);
+    if (!returned.open(QIODevice::ReadOnly))
+        return EXIT_FAILURE;
+    const auto envelope = QJsonDocument::fromJson(returned.readAll()).object();
+    if (!require(
+            envelope.value("schema") == "shadow.external-edit-result/1"
+                && envelope.value("input").toObject().value("revision") == "version-7"
+                && !envelope.contains("artifact"),
+            "cancelled external receipt fabricated an artifact"
         ))
         return EXIT_FAILURE;
     return EXIT_SUCCESS;
