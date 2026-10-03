@@ -43,6 +43,15 @@ class EditToolController final : public QObject {
         qint64 source_bytes = -1, source_modified_ms = -1;
         std::uint64_t photo_generation = 0, working_revision = 0, owner_epoch = 0;
     };
+    struct Proposal final {
+        QString id, node_id;
+        BackendGradeStack stack;
+        QJsonArray changes;
+    };
+    struct TerminalFeedback final {
+        std::uint64_t photo_generation, working_revision;
+        QString variant;
+    };
     bool current() const;
     bool gestureActive() const;
     bool admit(const EditToolProtocol::Request& request);
@@ -53,14 +62,14 @@ class EditToolController final : public QObject {
     void finishTask();
     void invalidate();
     void reserveCommit(bool reserved);
-    void operationRunning(bool running);
+    void operationRunning(bool running, const QString& terminal_code = {});
     void fail(const QString& id, const QString& code, const QString& message);
     EditController& owner_;
     std::shared_ptr<DesktopBackend> backend_;
-    QString session_id_, admitted_source_, admission_error_, proposal_id_, candidate_node_;
+    QString session_id_, admitted_source_, admission_error_;
     std::optional<Snapshot> snapshot_;
-    BackendGradeStack candidate_;
-    QJsonArray candidate_changes_;
+    std::optional<Proposal> proposal_, pending_proposal_;
+    std::optional<TerminalFeedback> terminal_feedback_;
     std::optional<EditToolProtocol::Request> task_;
     QFutureWatcher<EditToolTaskResult> watcher_;
     // 0 rendering, 1 cancelled before publication, 2 publishing, 3 finished.

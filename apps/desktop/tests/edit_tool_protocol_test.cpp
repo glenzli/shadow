@@ -142,6 +142,11 @@ int main(int argc, char** argv) {
         EditToolProtocol::discovery().value("edits").toArray().size() == 3,
         "supported adjustments discoverable"
     );
+    require(
+        EditToolProtocol::discovery().value("proposalLifetime").toObject().value("snapshot")
+            == "reuse_while_current",
+        "snapshot observation lifetime is discoverable"
+    );
     require(!EditToolProtocol::parse("[]").request, "nonobject rejected");
     require(!EditToolProtocol::parse(QByteArray(65537, ' ')).request, "oversize request rejected");
     require(

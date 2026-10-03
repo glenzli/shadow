@@ -210,6 +210,12 @@ QJsonObject discovery() {
              {"source", "explicit_committed_recipe"},
              {"publication", "new_file_only"}
          }},
+        {"proposalLifetime",
+         QJsonObject{
+             {"snapshot", "reuse_while_current"},
+             {"replacement", "publish_on_success_preserve_on_failure_or_cancel"},
+             {"invalidation", "owner_or_source_change"}
+         }},
         {"persistence", "temporary_session_export_before_shutdown"},
         {"restart", "new_session_old_tokens_rejected"},
         {"requestIds", "correlation_only_no_durable_replay"},

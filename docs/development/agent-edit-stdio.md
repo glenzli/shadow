@@ -45,8 +45,11 @@ admission diagnostic. An asynchronous history-open failure uses the same code an
 - dirty, autosavePending, autosaveFailed, gestureActive, busy, canUndo, and sourceFingerprint.
 
 Snapshot copies the current owner state. It does not finish a gesture, autosave, close the photo,
-project a portable Recipe, or add history. Each fresh snapshot replaces the previous token and
-candidate. Source fingerprint is the existing size/mtime contract, **not a content digest**.
+project a portable Recipe, or add history. Repeated snapshots reuse the same identity and reviewed
+proposal while all existing owner/source/generation/draft/Variant guards still match. An actual
+change captures a new identity and discards the old proposal. Observation never rebases an old
+proposal onto a new human draft. Source fingerprint remains the existing size/mtime contract,
+**not a content digest**. Discovery reports this lifecycle in proposalLifetime.
 
 Copy the entire returned identity into `expected` below; never reconstruct it from a filename or
 replace only its working head to force a stale request through.
@@ -77,7 +80,10 @@ For example, preview a combined proposal using the same exact snapshot identity 
 
 The existing Recipe graph determines rendering order. Every operation is validated against its
 captured node before rendering or replacing a valid proposal. An invalid replacement preserves the
-previous candidate; it cannot partially edit the owner. An entirely unchanged proposal returns
+previous candidate; it cannot partially edit the owner. A valid replacement also preserves the
+reviewed candidate until its render and new-file publication succeed. A failed or cancelled
+replacement leaves the old proposal applicable only while its original snapshot remains current.
+Successful replacement retires the previous proposal ID. An entirely unchanged proposal returns
 invalid_operation and creates no history. A successful combination applies in one CAS transaction
 and one Undo step. `changes` describes only fields whose values actually change.
 
@@ -88,12 +94,18 @@ read-only. A preview can finish after a human change: its artifact is preserved,
 false and no applicable proposal is returned. Cancellation acknowledged before publication leaves
 no artifact. Rejected cancellation after publication began does not retract a completed file.
 
-The server retains one snapshot, one candidate, and one in-flight tool operation. A stale identity
-returns stale_snapshot; a current but unsaved/gesturing draft returns draft_pending. It never saves,
+The server retains one snapshot, at most one reviewed candidate, one in-flight replacement, and
+one tool operation. These are bounded Recipe/control snapshots, not retained rendered pixel
+history. A stale identity returns stale_snapshot; a current but unsaved/gesturing draft returns draft_pending. It never saves,
 rebases, or discards that human draft on behalf of a read/preview/apply request. A manual edit after
 preview makes its proposal stale; capture a fresh snapshot after that edit settles to preserve it
 in the next proposal. During rendering, apply and export, the same window shows the corresponding
-localized activity; ordinary render/autosave status is retained beneath it and restored afterward.
+localized activity. Cancellation and asynchronous preview/apply/export failures leave a localized
+terminal message in that same status surface; technical details remain in the client reply.
+Observation, language changes and ordinary autosave/status refreshes retain the terminal message.
+The next admitted operation replaces it with progress, and a new human draft/Variant/photo dismisses
+it. Success restores the ordinary render/autosave status retained beneath it. Admission rejections
+that never started an operation do not overwrite the window's status.
 Tool commits share
 the existing Catalog working-head + active-Variant CAS. A publication receipt comes directly from
 the committed immutable record; subsequent movable-head refresh is not its source of truth.
@@ -131,7 +143,8 @@ ctest --test-dir "$SHADOW_BUILD_DIR" -R 'shadow-desktop-edit-tool-' --output-on-
 
 The integration test launches the real stdio entry with synthetic JPEG pixels and no injected test
 harness. The owner/UI test separately drives the same controller, holds workers to test close/apply
-races, verifies human handoff and live English/Chinese status, and sends real window pointer events
-to packaged Undo/Redo controls for the complete composed proposal. It runs offscreen by
-default; its script takes the application and shadow-edit-tool-fixture executables, and accepts --visible and --evidence-root for an explicit visible-window acceptance.
+races, creates deterministic new-file publication collisions, verifies terminal English/Chinese
+feedback, failed/cancelled replacement preservation and export retry after a human edit. Real window
+pointer events exercise packaged Undo/Redo controls for the complete composed proposal and confirm
+that enabled-only history changes dismiss completed tool failures. It runs offscreen by default; its script takes the application and shadow-edit-tool-fixture executables, and accepts --visible and --evidence-root for an explicit visible-window acceptance.
 No new quiet-machine latency baseline is claimed by these correctness tests.

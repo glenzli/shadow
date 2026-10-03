@@ -144,6 +144,8 @@ def run(executable, fixture_executable, root):
         assert discovery["scope"] == "one_explicit_isolated_photo"
         assert {item["type"] for item in discovery["edits"]} == {"set_exposure", "set_contrast", "set_saturation"}
         assert discovery["preview"]["maximumOperations"] == 16
+        assert discovery["proposalLifetime"]["snapshot"] == "reuse_while_current"
+        assert discovery["proposalLifetime"]["replacement"] == "publish_on_success_preserve_on_failure_or_cancel"
         assert discovery["apply"]["cancel"] == discovery["export"]["cancel"] == "unsupported"
         first = client.snapshot()
         first_identity = first["identity"]
@@ -193,7 +195,10 @@ def run(executable, fixture_executable, root):
         after_preview = client.snapshot()
         assert after_preview["identity"]["workingCommitId"] == ""
         assert after_preview["nodes"][0]["exposureStops"] == before_exposure and not after_preview["canUndo"]
-        rejected(client.call("apply", {"expected": first_identity, "proposalId": preview_result["proposalId"]}), "stale_snapshot")
+        assert after_preview["identity"] == first_identity, "unchanged snapshot consumed the reviewed proposal identity"
+        assert client.snapshot()["identity"] == first_identity, "repeated observation changed the snapshot token"
+        stale_identity = dict(first_identity, snapshotId="stale-snapshot")
+        rejected(client.call("apply", {"expected": stale_identity, "proposalId": preview_result["proposalId"]}), "stale_snapshot")
         identity = after_preview["identity"]
         invalid = dict(identity, activeVariantId="another-variant")
         rejected(client.call("preview", dict(params, expected=invalid)), "stale_snapshot")
@@ -219,6 +224,7 @@ def run(executable, fixture_executable, root):
         assert proposal["current"] and len(proposal["changes"]) == 3
         assert [item["previousValue"] for item in proposal["changes"]] == [0, 1, 1]
         assert [item["value"] for item in proposal["changes"]] == [0.75, 1.15, 0.8]
+        rejected(client.call("apply", {"expected": identity, "proposalId": preview_result["proposalId"]}), "invalid_operation")
         # A rejected replacement must neither partially edit nor erase the valid candidate.
         rejected(client.call("preview", dict(params, operations=[composed[0], invalid_node],
                                               outputPath=str(root / "invalid-replacement.jpg"))), "invalid_operation")
@@ -310,7 +316,7 @@ def run(executable, fixture_executable, root):
             "startupBusyRetries": startup_busy_retries,
             "commitReceipt": receipt, "exportSha256": output_digest, "artifactRoot": str(root),
             "evidence": ["real_stdio_process", "strict_scope", "preview_no_edit_or_undo", "preview_cancel_contract",
-                         "stale_snapshot", "typed_range", "composed_atomic_adjustments", "invalid_replacement_preserves_candidate", "no_op_rejected", "exact_apply_receipt", "unsupported_cancel_truthful",
+                         "stale_snapshot", "repeated_snapshot_preserves_proposal_identity", "typed_range", "composed_atomic_adjustments", "invalid_replacement_preserves_candidate", "no_op_rejected", "exact_apply_receipt", "unsupported_cancel_truthful",
                          "pinned_png_export", "original_unchanged", "existing_and_symlink_not_replaced",
                          "retry_same_pixels", "restart_rejects_old_session", "unsupported_and_corrupt_source_reported"]}
 

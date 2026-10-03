@@ -28,10 +28,11 @@ namespace {
 struct State {
     std::shared_ptr<EditToolController> tools;
     QMap<QString, QJsonObject> replies;
-    QJsonObject snapshot, proposal, receipt, export_receipt;
+    QJsonObject snapshot, proposal, receipt, export_receipt, retry_snapshot, retry_export_receipt;
     QString pending, preview_path;
     bool cancel_checked = false, human_handoff_checked = false, multiple_nodes_ready = false;
-    int step = 0, requests = 0, ticks = 0;
+    bool export_recovery_checked = false;
+    int step = 0, requests = 0, ticks = 0, recovery_stage = 0, history_recovery_stage = 0;
 };
 void require(bool ok, const char* message) {
     if (!ok)
@@ -94,6 +95,36 @@ void requireStatus(
         "packaged status label did not present the current localized tool activity"
     );
 }
+void requireLanguages(
+    QQuickWindow& window,
+    const PipelineRunController& pipeline,
+    const QString& english,
+    const QString& chinese
+) {
+    auto* preferences =
+        qobject_cast<UiPreferences*>(window.property("preferences").value<QObject*>());
+    require(preferences != nullptr, "isolated session preferences unavailable");
+    const auto prior = preferences->languageMode();
+    preferences->setLanguageMode("en");
+    requireStatus(window, pipeline, english);
+    preferences->setLanguageMode("zh_CN");
+    requireStatus(window, pipeline, chinese);
+    preferences->setLanguageMode("en");
+    requireStatus(window, pipeline, english);
+    preferences->setLanguageMode(prior);
+}
+void occupyOutput(const QString& path) {
+    QFile file(path);
+    require(file.open(QIODevice::WriteOnly | QIODevice::NewOnly), "create publication collision");
+    require(file.write("keep-existing") == 13, "write publication collision sentinel");
+}
+void requireOccupied(const QString& path) {
+    QFile file(path);
+    require(
+        file.open(QIODevice::ReadOnly) && file.readAll() == "keep-existing",
+        "publication overwrote an existing file"
+    );
+}
 void capture(QQuickWindow& window, const QDir& root, const QString& name) {
     require(
         window.grabWindow().save(root.filePath(name)),
@@ -143,35 +174,44 @@ void installEditToolUiSmoke(
         const auto record = [&](const QString& result, const QString& error = {}) {
             QFile file(root.filePath("owner-ui-result.json"));
             if (file.open(QIODevice::WriteOnly | QIODevice::NewOnly))
-                file.write(QJsonDocument(
-                               QJsonObject{
-                                   {"result", result},
-                                   {"step", state->step},
-                                   {"editorActive", editor.active()},
-                                   {"editorBusy", editor.busy()},
-                                   {"editorStatus", editor.statusText()},
-                                   {"pipelineStatus", pipeline.statusText()},
-                                   {"pipelineError", pipeline.errorText()},
-                                   {"error", error},
-                                   {"applyReceipt", state->receipt},
-                                   {"exportReceipt", state->export_receipt},
-                                   {"platform", QGuiApplication::platformName()},
-                                   {"evidence",
-                                    QJsonArray{
-                                        "snapshot_preserves_dirty_gesture",
-                                        "held_preview_cancel_no_artifact",
-                                        "held_apply_export_cancel_unsupported",
-                                        "same_head_variant_rejected",
-                                        "held_apply_blocks_close_and_edits",
-                                        "actual_pointer_cross_node_atomic_composition_undo_redo",
-                                        "human_handoff_preserved_after_stale_proposal",
-                                        "packaged_qml_tool_status_en_zh_en",
-                                        "export_blocks_second_runner",
-                                        "human_edit_during_pinned_export",
-                                        "shutdown_reserves_clean_draft"
-                                    }}
-                               }
-                ).toJson());
+                file.write(
+                    QJsonDocument(
+                        QJsonObject{
+                            {"result", result},
+                            {"step", state->step},
+                            {"editorActive", editor.active()},
+                            {"editorBusy", editor.busy()},
+                            {"editorStatus", editor.statusText()},
+                            {"pipelineStatus", pipeline.statusText()},
+                            {"pipelineError", pipeline.errorText()},
+                            {"error", error},
+                            {"applyReceipt", state->receipt},
+                            {"exportReceipt", state->export_receipt},
+                            {"retryExportReceipt", state->retry_export_receipt},
+                            {"platform", QGuiApplication::platformName()},
+                            {"evidence",
+                             QJsonArray{
+                                 "snapshot_preserves_dirty_gesture",
+                                 "held_preview_cancel_no_artifact",
+                                 "held_apply_export_cancel_unsupported",
+                                 "same_head_variant_rejected",
+                                 "held_apply_blocks_close_and_edits",
+                                 "actual_pointer_cross_node_atomic_composition_undo_redo",
+                                 "human_handoff_preserved_after_stale_proposal",
+                                 "packaged_qml_tool_status_en_zh_en",
+                                 "terminal_feedback_en_zh_en",
+                                 "repeated_snapshot_preserves_reviewed_proposal",
+                                 "failed_and_cancelled_replacement_preserves_reviewed_proposal",
+                                 "export_failure_retry_preserves_existing_file",
+                                 "terminal_feedback_survives_observation_clears_on_human_edit",
+                                 "enabled_only_undo_redo_clears_terminal_feedback",
+                                 "export_blocks_second_runner",
+                                 "human_edit_during_pinned_export",
+                                 "shutdown_reserves_clean_draft"
+                             }}
+                        }
+                    ).toJson()
+                );
         };
         try {
             require(++state->ticks < 1800, "owner/UI acceptance timed out");
@@ -185,7 +225,7 @@ void installEditToolUiSmoke(
                 return;
             }
             auto& s = *state;
-            const auto preview = [&] {
+            const auto preview = [&](const double exposure = 1.0) {
                 const auto id = s.snapshot.value("identity").toObject();
                 const auto nodes = s.snapshot.value("nodes").toArray();
                 const auto node = nodes.first().toObject();
@@ -193,7 +233,7 @@ void installEditToolUiSmoke(
                     QJsonObject{
                         {"type", "set_exposure"},
                         {"nodeId", node.value("nodeId")},
-                        {"stops", 1.0}
+                        {"stops", exposure}
                     },
                     QJsonObject{
                         {"type", "set_contrast"},
@@ -283,6 +323,12 @@ void installEditToolUiSmoke(
                 }
                 rejected(s, s.pending, "cancelled");
                 s.pending.clear();
+                requireLanguages(
+                    *window,
+                    pipeline,
+                    "Proposed preview cancelled.",
+                    QString::fromUtf8("调整方案预览已取消。")
+                );
                 require(!QFile::exists(s.preview_path), "cancelled preview published an artifact");
                 s.snapshot = ok(s, send(s, "snapshot"));
                 s.pending = preview();
@@ -316,8 +362,64 @@ void installEditToolUiSmoke(
                 ++s.step;
                 break;
             case 5: {
-                s.proposal = ok(s, s.pending);
-                s.pending.clear();
+                if (s.recovery_stage == 1) {
+                    rejected(s, s.pending, "preview_failed");
+                    s.pending.clear();
+                    requireLanguages(
+                        *window,
+                        pipeline,
+                        "Could not preview the proposed adjustments. Try again.",
+                        QString::fromUtf8("调整方案预览失败，请重试。")
+                    );
+                    requireOccupied(s.preview_path);
+                    capture(*window, root, "04-preview-failed.png");
+                    require(
+                        ok(s, send(s, "snapshot")).value("identity")
+                            == s.snapshot.value("identity"),
+                        "failed replacement changed the reviewed snapshot"
+                    );
+                    HoldWorkers held;
+                    s.pending = preview(3.0);
+                    requireStatus(
+                        *window,
+                        pipeline,
+                        QCoreApplication::translate(
+                            "EditToolController",
+                            "Rendering proposed adjustments…"
+                        )
+                    );
+                    require(
+                        ok(s, send(s, "cancel", {{"requestId", s.pending}}))
+                            .value("accepted")
+                            .toBool(),
+                        "replacement cancellation not admitted"
+                    );
+                    s.recovery_stage = 2;
+                    break;
+                }
+                if (s.recovery_stage == 2) {
+                    rejected(s, s.pending, "cancelled");
+                    s.pending.clear();
+                    requireLanguages(
+                        *window,
+                        pipeline,
+                        "Proposed preview cancelled.",
+                        QString::fromUtf8("调整方案预览已取消。")
+                    );
+                    require(
+                        !QFile::exists(s.preview_path),
+                        "cancelled replacement published bytes"
+                    );
+                    require(
+                        ok(s, send(s, "snapshot")).value("identity")
+                            == s.snapshot.value("identity"),
+                        "cancelled replacement consumed the reviewed snapshot"
+                    );
+                    s.recovery_stage = 3;
+                } else {
+                    s.proposal = ok(s, s.pending);
+                    s.pending.clear();
+                }
                 if (!s.human_handoff_checked) {
                     editor.beginParameterEdit("white_balance_temperature");
                     editor.setWhiteBalanceTemperature(0.2);
@@ -344,6 +446,15 @@ void installEditToolUiSmoke(
                     s.proposal.value("changes").toArray().size() == 4,
                     "composed preview did not describe all edits"
                 );
+                if (s.recovery_stage == 0) {
+                    HoldWorkers held;
+                    s.pending = preview(2.0);
+                    occupyOutput(
+                        s.preview_path
+                    ); // The path was valid at admission; publication must fail safely.
+                    s.recovery_stage = 1;
+                    break;
+                }
                 HoldWorkers held;
                 s.pending = send(
                     s,
@@ -352,17 +463,12 @@ void installEditToolUiSmoke(
                      {"proposalId", s.proposal.value("proposalId")}}
                 );
                 require(editor.stateBusy() && pipeline.busy(), "apply did not reserve the owner");
-                auto* preferences =
-                    qobject_cast<UiPreferences*>(window->property("preferences").value<QObject*>());
-                require(preferences != nullptr, "isolated session preferences unavailable");
-                const auto prior_language = preferences->languageMode();
-                preferences->setLanguageMode("en");
-                requireStatus(*window, pipeline, "Applying proposed adjustments…");
-                preferences->setLanguageMode("zh_CN");
-                requireStatus(*window, pipeline, QString::fromUtf8("正在应用调整方案…"));
-                preferences->setLanguageMode("en");
-                requireStatus(*window, pipeline, "Applying proposed adjustments…");
-                preferences->setLanguageMode(prior_language);
+                requireLanguages(
+                    *window,
+                    pipeline,
+                    "Applying proposed adjustments…",
+                    QString::fromUtf8("正在应用调整方案…")
+                );
                 rejected(s, send(s, "cancel", {{"requestId", s.pending}}), "cancel_unsupported");
                 rejected(s, send(s, "snapshot"), "busy");
                 const auto variant = editor.activeVariantId();
@@ -485,6 +591,19 @@ void installEditToolUiSmoke(
                                       .toString(),
                     "concurrent human edit was not retained"
                 );
+                if (!s.export_recovery_checked) {
+                    s.retry_snapshot = ok(s, send(s, "snapshot"));
+                    HoldWorkers held;
+                    const auto output = root.filePath("owner-export-failed.png");
+                    s.pending = send(
+                        s,
+                        "export",
+                        {{"expected", s.retry_snapshot.value("identity")}, {"outputPath", output}}
+                    );
+                    occupyOutput(output);
+                    s.step = 12;
+                    break;
+                }
                 ok(s, send(s, "shutdown"));
                 require(
                     editor.stateBusy() && pipeline.busy(),
@@ -500,6 +619,119 @@ void installEditToolUiSmoke(
                 record("passed");
                 timer->stop();
                 QCoreApplication::exit(0);
+                break;
+            case 12:
+                rejected(s, s.pending, "export_failed");
+                s.pending.clear();
+                requireLanguages(
+                    *window,
+                    pipeline,
+                    "Could not export the captured adjustments. Try again.",
+                    QString::fromUtf8("已确认的调整导出失败，请重试。")
+                );
+                requireOccupied(root.filePath("owner-export-failed.png"));
+                capture(*window, root, "05-export-failed.png");
+                ok(s, send(s, "snapshot"));
+                editor.selectGradeNode(1);
+                editor.selectGradeNode(0);
+                requireStatus(
+                    *window,
+                    pipeline,
+                    QCoreApplication::translate(
+                        "EditToolController",
+                        "Could not export the captured adjustments. Try again."
+                    )
+                );
+                require(editor.gradeNodeEnabled(), "human structural edit fixture starts enabled");
+                editor.setGradeNodeEnabled(false);
+                require(
+                    pipeline.statusText()
+                        != QCoreApplication::translate(
+                            "EditToolController",
+                            "Could not export the captured adjustments. Try again."
+                        ),
+                    "terminal feedback masked a new human edit"
+                );
+                s.step = 14; // Wait for the new human edit to autosave before retrying.
+                break;
+            case 14:
+                s.retry_snapshot = ok(s, send(s, "snapshot"));
+                if (s.history_recovery_stage < 2) {
+                    HoldWorkers held;
+                    const auto output =
+                        root.filePath(QStringLiteral("owner-export-history-failed-%1.png")
+                                          .arg(s.history_recovery_stage));
+                    s.pending = send(
+                        s,
+                        "export",
+                        {{"expected", s.retry_snapshot.value("identity")}, {"outputPath", output}}
+                    );
+                    occupyOutput(output);
+                    s.step = 15;
+                    break;
+                }
+                s.pending = send(
+                    s,
+                    "export",
+                    {{"expected", s.retry_snapshot.value("identity")},
+                     {"outputPath", root.filePath("owner-export-retry.png")}}
+                );
+                requireStatus(
+                    *window,
+                    pipeline,
+                    QCoreApplication::translate(
+                        "EditToolController",
+                        "Exporting the captured adjustments…"
+                    )
+                );
+                s.step = 13;
+                break;
+            case 15: {
+                rejected(s, s.pending, "export_failed");
+                s.pending.clear();
+                const auto failure = QCoreApplication::translate(
+                    "EditToolController",
+                    "Could not export the captured adjustments. Try again."
+                );
+                requireStatus(*window, pipeline, failure);
+                requireOccupied(root.filePath(QStringLiteral("owner-export-history-failed-%1.png")
+                                                  .arg(s.history_recovery_stage)));
+                const bool undo = s.history_recovery_stage == 0;
+                click(*window, undo ? "pipelineUndoButton" : "pipelineRedoButton");
+                require(
+                    editor.gradeNodeEnabled() == undo,
+                    "actual Undo/Redo did not restore the enabled-only edit"
+                );
+                require(
+                    pipeline.statusText() != failure,
+                    "terminal feedback masked an enabled-only Undo/Redo"
+                );
+                ++s.history_recovery_stage;
+                s.step = 14; // Wait for history autosave before the next captured export.
+                break;
+            }
+            case 13:
+                s.retry_export_receipt = ok(s, s.pending);
+                s.pending.clear();
+                require(
+                    s.retry_export_receipt.value("artifact").toObject().value("commitId")
+                        == s.retry_snapshot.value("identity").toObject().value("workingCommitId"),
+                    "retry exported the failed job instead of its captured commit"
+                );
+                require(
+                    !QImage(root.filePath("owner-export-retry.png")).isNull(),
+                    "retry did not publish a decodable PNG"
+                );
+                require(
+                    pipeline.statusText()
+                        != QCoreApplication::translate(
+                            "EditToolController",
+                            "Could not export the captured adjustments. Try again."
+                        ),
+                    "successful retry retained old failure feedback"
+                );
+                s.export_recovery_checked = true;
+                s.step = 11;
                 break;
             }
         } catch (const std::exception& error) {

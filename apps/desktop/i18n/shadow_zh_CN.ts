@@ -15827,5 +15827,21 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <source>Exporting the captured adjustments…</source>
         <translation>正在导出已确认的调整…</translation>
     </message>
+    <message>
+        <source>Proposed preview cancelled.</source>
+        <translation>调整方案预览已取消。</translation>
+    </message>
+    <message>
+        <source>Could not preview the proposed adjustments. Try again.</source>
+        <translation>调整方案预览失败，请重试。</translation>
+    </message>
+    <message>
+        <source>Could not apply the proposed adjustments. Review the current edits and try again.</source>
+        <translation>调整方案应用失败，请检查当前调整后重试。</translation>
+    </message>
+    <message>
+        <source>Could not export the captured adjustments. Try again.</source>
+        <translation>已确认的调整导出失败，请重试。</translation>
+    </message>
 </context>
 </TS>
