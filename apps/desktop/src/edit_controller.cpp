@@ -419,7 +419,10 @@ QString EditController::recipeRecoveryErrorText() const {
 }
 
 QString EditController::statusText() const {
-    return status_message_.translated();
+    // Tool activity temporarily wins presentation; ordinary render/autosave
+    // status remains intact and is revealed when the request finishes.
+    return tool_activity_message_.isEmpty() ? status_message_.translated()
+                                            : tool_activity_message_.translated();
 }
 
 QAbstractItemModel* EditController::versions() noexcept {

@@ -2,6 +2,7 @@
 #include "desktop_backend.hpp"
 #include "edit_tool_protocol.hpp"
 #include <QFutureWatcher>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
 #include <QQueue>
@@ -59,6 +60,7 @@ class EditToolController final : public QObject {
     QString session_id_, admitted_source_, admission_error_, proposal_id_, candidate_node_;
     std::optional<Snapshot> snapshot_;
     BackendGradeStack candidate_;
+    QJsonArray candidate_changes_;
     std::optional<EditToolProtocol::Request> task_;
     QFutureWatcher<EditToolTaskResult> watcher_;
     // 0 rendering, 1 cancelled before publication, 2 publishing, 3 finished.

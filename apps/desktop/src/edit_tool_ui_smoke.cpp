@@ -2,6 +2,7 @@
 #include "edit_controller.hpp"
 #include "edit_tool_controller.hpp"
 #include "pipeline_run_controller.hpp"
+#include "ui_preferences.hpp"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -28,8 +29,8 @@ struct State {
     std::shared_ptr<EditToolController> tools;
     QMap<QString, QJsonObject> replies;
     QJsonObject snapshot, proposal, receipt, export_receipt;
-    QString pending;
-    bool cancel_checked = false;
+    QString pending, preview_path;
+    bool cancel_checked = false, human_handoff_checked = false, multiple_nodes_ready = false;
     int step = 0, requests = 0, ticks = 0;
 };
 void require(bool ok, const char* message) {
@@ -80,6 +81,18 @@ void click(QQuickWindow& window, const char* name) {
 #else
     throw std::runtime_error("real pointer acceptance requires BUILD_TESTING");
 #endif
+}
+void requireStatus(
+    QQuickWindow& window,
+    const PipelineRunController& pipeline,
+    const QString& expected
+) {
+    auto* label = window.findChild<QQuickItem*>("pipelineStatusLabel");
+    require(
+        label && label->isVisible() && label->property("text").toString() == expected
+            && pipeline.statusText() == expected,
+        "packaged status label did not present the current localized tool activity"
+    );
 }
 void capture(QQuickWindow& window, const QDir& root, const QString& name) {
     require(
@@ -150,7 +163,9 @@ void installEditToolUiSmoke(
                                         "held_apply_export_cancel_unsupported",
                                         "same_head_variant_rejected",
                                         "held_apply_blocks_close_and_edits",
-                                        "actual_pointer_undo_redo",
+                                        "actual_pointer_cross_node_atomic_composition_undo_redo",
+                                        "human_handoff_preserved_after_stale_proposal",
+                                        "packaged_qml_tool_status_en_zh_en",
                                         "export_blocks_second_runner",
                                         "human_edit_during_pinned_export",
                                         "shutdown_reserves_clean_draft"
@@ -172,20 +187,49 @@ void installEditToolUiSmoke(
             auto& s = *state;
             const auto preview = [&] {
                 const auto id = s.snapshot.value("identity").toObject();
-                const auto node = s.snapshot.value("nodes").toArray().first().toObject();
+                const auto nodes = s.snapshot.value("nodes").toArray();
+                const auto node = nodes.first().toObject();
+                QJsonArray operations{
+                    QJsonObject{
+                        {"type", "set_exposure"},
+                        {"nodeId", node.value("nodeId")},
+                        {"stops", 1.0}
+                    },
+                    QJsonObject{
+                        {"type", "set_contrast"},
+                        {"nodeId", node.value("nodeId")},
+                        {"factor", 1.2}
+                    },
+                    QJsonObject{
+                        {"type", "set_saturation"},
+                        {"nodeId", node.value("nodeId")},
+                        {"factor", 0.75}
+                    }
+                };
+                if (nodes.size() > 1)
+                    operations.append(
+                        QJsonObject{
+                            {"type", "set_exposure"},
+                            {"nodeId", nodes.at(1).toObject().value("nodeId")},
+                            {"stops", -0.25}
+                        }
+                    );
+                s.preview_path =
+                    root.filePath(QStringLiteral("owner-preview-%1.jpg").arg(s.requests + 1));
                 return send(
                     s,
                     "preview",
-                    {{"expected", id},
-                     {"operation",
-                      QJsonObject{
-                          {"type", "set_exposure"},
-                          {"nodeId", node.value("nodeId")},
-                          {"stops", 1.0}
-                      }},
-                     {"outputPath",
-                      root.filePath(QStringLiteral("owner-preview-%1.jpg").arg(s.step))}}
+                    {{"expected", id}, {"operations", operations}, {"outputPath", s.preview_path}}
                 );
+            };
+            const auto verifySecondNode = [&](const double exposure) {
+                require(editor.gradeNodes().size() == 2, "composition changed the node topology");
+                editor.selectGradeNode(1);
+                require(
+                    editor.exposureStops() == exposure,
+                    "second node did not follow atomic history"
+                );
+                editor.selectGradeNode(0);
             };
             switch (s.step) {
             case 0: {
@@ -213,10 +257,25 @@ void installEditToolUiSmoke(
                 break;
             case 2:
                 require(editor.exposureStops() == 0.0, "actual Undo did not restore seed");
+                if (!s.multiple_nodes_ready) {
+                    editor.addGradeNode();
+                    require(editor.gradeNodes().size() == 2, "could not create second Grade Node");
+                    editor.selectGradeNode(0);
+                    s.multiple_nodes_ready = true;
+                    break; // Wait for the human node addition to render and autosave.
+                }
                 if (!s.cancel_checked) {
                     s.snapshot = ok(s, send(s, "snapshot"));
                     HoldWorkers held;
                     s.pending = preview();
+                    requireStatus(
+                        *window,
+                        pipeline,
+                        QCoreApplication::translate(
+                            "EditToolController",
+                            "Rendering proposed adjustments…"
+                        )
+                    );
                     const auto result = ok(s, send(s, "cancel", {{"requestId", s.pending}}));
                     require(result.value("accepted").toBool(), "held preview was not cancelled");
                     s.cancel_checked = true;
@@ -224,10 +283,7 @@ void installEditToolUiSmoke(
                 }
                 rejected(s, s.pending, "cancelled");
                 s.pending.clear();
-                require(
-                    !QFile::exists(root.filePath("owner-preview-2.jpg")),
-                    "cancelled preview published an artifact"
-                );
+                require(!QFile::exists(s.preview_path), "cancelled preview published an artifact");
                 s.snapshot = ok(s, send(s, "snapshot"));
                 s.pending = preview();
                 ++s.step;
@@ -262,6 +318,32 @@ void installEditToolUiSmoke(
             case 5: {
                 s.proposal = ok(s, s.pending);
                 s.pending.clear();
+                if (!s.human_handoff_checked) {
+                    editor.beginParameterEdit("white_balance_temperature");
+                    editor.setWhiteBalanceTemperature(0.2);
+                    rejected(
+                        s,
+                        send(
+                            s,
+                            "apply",
+                            {{"expected", s.snapshot.value("identity")},
+                             {"proposalId", s.proposal.value("proposalId")}}
+                        ),
+                        "stale_snapshot"
+                    );
+                    editor.endParameterEdit("white_balance_temperature");
+                    require(
+                        editor.whiteBalanceTemperature() == 0.2 && editor.exposureStops() == 0.0,
+                        "stale proposal overwrote the human handoff"
+                    );
+                    s.human_handoff_checked = true;
+                    s.step = 4;
+                    break;
+                }
+                require(
+                    s.proposal.value("changes").toArray().size() == 4,
+                    "composed preview did not describe all edits"
+                );
                 HoldWorkers held;
                 s.pending = send(
                     s,
@@ -270,6 +352,17 @@ void installEditToolUiSmoke(
                      {"proposalId", s.proposal.value("proposalId")}}
                 );
                 require(editor.stateBusy() && pipeline.busy(), "apply did not reserve the owner");
+                auto* preferences =
+                    qobject_cast<UiPreferences*>(window->property("preferences").value<QObject*>());
+                require(preferences != nullptr, "isolated session preferences unavailable");
+                const auto prior_language = preferences->languageMode();
+                preferences->setLanguageMode("en");
+                requireStatus(*window, pipeline, "Applying proposed adjustments…");
+                preferences->setLanguageMode("zh_CN");
+                requireStatus(*window, pipeline, QString::fromUtf8("正在应用调整方案…"));
+                preferences->setLanguageMode("en");
+                requireStatus(*window, pipeline, "Applying proposed adjustments…");
+                preferences->setLanguageMode(prior_language);
                 rejected(s, send(s, "cancel", {{"requestId", s.pending}}), "cancel_unsupported");
                 rejected(s, send(s, "snapshot"), "busy");
                 const auto variant = editor.activeVariantId();
@@ -293,26 +386,38 @@ void installEditToolUiSmoke(
                 break;
             case 7:
                 require(
-                    editor.exposureStops() == 1.0
+                    editor.exposureStops() == 1.0 && editor.contrastFactor() == 1.2
+                        && editor.saturationFactor() == 0.75
+                        && editor.whiteBalanceTemperature() == 0.2
                         && editor.durableWorkingCommitId()
                                == s.receipt.value("commitId").toString(),
                     "owner did not install its exact commit receipt"
                 );
+                verifySecondNode(-0.25);
                 capture(*window, root, "01-tool-applied.png");
                 click(*window, "pipelineUndoButton");
                 ++s.step;
                 break;
             case 8:
                 require(
-                    editor.exposureStops() == 0.0,
-                    "one actual Undo did not restore pre-tool exposure"
+                    editor.exposureStops() == 0.0 && editor.contrastFactor() == 1.0
+                        && editor.saturationFactor() == 1.0
+                        && editor.whiteBalanceTemperature() == 0.2,
+                    "one actual Undo did not restore all pre-tool values and retain the human edit"
                 );
+                verifySecondNode(0.0);
                 capture(*window, root, "02-tool-undone.png");
                 click(*window, "pipelineRedoButton");
                 ++s.step;
                 break;
             case 9:
-                require(editor.exposureStops() == 1.0, "actual Redo did not restore tool exposure");
+                require(
+                    editor.exposureStops() == 1.0 && editor.contrastFactor() == 1.2
+                        && editor.saturationFactor() == 0.75
+                        && editor.whiteBalanceTemperature() == 0.2,
+                    "actual Redo did not restore the complete proposal"
+                );
+                verifySecondNode(-0.25);
                 capture(*window, root, "03-tool-redone.png");
                 require(
                     pipeline.configureExport(
@@ -338,6 +443,14 @@ void installEditToolUiSmoke(
                     require(
                         pipeline.busy() && !editor.stateBusy(),
                         "export must serialize consumers while permitting human edits"
+                    );
+                    requireStatus(
+                        *window,
+                        pipeline,
+                        QCoreApplication::translate(
+                            "EditToolController",
+                            "Exporting the captured adjustments…"
+                        )
                     );
                     pipeline.complete();
                     require(

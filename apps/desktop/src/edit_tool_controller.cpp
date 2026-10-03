@@ -48,8 +48,34 @@ QJsonObject artifact(
         {"byteLength", QString::number(bytes)}
     };
 }
-bool editable(const BackendGradeNode& node) {
-    return node.enabled && node.shared_layer_id.isEmpty() && !node.exposure_render_op_id.isEmpty();
+bool editable(
+    const BackendGradeNode& node,
+    const EditToolProtocol::EditKind kind = EditToolProtocol::EditKind::Exposure
+) {
+    if (!node.enabled || !node.shared_layer_id.isEmpty())
+        return false;
+    using enum EditToolProtocol::EditKind;
+    switch (kind) {
+    case Exposure:
+        return !node.exposure_render_op_id.isEmpty();
+    case Contrast:
+        return !node.contrast_render_op_id.isEmpty();
+    case Saturation:
+        return !node.saturation_render_op_id.isEmpty();
+    }
+    return false;
+}
+double BackendBasicEditParameters::* parameter(const EditToolProtocol::EditKind kind) {
+    using enum EditToolProtocol::EditKind;
+    switch (kind) {
+    case Exposure:
+        return &BackendBasicEditParameters::exposure_stops;
+    case Contrast:
+        return &BackendBasicEditParameters::contrast_factor;
+    case Saturation:
+        return &BackendBasicEditParameters::saturation_factor;
+    }
+    throw std::invalid_argument("unsupported adjustment");
 }
 } // namespace
 
@@ -75,6 +101,7 @@ EditToolController::~EditToolController() {
     watcher_.waitForFinished();
     owner_.tool_commit_reserved_ = false;
     owner_.tool_operation_running_ = false;
+    owner_.tool_activity_message_.clear();
 }
 void EditToolController::fail(const QString& id, const QString& code, const QString& message) {
     emit reply(EditToolProtocol::failure(id, code, message));
@@ -185,16 +212,25 @@ void EditToolController::capture(const QString& id) {
     snapshot_ = std::move(captured);
     proposal_id_.clear();
     candidate_ = {};
+    candidate_changes_ = {};
     QJsonArray nodes;
-    for (const auto& node : snapshot_->stack.grade_nodes)
+    for (const auto& node : snapshot_->stack.grade_nodes) {
+        QJsonArray available;
+        for (const auto& spec : EditToolProtocol::editSpecs)
+            if (editable(node, spec.kind))
+                available.append(spec.type);
         nodes.append(
             QJsonObject{
                 {"nodeId", node.grade_node_id},
                 {"label", node.label},
                 {"exposureStops", node.basic.exposure_stops},
+                {"contrastFactor", node.basic.contrast_factor},
+                {"saturationFactor", node.basic.saturation_factor},
+                {"availableEdits", available},
                 {"editable", editable(node)}
             }
         );
+    }
     emit reply(
         EditToolProtocol::success(
             id,
@@ -276,8 +312,8 @@ void EditToolController::receive(const QByteArray& line) {
             );
             return;
         }
-        operationRunning(true);
-        reserveCommit(true); // Hold the clean state through stdout backpressure and drain.
+        reserveCommit(true);
+        operationRunning(true); // Hold the clean state through stdout backpressure and drain.
         emit reply(EditToolProtocol::success(request.id, {{"closing", true}}));
         emit shutdownRequested();
         return;
@@ -304,16 +340,38 @@ void EditToolController::receive(const QByteArray& line) {
 }
 void EditToolController::preview(const EditToolProtocol::Request& request) {
     auto stack = snapshot_->stack;
-    auto found =
-        std::find_if(stack.grade_nodes.begin(), stack.grade_nodes.end(), [&](const auto& node) {
-            return node.grade_node_id == request.node_id && editable(node);
-        });
-    if (found == stack.grade_nodes.end())
-        throw std::invalid_argument("node is not an editable local exposure node in this snapshot");
+    QJsonArray changes;
+    for (const auto& edit : request.edits) {
+        auto found =
+            std::find_if(stack.grade_nodes.begin(), stack.grade_nodes.end(), [&](const auto& node) {
+                return node.grade_node_id == edit.node_id && editable(node, edit.kind);
+            });
+        if (found == stack.grade_nodes.end())
+            throw std::invalid_argument(
+                "node does not support this local adjustment in the captured snapshot"
+            );
+        auto& value = found->basic.*parameter(edit.kind);
+        if (value != edit.value) {
+            const auto& spec = EditToolProtocol::editSpecs.at(static_cast<size_t>(edit.kind));
+            changes.append(
+                QJsonObject{
+                    {"type", spec.type},
+                    {"nodeId", edit.node_id},
+                    {"previousValue", value},
+                    {"value", edit.value},
+                    {"units", spec.units}
+                }
+            );
+            value = edit.value;
+        }
+    }
+    if (changes.isEmpty())
+        throw std::invalid_argument("proposal would not change the captured adjustments");
     const auto output = newOutput(request.output_path, true);
-    found->basic.exposure_stops = request.exposure_stops;
+    // Validate the whole candidate before admitting work or replacing the previous proposal.
     candidate_ = stack;
-    candidate_node_ = request.node_id;
+    candidate_changes_ = changes;
+    candidate_node_ = request.edits.front().node_id;
     proposal_id_.clear();
     task_ = request;
     operationRunning(true);
@@ -364,7 +422,34 @@ void EditToolController::preview(const EditToolProtocol::Request& request) {
     );
 }
 void EditToolController::operationRunning(bool running) {
+    owner_.tool_activity_message_.clear();
+    if (running && task_) {
+        using enum EditToolProtocol::Command;
+        switch (task_->command) {
+        case Preview:
+            owner_.tool_activity_message_ = {
+                "EditToolController",
+                QT_TRANSLATE_NOOP("EditToolController", "Rendering proposed adjustments…")
+            };
+            break;
+        case Apply:
+            owner_.tool_activity_message_ = {
+                "EditToolController",
+                QT_TRANSLATE_NOOP("EditToolController", "Applying proposed adjustments…")
+            };
+            break;
+        case Export:
+            owner_.tool_activity_message_ = {
+                "EditToolController",
+                QT_TRANSLATE_NOOP("EditToolController", "Exporting the captured adjustments…")
+            };
+            break;
+        default:
+            break;
+        }
+    }
     owner_.tool_operation_running_ = running;
+    emit owner_.statusTextChanged();
     emit owner_.busyChanged();
 }
 void EditToolController::reserveCommit(bool reserved) {
@@ -377,8 +462,10 @@ void EditToolController::apply(const EditToolProtocol::Request& request) {
     if (proposal_id_.isEmpty() || request.proposal_id != proposal_id_)
         throw std::invalid_argument("preview this exact snapshot before applying its proposal");
     task_ = request;
+    // Reserve before emitting activity/status signals, which can synchronously
+    // re-enter Qt callbacks. Every observable apply state already owns the draft.
+    reserveCommit(true);
     operationRunning(true);
-    reserveCommit(true); // Same GUI turn as admission: no human draft can slip between them.
     watcher_.setFuture(
         QtConcurrent::run([backend = backend_, capture = *snapshot_, stack = candidate_] {
             EditToolTaskResult result;
@@ -394,7 +481,7 @@ void EditToolController::apply(const EditToolProtocol::Request& request) {
                     stack
                 );
                 // These presentation facts are deliberately absent from Recipe bytes.
-                // Exposure cannot change Foundation, including source As Shot metadata.
+                // These Grade adjustments preserve Foundation, including source As Shot metadata.
                 result.commit.grade_stack.foundation = capture.stack.foundation;
             } catch (const std::exception& error) {
                 result.error = QString::fromUtf8(error.what());
@@ -487,7 +574,7 @@ void EditToolController::finishTask() {
                 receipt.commit_id,
                 snapshot_->stack,
                 candidate_node_,
-                QStringLiteral("tool/set_exposure")
+                QStringLiteral("tool/adjustments")
             );
             for (auto& value : owner_.photo_variants_) {
                 auto variant = value.toMap();
@@ -502,6 +589,7 @@ void EditToolController::finishTask() {
             proposal_id_.clear();
             snapshot_.reset();
             candidate_ = {};
+            candidate_changes_ = {};
             operationRunning(false);
             emit reply(
                 EditToolProtocol::success(
@@ -533,6 +621,7 @@ void EditToolController::finishTask() {
                 {{"artifact", result.artifact},
                  {"proposalId", proposal_id_},
                  {"current", still_current},
+                 {"changes", candidate_changes_},
                  {"expected", request.expected}}
             )
         );

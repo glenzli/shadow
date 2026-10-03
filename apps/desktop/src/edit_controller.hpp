@@ -1238,6 +1238,7 @@ class EditController final : public QObject {
     EditPersistenceState persistence_state_;
     bool tool_commit_reserved_ = false;
     bool tool_operation_running_ = false;
+    LocalizedUiMessage tool_activity_message_;
     std::unique_ptr<EditAiCompletionController> image_completion_controller_;
     std::unique_ptr<EditAiMaskController> ai_mask_controller_;
     std::unique_ptr<EditAutoStartController> auto_start_controller_;

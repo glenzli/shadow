@@ -20,7 +20,7 @@ A flattened PNG is an output artifact, not an editable-original or portable Reci
 
 Each request and response is one UTF-8 JSON object followed by a newline. Requests have exactly
 `schema`, `id`, `op`, and `params`. Schema is `shadow.edit-tools/1`; IDs are nonempty bounded strings.
-Unknown fields, wrong types, non-finite/out-of-range exposure, and requests over 64 KiB are rejected.
+Unknown fields, wrong types, non-finite/out-of-range adjustments, and requests over 64 KiB are rejected.
 IDs correlate responses and do not provide durable replay or cross-restart idempotency. Reusing one
 of the last 256 IDs is rejected. Responses can arrive out of order when cancelling a pending preview.
 
@@ -39,7 +39,9 @@ admission diagnostic. An asynchronous history-open failure uses the same code an
   activeVariantId, and the existing draftRevision encoded as a decimal string. Empty commit strings
   mean no commit; null does not. The opaque snapshot token also binds the full server-side stack,
   source size/mtime, photo generation, and owner invalidation epoch.
-- `nodes`: IDs, labels, exposureStops, and whether each local enabled exposure node is editable.
+- `nodes`: IDs, labels, exposureStops, contrastFactor, saturationFactor, and availableEdits for each
+  local enabled parameter with an existing render operation. The legacy editable flag still refers
+  to exposure. Shared or disabled nodes expose no available edits.
 - dirty, autosavePending, autosaveFailed, gestureActive, busy, canUndo, and sourceFingerprint.
 
 Snapshot copies the current owner state. It does not finish a gesture, autosave, close the photo,
@@ -51,11 +53,33 @@ replace only its working head to force a stale request through.
 
 | Operation | Exact params | Result / limit |
 | --- | --- | --- |
-| preview | expected, operation `{type: "set_exposure", nodeId, stops}`, outputPath | New JPEG artifact and proposalId; exposure is absolute stops in [-16,16], preview max edge 1024. No draft/ref/Undo mutation. |
+| preview | expected, operation **or** operations, outputPath | New JPEG artifact, proposalId and changes with previous/current values; preview max edge 1024. No draft/ref/Undo mutation. |
 | apply | expected, proposalId | Exact photo/representation/Variant/commit/recipe/digest receipt, one Undo step. Requires the reviewed current proposal and a clean, idle human draft. |
 | export | expected, outputPath | New full-resolution sRGB RGB8 PNG pinned to that committed Recipe. A neutral or historical draft must first be applied. |
-| cancel | requestId | Preview only, accepted until artifact publication begins. Apply and export return cancel_unsupported. |
+| cancel | requestId | Preview only, accepted until artifact publication begins. Running apply/export return cancel_unsupported; finished requests return not_running. |
 | shutdown | empty object | Requires a clean idle owner, reserves it, drains the final response, then exits. |
+
+A singular `operation` remains compatible with earlier clients. `operations` accepts 1–16 typed
+adjustments as one atomic proposal. Supply exactly one form; duplicate node/parameter pairs and
+unknown fields are rejected. Supported absolute values match the existing editor controls:
+
+| Type | Value field | Range | Neutral |
+| --- | --- | --- | --- |
+| set_exposure | stops | [-16,16] | 0 |
+| set_contrast | factor | [0,8] | 1 |
+| set_saturation | factor | [0,8] | 1 |
+
+For example, preview a combined proposal using the same exact snapshot identity and a fresh path:
+
+```json
+{"expected":{"...":"copy the complete snapshot identity"},"operations":[{"type":"set_exposure","nodeId":"captured-node-id","stops":0.75},{"type":"set_contrast","nodeId":"captured-node-id","factor":1.15},{"type":"set_saturation","nodeId":"captured-node-id","factor":0.8}],"outputPath":"/absolute/path/proposal.jpg"}
+```
+
+The existing Recipe graph determines rendering order. Every operation is validated against its
+captured node before rendering or replacing a valid proposal. An invalid replacement preserves the
+previous candidate; it cannot partially edit the owner. An entirely unchanged proposal returns
+invalid_operation and creates no history. A successful combination applies in one CAS transaction
+and one Undo step. `changes` describes only fields whose values actually change.
 
 Output paths must be absolute, have an existing directory, and use `.jpg`/`.jpeg` for previews or
 `.png` for exports. Existing files and dangling symlinks are rejected; the common exporter also
@@ -66,7 +90,11 @@ no artifact. Rejected cancellation after publication began does not retract a co
 
 The server retains one snapshot, one candidate, and one in-flight tool operation. A stale identity
 returns stale_snapshot; a current but unsaved/gesturing draft returns draft_pending. It never saves,
-rebases, or discards that human draft on behalf of a read/preview/apply request. Tool commits share
+rebases, or discards that human draft on behalf of a read/preview/apply request. A manual edit after
+preview makes its proposal stale; capture a fresh snapshot after that edit settles to preserve it
+in the next proposal. During rendering, apply and export, the same window shows the corresponding
+localized activity; ordinary render/autosave status is retained beneath it and restored afterward.
+Tool commits share
 the existing Catalog working-head + active-Variant CAS. A publication receipt comes directly from
 the committed immutable record; subsequent movable-head refresh is not its source of truth.
 
@@ -85,7 +113,8 @@ permissions are required by the tools.
 
 ## Rendering and validation boundary
 
-Exposure changes only the selected Grade node and downstream rendering. The complete captured
+Exposure, contrast and saturation change the addressed Grade nodes and their downstream rendering.
+One combined candidate is compiled and rendered once; array entries do not schedule separate previews. The complete captured
 stack and immutable base preserve upstream Foundation, source development, masks, and private
 Recipe meaning. Preview reuses the existing transient exact renderer and warm-source identities;
 no durable preview blob is published. JPEG is an explicit host-byte consumer: GPU results, where
@@ -102,6 +131,7 @@ ctest --test-dir "$SHADOW_BUILD_DIR" -R 'shadow-desktop-edit-tool-' --output-on-
 
 The integration test launches the real stdio entry with synthetic JPEG pixels and no injected test
 harness. The owner/UI test separately drives the same controller, holds workers to test close/apply
-races, and sends real window pointer events to packaged Undo/Redo controls. It runs offscreen by
+races, verifies human handoff and live English/Chinese status, and sends real window pointer events
+to packaged Undo/Redo controls for the complete composed proposal. It runs offscreen by
 default; its script takes the application and shadow-edit-tool-fixture executables, and accepts --visible and --evidence-root for an explicit visible-window acceptance.
 No new quiet-machine latency baseline is claimed by these correctness tests.

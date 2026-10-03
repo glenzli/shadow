@@ -142,21 +142,42 @@ def run(executable, fixture_executable, root):
     try:
         discovery = checked(client.call("discover"))
         assert discovery["scope"] == "one_explicit_isolated_photo"
+        assert {item["type"] for item in discovery["edits"]} == {"set_exposure", "set_contrast", "set_saturation"}
+        assert discovery["preview"]["maximumOperations"] == 16
         assert discovery["apply"]["cancel"] == discovery["export"]["cancel"] == "unsupported"
         first = client.snapshot()
         first_identity = first["identity"]
         assert first_identity["workingCommitId"] == "" and not first["canUndo"]
         node = next(node for node in first["nodes"] if node["editable"])
         before_exposure = node["exposureStops"]
+        assert node["contrastFactor"] == node["saturationFactor"] == 1
+        assert set(node["availableEdits"]) == {"set_exposure", "set_contrast", "set_saturation"}
         params = {"expected": first_identity, "operation": {"type": "set_exposure", "nodeId": node["nodeId"], "stops": 1.25},
                   "outputPath": str(root / "cancelled.jpg")}
         # Publication runs on a worker, so either cancellation can win or it can
         # arrive after publication. The held-owner test proves the former case.
-        preview = client.packet("preview", params)
-        cancel = client.packet("cancel", {"requestId": preview["id"]})
-        client.send(preview, cancel)
-        cancellation = client.receive(cancel["id"])
-        cancelled_preview = client.receive(preview["id"])
+        startup_busy_retries = 0
+        startup_deadline = time.monotonic() + 15
+        while True:
+            preview = client.packet("preview", params)
+            cancel = client.packet("cancel", {"requestId": preview["id"]})
+            client.send(preview, cancel)
+            cancellation = client.receive(cancel["id"])
+            cancelled_preview = client.receive(preview["id"])
+            if cancelled_preview["ok"] or cancelled_preview["error"]["code"] != "busy":
+                break
+            # The initial display can schedule another render after a clean
+            # snapshot. Busy is an admission rejection, so reacquire identity
+            # and retry with new correlation IDs without weakening the owner.
+            rejected(cancellation, "not_running")
+            assert not (root / "cancelled.jpg").exists()
+            assert time.monotonic() < startup_deadline, "startup never admitted preview"
+            fresh = client.snapshot()
+            assert fresh["nodes"] == first["nodes"] and not fresh["canUndo"]
+            first = fresh
+            first_identity = fresh["identity"]
+            params["expected"] = first_identity
+            startup_busy_retries += 1
         if cancellation["ok"] and cancellation["result"]["accepted"]:
             rejected(cancelled_preview, "cancelled")
             assert not (root / "cancelled.jpg").exists()
@@ -179,8 +200,29 @@ def run(executable, fixture_executable, root):
         bad_op = dict(params, expected=identity, operation={"type": "set_exposure", "nodeId": node["nodeId"], "stops": 16.1})
         rejected(client.call("preview", bad_op), "invalid_request")
         rejected(client.call("preview", dict(params, expected=identity)), "invalid_operation")  # existing output
-        params.update(expected=identity, outputPath=str(root / "apply-candidate.jpg"))
+        composed = [
+            {"type": "set_exposure", "nodeId": node["nodeId"], "stops": 0.75},
+            {"type": "set_contrast", "nodeId": node["nodeId"], "factor": 1.15},
+            {"type": "set_saturation", "nodeId": node["nodeId"], "factor": 0.8},
+        ]
+        params = {"expected": identity, "operations": composed, "outputPath": str(root / "apply-candidate.jpg")}
+        invalid_node = dict(composed[-1], nodeId="missing-node")
+        rejected(client.call("preview", dict(params, operations=[composed[0], invalid_node])), "invalid_operation")
+        assert not (root / "apply-candidate.jpg").exists()
+        unchanged = client.snapshot()
+        assert unchanged["nodes"] == first["nodes"] and not unchanged["canUndo"]
+        identity = unchanged["identity"]
+        params["expected"] = identity
+        noop = dict(composed[0], stops=before_exposure)
+        rejected(client.call("preview", dict(params, operations=[noop])), "invalid_operation")
         proposal = checked(client.call("preview", params))
+        assert proposal["current"] and len(proposal["changes"]) == 3
+        assert [item["previousValue"] for item in proposal["changes"]] == [0, 1, 1]
+        assert [item["value"] for item in proposal["changes"]] == [0.75, 1.15, 0.8]
+        # A rejected replacement must neither partially edit nor erase the valid candidate.
+        rejected(client.call("preview", dict(params, operations=[composed[0], invalid_node],
+                                              outputPath=str(root / "invalid-replacement.jpg"))), "invalid_operation")
+        assert not (root / "invalid-replacement.jpg").exists()
         apply = client.packet("apply", {"expected": identity, "proposalId": proposal["proposalId"]})
         cancel = client.packet("cancel", {"requestId": apply["id"]})
         busy = client.packet("snapshot")
@@ -199,7 +241,9 @@ def run(executable, fixture_executable, root):
         assert applied["identity"]["workingCommitId"] == receipt["commitId"]
         assert applied["identity"]["baseCommitId"] == receipt["commitId"]
         assert applied["identity"]["activeVariantId"] == receipt["activeVariantId"]
-        assert applied["nodes"][0]["exposureStops"] == 1.25 and applied["canUndo"]
+        assert applied["nodes"][0]["exposureStops"] == 0.75 and applied["canUndo"]
+        assert applied["nodes"][0]["contrastFactor"] == 1.15
+        assert applied["nodes"][0]["saturationFactor"] == 0.8
         expected = applied["identity"]
         rejected(client.call("export", {"expected": expected, "outputPath": str(source)}), "invalid_operation")
         link = root / "dangling.png"
@@ -263,9 +307,10 @@ def run(executable, fixture_executable, root):
             bad.close(graceful=False)
             (root / (name + ".protocol.json")).write_text(json.dumps(bad.transcript, indent=2))
     return {"schema": 1, "result": "passed", "sourceSha256": original_digest,
+            "startupBusyRetries": startup_busy_retries,
             "commitReceipt": receipt, "exportSha256": output_digest, "artifactRoot": str(root),
             "evidence": ["real_stdio_process", "strict_scope", "preview_no_edit_or_undo", "preview_cancel_contract",
-                         "stale_snapshot", "typed_range", "exact_apply_receipt", "unsupported_cancel_truthful",
+                         "stale_snapshot", "typed_range", "composed_atomic_adjustments", "invalid_replacement_preserves_candidate", "no_op_rejected", "exact_apply_receipt", "unsupported_cancel_truthful",
                          "pinned_png_export", "original_unchanged", "existing_and_symlink_not_replaced",
                          "retry_same_pixels", "restart_rejects_old_session", "unsupported_and_corrupt_source_reported"]}
 

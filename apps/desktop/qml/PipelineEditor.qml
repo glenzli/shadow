@@ -305,6 +305,7 @@ ApplicationWindow {
             anchors.margins: 6
             BusyIndicator { running: pipeline.busy; visible: running; implicitWidth: 28; implicitHeight: 28 }
             Label {
+                objectName: "pipelineStatusLabel"
                 Layout.fillWidth: true
                 text: pipeline.statusText
                 color: Theme.textSecondary

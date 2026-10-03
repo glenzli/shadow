@@ -15813,4 +15813,19 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>保存</translation>
     </message>
 </context>
+<context>
+    <name>EditToolController</name>
+    <message>
+        <source>Rendering proposed adjustments…</source>
+        <translation>正在渲染调整方案…</translation>
+    </message>
+    <message>
+        <source>Applying proposed adjustments…</source>
+        <translation>正在应用调整方案…</translation>
+    </message>
+    <message>
+        <source>Exporting the captured adjustments…</source>
+        <translation>正在导出已确认的调整…</translation>
+    </message>
+</context>
 </TS>

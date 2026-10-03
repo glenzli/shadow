@@ -33,7 +33,9 @@ QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local
 
 [`edit_tool_protocol.*`](src/edit_tool_protocol.hpp), [`edit_tool_stdio.*`](src/edit_tool_stdio.hpp),
 and [`edit_tool_controller.*`](src/edit_tool_controller.hpp) own the bounded process protocol,
-transport, and same-owner snapshot/proposal lifecycle. The [wire contract and invocation](../../docs/development/agent-edit-stdio.md)
+transport, and same-owner snapshot/proposal lifecycle. Bounded exposure/contrast/saturation
+compositions share one preview, CAS publication and Undo entry, with activity projected through the
+existing editor status owner. The [wire contract and invocation](../../docs/development/agent-edit-stdio.md)
 define its explicit independent-session scope. Existing Recipe CAS, Undo, transient preview and
 durable export remain with their original owners; opt-in UI acceptance is in
 [`edit_tool_ui_smoke.*`](src/edit_tool_ui_smoke.hpp), separately from the formal entry.
