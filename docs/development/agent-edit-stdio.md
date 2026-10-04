@@ -148,7 +148,9 @@ localized activity. Cancellation and asynchronous preview/apply/export failures 
 terminal message in that same status surface; technical details remain in the client reply.
 Observation, language changes and ordinary autosave/status refreshes retain the terminal message.
 The next admitted operation replaces it with progress, and a new human draft/Variant/photo dismisses
-it. Success restores the ordinary render/autosave status retained beneath it. Admission rejections
+it. A late completion remains bound to the task's captured photo, draft revision and Variant: its
+client still receives the result, but its old feedback cannot mask a newer human draft. Success
+restores the ordinary render/autosave status retained beneath it. Admission rejections
 that never started an operation do not overwrite the window's status.
 Tool commits share
 the existing Catalog working-head + active-Variant CAS. A publication receipt comes directly from

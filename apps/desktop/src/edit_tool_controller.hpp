@@ -57,6 +57,7 @@ class EditToolController final : public QObject {
         QString variant;
     };
     bool current() const;
+    bool feedbackCurrent(const TerminalFeedback& feedback) const;
     bool gestureActive() const;
     bool admit(const EditToolProtocol::Request& request);
     void capture(const QString& id);

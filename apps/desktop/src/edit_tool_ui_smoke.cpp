@@ -34,7 +34,7 @@ struct State {
     QJsonObject observation_snapshot, handoff_proposal, handoff_receipt, handoff_export;
     double preview_export_mean_error = 0;
     int preview_export_max_error = 0;
-    QString pending, preview_path;
+    QString pending, preview_path, superseded_feedback_status;
     bool cancel_checked = false, human_handoff_checked = false, multiple_nodes_ready = false;
     bool export_recovery_checked = false;
     int step = 0, requests = 0, ticks = 0, recovery_stage = 0, history_recovery_stage = 0;
@@ -200,6 +200,7 @@ void installEditToolUiSmoke(
                             {"editorBusy", editor.busy()},
                             {"editorStatus", editor.statusText()},
                             {"pipelineStatus", pipeline.statusText()},
+                            {"supersededFeedbackStatus", state->superseded_feedback_status},
                             {"pipelineError", pipeline.errorText()},
                             {"error", error},
                             {"applyReceipt", state->receipt},
@@ -234,6 +235,7 @@ void installEditToolUiSmoke(
                                  "current_observation_failure_cancel_retry_en_zh_en",
                                  "reviewed_proposal_survives_observation_failure_cancel_retry",
                                  "human_draft_invalidates_pending_observation",
+                                 "old_observation_feedback_cannot_mask_new_human_draft",
                                  "ai_human_saved_ai_observe_apply_export",
                                  "reviewed_preview_matches_applied_current_rendition",
                                  "handoff_preview_export_same_size_pixel_tolerance",
@@ -1009,6 +1011,16 @@ void installEditToolUiSmoke(
                         && editor.whiteBalanceTemperature() == 0.3,
                     "invalidated observation published or overwrote the new human draft"
                 );
+                s.superseded_feedback_status = pipeline.statusText();
+                require(
+                    s.superseded_feedback_status
+                        != QCoreApplication::translate(
+                            "EditToolController",
+                            "Current edits preview cancelled."
+                        ),
+                    "old observation feedback masked the newer human draft"
+                );
+                requireStatus(*window, pipeline, editor.statusText());
                 s.step = 28; // Wait for the new human draft to save.
                 break;
             case 28:

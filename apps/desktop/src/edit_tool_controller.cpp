@@ -128,14 +128,17 @@ EditToolController::~EditToolController() {
 void EditToolController::fail(const QString& id, const QString& code, const QString& message) {
     emit reply(EditToolProtocol::failure(id, code, message));
 }
+bool EditToolController::feedbackCurrent(const TerminalFeedback& feedback) const {
+    return owner_.active_ && feedback.photo_generation == owner_.photo_generation_
+           && feedback.working_revision == owner_.working_revision_
+           && feedback.variant == owner_.active_variant_id_;
+}
 void EditToolController::invalidate() {
     ++owner_epoch_;
     // Automatic status/head refreshes do not dismiss a terminal result. A new
     // human draft, Variant or photo does; the next admitted tool operation also does.
     if (terminal_feedback_ && !owner_.tool_operation_running_
-        && (!owner_.active_ || terminal_feedback_->photo_generation != owner_.photo_generation_
-            || terminal_feedback_->working_revision != owner_.working_revision_
-            || terminal_feedback_->variant != owner_.active_variant_id_)) {
+        && !feedbackCurrent(*terminal_feedback_)) {
         terminal_feedback_.reset();
         owner_.tool_activity_message_.clear();
         emit owner_.statusTextChanged();
@@ -554,13 +557,18 @@ void EditToolController::operationRunning(bool running, const QString& terminal_
                 "EditToolController",
                 "Could not export the captured adjustments. Try again."
             );
-        if (message) {
-            owner_.tool_activity_message_ = {"EditToolController", message};
-            terminal_feedback_ = TerminalFeedback{
-                owner_.photo_generation_,
-                owner_.working_revision_,
-                owner_.active_variant_id_
+        if (message && snapshot_) {
+            // Completion belongs to the captured owner, never a newer human
+            // draft that happened to invalidate this task while it ran.
+            TerminalFeedback feedback{
+                snapshot_->photo_generation,
+                snapshot_->working_revision,
+                snapshot_->identity.value("activeVariantId").toString()
             };
+            if (feedbackCurrent(feedback)) {
+                owner_.tool_activity_message_ = {"EditToolController", message};
+                terminal_feedback_ = std::move(feedback);
+            }
         }
     }
     if (running && task_) {
