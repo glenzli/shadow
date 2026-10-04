@@ -68,11 +68,32 @@ replace only its working head to force a stale request through.
 
 | Operation | Exact params | Result / limit |
 | --- | --- | --- |
+| render_current | expected, outputPath | Current saved stack as a new JPEG, `expected` and `current`; no proposal, draft/ref/Undo mutation. Works on a neutral image. |
 | preview | expected, operation **or** operations, outputPath | New JPEG artifact, proposalId and changes with previous/current values; preview max edge 1024. No draft/ref/Undo mutation. |
 | apply | expected, proposalId | Exact photo/representation/Variant/commit/recipe/digest receipt, one Undo step. Requires the reviewed current proposal and a clean, idle human draft. |
 | export | expected, outputPath | New full-resolution sRGB RGB8 PNG pinned to that committed Recipe. A neutral or historical draft must first be applied. |
-| cancel | requestId | Preview only, accepted until artifact publication begins. Running apply/export return cancel_unsupported; finished requests return not_running. |
+| cancel | requestId | `preview` and `render_current`, accepted until artifact publication begins. Running apply/export return cancel_unsupported; finished requests return not_running. |
 | shutdown | empty object | Requires a clean idle owner, reserves it, drains the final response, then exits. |
+
+`render_current` is optional: check `discover.operations` before using it. Older producers do not
+provide this operation; report that limitation instead of inventing a tiny adjustment to obtain pixels.
+Like `preview`, it requires the exact current snapshot and a clean idle owner. It renders the captured
+stack through the existing exact renderer, including human changes that the three editable fields do
+not expose. It returns exactly `artifact`, `expected` and `current`; it has no applicable `proposalId`.
+Observation success, failure or cancellation preserves a reviewed proposal while that proposal's
+original snapshot remains current. Human/source changes still invalidate it. If `current` is false,
+the artifact belongs to the returned old `expected` identity; obtain a fresh snapshot before acting.
+
+For example, after copying the complete identity from `snapshot`, send a new correlated request:
+
+```json
+{"schema":"shadow.edit-tools/1","id":"observe-1","op":"render_current","params":{"expected":{"...":"copy the complete snapshot identity"},"outputPath":"/absolute/path/current-saved.jpg"}}
+```
+
+Use a separate new JPEG path. In an external material stage, neither a current image nor a proposal
+preview may use the reserved output/result path, even if the result filename happens to end in `.jpg`.
+Observation does not return or accept the material: `complete` and the unchanged completed result
+remain the final stage handoff.
 
 A singular `operation` remains compatible with earlier clients. `operations` accepts 1–16 typed
 adjustments as one atomic proposal. Supply exactly one form; duplicate node/parameter pairs and
@@ -152,7 +173,14 @@ Keep the process and both pipes open while the person uses the same editor. Afte
 wait for `dirty`, `autosavePending`, `autosaveFailed`, `gestureActive` and `busy` to clear in a fresh
 snapshot. If saving failed, let the person resolve or retry that save; observation never silently
 saves or discards their draft. Construct the next proposal from the new node values and copy its
-whole identity. A proposal reviewed before the handoff cannot be applied to the new human state.
+whole identity. Use `render_current` to inspect that saved state without modifying it. A proposal
+reviewed before the handoff cannot be applied to the new human state.
+
+For a request such as “keep my white balance and make the second node a little darker,” the client
+reads a fresh snapshot, checks that node's `availableEdits`, renders the current image, then proposes
+an absolute exposure value derived from the returned value. It reviews the separate proposal JPEG
+before `apply`, and obtains a fresh snapshot for `export`. The existing full-stack capture preserves
+the human white balance; the client must not rebuild a Recipe from the three visible parameters.
 Apply creates one Undo entry; the window's ordinary Undo/Redo controls keep the preceding human edit.
 Export pins the selected committed Recipe even if the person continues editing during export.
 
@@ -162,7 +190,7 @@ Export pins the selected committed Recipe even if the person continues editing d
 | `draft_pending` | Finish the human gesture/save and check `autosaveFailed`; do not force a commit or replace only the head token. |
 | `stale_snapshot` | Re-read the current state and review a new proposal that preserves the human changes. |
 | `invalid_operation` | Correct the node, range or output path; an unchanged proposal does not require a commit. |
-| `preview_failed`, `cancelled` | Inspect the failure and current identity; a previously reviewed proposal remains usable only if that same snapshot is still current. Use a new output path for a replacement. |
+| `preview_failed`, `cancelled` | For either image operation, inspect the failure and current identity; a previously reviewed proposal remains usable only if that same snapshot is still current. Use a new output path for a replacement. |
 | `export_failed` | Inspect existing output and the diagnostic, then reconcile the result before retrying to a new path; never delete another writer's file. |
 | `source_unavailable` | Check the admitted input and supported representation. Repeated polling does not repair a rejected format. |
 
@@ -201,9 +229,20 @@ ctest --test-dir "$SHADOW_BUILD_DIR" -R 'shadow-desktop-edit-tool-' --output-on-
 ```
 
 The integration test launches the real stdio entry with synthetic JPEG pixels and no injected test
-harness. The owner/UI test separately drives the same controller, holds workers to test close/apply
-races, creates deterministic new-file publication collisions, verifies terminal English/Chinese
-feedback, failed/cancelled replacement preservation and export retry after a human edit. Real window
-pointer events exercise packaged Undo/Redo controls for the complete composed proposal and confirm
-that enabled-only history changes dismiss completed tool failures. It runs offscreen by default; its script takes the application and shadow-edit-tool-fixture executables, and accepts --visible and --evidence-root for an explicit visible-window acceptance.
+harness. It observes neutral and committed images, checks that observation preserves a reviewed
+proposal and Undo state, and compares the reviewed JPEG with the same Recipe after apply. The external
+stage test separately asserts all four exact terminal JSON object shapes for Shape compatibility and
+rejects observation/preview attempts to occupy a JPEG-named terminal result, including composed and
+decomposed Unicode aliases on macOS. The owner/UI test separately drives the same controller, holds
+workers to test close/apply races, creates deterministic new-file publication collisions, and verifies
+terminal English/Chinese feedback, failed/cancelled replacement preservation and export retry after a
+human edit. Real window pointer events exercise packaged Undo/Redo controls for the complete composed
+proposal and confirm that enabled-only history changes dismiss completed tool failures. The synthetic
+handoff retains one reviewed AI proposal across current-image failure, accepted cancellation and retry,
+then applies that original proposal, exports its committed version, and exercises Undo/Redo. A pending
+observation also yields to a new human draft; the stale identity is rejected before observing the newly
+saved state. A same-size gradient compares JPEG and PNG with a bounded lossy tolerance; this is a
+renderer regression, not a general image-quality score. It runs offscreen by default; its script takes
+the application and shadow-edit-tool-fixture executables, and accepts --visible and --evidence-root
+for an explicit visible-window acceptance.
 No new quiet-machine latency baseline is claimed by these correctness tests.

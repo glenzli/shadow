@@ -9,6 +9,8 @@ import tempfile
 import struct
 import zlib
 import time
+import sys
+import unicodedata
 
 from edit_tool_stdio_integration import Client, artifact_check, checked, digest, png_fixture, rejected
 
@@ -17,11 +19,11 @@ def run(executable, root):
     root.mkdir(parents=True, exist_ok=True)
     measurements = {}
 
-    def launch(name, wrong_digest=False, start_process=True, transparent=False):
+    def launch(name, wrong_digest=False, start_process=True, transparent=False, result_name="result.json"):
         folder = root / name
         folder.mkdir()
         source, output = folder / "input.png", folder / "edited.png"
-        request, result = folder / "request.json", folder / "result.json"
+        request, result = folder / "request.json", folder / result_name
         png_fixture(source)
         if transparent:
             def chunk(kind, data):
@@ -43,9 +45,20 @@ def run(executable, root):
             client.stage_started_at = launched_at
         return client, envelope, output, result, args
 
+    def exact_receipt_shape(receipt):
+        # Shape uses deny_unknown_fields at all four levels. Optional stdio
+        # observations must never leak new metadata into its terminal contract.
+        completed = receipt["outcome"] == "completed"
+        assert set(receipt) == {"schema", "requestId", "input", "outcome", "errors"} | ({"artifact", "render"} if completed else set())
+        assert set(receipt["input"]) == {"path", "revision", "sha256"}
+        if completed:
+            assert set(receipt["artifact"]) == {"path", "sha256", "byteLength", "width", "height", "format", "colorSpace", "bitDepth"}
+            assert set(receipt["render"]) == {"sessionId", "photoId", "representationId", "recipeCommitId", "recipeSnapshotDigest"}
+
     def terminal(client, envelope, output, result, code, outcome):
         assert client.process.wait(timeout=90) == code
         receipt = json.loads(result.read_text())
+        exact_receipt_shape(receipt)
         assert receipt["schema"] == "shadow.external-edit-result/1"
         assert receipt["requestId"] == envelope["requestId"] and receipt["input"] == envelope["input"]
         assert receipt["outcome"] == outcome, receipt
@@ -59,18 +72,21 @@ def run(executable, root):
             assert "artifact" not in receipt and "render" not in receipt
         return receipt
 
-    def ready_call(client, operation, params):
+    def ready_reply(client, operation, params):
         deadline = time.monotonic() + 20
         while True:
             response = client.call(operation, params)
             retryable = ("busy", "draft_pending") if operation == "shutdown" else ("busy",)
             if response["ok"] or response["error"]["code"] not in retryable:
-                return checked(response)
+                return response
             assert time.monotonic() < deadline, "initial display never released the owner"
             fresh = client.snapshot()
             if operation != "shutdown":
                 params["expected"] = fresh["identity"]
             time.sleep(0.05)
+
+    def ready_call(client, operation, params):
+        return checked(ready_reply(client, operation, params))
 
     start = time.monotonic()
     client, envelope, output, result, args = launch("ai-complete")
@@ -81,6 +97,13 @@ def run(executable, root):
         assert caps["externalStage"]["exportCancellation"] == "unsupported"
         first = client.snapshot()
         measurements["cold_open_to_snapshot_ms"] = round((time.monotonic() - client.stage_started_at) * 1000, 2)
+        current = ready_call(client, "render_current", {"expected": first["identity"], "outputPath": str(output.parent / "current.jpg")})
+        assert set(current) == {"artifact", "current", "expected"} and current["current"]
+        assert not output.exists() and not result.exists(), "observation impersonated a terminal return"
+        after_current = client.snapshot()
+        assert after_current["identity"] == current["expected"] and after_current["nodes"] == first["nodes"]
+        assert not after_current["canUndo"] and not after_current["identity"]["workingCommitId"]
+        first = after_current
         node = next(item for item in first["nodes"] if item["editable"])
         start = time.monotonic()
         proposal = ready_call(client, "preview", {"expected": first["identity"], "operations": [
@@ -103,6 +126,23 @@ def run(executable, root):
         output_hash, result_hash = digest(output), digest(result)
         retry = subprocess.run([executable] + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
         assert retry.returncode != 0 and digest(output) == output_hash and digest(result) == result_hash
+    finally:
+        client.close(graceful=False)
+
+    client, envelope, output, result, _ = launch("reserved-observation", result_name="caf\u00e9.jpg")
+    try:
+        reserved_paths = [result]
+        if sys.platform == "darwin":
+            reserved_paths.append(result.with_name(unicodedata.normalize("NFD", result.name)))
+        for reserved_path in reserved_paths:
+            state = client.snapshot()
+            rejected(ready_reply(client, "render_current", {"expected": state["identity"], "outputPath": str(reserved_path)}), "invalid_operation")
+            state = client.snapshot()
+            node = next(item for item in state["nodes"] if item["editable"])
+            rejected(ready_reply(client, "preview", {"expected": state["identity"], "operation": {"type": "set_exposure", "nodeId": node["nodeId"], "stops": 0.5}, "outputPath": str(reserved_path)}), "invalid_operation")
+        assert not result.exists() and not output.exists()
+        ready_call(client, "complete", {"expected": client.snapshot()["identity"]})
+        terminal(client, envelope, output, result, 0, "completed")
     finally:
         client.close(graceful=False)
 
@@ -208,14 +248,17 @@ def run(executable, root):
         human = subprocess.run([executable] + args[:-1], stdout=log, stderr=log, env=env, timeout=120)
     assert human.returncode == 0
     receipt = json.loads(result.read_text())
+    exact_receipt_shape(receipt)
     assert receipt["outcome"] == "completed" and receipt["input"] == envelope["input"]
     artifact_check(receipt["artifact"], output, b"\x89PNG\r\n\x1a\n")
     assert digest(Path(envelope["input"]["path"])) == envelope["input"]["sha256"]
-    report = {"passed": ["composed-ai-return", "stale-complete-rejected", "reserved-return-path-rejected", "transparent-input-failed-result", "neutral-return", "cancelled-result",
+    report = {"passed": ["current_observation_without_return", "reserved_jpeg_named_terminal_protected", "strict_four_level_result_unchanged", "composed-ai-return", "stale-complete-rejected", "reserved-return-path-rejected", "transparent-input-failed-result", "neutral-return", "cancelled-result",
                          "same-metadata-source-change", "output-conflict", "result-conflict", "wrong-digest",
                          "duplicate-launch-no-overwrite", "terminal-result-before-held-stdout-drain", "eof-detaches", "packaged-human-return-pointer"],
               "timings": measurements, "sample": "one synthetic 640x426 opaque RGB8 PNG; debug build; no model calls",
               "limits": "timings are smoke observations, not a comparative performance benchmark; EOF continuation only checks process lifetime"}
+    if sys.platform == "darwin":
+        report["passed"].append("macos_unicode_alias_terminal_protected")
     (root / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report))
 

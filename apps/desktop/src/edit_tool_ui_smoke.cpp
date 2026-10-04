@@ -15,9 +15,11 @@
 #include <QQmlApplicationEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSemaphore>
 #include <QThreadPool>
 #include <QTimer>
 #include <QUrl>
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #ifdef SHADOW_DESKTOP_UI_SMOKE
@@ -29,6 +31,9 @@ struct State {
     std::shared_ptr<EditToolController> tools;
     QMap<QString, QJsonObject> replies;
     QJsonObject snapshot, proposal, receipt, export_receipt, retry_snapshot, retry_export_receipt;
+    QJsonObject observation_snapshot, handoff_proposal, handoff_receipt, handoff_export;
+    double preview_export_mean_error = 0;
+    int preview_export_max_error = 0;
     QString pending, preview_path;
     bool cancel_checked = false, human_handoff_checked = false, multiple_nodes_ready = false;
     bool export_recovery_checked = false;
@@ -132,13 +137,25 @@ void capture(QQuickWindow& window, const QDir& root, const QString& name) {
     );
 }
 struct HoldWorkers {
+    struct Gate {
+        QSemaphore entered, release;
+    };
+    std::shared_ptr<Gate> gate = std::make_shared<Gate>();
     HoldWorkers() {
-        QThreadPool::globalInstance()->reserveThread();
-        QThreadPool::globalInstance()->reserveThread();
+        // reserveThread() is accounting, not a barrier: Qt may still run a
+        // queued task. Park both real workers before creating publication races.
+        for (int index = 0; index < 2; ++index)
+            QThreadPool::globalInstance()->start([gate = gate] {
+                gate->entered.release();
+                gate->release.acquire();
+            });
+        if (!gate->entered.tryAcquire(2, 5000)) {
+            gate->release.release(2);
+            throw std::runtime_error("could not park the two test workers");
+        }
     }
     ~HoldWorkers() {
-        QThreadPool::globalInstance()->releaseThread();
-        QThreadPool::globalInstance()->releaseThread();
+        gate->release.release(2);
     }
 };
 } // namespace
@@ -188,6 +205,10 @@ void installEditToolUiSmoke(
                             {"applyReceipt", state->receipt},
                             {"exportReceipt", state->export_receipt},
                             {"retryExportReceipt", state->retry_export_receipt},
+                            {"handoffReceipt", state->handoff_receipt},
+                            {"handoffExport", state->handoff_export},
+                            {"previewExportMeanByteError", state->preview_export_mean_error},
+                            {"previewExportMaxByteError", state->preview_export_max_error},
                             {"platform", QGuiApplication::platformName()},
                             {"evidence",
                              QJsonArray{
@@ -209,7 +230,14 @@ void installEditToolUiSmoke(
                                  "human_edit_during_pinned_export",
                                  "shutdown_reserves_clean_draft",
                                  "external_returning_rejects_tool_admission",
-                                 "terminal_seal_blocks_owner_mutation_and_undo"
+                                 "terminal_seal_blocks_owner_mutation_and_undo",
+                                 "current_observation_failure_cancel_retry_en_zh_en",
+                                 "reviewed_proposal_survives_observation_failure_cancel_retry",
+                                 "human_draft_invalidates_pending_observation",
+                                 "ai_human_saved_ai_observe_apply_export",
+                                 "reviewed_preview_matches_applied_current_rendition",
+                                 "handoff_preview_export_same_size_pixel_tolerance",
+                                 "resumed_ai_undo_redo_preserves_human_state"
                              }}
                         }
                     ).toJson()
@@ -606,47 +634,24 @@ void installEditToolUiSmoke(
                     s.step = 12;
                     break;
                 }
-                s.tools->setStageReturning(true);
-                rejected(s, send(s, "snapshot"), "session_finishing");
-                s.tools->setStageReturning(false);
+                s.observation_snapshot = ok(s, send(s, "snapshot"));
                 {
-                    EditToolController terminal_guard(editor, backend, source);
-                    terminal_guard.sealSession();
-                    require(editor.stateBusy(), "terminal drain did not reserve the owner");
-                    const auto nodes = editor.gradeNodes();
-                    editor.setExposureStops(3);
-                    require(
-                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
-                        "terminal drain admitted a parameter mutation"
-                    );
-                    editor.undo();
-                    require(
-                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
-                        "terminal drain admitted Undo"
+                    const auto second =
+                        s.observation_snapshot.value("nodes").toArray().at(1).toObject();
+                    s.pending = send(
+                        s,
+                        "preview",
+                        {{"expected", s.observation_snapshot.value("identity")},
+                         {"operation",
+                          QJsonObject{
+                              {"type", "set_exposure"},
+                              {"nodeId", second.value("nodeId")},
+                              {"stops", -0.5}
+                          }},
+                         {"outputPath", root.filePath("handoff-proposal.jpg")}}
                     );
                 }
-                ok(s, send(s, "shutdown"));
-                require(
-                    editor.stateBusy() && pipeline.busy(),
-                    "draining shutdown did not reserve clean draft"
-                );
-                {
-                    const auto nodes = editor.gradeNodes();
-                    editor.setExposureStops(3);
-                    require(
-                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
-                        "new draft entered while shutdown was draining"
-                    );
-                    editor.undo();
-                    require(
-                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
-                        "Undo entered while shutdown was draining"
-                    );
-                    pipeline.cancel();
-                }
-                record("passed");
-                timer->stop();
-                QCoreApplication::exit(0);
+                s.step = 19;
                 break;
             case 12:
                 rejected(s, s.pending, "export_failed");
@@ -760,6 +765,331 @@ void installEditToolUiSmoke(
                 );
                 s.export_recovery_checked = true;
                 s.step = 11;
+                break;
+            case 16:
+                rejected(s, s.pending, "preview_failed");
+                s.pending.clear();
+                requireOccupied(root.filePath("current-failed.jpg"));
+                requireLanguages(
+                    *window,
+                    pipeline,
+                    "Could not preview the current edits. Try again.",
+                    QString::fromUtf8("无法预览当前编辑，请重试。")
+                );
+                require(
+                    ok(s, send(s, "snapshot")).value("identity")
+                        == s.observation_snapshot.value("identity"),
+                    "failed observation changed the saved human identity"
+                );
+                {
+                    HoldWorkers held;
+                    s.pending = send(
+                        s,
+                        "render_current",
+                        {{"expected", s.observation_snapshot.value("identity")},
+                         {"outputPath", root.filePath("current-cancelled.jpg")}}
+                    );
+                    require(
+                        ok(s, send(s, "cancel", {{"requestId", s.pending}}))
+                            .value("accepted")
+                            .toBool(),
+                        "held current observation did not accept cancellation"
+                    );
+                }
+                s.step = 17;
+                break;
+            case 17:
+                rejected(s, s.pending, "cancelled");
+                s.pending.clear();
+                require(
+                    !QFile::exists(root.filePath("current-cancelled.jpg")),
+                    "cancelled current observation published an artifact"
+                );
+                requireLanguages(
+                    *window,
+                    pipeline,
+                    "Current edits preview cancelled.",
+                    QString::fromUtf8("当前编辑预览已取消。")
+                );
+                s.pending = send(
+                    s,
+                    "render_current",
+                    {{"expected", s.observation_snapshot.value("identity")},
+                     {"outputPath", root.filePath("current-human-saved.jpg")}}
+                );
+                s.step = 18;
+                break;
+            case 18: {
+                const auto observed = ok(s, s.pending);
+                s.pending.clear();
+                require(
+                    observed.value("current").toBool() && !observed.contains("proposalId")
+                        && observed.value("expected") == s.observation_snapshot.value("identity"),
+                    "observation was mislabeled as a proposal or a different snapshot"
+                );
+                require(
+                    !QImage(root.filePath("current-human-saved.jpg")).isNull(),
+                    "current human image is not decodable"
+                );
+                const auto fresh = ok(s, send(s, "snapshot"));
+                require(
+                    fresh.value("identity") == s.observation_snapshot.value("identity")
+                        && fresh.value("nodes") == s.observation_snapshot.value("nodes"),
+                    "observation altered human state"
+                );
+                // Apply the exact reviewed proposal retained through the
+                // asynchronous observation failure, accepted cancel and retry.
+                s.pending = send(
+                    s,
+                    "apply",
+                    {{"expected", s.observation_snapshot.value("identity")},
+                     {"proposalId", s.handoff_proposal.value("proposalId")}}
+                );
+                s.step = 20;
+                break;
+            }
+            case 19:
+                s.handoff_proposal = ok(s, s.pending);
+                s.pending.clear();
+                require(
+                    s.handoff_proposal.value("current").toBool(),
+                    "fresh handoff proposal is stale"
+                );
+                {
+                    HoldWorkers held;
+                    const auto output = root.filePath("current-failed.jpg");
+                    s.pending = send(
+                        s,
+                        "render_current",
+                        {{"expected", s.observation_snapshot.value("identity")},
+                         {"outputPath", output}}
+                    );
+                    requireLanguages(
+                        *window,
+                        pipeline,
+                        "Rendering current edits…",
+                        QString::fromUtf8("正在渲染当前编辑…")
+                    );
+                    occupyOutput(output);
+                }
+                s.step = 16;
+                break;
+            case 20:
+                s.handoff_receipt = ok(s, s.pending);
+                s.pending.clear();
+                s.step = 21; // Wait for the committed owner's display/autosave work.
+                break;
+            case 21: {
+                verifySecondNode(-0.5);
+                require(
+                    editor.exposureStops() == 0.25 && editor.whiteBalanceTemperature() == 0.2
+                        && !editor.gradeNodeEnabled(),
+                    "resumed AI overwrote the saved human changes"
+                );
+                const auto fresh = ok(s, send(s, "snapshot"));
+                require(
+                    fresh.value("nodes").toArray().first()
+                        == s.observation_snapshot.value("nodes").toArray().first(),
+                    "resumed AI changed the unaddressed human node"
+                );
+                require(
+                    fresh.value("identity").toObject().value("workingCommitId")
+                        == s.handoff_receipt.value("commitId"),
+                    "resumed AI did not install its exact receipt"
+                );
+                s.observation_snapshot = fresh;
+                s.pending = send(
+                    s,
+                    "render_current",
+                    {{"expected", fresh.value("identity")},
+                     {"outputPath", root.filePath("handoff-applied.jpg")}}
+                );
+                s.step = 22;
+                break;
+            }
+            case 22: {
+                const auto current = ok(s, s.pending);
+                s.pending.clear();
+                require(
+                    current.value("current").toBool()
+                        && current.value("artifact").toObject().value("sha256")
+                               == s.handoff_proposal.value("artifact").toObject().value("sha256"),
+                    "applying a reviewed proposal changed its current rendition"
+                );
+                s.pending = send(
+                    s,
+                    "export",
+                    {{"expected", s.observation_snapshot.value("identity")},
+                     {"outputPath", root.filePath("handoff-export.png")}}
+                );
+                s.step = 23;
+                break;
+            }
+            case 23: {
+                s.handoff_export = ok(s, s.pending);
+                s.pending.clear();
+                require(
+                    s.handoff_export.value("artifact").toObject().value("commitId")
+                        == s.handoff_receipt.value("commitId"),
+                    "handoff export used another committed version"
+                );
+                const QImage preview_image(root.filePath("handoff-applied.jpg"));
+                const QImage export_image(root.filePath("handoff-export.png"));
+                require(
+                    !preview_image.isNull() && !export_image.isNull()
+                        && preview_image.size() == export_image.size(),
+                    "same-size synthetic handoff images unavailable"
+                );
+                double sum = 0;
+                for (int y = 0; y < preview_image.height(); ++y) {
+                    for (int x = 0; x < preview_image.width(); ++x) {
+                        const auto a = preview_image.pixel(x, y), b = export_image.pixel(x, y);
+                        for (int shift : {0, 8, 16}) {
+                            const int delta =
+                                std::abs(int((a >> shift) & 255) - int((b >> shift) & 255));
+                            sum += delta;
+                            s.preview_export_max_error =
+                                std::max(s.preview_export_max_error, delta);
+                        }
+                    }
+                }
+                s.preview_export_mean_error =
+                    sum / (preview_image.width() * preview_image.height() * 3.0);
+                require(
+                    s.preview_export_mean_error <= 2.0 && s.preview_export_max_error <= 12,
+                    "same-size synthetic preview/export diverged beyond JPEG tolerance"
+                );
+                click(*window, "pipelineUndoButton");
+                s.step = 24;
+                break;
+            }
+            case 24:
+                verifySecondNode(-0.25);
+                require(
+                    editor.exposureStops() == 0.25 && editor.whiteBalanceTemperature() == 0.2
+                        && !editor.gradeNodeEnabled(),
+                    "resumed AI Undo erased human changes"
+                );
+                click(*window, "pipelineRedoButton");
+                s.step = 25;
+                break;
+            case 25:
+                verifySecondNode(-0.5);
+                require(
+                    editor.exposureStops() == 0.25 && editor.whiteBalanceTemperature() == 0.2
+                        && !editor.gradeNodeEnabled(),
+                    "resumed AI Redo erased human changes"
+                );
+                // The preserved first human node is disabled; edit the enabled
+                // second node, as the real controls require.
+                editor.selectGradeNode(1);
+                require(editor.gradeNodeEnabled(), "human draft target must be enabled");
+                s.observation_snapshot = ok(s, send(s, "snapshot"));
+                {
+                    HoldWorkers held;
+                    s.pending = send(
+                        s,
+                        "render_current",
+                        {{"expected", s.observation_snapshot.value("identity")},
+                         {"outputPath", root.filePath("current-before-human.jpg")}}
+                    );
+                    editor.setWhiteBalanceTemperature(0.3);
+                    require(
+                        editor.whiteBalanceTemperature() == 0.3,
+                        "pending observation blocked the human draft"
+                    );
+                }
+                s.step = 27;
+                break;
+            case 27:
+                rejected(s, s.pending, "cancelled");
+                s.pending.clear();
+                require(
+                    !QFile::exists(root.filePath("current-before-human.jpg"))
+                        && editor.whiteBalanceTemperature() == 0.3,
+                    "invalidated observation published or overwrote the new human draft"
+                );
+                s.step = 28; // Wait for the new human draft to save.
+                break;
+            case 28:
+                rejected(
+                    s,
+                    send(
+                        s,
+                        "render_current",
+                        {{"expected", s.observation_snapshot.value("identity")},
+                         {"outputPath", root.filePath("current-stale-human.jpg")}}
+                    ),
+                    "stale_snapshot"
+                );
+                s.observation_snapshot = ok(s, send(s, "snapshot"));
+                s.pending = send(
+                    s,
+                    "render_current",
+                    {{"expected", s.observation_snapshot.value("identity")},
+                     {"outputPath", root.filePath("current-after-human.jpg")}}
+                );
+                s.step = 29;
+                break;
+            case 29: {
+                const auto observed = ok(s, s.pending);
+                s.pending.clear();
+                require(
+                    observed.value("current").toBool()
+                        && observed.value("expected") == s.observation_snapshot.value("identity")
+                        && editor.whiteBalanceTemperature() == 0.3,
+                    "fresh observation failed to retain the saved human draft"
+                );
+                editor.selectGradeNode(0);
+                require(
+                    editor.whiteBalanceTemperature() == 0.2 && !editor.gradeNodeEnabled(),
+                    "observation invalidation changed the preceding human node"
+                );
+                s.step = 26;
+                break;
+            }
+            case 26:
+                s.tools->setStageReturning(true);
+                rejected(s, send(s, "snapshot"), "session_finishing");
+                s.tools->setStageReturning(false);
+                {
+                    EditToolController terminal_guard(editor, backend, source);
+                    terminal_guard.sealSession();
+                    require(editor.stateBusy(), "terminal drain did not reserve the owner");
+                    const auto nodes = editor.gradeNodes();
+                    editor.setExposureStops(3);
+                    require(
+                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
+                        "terminal drain admitted a parameter mutation"
+                    );
+                    editor.undo();
+                    require(
+                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
+                        "terminal drain admitted Undo"
+                    );
+                }
+                ok(s, send(s, "shutdown"));
+                require(
+                    editor.stateBusy() && pipeline.busy(),
+                    "draining shutdown did not reserve clean draft"
+                );
+                {
+                    const auto nodes = editor.gradeNodes();
+                    editor.setExposureStops(3);
+                    require(
+                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
+                        "new draft entered while shutdown was draining"
+                    );
+                    editor.undo();
+                    require(
+                        editor.exposureStops() == 0.25 && editor.gradeNodes() == nodes,
+                        "Undo entered while shutdown was draining"
+                    );
+                    pipeline.cancel();
+                }
+                record("passed");
+                timer->stop();
+                QCoreApplication::exit(0);
                 break;
             }
         } catch (const std::exception& error) {

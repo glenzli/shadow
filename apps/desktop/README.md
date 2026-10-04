@@ -33,7 +33,10 @@ QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local
 
 [`edit_tool_protocol.*`](src/edit_tool_protocol.hpp), [`edit_tool_stdio.*`](src/edit_tool_stdio.hpp),
 and [`edit_tool_controller.*`](src/edit_tool_controller.hpp) own the bounded process protocol,
-transport, and same-owner snapshot/proposal lifecycle. Bounded exposure/contrast/saturation
+transport, and same-owner snapshot/proposal lifecycle. Optional `render_current` observes the captured
+saved stack through the same bounded render/cancel/publication owner without consuming a reviewed
+proposal or adding history. Its artifact is separate from external-stage completion; all tool output
+paths respect the stage return/result reservation. Bounded exposure/contrast/saturation
 compositions share one preview, CAS publication and Undo entry, with activity projected through the
 existing editor status owner. Terminal failures remain visible through ordinary status refreshes;
 unchanged snapshot observation and failed/cancelled replacement preserve the reviewed proposal under

@@ -147,6 +147,48 @@ int main(int argc, char** argv) {
             == "reuse_while_current",
         "snapshot observation lifetime is discoverable"
     );
+    request.insert("op", "render_current");
+    request.insert(
+        "params",
+        QJsonObject{{"expected", identity}, {"outputPath", "/tmp/current.jpg"}}
+    );
+    require(
+        parse().request && parse().request->command == EditToolProtocol::Command::RenderCurrent
+            && parse().request->edits.isEmpty(),
+        "observation accepts only a snapshot and output path"
+    );
+    auto observation = request.value("params").toObject();
+    observation.insert("operations", QJsonArray{exposure});
+    request.insert("params", observation);
+    require(!parse().request, "observation cannot carry hidden changes");
+    observation.remove("operations");
+    observation.remove("expected");
+    request.insert("params", observation);
+    require(!parse().request, "observation requires the full snapshot identity");
+    const auto discovery = EditToolProtocol::discovery();
+    require(
+        discovery.value("operations").toArray().contains("render_current"),
+        "current image rendering is discoverable"
+    );
+    const auto rendering = discovery.value("render_current").toObject();
+    require(
+        rendering.value("mutation") == "none"
+            && rendering.value("proposalPolicy") == "preserve_while_snapshot_current"
+            && rendering.value("cancel") == "supported",
+        "observation lifetime and cancellation are explicit"
+    );
+    require(
+        rendering.value("colorSpace") == "sRGB" && rendering.value("bitDepth") == 8
+            && rendering.value("lossy") == true,
+        "observation quality is explicitly bounded"
+    );
+    const auto edits = discovery.value("edits").toArray();
+    require(
+        edits.at(0).toObject().value("neutral") == 0 && edits.at(1).toObject().value("neutral") == 1
+            && edits.at(2).toObject().value("neutral") == 1
+            && edits.at(0).toObject().value("valueMode") == "absolute_node_value",
+        "absolute neutral values are discoverable"
+    );
     require(!EditToolProtocol::parse("[]").request, "nonobject rejected");
     require(!EditToolProtocol::parse(QByteArray(65537, ' ')).request, "oversize request rejected");
     require(

@@ -15824,6 +15824,18 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>EditToolController</name>
     <message>
+        <source>Rendering current edits…</source>
+        <translation>正在渲染当前编辑…</translation>
+    </message>
+    <message>
+        <source>Current edits preview cancelled.</source>
+        <translation>当前编辑预览已取消。</translation>
+    </message>
+    <message>
+        <source>Could not preview the current edits. Try again.</source>
+        <translation>无法预览当前编辑，请重试。</translation>
+    </message>
+    <message>
         <source>Rendering proposed adjustments…</source>
         <translation>正在渲染调整方案…</translation>
     </message>

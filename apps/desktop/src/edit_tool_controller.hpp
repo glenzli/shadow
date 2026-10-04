@@ -60,7 +60,7 @@ class EditToolController final : public QObject {
     bool gestureActive() const;
     bool admit(const EditToolProtocol::Request& request);
     void capture(const QString& id);
-    void preview(const EditToolProtocol::Request& request);
+    void renderPreview(const EditToolProtocol::Request& request);
     void apply(const EditToolProtocol::Request& request);
     void exportFile(const EditToolProtocol::Request& request);
     void finishTask();

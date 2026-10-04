@@ -22,7 +22,7 @@ namespace {
 QString token() {
     return QUuid::createUuid().toString(QUuid::WithoutBraces);
 }
-QString newOutput(const QString& path, const bool preview) {
+QString newOutput(const QString& path, const bool preview, const QJsonObject& external_stage) {
     const QFileInfo info(path);
     const auto suffix = info.suffix().toLower();
     if (!info.isAbsolute() || info.exists() || info.isSymLink() || !info.dir().exists()
@@ -30,7 +30,29 @@ QString newOutput(const QString& path, const bool preview) {
         throw std::invalid_argument(
             "output must be a new absolute JPEG preview or PNG export in an existing directory"
         );
-    return QDir(info.dir().canonicalPath()).filePath(info.fileName());
+    const auto output = QDir(info.dir().canonicalPath()).filePath(info.fileName());
+    for (const auto* field : {"outputPath", "resultPath"}) {
+        if (external_stage.isEmpty())
+            break;
+        const QFileInfo reserved(external_stage.value(field).toString());
+        auto path = QDir(reserved.dir().canonicalPath()).filePath(reserved.fileName());
+        auto candidate = output;
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+        path = path.toCaseFolded();
+        candidate = candidate.toCaseFolded();
+#endif
+#ifdef Q_OS_MACOS
+        // QFile::encodeName publishes Darwin paths in decomposed form. Match
+        // that identity even while these reserved filenames do not exist yet.
+        path = path.normalized(QString::NormalizationForm_D);
+        candidate = candidate.normalized(QString::NormalizationForm_D);
+#endif
+        if (path == candidate)
+            throw std::invalid_argument(
+                "the stage return path is reserved; use complete to return its artifact"
+            );
+    }
+    return output;
 }
 QJsonObject artifact(
     const QString& path,
@@ -331,7 +353,7 @@ void EditToolController::receive(const QByteArray& line) {
             fail(request.id, "not_running", "request is not running");
             return;
         }
-        if (task_->command != Preview) {
+        if (task_->command != Preview && task_->command != RenderCurrent) {
             fail(request.id, "cancel_unsupported", "apply and export cannot be cancelled");
             return;
         }
@@ -397,8 +419,9 @@ void EditToolController::receive(const QByteArray& line) {
             );
             emit completeRequested();
             break;
+        case RenderCurrent:
         case Preview:
-            preview(request);
+            renderPreview(request);
             break;
         case Apply:
             apply(request);
@@ -413,7 +436,8 @@ void EditToolController::receive(const QByteArray& line) {
         fail(request.id, "invalid_operation", QString::fromUtf8(error.what()));
     }
 }
-void EditToolController::preview(const EditToolProtocol::Request& request) {
+void EditToolController::renderPreview(const EditToolProtocol::Request& request) {
+    const bool proposes = request.command == EditToolProtocol::Command::Preview;
     auto stack = snapshot_->stack;
     QJsonArray changes;
     for (const auto& edit : request.edits) {
@@ -440,15 +464,18 @@ void EditToolController::preview(const EditToolProtocol::Request& request) {
             value = edit.value;
         }
     }
-    if (changes.isEmpty())
+    if (proposes && changes.isEmpty())
         throw std::invalid_argument("proposal would not change the captured adjustments");
-    const auto output = newOutput(request.output_path, true);
+    const auto output = newOutput(request.output_path, true, external_stage_);
     // Validate the whole candidate before admitting work or replacing the previous proposal.
     // Keep at most one reviewed proposal plus one in-flight replacement. Publish
     // the replacement only after rendering and artifact publication both succeed.
     auto stage = std::make_shared<std::atomic_int>(0);
     const auto preview_token = backend_->beginEditPreviewRequest();
-    pending_proposal_ = Proposal{{}, request.edits.front().node_id, stack, changes};
+    // Observation shares the render/cancel/publication owner, but never replaces
+    // a reviewed candidate or installs a draft. Only an actual proposal needs it.
+    if (proposes)
+        pending_proposal_ = Proposal{{}, request.edits.front().node_id, stack, changes};
     preview_stage_ = std::move(stage);
     preview_token_ = preview_token;
     task_ = request;
@@ -502,8 +529,16 @@ void EditToolController::operationRunning(bool running, const QString& terminal_
     owner_.tool_activity_message_.clear();
     if (!running) {
         const char* message = nullptr;
-        if (terminal_code == "cancelled")
+        const bool observing = task_ && task_->command == EditToolProtocol::Command::RenderCurrent;
+        if (terminal_code == "cancelled" && observing)
+            message = QT_TRANSLATE_NOOP("EditToolController", "Current edits preview cancelled.");
+        else if (terminal_code == "cancelled")
             message = QT_TRANSLATE_NOOP("EditToolController", "Proposed preview cancelled.");
+        else if (terminal_code == "preview_failed" && observing)
+            message = QT_TRANSLATE_NOOP(
+                "EditToolController",
+                "Could not preview the current edits. Try again."
+            );
         else if (terminal_code == "preview_failed")
             message = QT_TRANSLATE_NOOP(
                 "EditToolController",
@@ -531,6 +566,12 @@ void EditToolController::operationRunning(bool running, const QString& terminal_
     if (running && task_) {
         using enum EditToolProtocol::Command;
         switch (task_->command) {
+        case RenderCurrent:
+            owner_.tool_activity_message_ = {
+                "EditToolController",
+                QT_TRANSLATE_NOOP("EditToolController", "Rendering current edits…")
+            };
+            break;
         case Preview:
             owner_.tool_activity_message_ = {
                 "EditToolController",
@@ -603,22 +644,7 @@ void EditToolController::exportFile(const EditToolProtocol::Request& request) {
         throw std::invalid_argument(
             "export requires an applied committed Recipe, not a neutral or historical draft"
         );
-    const auto output = newOutput(request.output_path, false);
-    for (const auto* field : {"outputPath", "resultPath"}) {
-        if (external_stage_.isEmpty())
-            break;
-        const QFileInfo reserved(external_stage_.value(field).toString());
-        auto path = QDir(reserved.dir().canonicalPath()).filePath(reserved.fileName());
-        auto candidate = output;
-#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
-        path = path.toCaseFolded();
-        candidate = candidate.toCaseFolded();
-#endif
-        if (path == candidate)
-            throw std::invalid_argument(
-                "the stage return path is reserved; use complete to return its artifact"
-            );
-    }
+    const auto output = newOutput(request.output_path, false, external_stage_);
 
     const BackendDurableExportTarget target{
         id.value("photoId").toString(),
@@ -728,7 +754,9 @@ void EditToolController::finishTask() {
         proposal_.reset();
     }
     operationRunning(false, result.code);
-    if (request.command == EditToolProtocol::Command::Preview && !current())
+    if ((request.command == EditToolProtocol::Command::Preview
+         || request.command == EditToolProtocol::Command::RenderCurrent)
+        && !current())
         proposal_.reset();
     if (!result.error.isEmpty()) {
         pending_proposal_.reset();
@@ -754,6 +782,17 @@ void EditToolController::finishTask() {
                  {"proposalId", proposal_id},
                  {"current", still_current},
                  {"changes", changes},
+                 {"expected", request.expected}}
+            )
+        );
+    } else if (request.command == EditToolProtocol::Command::RenderCurrent) {
+        const bool still_current = current();
+        task_.reset();
+        emit reply(
+            EditToolProtocol::success(
+                request.id,
+                {{"artifact", result.artifact},
+                 {"current", still_current},
                  {"expected", request.expected}}
             )
         );

@@ -86,7 +86,10 @@ ParseResult parse(const QByteArray& line) {
             return reject("cancel requires a requestId");
         request.command = Command::Cancel;
         request.request_id = params.value("requestId").toString();
-    } else if (operation == "preview" || operation == "apply" || operation == "export") {
+    } else if (
+        operation == "preview" || operation == "render_current" || operation == "apply"
+        || operation == "export"
+    ) {
         // The legacy singular form remains valid. Exactly one form is allowed;
         // the bounded array represents one atomic proposal, not sequential commits.
         const auto edit_field = params.contains("operations") ? QStringLiteral("operations")
@@ -107,7 +110,9 @@ ParseResult parse(const QByteArray& line) {
             if (!text(params.value("outputPath"), false, 4096))
                 return reject("operation requires a new outputPath");
             request.output_path = params.value("outputPath").toString();
-            request.command = operation == "preview" ? Command::Preview : Command::Export;
+            request.command = operation == "preview"          ? Command::Preview
+                              : operation == "render_current" ? Command::RenderCurrent
+                                                              : Command::Export;
         }
         if (operation == "preview") {
             QJsonArray edits;
@@ -180,19 +185,49 @@ QJsonObject discovery() {
                 {"valueField", spec.field},
                 {"minimum", spec.minimum},
                 {"maximum", spec.maximum},
-                {"units", spec.units}
+                {"units", spec.units},
+                {"neutral", spec.kind == EditKind::Exposure ? 0.0 : 1.0},
+                {"valueMode", "absolute_node_value"}
             }
         );
     return {
         {"scope", "one_explicit_isolated_photo"},
         {"schema", schema},
         {"operations",
-         QJsonArray{"discover", "snapshot", "preview", "apply", "export", "cancel", "shutdown"}},
+         QJsonArray{
+             "discover",
+             "snapshot",
+             "render_current",
+             "preview",
+             "apply",
+             "export",
+             "cancel",
+             "shutdown"
+         }},
         {"edits", edits},
+        {"render_current",
+         QJsonObject{
+             {"format", "jpeg"},
+             {"maxEdge", 1024},
+             {"bitDepth", 8},
+             {"colorSpace", "sRGB"},
+             {"jpegQuality", 95},
+             {"lossy", true},
+             {"cancel", "supported"},
+             {"cancellationBoundary", "before_artifact_publication"},
+             {"publication", "new_file_only"},
+             {"draftPolicy", "reject_unsaved_or_busy"},
+             {"mutation", "none"},
+             {"proposalPolicy", "preserve_while_snapshot_current"}
+         }},
         {"preview",
          QJsonObject{
              {"format", "jpeg"},
              {"maxEdge", 1024},
+             {"bitDepth", 8},
+             {"colorSpace", "sRGB"},
+             {"jpegQuality", 95},
+             {"lossy", true},
              {"maximumOperations", static_cast<int>(maximumEdits)},
              {"operationForms", QJsonArray{"operation", "operations"}},
              {"composition", "atomic_absolute_values_one_undo"},
@@ -213,6 +248,8 @@ QJsonObject discovery() {
              {"colorSpace", "sRGB"},
              {"cancel", "unsupported"},
              {"source", "explicit_committed_recipe"},
+             {"resolution", "full_recipe_output"},
+             {"editableRecipe", false},
              {"publication", "new_file_only"}
          }},
         {"proposalLifetime",

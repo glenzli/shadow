@@ -142,6 +142,13 @@ def run(executable, fixture_executable, root):
     try:
         discovery = checked(client.call("discover"))
         assert discovery["scope"] == "one_explicit_isolated_photo"
+        assert "render_current" in discovery["operations"]
+        observation_contract = discovery["render_current"]
+        assert observation_contract["mutation"] == "none" and observation_contract["cancel"] == "supported"
+        assert observation_contract["proposalPolicy"] == "preserve_while_snapshot_current"
+        assert (observation_contract["colorSpace"], observation_contract["bitDepth"], observation_contract["lossy"]) == ("sRGB", 8, True)
+        assert [item["neutral"] for item in discovery["edits"]] == [0, 1, 1]
+        assert all(item["valueMode"] == "absolute_node_value" for item in discovery["edits"])
         assert {item["type"] for item in discovery["edits"]} == {"set_exposure", "set_contrast", "set_saturation"}
         assert discovery["preview"]["maximumOperations"] == 16
         assert discovery["proposalLifetime"]["snapshot"] == "reuse_while_current"
@@ -187,6 +194,13 @@ def run(executable, fixture_executable, root):
             if not cancellation["ok"]:
                 rejected(cancellation, "not_running")
             artifact_check(checked(cancelled_preview)["artifact"], root / "cancelled.jpg", b"\xff\xd8")
+        neutral = checked(client.call("render_current", {"expected": first_identity, "outputPath": str(root / "neutral-current.jpg")}))
+        assert set(neutral) == {"artifact", "current", "expected"} and neutral["current"]
+        assert neutral["expected"] == first_identity
+        artifact_check(neutral["artifact"], root / "neutral-current.jpg", b"\xff\xd8")
+        neutral_after = client.snapshot()
+        assert neutral_after["identity"] == first_identity and neutral_after["nodes"] == first["nodes"]
+        assert not neutral_after["canUndo"] and not neutral_after["identity"]["workingCommitId"]
         rejected(client.call("export", {"expected": first_identity, "outputPath": str(root / "neutral.png")}), "invalid_operation")
         params["outputPath"] = str(root / "candidate.jpg")
         preview_result = checked(client.call("preview", params))
@@ -229,6 +243,27 @@ def run(executable, fixture_executable, root):
         rejected(client.call("preview", dict(params, operations=[composed[0], invalid_node],
                                               outputPath=str(root / "invalid-replacement.jpg"))), "invalid_operation")
         assert not (root / "invalid-replacement.jpg").exists()
+        # An observation may be cancelled, fail admission, or succeed without
+        # consuming the reviewed candidate that follows in the same snapshot.
+        observe = client.packet("render_current", {"expected": identity, "outputPath": str(root / "current-cancel.jpg")})
+        cancel_observe = client.packet("cancel", {"requestId": observe["id"]})
+        client.send(observe, cancel_observe)
+        observation_cancelled = client.receive(cancel_observe["id"])
+        observation_reply = client.receive(observe["id"])
+        if observation_cancelled["ok"] and observation_cancelled["result"]["accepted"]:
+            rejected(observation_reply, "cancelled")
+            assert not (root / "current-cancel.jpg").exists()
+        else:
+            if not observation_cancelled["ok"]:
+                rejected(observation_cancelled, "not_running")
+            artifact_check(checked(observation_reply)["artifact"], root / "current-cancel.jpg", b"\xff\xd8")
+        rejected(client.call("render_current", {"expected": identity, "outputPath": str(root / "neutral-current.jpg")}), "invalid_operation")
+        observed = checked(client.call("render_current", {"expected": identity, "outputPath": str(root / "current-reviewed.jpg")}))
+        assert set(observed) == {"artifact", "current", "expected"} and observed["current"]
+        assert observed["expected"] == identity and observed["artifact"]["sha256"] == neutral["artifact"]["sha256"]
+        observation_after = client.snapshot()
+        assert observation_after["identity"] == identity and observation_after["nodes"] == first["nodes"]
+        assert not observation_after["canUndo"]
         apply = client.packet("apply", {"expected": identity, "proposalId": proposal["proposalId"]})
         cancel = client.packet("cancel", {"requestId": apply["id"]})
         busy = client.packet("snapshot")
@@ -251,6 +286,11 @@ def run(executable, fixture_executable, root):
         assert applied["nodes"][0]["contrastFactor"] == 1.15
         assert applied["nodes"][0]["saturationFactor"] == 0.8
         expected = applied["identity"]
+        applied_current = checked(client.call("render_current", {"expected": expected, "outputPath": str(root / "applied-current.jpg")}))
+        assert applied_current["current"] and applied_current["expected"] == expected
+        assert applied_current["artifact"]["sha256"] == proposal["artifact"]["sha256"], "reviewed pixels changed after applying their exact proposal"
+        assert applied_current["artifact"]["sha256"] != neutral["artifact"]["sha256"]
+        assert client.snapshot()["identity"] == expected
         rejected(client.call("export", {"expected": expected, "outputPath": str(source)}), "invalid_operation")
         link = root / "dangling.png"
         link.symlink_to(root / "absent.png")
@@ -321,7 +361,7 @@ def run(executable, fixture_executable, root):
     return {"schema": 1, "result": "passed", "sourceSha256": original_digest,
             "startupBusyRetries": startup_busy_retries,
             "commitReceipt": receipt, "exportSha256": output_digest, "artifactRoot": str(root),
-            "evidence": ["real_stdio_process", "strict_scope", "preview_no_edit_or_undo", "preview_cancel_contract",
+            "evidence": ["neutral_current_without_history", "current_observation_preserves_reviewed_proposal", "current_observation_cancel_contract", "applied_current_equals_reviewed_preview", "discovery_absolute_values_and_quality", "real_stdio_process", "strict_scope", "preview_no_edit_or_undo", "preview_cancel_contract",
                          "stale_snapshot", "repeated_snapshot_preserves_proposal_identity", "typed_range", "composed_atomic_adjustments", "invalid_replacement_preserves_candidate", "no_op_rejected", "exact_apply_receipt", "unsupported_cancel_truthful",
                          "pinned_png_export", "original_unchanged", "existing_and_symlink_not_replaced",
                          "retry_same_pixels", "restart_rejects_old_session", "unsupported_and_corrupt_source_reported"]}
