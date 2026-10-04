@@ -1,13 +1,14 @@
 # shadow-desktop-bridge
 
 `shadow-desktop-bridge` is the long-lived Rust application boundary consumed by the Qt desktop
-shell. It owns coarse desktop services and the CXX-facing `DesktopSession`; it does not own QML
+shell and the headless CLI. It owns coarse application services and the CXX-facing `DesktopSession`; it does not own QML
 presentation, SQLite schema details, or native image algorithms.
 
 ## Responsibility index
 
 | Change | Primary owner |
 | --- | --- |
+| Persistent Qt-free JSON project operations, exact existing Recipe/CAS delegation, managed original admission and headless PNG file delivery | [`src/headless_project.rs`](src/headless_project.rs), [`src/headless_project/`](src/headless_project/) |
 | Desktop CXX structs, methods, and session composition | [`src/lib.rs`](src/lib.rs) |
 | Versioned Recipe document projection and verified bundled LUT storage | [`src/recipe_interchange.rs`](src/recipe_interchange.rs), [`src/recipe_lut_resources.rs`](src/recipe_lut_resources.rs) |
 | Exact pre-curve recipe prefix, existing warm-source lookup and cancellable scalar input map | [`src/edit_preview/curve_input.rs`](src/edit_preview/curve_input.rs) |

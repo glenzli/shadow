@@ -39,6 +39,8 @@ Shadow 同时面向 AI 参与的摄影工作流设计。长期目标是在用户
 - **人机共同编辑**：外部 AI 可通过 [进程工具](docs/development/agent-edit-stdio.md)查看当前已保存画面，并提出曝光、反差与饱和度的组合方案，先生成预览再确认应用；人工可接手、继续调整和撤销。工具使用同一个编辑会话，不运行模型或代替用户接受外部素材。
 - **素材编辑阶段**：[外部素材入口](docs/development/external-edit-stage.md)可接收受支持的 PNG，在独立窗口编辑后返回新图片与版本回执，供其他应用继续处理。原素材保持只读。
 
+- **无界面项目流程（首阶段）**：原项目的 [`shadow-cli project`](apps/shadow-cli/README.md) 复用桌面共享服务，提供导入、基础节点/几何编辑、持久化历史、重开及精确 PNG8/16 导出；完整桌面覆盖和 Linux 独立验收仍有明确缺口。
+
 ### 当前边界
 
 - Shadow 当前处于开发预览阶段，Catalog、Recipe 与交互格式仍可能调整。
@@ -101,6 +103,8 @@ Shadow is also designed for photographic workflows in which AI participates. The
 - **Location and delivery**: map browsing, reverse-geographic information, manual location completion, capture-event grouping for photos without GPS, plus export presets, format/size/quality control, and watermark management.
 - **Shared human and AI editing**: external AI clients can use the [process tools](docs/development/agent-edit-stdio.md) to inspect the current saved image and propose exposure, contrast, and saturation together, review a preview, then apply. People can take over, continue editing, and undo in the same session. The tools do not execute models or accept external materials on the user’s behalf.
 - **Material editing stage**: the [external material entry](docs/development/external-edit-stage.md) receives a supported PNG, opens an independent editor, and returns a new image with its version receipt for another application to consume. Source material stays read-only.
+
+- **Headless projects (phase 1)**: the original [`shadow-cli project`](apps/shadow-cli/README.md) shares desktop services for import, basic node/geometry edits, persistent history, reopening and exact PNG8/16 export. Full desktop coverage and independent Linux acceptance remain open.
 
 ### Current boundaries
 

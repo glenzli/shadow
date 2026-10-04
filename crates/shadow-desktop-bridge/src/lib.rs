@@ -7,6 +7,7 @@
 
 // Library lifecycle and durable application services.
 mod digest_hex;
+pub mod headless_project;
 mod history_service;
 mod library_server_host;
 mod library_server_service;
