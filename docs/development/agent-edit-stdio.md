@@ -84,6 +84,17 @@ unknown fields are rejected. Supported absolute values match the existing editor
 | set_contrast | factor | [0,8] | 1 |
 | set_saturation | factor | [0,8] | 1 |
 
+These are **absolute values on the addressed node**, not relative changes. For a node already at
+`exposureStops: 0.75`, setting `stops: 1` replaces 0.75 with 1; it does not produce 1.75. Read current
+values and `availableEdits` from the snapshot before constructing a proposal. Multiple Grade nodes,
+mask strength and subsequent operations still determine the final image.
+
+Exposure multiplies scene-linear RGB by `2^stops` at that operation. Contrast adjusts Oklab lightness
+around the existing Recipe pivot; its factor is not a per-channel RGB slope. Saturation scales
+Oklab chroma while retaining lightness; zero removes chroma at that node, and one is neutral. These
+controls preserve existing Foundation, geometry, masks and other unaddressed settings. They do not
+imply that the final image has no clipping, gamut loss or noise amplification.
+
 For example, preview a combined proposal using the same exact snapshot identity and a fresh path:
 
 ```json
@@ -134,6 +145,42 @@ and human work. Send shutdown and keep draining stdout for an orderly process ex
 forcibly terminated client has no durable idempotent retry guarantee. The output buffer is bounded
 at 256 KiB; an unresponsive peer cannot block the GUI indefinitely. No credentials or extra OS
 permissions are required by the tools.
+
+## Human handoff and recovery
+
+Keep the process and both pipes open while the person uses the same editor. After a human adjustment,
+wait for `dirty`, `autosavePending`, `autosaveFailed`, `gestureActive` and `busy` to clear in a fresh
+snapshot. If saving failed, let the person resolve or retry that save; observation never silently
+saves or discards their draft. Construct the next proposal from the new node values and copy its
+whole identity. A proposal reviewed before the handoff cannot be applied to the new human state.
+Apply creates one Undo entry; the window's ordinary Undo/Redo controls keep the preceding human edit.
+Export pins the selected committed Recipe even if the person continues editing during export.
+
+| Response | Recovery |
+| --- | --- |
+| `not_ready`, `busy` | Wait with a bounded timeout, obtain a fresh snapshot, and retry with a new request ID. |
+| `draft_pending` | Finish the human gesture/save and check `autosaveFailed`; do not force a commit or replace only the head token. |
+| `stale_snapshot` | Re-read the current state and review a new proposal that preserves the human changes. |
+| `invalid_operation` | Correct the node, range or output path; an unchanged proposal does not require a commit. |
+| `preview_failed`, `cancelled` | Inspect the failure and current identity; a previously reviewed proposal remains usable only if that same snapshot is still current. Use a new output path for a replacement. |
+| `export_failed` | Inspect existing output and the diagnostic, then reconcile the result before retrying to a new path; never delete another writer's file. |
+| `source_unavailable` | Check the admitted input and supported representation. Repeated polling does not repair a rejected format. |
+
+The isolated session is temporary. A saved Recipe is durable only inside that session's Catalog;
+export before ending it. Across process restarts, old snapshot/proposal/Recipe IDs are not resume
+handles. The external material stage additionally verifies the input digest and provides its terminal
+result; the calling application still owns Candidate import and explicit Accept.
+
+## Reading preview and output quality
+
+Tool previews are lossy sRGB JPEGs, at most 1024 pixels on the long edge, encoded at quality 95.
+Exports are full-resolution sRGB RGB8 PNGs from the pinned Recipe, including spatial edits. The two
+use the same authored adjustments but differ in resolution and encoding; JPEG bytes or individual
+pixels are not a full-resolution quality proof. Review the exported image for fine detail and delivery
+requirements. Eight-bit output does not preserve a RAW source's bit depth, sensor data or editable
+Recipe, and an sRGB label is a color encoding description rather than a claim of scene-wide gamut.
+PNG output currently carries the standard sRGB ICC tag; another bounded PNG editing stage requires
+the explicit materialization described in the [external stage contract](external-edit-stage.md).
 
 ## Rendering and validation boundary
 
