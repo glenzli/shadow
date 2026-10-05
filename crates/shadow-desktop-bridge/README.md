@@ -9,6 +9,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Change | Primary owner |
 | --- | --- |
 | Persistent Qt-free JSON project operations, exact existing Recipe/CAS delegation, managed original admission, precommit draft preview and headless PNG file delivery | [`src/headless_project.rs`](src/headless_project.rs), [`src/headless_project/`](src/headless_project/) |
+| Headless basic/geometry and five-channel curve authoring/read projection into the canonical desktop DTO, preserving complete Recipe state and existing CAS | [`src/headless_project/edit.rs`](src/headless_project/edit.rs), [`src/headless_project/protocol.rs`](src/headless_project/protocol.rs) |
 | Headless explicitly user-directed flags/ratings, exact existing decision-ledger CAS receipts, bounded history and honest provenance limits | [`src/headless_project/review.rs`](src/headless_project/review.rs), [`src/review_service/decisions.rs`](src/review_service/decisions.rs) |
 | Desktop CXX structs, methods, and session composition | [`src/lib.rs`](src/lib.rs) |
 | Versioned Recipe document projection and verified bundled LUT storage | [`src/recipe_interchange.rs`](src/recipe_interchange.rs), [`src/recipe_lut_resources.rs`](src/recipe_lut_resources.rs) |

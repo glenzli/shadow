@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::{
     fault,
-    protocol::{Edit, GeometryPatch},
+    protocol::{CurveChannel, Edit, GeometryPatch},
 };
 use crate::{ffi, recipe_v1::new_basic_grade_node};
 
@@ -20,14 +20,7 @@ pub(super) fn apply(settings: &mut ffi::FfiEditSettings, edits: &[Edit]) -> Resu
     for edit in edits {
         match edit {
             Edit::SetBasic { node_index, values } => {
-                let node = node(settings, *node_index)?;
-                if !node.shared_layer_id.is_empty() {
-                    return Err(fault(
-                        "unsupported",
-                        "detach shared Grade Nodes in the desktop before editing their controls",
-                    ));
-                }
-                let basic = &mut node.basic;
+                let basic = &mut local_node(settings, *node_index)?.basic;
                 if let Some(value) = values.exposure_stops {
                     basic.exposure_stops = value;
                 }
@@ -44,6 +37,24 @@ pub(super) fn apply(settings: &mut ffi::FfiEditSettings, edits: &[Edit]) -> Resu
                     basic.saturation_factor = value;
                 }
             }
+            Edit::SetCurve {
+                node_index,
+                channel,
+                points,
+            } => {
+                let fine = &mut local_node(settings, *node_index)?.fine;
+                if points.is_empty() {
+                    return Err(fault(
+                        "invalid_edit",
+                        "set_curve requires points; use reset_curve for a neutral curve",
+                    ));
+                }
+                *curve_values(fine, *channel) = points.iter().flatten().copied().collect();
+            }
+            Edit::ResetCurve {
+                node_index,
+                channel,
+            } => curve_values(&mut local_node(settings, *node_index)?.fine, *channel).clear(),
             Edit::SetNode {
                 node_index,
                 enabled,
@@ -128,6 +139,45 @@ fn node(settings: &mut ffi::FfiEditSettings, index: usize) -> Result<&mut ffi::F
     })
 }
 
+fn local_node(settings: &mut ffi::FfiEditSettings, index: usize) -> Result<&mut ffi::FfiGradeNode> {
+    let node = node(settings, index)?;
+    if !node.shared_layer_id.is_empty() {
+        return Err(fault(
+            "unsupported",
+            "detach shared Grade Nodes in the desktop before editing their controls",
+        ));
+    }
+    Ok(node)
+}
+
+fn curve_values(fine: &mut ffi::FfiFineEditParameters, channel: CurveChannel) -> &mut Vec<f64> {
+    match channel {
+        CurveChannel::OklabLightness => &mut fine.oklab_lightness_curve_points,
+        CurveChannel::RgbMaster => &mut fine.rgb_curve_master_points,
+        CurveChannel::RgbRed => &mut fine.rgb_curve_red_points,
+        CurveChannel::RgbGreen => &mut fine.rgb_curve_green_points,
+        CurveChannel::RgbBlue => &mut fine.rgb_curve_blue_points,
+    }
+}
+
+fn curve_points(values: &[f64]) -> Vec<[f64; 2]> {
+    // These vectors come from the canonical, validated desktop DTO projection.
+    values
+        .chunks_exact(2)
+        .map(|point| [point[0], point[1]])
+        .collect()
+}
+
+fn curves_projection(fine: &ffi::FfiFineEditParameters) -> Value {
+    json!({
+        "oklab_lightness": curve_points(&fine.oklab_lightness_curve_points),
+        "rgb_master": curve_points(&fine.rgb_curve_master_points),
+        "rgb_red": curve_points(&fine.rgb_curve_red_points),
+        "rgb_green": curve_points(&fine.rgb_curve_green_points),
+        "rgb_blue": curve_points(&fine.rgb_curve_blue_points)
+    })
+}
+
 pub(super) fn editable_projection(settings: &ffi::FfiEditSettings) -> Value {
     let geometry = &settings.geometry;
     json!({
@@ -135,6 +185,7 @@ pub(super) fn editable_projection(settings: &ffi::FfiEditSettings) -> Value {
             "node_index": index, "grade_node_id": node.grade_node_id,
             "label": node.label, "enabled": node.enabled, "opacity": node.opacity,
             "shared_layer_id": node.shared_layer_id,
+            "curves": curves_projection(&node.fine),
             "basic": {
                 "exposure_stops": node.basic.exposure_stops,
                 "contrast_factor": node.basic.contrast_factor,

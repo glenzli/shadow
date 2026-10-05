@@ -221,6 +221,29 @@ fn capabilities_work_without_a_project_or_infer_and_keep_limits_honest() {
     );
     assert_eq!(caps["draft_preview"]["authored_history"], "not_published");
     assert_eq!(caps["draft_preview"]["cancel"], "unsupported");
+    assert_eq!(
+        caps["curve_authoring"]["channels"],
+        json!([
+            "oklab_lightness",
+            "rgb_master",
+            "rgb_red",
+            "rgb_green",
+            "rgb_blue"
+        ])
+    );
+    assert_eq!(caps["curve_authoring"]["max_points"], 256);
+    assert!(
+        caps["edits"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("set_curve"))
+    );
+    assert!(
+        caps["edits"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("reset_curve"))
+    );
     assert!(!project.exists());
 }
 
@@ -732,4 +755,442 @@ fn committed_draft_preview_receipt_identifies_exact_recipe_across_processes() {
         let exported_pixels = image::open(destination).unwrap();
         assert_eq!(preview_pixels.as_bytes(), exported_pixels.as_bytes());
     }
+}
+
+#[test]
+fn curves_all_channels_change_pixels_and_match_draft_commit_export() {
+    let root = tempfile::tempdir().unwrap();
+    let photo = fixture(root.path());
+    let project = root.path().join("project");
+    let original = std::fs::read(root.path().join("synthetic.png")).unwrap();
+    let first = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    success(
+        &project,
+        json!({"op": "commit", "guard": first["guard"], "edits": []}),
+    );
+    let before = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    let history = success(
+        &project,
+        json!({"op": "history", "photo_id": photo, "limit": 10}),
+    );
+    let neutral = root.path().join("curve-neutral.png");
+    success(
+        &project,
+        json!({"op": "export", "guard": before["guard"], "destination": neutral, "bit_depth": 8}),
+    );
+    let neutral = image::open(neutral).unwrap().to_rgb8();
+    let channels = [
+        "oklab_lightness",
+        "rgb_master",
+        "rgb_red",
+        "rgb_green",
+        "rgb_blue",
+    ];
+    let mut edits = Vec::new();
+    for channel in channels {
+        let edit = json!({"op": "set_curve", "node_index": 0, "channel": channel,
+                          "points": [[0,0],[0.5,0.65],[1,1]]});
+        let output = root.path().join(format!("curve-{channel}.png"));
+        let receipt = success(
+            &project,
+            json!({"op": "preview", "guard": before["guard"],
+            "edits": [edit], "destination": output, "bit_depth": 8}),
+        );
+        assert_eq!(receipt["committed"], false);
+        assert_ne!(
+            image::open(output).unwrap().to_rgb8(),
+            neutral,
+            "{channel} had no effect"
+        );
+        edits.push(edit);
+    }
+    let mut drafts = Vec::new();
+    for depth in [8, 16] {
+        let output = root.path().join(format!("curves-draft-{depth}.png"));
+        let receipt = success(
+            &project,
+            json!({"op": "preview", "guard": before["guard"],
+            "edits": edits, "destination": output, "bit_depth": depth}),
+        );
+        assert_eq!(receipt["cancel"], "unsupported");
+        drafts.push((depth, output, receipt));
+    }
+    assert_eq!(
+        success(&project, json!({"op": "snapshot", "photo_id": photo})),
+        before
+    );
+    assert_eq!(
+        success(
+            &project,
+            json!({"op": "history", "photo_id": photo, "limit": 10})
+        ),
+        history
+    );
+    let committed = success(
+        &project,
+        json!({"op": "commit", "guard": before["guard"], "edits": edits}),
+    );
+    let reopened = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    assert_eq!(reopened["guard"]["base_commit_id"], committed["commit_id"]);
+    for channel in channels {
+        assert_eq!(
+            reopened["editable"]["grade_nodes"][0]["curves"][channel],
+            json!([[0.0, 0.0], [0.5, 0.65], [1.0, 1.0]])
+        );
+    }
+    for (depth, draft, preview) in drafts {
+        let output = root.path().join(format!("curves-export-{depth}.png"));
+        let exported = success(
+            &project,
+            json!({"op": "export", "guard": reopened["guard"],
+            "destination": output, "bit_depth": depth}),
+        );
+        assert_eq!(preview["snapshot_digest"], committed["snapshot_digest"]);
+        assert_eq!(
+            exported["rendered_snapshot_digest"],
+            preview["snapshot_digest"]
+        );
+        let a = image::open(draft).unwrap();
+        let b = image::open(output).unwrap();
+        assert_eq!(a.as_bytes(), b.as_bytes());
+        assert_eq!((b.width(), b.height()), (48, 32));
+        if depth == 16 {
+            assert_eq!(b.color(), image::ColorType::Rgb16);
+            assert!(b.to_rgb16().as_raw().iter().any(|value| value % 257 != 0));
+        }
+    }
+    assert_eq!(
+        std::fs::read(root.path().join("synthetic.png")).unwrap(),
+        original
+    );
+    let copies = std::fs::read_dir(project.join("originals"))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(copies.len(), 1);
+    assert_eq!(std::fs::read(copies[0].path()).unwrap(), original);
+}
+
+#[test]
+fn curves_invalid_points_and_cancel_requests_preserve_state_then_retry() {
+    let root = tempfile::tempdir().unwrap();
+    let photo = fixture(root.path());
+    let project = root.path().join("project");
+    let initial = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    success(
+        &project,
+        json!({"op": "commit", "guard": initial["guard"], "edits": []}),
+    );
+    let before = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    let history = success(
+        &project,
+        json!({"op": "history", "photo_id": photo, "limit": 10}),
+    );
+    let output = root.path().join("invalid-curve.png");
+    let invalid = [
+        json!([]),
+        json!([[0, 0]]),
+        json!([[0.1, 0], [1, 1]]),
+        json!([[0, 0], [0.9, 1]]),
+        json!([[0, 0], [0.5, 0.4], [0.5, 0.6], [1, 1]]),
+        json!([[0, 0], [1e-308, 1e308], [1, 1]]),
+        serde_json::to_value(
+            (0..257)
+                .map(|i| [f64::from(i) / 256.0, f64::from(i) / 256.0])
+                .collect::<Vec<_>>(),
+        )
+        .unwrap(),
+    ];
+    for points in invalid {
+        let edits = json!([
+            {"op":"set_basic","node_index":0,"values":{"exposure_stops":0.5}},
+            {"op":"set_curve","node_index":0,"channel":"rgb_red","points":points}
+        ]);
+        for op in ["commit", "preview"] {
+            let mut command = json!({"op":op,"guard":before["guard"],"edits":edits});
+            if op == "preview" {
+                command["destination"] = json!(output);
+                command["bit_depth"] = json!(16);
+            }
+            let response = call(&project, command);
+            assert_eq!(response["error"]["code"], "invalid_edit", "{response}");
+        }
+        assert!(!output.exists());
+        assert_eq!(
+            success(&project, json!({"op":"snapshot","photo_id":photo})),
+            before
+        );
+    }
+    for edit in [
+        json!({"op":"set_curve","node_index":0,"channel":"blue","points":[[0,0],[1,1]]}),
+        json!({"op":"set_curve","node_index":0,"channel":"rgb_blue","points":[[0,0,0],[1,1]]}),
+        json!({"op":"reset_curve","node_index":0,"channel":"rgb_blue","points":[]}),
+        json!({"op":"set_curve","node_index":0,"channel":"rgb_blue"}),
+    ] {
+        let response = call(
+            &project,
+            json!({"op":"commit","guard":before["guard"],"edits":[edit]}),
+        );
+        assert_eq!(response["error"]["code"], "invalid_request");
+    }
+    let response = call(
+        &project,
+        json!({"op":"commit","guard":before["guard"],
+        "edits":[{"op":"reset_curve","node_index":999,"channel":"rgb_blue"}]}),
+    );
+    assert_eq!(response["error"]["code"], "invalid_edit");
+    for command in [
+        json!({"op":"cancel"}),
+        json!({"op":"preview","guard":before["guard"],"edits":[],"destination":output,"bit_depth":8,"cancel":true}),
+    ] {
+        assert_eq!(call(&project, command)["error"]["code"], "invalid_request");
+    }
+    assert_eq!(
+        success(&project, json!({"op":"capabilities"}))["cancel"],
+        "unsupported"
+    );
+    assert_eq!(
+        success(&project, json!({"op":"snapshot","photo_id":photo})),
+        before
+    );
+    assert_eq!(
+        success(
+            &project,
+            json!({"op":"history","photo_id":photo,"limit":10})
+        ),
+        history
+    );
+    let points = (0..256)
+        .map(|i| {
+            let x = f64::from(i) / 255.0;
+            [x, x * x]
+        })
+        .collect::<Vec<_>>();
+    let edit = json!({"op":"set_curve","node_index":0,"channel":"rgb_blue","points":points});
+    std::fs::write(&output, b"existing-user-artifact").unwrap();
+    assert_eq!(
+        call(
+            &project,
+            json!({"op":"preview","guard":before["guard"],"edits":[edit],
+        "destination":output,"bit_depth":16})
+        )["error"]["code"],
+        "already_exists"
+    );
+    assert_eq!(std::fs::read(output).unwrap(), b"existing-user-artifact");
+    let preview = success(
+        &project,
+        json!({"op":"preview","guard":before["guard"],"edits":[edit],
+        "destination":root.path().join("valid-max-curve.png"),"bit_depth":16}),
+    );
+    let committed = success(
+        &project,
+        json!({"op":"commit","guard":before["guard"],"edits":[edit]}),
+    );
+    assert_eq!(preview["snapshot_digest"], committed["snapshot_digest"]);
+    assert_eq!(
+        committed["editable"]["grade_nodes"][0]["curves"]["rgb_blue"]
+            .as_array()
+            .unwrap()
+            .len(),
+        256
+    );
+}
+
+#[test]
+fn curves_reset_selected_channel_preserves_others_and_restores_neutral_pixels() {
+    let root = tempfile::tempdir().unwrap();
+    let photo = fixture(root.path());
+    let project = root.path().join("project");
+    let first = success(&project, json!({"op":"snapshot","photo_id":photo}));
+    success(
+        &project,
+        json!({"op":"commit","guard":first["guard"],
+        "edits":[{"op":"set_basic","node_index":0,"values":{"saturation_factor":0.8}}]}),
+    );
+    let neutral = success(&project, json!({"op":"snapshot","photo_id":photo}));
+    let baseline = root.path().join("curve-reset-baseline.png");
+    success(
+        &project,
+        json!({"op":"export","guard":neutral["guard"],"destination":baseline,"bit_depth":16}),
+    );
+    let channels = [
+        "oklab_lightness",
+        "rgb_master",
+        "rgb_red",
+        "rgb_green",
+        "rgb_blue",
+    ];
+    let edits = channels
+        .iter()
+        .map(|channel| {
+            json!({"op":"set_curve","node_index":0,
+        "channel":channel,"points":[[0,0],[0.5,0.65],[1,1]]})
+        })
+        .collect::<Vec<_>>();
+    let authored = success(
+        &project,
+        json!({"op":"commit","guard":neutral["guard"],"edits":edits}),
+    );
+    let before = success(&project, json!({"op":"snapshot","photo_id":photo}));
+    let authored_output = root.path().join("curve-reset-authored.png");
+    success(
+        &project,
+        json!({"op":"export","guard":before["guard"],"destination":authored_output,"bit_depth":16}),
+    );
+    success(
+        &project,
+        json!({"op":"commit","guard":before["guard"],
+        "edits":[{"op":"reset_curve","node_index":0,"channel":"rgb_blue"}]}),
+    );
+    let selected = success(&project, json!({"op":"snapshot","photo_id":photo}));
+    let selected_curves = &selected["editable"]["grade_nodes"][0]["curves"];
+    assert_eq!(selected_curves["rgb_blue"], json!([[0.0, 0.0], [1.0, 1.0]]));
+    for channel in &channels[..4] {
+        assert_eq!(
+            selected_curves[channel],
+            before["editable"]["grade_nodes"][0]["curves"][channel]
+        );
+    }
+    let edits = channels[..4]
+        .iter()
+        .map(|channel| json!({"op":"reset_curve","node_index":0,"channel":channel}))
+        .collect::<Vec<_>>();
+    success(
+        &project,
+        json!({"op":"commit","guard":selected["guard"],"edits":edits}),
+    );
+    let reset = success(&project, json!({"op":"snapshot","photo_id":photo}));
+    for channel in channels {
+        assert_eq!(
+            reset["editable"]["grade_nodes"][0]["curves"][channel],
+            json!([])
+        );
+    }
+    assert_eq!(
+        reset["editable"]["grade_nodes"][0]["basic"],
+        neutral["editable"]["grade_nodes"][0]["basic"]
+    );
+    let output = root.path().join("curve-reset-neutral.png");
+    success(
+        &project,
+        json!({"op":"export","guard":reset["guard"],"destination":output,"bit_depth":16}),
+    );
+    assert_eq!(
+        image::open(output).unwrap().as_bytes(),
+        image::open(baseline).unwrap().as_bytes()
+    );
+    let historical = success(
+        &project,
+        json!({"op":"snapshot","photo_id":photo,"commit_id":authored["commit_id"]}),
+    );
+    assert_ne!(
+        historical["guard"]["base_commit_id"],
+        historical["guard"]["expected_working_commit_id"]
+    );
+    let restored = success(
+        &project,
+        json!({"op":"commit","guard":historical["guard"],"edits":[]}),
+    );
+    assert_ne!(restored["commit_id"], authored["commit_id"]);
+    let reopened = success(&project, json!({"op":"snapshot","photo_id":photo}));
+    let output = root.path().join("curve-reset-restored.png");
+    success(
+        &project,
+        json!({"op":"export","guard":reopened["guard"],"destination":output,"bit_depth":16}),
+    );
+    assert_eq!(
+        image::open(output).unwrap().as_bytes(),
+        image::open(authored_output).unwrap().as_bytes()
+    );
+}
+
+#[test]
+fn curves_concurrent_commits_conflict_and_retry_preserves_the_winner() {
+    let root = tempfile::tempdir().unwrap();
+    let photo = fixture(root.path());
+    let project = root.path().join("project");
+    let first = success(&project, json!({"op":"snapshot","photo_id":photo}));
+    success(
+        &project,
+        json!({"op":"commit","guard":first["guard"],"edits":[]}),
+    );
+    let before = success(&project, json!({"op":"snapshot","photo_id":photo}));
+    let edits = [
+        json!({"op":"set_curve","node_index":0,"channel":"rgb_red","points":[[0.0,0.0],[0.5,0.4],[1.0,1.0]]}),
+        json!({"op":"set_curve","node_index":0,"channel":"rgb_blue","points":[[0.0,0.0],[0.5,0.7],[1.0,1.0]]}),
+    ];
+    let a = start(
+        &project,
+        json!({"op":"commit","guard":before["guard"],"edits":[edits[0]]}),
+    );
+    let b = start(
+        &project,
+        json!({"op":"commit","guard":before["guard"],"edits":[edits[1]]}),
+    );
+    let outcomes = [finish(a), finish(b)];
+    assert_eq!(
+        outcomes.iter().filter(|value| value["ok"] == true).count(),
+        1,
+        "{outcomes:?}"
+    );
+    let loser = outcomes
+        .iter()
+        .position(|value| value["ok"] == false)
+        .unwrap();
+    assert_eq!(outcomes[loser]["error"]["code"], "conflict");
+    let current = success(&project, json!({"op":"snapshot","photo_id":photo}));
+    let history = success(
+        &project,
+        json!({"op":"history","photo_id":photo,"limit":10}),
+    );
+    assert_eq!(history["entries"].as_array().unwrap().len(), 2);
+    let output = root.path().join("stale-curve.png");
+    assert_eq!(
+        call(
+            &project,
+            json!({"op":"preview","guard":before["guard"],"edits":[edits[loser]],
+        "destination":output,"bit_depth":8})
+        )["error"]["code"],
+        "conflict"
+    );
+    assert!(!output.exists());
+    let mut wrong_variant = current["guard"].clone();
+    wrong_variant["expected_active_variant_id"] = json!("stale-variant");
+    assert_eq!(
+        call(
+            &project,
+            json!({"op":"commit","guard":wrong_variant,"edits":[edits[loser]]})
+        )["error"]["code"],
+        "conflict"
+    );
+    assert_eq!(
+        success(
+            &project,
+            json!({"op":"history","photo_id":photo,"limit":10})
+        ),
+        history
+    );
+    success(
+        &project,
+        json!({"op":"commit","guard":current["guard"],"edits":[edits[loser]]}),
+    );
+    let reopened = success(&project, json!({"op":"snapshot","photo_id":photo}));
+    assert_eq!(
+        reopened["editable"]["grade_nodes"][0]["curves"]["rgb_red"],
+        edits[0]["points"]
+    );
+    assert_eq!(
+        reopened["editable"]["grade_nodes"][0]["curves"]["rgb_blue"],
+        edits[1]["points"]
+    );
+    assert_eq!(
+        success(
+            &project,
+            json!({"op":"history","photo_id":photo,"limit":10})
+        )["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
 }

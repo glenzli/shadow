@@ -290,7 +290,16 @@ fn capabilities() -> Value {
             "history_order": "ascending global sequence, filtered to one photo",
             "max_history_page": 100
         },
-        "edits": ["set_basic", "set_node", "add_node", "remove_node", "move_node", "set_geometry"],
+        "edits": ["set_basic", "set_curve", "reset_curve", "set_node", "add_node", "remove_node", "move_node", "set_geometry"],
+        "curve_authoring": {
+            "channels": protocol::CurveChannel::ALL,
+            "points": "ordered [x,y] pairs; x starts at 0, ends at 1 and strictly increases; finite values and slopes",
+            "min_points": 2, "max_points": shadow_bridge::MAX_TONE_CURVE_POINTS,
+            "reset": "selected channel only; existing desktop empty/identity normalization",
+            "validation": "same canonical Recipe validator as desktop",
+            "shared_grade_nodes": "unsupported; explicit desktop detach required",
+            "unaddressed_settings": "preserved in complete Recipe"
+        },
         "draft_preview": {
             "required": ["guard", "edits", "destination", "bit_depth"],
             "quality": "native_full_resolution; same exact renderer as export",

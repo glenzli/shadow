@@ -131,6 +131,15 @@ pub(super) enum Edit {
         node_index: usize,
         values: BasicPatch,
     },
+    SetCurve {
+        node_index: usize,
+        channel: CurveChannel,
+        points: Vec<[f64; 2]>,
+    },
+    ResetCurve {
+        node_index: usize,
+        channel: CurveChannel,
+    },
     SetNode {
         node_index: usize,
         #[serde(default)]
@@ -153,6 +162,27 @@ pub(super) enum Edit {
     SetGeometry {
         values: GeometryPatch,
     },
+}
+
+/// Existing desktop curve slots; values name semantics rather than UI indices.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum CurveChannel {
+    OklabLightness,
+    RgbMaster,
+    RgbRed,
+    RgbGreen,
+    RgbBlue,
+}
+
+impl CurveChannel {
+    pub(super) const ALL: [Self; 5] = [
+        Self::OklabLightness,
+        Self::RgbMaster,
+        Self::RgbRed,
+        Self::RgbGreen,
+        Self::RgbBlue,
+    ];
 }
 
 #[derive(Debug, Default, Deserialize)]

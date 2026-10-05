@@ -190,8 +190,38 @@ saturation fields of `node_index`. Grade white-balance values are the native gra
 `remove_node` and `move_node` edit ordered local Grade Nodes. Shared-node color controls require an
 explicit desktop detach. `set_geometry` patches normalized crop, quarter-turn 0–3, straighten,
 perspective, flips and enabled state. The canonical Recipe validator owns every numeric range and
-structural invariant; an invalid operation rejects the whole batch. Unaddressed fine color, masks,
+structural invariant; an invalid final draft rejects the whole batch. Unaddressed fine color, masks,
 repair, paint, completion, Foundation and other state remain in the complete immutable Recipe.
+
+`set_curve` and `reset_curve` author the five existing desktop tone-curve slots of a local
+`node_index`: `oklab_lightness`, `rgb_master`, `rgb_red`, `rgb_green`, and `rgb_blue`.
+`capabilities.curve_authoring` advertises those names and the shared point limit. `set_curve`
+requires `points` as an ordered array of 2–256 `[x,y]` pairs. Each pair has exactly two numbers;
+x starts at 0, ends at 1 and strictly increases. Both coordinates and segment slopes must be
+finite. These are the canonical Recipe rules, not a replacement curve algorithm or a CLI clamp.
+An empty set is `invalid_edit`; use `reset_curve` to clear only the selected slot. RGB master
+and individual channels retain the native four-channel operation; Oklab lightness retains its
+separate perceptual operation. Their ordering, interpolation and colour math are unchanged.
+
+```json
+{"schema_version":1,"command":{"op":"preview","guard":{},"destination":"/absolute/work/curve.png",
+ "bit_depth":16,"edits":[{"op":"set_curve","node_index":0,"channel":"rgb_red",
+ "points":[[0,0],[0.5,0.58],[1,1]]}]}}
+```
+
+Replace the example's `{}` guard with the entire captured `snapshot.guard`. Commit the same
+guard and edits after inspecting the PNG, then reopen and export as above. `reset_curve` has
+`node_index` and `channel` only; a `points` field is rejected. Curve controls obey the same
+shared-node restriction as `set_basic`; detach explicitly through the desktop first.
+`editable.grade_nodes[].curves` reads all five point arrays from the canonical desktop DTO.
+An empty array is neutral/absent. While another RGB channel remains authored, a reset RGB
+slot can read back as the two identity endpoints; this is existing Recipe normalization, not
+retained non-neutral state. Resetting every curve restores the absent-curve graph and preserves
+the basic controls, other fine colour, masks and photo-private stages. Batch ordering is explicit:
+a reset followed by a set authors the latter; all edits are validated before any durable write.
+The new edits use the existing source guard and working-head/Variant CAS, with the same cold
+full-quality preview/export renderer. They add no warm session or in-progress cancellation.
+Unknown `cancel` operations/fields are rejected; capability discovery still reports `unsupported`.
 
 An empty `edits` list explicitly commits the captured state. This can persist a neutral photograph,
 or restore an old snapshot as a **new** commit: obtain `snapshot` with that old `commit_id`, then
@@ -243,7 +273,7 @@ The 2 GiB CLI source cap is an outer bound; stricter format-specific byte/pixel 
 | Desktop capability | CLI route today | Remaining coverage |
 | --- | --- | --- |
 | Public RAW/raster inspection and import | `project import`; legacy `scan`, `inspect-raw` | Private decoders are not bundled; folder cache preparation remains LibRaw-specific |
-| Non-destructive grading and geometry | `project snapshot/preview/commit` over the same complete Recipe and renderer | Fine color authoring, RAW Foundation controls, new masks, repair, paint, Liquify, LUT bindings |
+| Non-destructive grading, five-channel tone curves and geometry | `project snapshot/preview/commit`, including `set_curve/reset_curve`, over the same complete Recipe and renderer | Other fine color authoring, RAW Foundation controls, new masks, repair, paint, Liquify, LUT bindings |
 | Persistent photo history and recovery | Exact CAS receipts, paged `history`, historical snapshot/new restore commit, legacy backup/restore | Named version creation, Variant mutation, Library-wide history authoring |
 | Library discovery and filtering | `project photos` over shared bounded Catalog query; legacy statistics/scans | Albums, keyword mutation and multi-photo editing |
 | Explicit user culling and ratings | `project decision/set_decision/decision_history`, shared ledger CAS and photo filters | Autonomous decisions unsupported; executor assertion is response-only; no atomic multi-photo decision batch |
