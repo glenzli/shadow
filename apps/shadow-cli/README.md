@@ -116,7 +116,11 @@ jq -n --arg photo "$PHOTO" '{schema_version:1,command:{op:"snapshot",photo_id:$p
 jq '{schema_version:1,command:{op:"commit",guard:.result.guard,edits:[
   {op:"set_basic",node_index:0,values:{exposure_stops:0.35,saturation_factor:0.8}},
   {op:"set_geometry",values:{enabled:true,crop_left:0.1,crop_right:0.9}}
-]}}' snapshot.json | "$CLI" project "$PROJECT" -
+]}}' snapshot.json > draft.json
+jq '.command += {op:"preview",destination:"/absolute/work/draft.png",bit_depth:16}' draft.json \
+  | "$CLI" project "$PROJECT" -
+# Inspect the requested draft PNG before deciding to publish its edits.
+cat draft.json | "$CLI" project "$PROJECT" -
 # A separate process reopens the durable committed Recipe.
 jq -n --arg photo "$PHOTO" '{schema_version:1,command:{op:"snapshot",photo_id:$photo}}' \
   | "$CLI" project "$PROJECT" - > reopened.json
@@ -138,6 +142,7 @@ human has a live editor open. Do not point this command at an active desktop Cat
 | `import` | `source`: absolute or process-relative supported source path; returns durable photo/representation IDs and SHA-256 |
 | `photos` | `limit` 1–100, optional `after` from `next_cursor`; optional shared Catalog `filter`; stable file-name order, no thumbnail decoding |
 | `snapshot` | `photo_id`, optional immutable `commit_id`; historical reads do not move the working head |
+| `preview` | Captured `guard`, `edits`, outside-project `.png` `destination`, `bit_depth` 8 or 16; full-quality draft pixels without an authored commit |
 | `commit` | Captured `guard` and `edits` (at most 64); returns the exact transaction receipt, not a mutable head readback |
 | `history` | `photo_id`, `limit` 1–100, optional `after` from `next_cursor`; existing newest-first keyset Recipe history |
 | `decision` | `photo_id`; current authoritative flag, rating and `head_sequence` |
@@ -195,6 +200,28 @@ independent, preserving intervening immutable history. `recipe_snapshot` in the 
 exact source-photo state for inspection; it is not an importable replacement or a portable cross-photo
 Recipe projection. Editable continuity lives in the Catalog and managed resources, not the exported PNG.
 
+`preview` applies the same bounded edits to a captured complete Recipe in memory and renders
+through the shared full-quality export service. It accepts a never-committed neutral photo and
+publishes only the requested PNG; Recipe/EditRepository history, working head, active Variant and
+review decisions are unchanged. Runtime source preparation may populate the existing cache.
+The receipt has `artifact_kind: "draft_preview"`, `committed: false`, the original `guard`, a
+`base_commit_id` that may be empty, and the digest of the **actual complete rendered draft**. It has
+no `commit_id` and is not a portable Recipe or a durable draft handle. Preview is a cold process
+at native output dimensions, not a warm interactive session or an inexpensive thumbnail.
+
+After inspecting the artifact, submit the original `guard` and `edits` to `commit`. Preview does
+not reserve the working head; concurrent authors can cause that commit to conflict. Neutral photos
+without persisted Recipes and `add_node` allocate fresh node identities per invocation, so their
+draft digest need not match a later commit even when pixels match. On a committed content base,
+edits that preserve node identity retain exact preview/commit Recipe identity. The output receipt
+always distinguishes the draft digest from its immutable content parent. `snapshot_digest_role`
+is `rendered_draft` for preview and `immutable_commit` for export. Export retains the existing
+`snapshot_digest` belonging to `commit_id`; `rendered_snapshot_digest` reports the complete Recipe
+actually compiled in both operations. Supported legacy Recipes can normalize during editable
+projection, so those export digests may legitimately differ without changing the stored commit.
+A lost response can be
+reconciled by inspecting the requested destination; retrying that name never replaces it.
+
 PNG output preserves the shared export renderer's full native dimensions and display-sRGB RGB8 or
 RGB16 samples. PNG16 is encoded directly from 16-bit samples in network byte order, without an RGB8
 intermediate. The headless file adapter writes an sRGB chunk and no source EXIF/GPS/ICC metadata.
@@ -216,7 +243,7 @@ The 2 GiB CLI source cap is an outer bound; stricter format-specific byte/pixel 
 | Desktop capability | CLI route today | Remaining coverage |
 | --- | --- | --- |
 | Public RAW/raster inspection and import | `project import`; legacy `scan`, `inspect-raw` | Private decoders are not bundled; folder cache preparation remains LibRaw-specific |
-| Non-destructive grading and geometry | `project snapshot/commit` over the same complete Recipe and renderer | Fine color authoring, RAW Foundation controls, new masks, repair, paint, Liquify, LUT bindings |
+| Non-destructive grading and geometry | `project snapshot/preview/commit` over the same complete Recipe and renderer | Fine color authoring, RAW Foundation controls, new masks, repair, paint, Liquify, LUT bindings |
 | Persistent photo history and recovery | Exact CAS receipts, paged `history`, historical snapshot/new restore commit, legacy backup/restore | Named version creation, Variant mutation, Library-wide history authoring |
 | Library discovery and filtering | `project photos` over shared bounded Catalog query; legacy statistics/scans | Albums, keyword mutation and multi-photo editing |
 | Explicit user culling and ratings | `project decision/set_decision/decision_history`, shared ledger CAS and photo filters | Autonomous decisions unsupported; executor assertion is response-only; no atomic multi-photo decision batch |
@@ -242,7 +269,9 @@ cargo test --locked -j 2 -p shadow-cli --test project_contract -- --test-threads
 These contracts generate synthetic input and exercise separate CLI processes, full Recipe
 preservation, original protection, stale/concurrent Recipe and decision CAS, explicit-user provenance,
 invalid/no-op decision rejection, photo-scoped decision-history paging, reopen/filter consistency,
-historical restoration, PNG8/16, and strict request limits. The Unix native-path test exercises publication through non-UTF-8 paths where the
+historical restoration, precommit draft rendering without authored-state publication, and exact
+preview/commit/export Recipe identity on a committed base plus pixel equality at PNG8/16. They
+check strict request limits. The Unix native-path test exercises publication through non-UTF-8 paths where the
 filesystem supports them. On macOS APFS it instead verifies structured rejection before project
 creation; that branch is not evidence for Linux's non-UTF-8 success path. Linux must run the tests
 independently. Export timing should name input/output dimensions, CPU/backend, build profile,

@@ -62,6 +62,12 @@ pub(super) enum Command {
         after: u64,
         limit: u32,
     },
+    Preview {
+        guard: SnapshotGuard,
+        edits: Vec<Edit>,
+        destination: PathBuf,
+        bit_depth: u8,
+    },
     Export {
         guard: SnapshotGuard,
         destination: PathBuf,

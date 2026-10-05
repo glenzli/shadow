@@ -213,6 +213,14 @@ fn capabilities_work_without_a_project_or_infer_and_keep_limits_honest() {
     assert_eq!(caps["cancel"], "unsupported");
     assert_eq!(caps["ai"]["generation"], "unsupported");
     assert_eq!(caps["ai"]["infer_runtime"], "not_probed");
+    assert!(
+        caps["commands"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("preview"))
+    );
+    assert_eq!(caps["draft_preview"]["authored_history"], "not_published");
+    assert_eq!(caps["draft_preview"]["cancel"], "unsupported");
     assert!(!project.exists());
 }
 
@@ -465,4 +473,263 @@ fn review_decision_errors_and_concurrent_writers_preserve_exact_ledger() {
         success(&project, json!({"op": "decision", "photo_id": photo})),
         current
     );
+}
+
+#[test]
+fn draft_preview_matches_committed_pixels_without_publishing_authored_state() {
+    let root = tempfile::tempdir().unwrap();
+    let photo = fixture(root.path());
+    let project = root.path().join("project");
+    let before = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    let original = std::fs::read(root.path().join("synthetic.png")).unwrap();
+    let edits = json!([
+        {"op": "set_basic", "node_index": 0,
+            "values": {"exposure_stops": 0.35, "saturation_factor": 0.8}},
+        {"op": "set_geometry", "values": {"enabled": true,
+            "crop_left": 0.25, "crop_right": 0.75, "quarter_turn": 1}}
+    ]);
+    for depth in [8, 16] {
+        let output = root.path().join(format!("preview-{depth}.png"));
+        let preview = success(
+            &project,
+            json!({"op": "preview", "guard": before["guard"],
+            "edits": edits, "destination": output, "bit_depth": depth}),
+        );
+        assert_eq!(preview["artifact_kind"], "draft_preview");
+        assert_eq!(preview["committed"], false);
+        assert!(preview.get("commit_id").is_none());
+        assert_eq!(preview["base_commit_id"], "");
+        assert_eq!(preview["guard"], before["guard"]);
+        assert_eq!(preview["snapshot_digest"].as_str().unwrap().len(), 64);
+        assert_eq!(preview["cancel"], "unsupported");
+        let decoded = image::open(&output).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (32, 24));
+        assert_eq!(
+            decoded.color(),
+            if depth == 8 {
+                image::ColorType::Rgb8
+            } else {
+                image::ColorType::Rgb16
+            }
+        );
+        let repeated = call(
+            &project,
+            json!({"op": "preview", "guard": before["guard"],
+            "edits": edits, "destination": output, "bit_depth": depth}),
+        );
+        assert_eq!(repeated["error"]["code"], "already_exists");
+    }
+    assert_eq!(
+        success(&project, json!({"op": "snapshot", "photo_id": photo}))["guard"],
+        before["guard"]
+    );
+    assert_eq!(
+        success(
+            &project,
+            json!({"op": "history", "photo_id": photo, "limit": 10})
+        )["entries"],
+        json!([])
+    );
+    assert_eq!(
+        success(&project, json!({"op": "decision", "photo_id": photo}))["head_sequence"],
+        0
+    );
+    let committed = success(
+        &project,
+        json!({"op": "commit", "guard": before["guard"], "edits": edits}),
+    );
+    let reopened = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    for depth in [8, 16] {
+        let output = root.path().join(format!("after-commit-{depth}.png"));
+        let exported = success(
+            &project,
+            json!({"op": "export", "guard": reopened["guard"],
+            "destination": output, "bit_depth": depth}),
+        );
+        assert_eq!(exported["snapshot_digest"], committed["snapshot_digest"]);
+        assert_eq!(exported["artifact_kind"], "committed_export");
+        assert_eq!(exported["committed"], true);
+        let preview = image::open(root.path().join(format!("preview-{depth}.png"))).unwrap();
+        let exported = image::open(output).unwrap();
+        assert_eq!(preview.as_bytes(), exported.as_bytes());
+    }
+    let managed = std::fs::read_dir(project.join("originals"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    assert_eq!(std::fs::read(managed).unwrap(), original);
+    assert_eq!(
+        std::fs::read(root.path().join("synthetic.png")).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn draft_preview_failures_preserve_history_originals_and_existing_outputs() {
+    let root = tempfile::tempdir().unwrap();
+    let photo = fixture(root.path());
+    let project = root.path().join("project");
+    let before = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    let invalid = root.path().join("invalid.png");
+    let forbidden = project.join("forbidden.png");
+    let occupied = root.path().join("occupied.png");
+    std::fs::write(&occupied, b"existing-output").unwrap();
+    for (edits, destination, depth, code) in [
+        (
+            json!([{ "op": "remove_node", "node_index": 0}]),
+            invalid.clone(),
+            8,
+            "invalid_edit",
+        ),
+        (json!([]), invalid.clone(), 24, "unsupported"),
+        (json!([]), forbidden.clone(), 8, "invalid_destination"),
+        (json!([]), occupied.clone(), 8, "already_exists"),
+    ] {
+        let failed = call(
+            &project,
+            json!({"op": "preview", "guard": before["guard"],
+            "edits": edits, "destination": destination, "bit_depth": depth}),
+        );
+        assert_eq!(failed["error"]["code"], code, "{failed}");
+    }
+    #[cfg(unix)]
+    {
+        let alias = root.path().join("alias.png");
+        std::os::unix::fs::symlink(&occupied, &alias).unwrap();
+        assert_eq!(
+            call(
+                &project,
+                json!({"op": "preview", "guard": before["guard"],
+            "edits": [], "destination": alias, "bit_depth": 8})
+            )["error"]["code"],
+            "already_exists"
+        );
+        assert!(
+            std::fs::symlink_metadata(alias)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+    }
+    assert!(!invalid.exists());
+    assert!(!forbidden.exists());
+    assert_eq!(std::fs::read(occupied).unwrap(), b"existing-output");
+    assert_eq!(
+        success(
+            &project,
+            json!({"op": "history", "photo_id": photo, "limit": 10})
+        )["entries"],
+        json!([])
+    );
+    // Preview is not a reservation: a committed writer makes the old guard stale.
+    success(
+        &project,
+        json!({"op": "commit", "guard": before["guard"], "edits": []}),
+    );
+    let stale = root.path().join("stale.png");
+    assert_eq!(
+        call(
+            &project,
+            json!({"op": "preview", "guard": before["guard"],
+        "edits": [], "destination": stale, "bit_depth": 8})
+        )["error"]["code"],
+        "conflict"
+    );
+    assert!(!stale.exists());
+    let current = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    let managed = std::fs::read_dir(project.join("originals"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    std::fs::write(managed, b"synthetic-source-changed-by-test").unwrap();
+    let changed = root.path().join("changed.png");
+    assert_eq!(
+        call(
+            &project,
+            json!({"op": "preview", "guard": current["guard"],
+        "edits": [], "destination": changed, "bit_depth": 8})
+        )["error"]["code"],
+        "source_changed"
+    );
+    assert!(!changed.exists());
+    assert_eq!(
+        success(
+            &project,
+            json!({"op": "history", "photo_id": photo, "limit": 10})
+        )["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(image::open(root.path().join("synthetic.png")).is_ok());
+}
+
+#[test]
+fn committed_draft_preview_receipt_identifies_exact_recipe_across_processes() {
+    let root = tempfile::tempdir().unwrap();
+    let photo = fixture(root.path());
+    let project = root.path().join("project");
+    let initial = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    success(
+        &project,
+        json!({"op": "commit", "guard": initial["guard"], "edits": []}),
+    );
+    let base = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    let history = success(
+        &project,
+        json!({"op": "history", "photo_id": photo, "limit": 10}),
+    );
+    let edits = json!([{ "op": "set_basic", "node_index": 0,
+        "values": {"exposure_stops": -0.5, "contrast_factor": 1.15}}]);
+    let mut previews = Vec::new();
+    for depth in [8, 16] {
+        let destination = root
+            .path()
+            .join(format!("committed-base-preview-{depth}.png"));
+        let preview = success(
+            &project,
+            json!({"op": "preview", "guard": base["guard"],
+            "edits": edits, "destination": destination, "bit_depth": depth}),
+        );
+        assert_eq!(preview["base_commit_id"], base["guard"]["base_commit_id"]);
+        assert_eq!(preview["guard"], base["guard"]);
+        assert_ne!(preview["snapshot_digest"], base["snapshot_digest"]);
+        previews.push((depth, destination, preview));
+    }
+    assert_eq!(
+        success(&project, json!({"op": "snapshot", "photo_id": photo})),
+        base
+    );
+    assert_eq!(
+        success(
+            &project,
+            json!({"op": "history", "photo_id": photo, "limit": 10})
+        ),
+        history
+    );
+    let receipt = success(
+        &project,
+        json!({"op": "commit", "guard": base["guard"], "edits": edits}),
+    );
+    let saved = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    for (depth, path, preview) in previews {
+        assert_eq!(preview["snapshot_digest"], receipt["snapshot_digest"]);
+        let destination = root
+            .path()
+            .join(format!("committed-base-export-{depth}.png"));
+        let exported = success(
+            &project,
+            json!({"op": "export", "guard": saved["guard"],
+            "destination": destination, "bit_depth": depth}),
+        );
+        assert_eq!(exported["snapshot_digest"], preview["snapshot_digest"]);
+        let preview_pixels = image::open(path).unwrap();
+        let exported_pixels = image::open(destination).unwrap();
+        assert_eq!(preview_pixels.as_bytes(), exported_pixels.as_bytes());
+    }
 }

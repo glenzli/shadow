@@ -92,11 +92,25 @@ fn cli_edit_preserves_private_stages_and_immutable_parent_identity() {
         .unwrap();
     drop(session);
     let before = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    let edits = json!([{ "op": "set_basic", "node_index": 0,
+        "values": {"exposure_stops": 0.5}}]);
+    let preview = success(
+        &project,
+        json!({"op": "preview", "guard": before["guard"], "edits": edits,
+            "destination": root.path().join("private-state-preview.png"), "bit_depth": 16}),
+    );
+    // Disabled private retouch state is still part of the exact draft identity.
+    assert_eq!(
+        success(&project, json!({"op": "snapshot", "photo_id": photo})),
+        before
+    );
     let result = success(
         &project,
-        json!({"op": "commit", "guard": before["guard"],
-        "edits": [{"op": "set_basic", "node_index": 0, "values": {"exposure_stops": 0.5}}]}),
+        json!({"op": "commit", "guard": before["guard"], "edits": edits}),
     );
+    assert_eq!(preview["snapshot_digest"], result["snapshot_digest"]);
+    assert_eq!(preview["base_commit_id"], first.commit_id);
+    assert_eq!(preview["committed"], false);
     let after = success(&project, json!({"op": "snapshot", "photo_id": photo}));
     assert_eq!(after["guard"]["base_commit_id"], result["commit_id"]);
     assert_eq!(
@@ -174,4 +188,96 @@ fn source_and_request_limits_are_checked_before_payload_admission() {
     let response = request(&project, json!({"op": "import", "source": source}));
     assert_eq!(response.error.unwrap().code, "invalid_source");
     assert!(!project.join("originals").exists());
+}
+
+#[test]
+fn legacy_export_retains_commit_digest_and_distinguishes_rendered_identity() {
+    use crate::recipe_v1::{GradeStackDraft, grade_stack_recipe_v1_snapshot};
+    use shadow_catalog::{CommitRecipe, RecipeRefExpectation, RecipeRefKind, RecipeRefTarget};
+    use shadow_domain::operation::{
+        HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY, HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY,
+        HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY, SELECTIVE_TONE_OPERATION_ID,
+    };
+    use shadow_domain::{EntityId, RecipeCommit, RecipeCommitId, RecipeId, RecipeSnapshot};
+
+    let root = tempfile::tempdir().unwrap();
+    let photo = fixture(root.path());
+    let project = root.path().join("project");
+    let mut draft = GradeStackDraft::default();
+    draft.fine.selective_tone.highlights = -0.4;
+    let snapshot = grade_stack_recipe_v1_snapshot(&draft, None).unwrap();
+    let mut document = serde_json::to_value(snapshot).unwrap();
+    let nodes = document["layers"][0]["content"]["graph"]["nodes"]
+        .as_array_mut()
+        .unwrap();
+    let selective = nodes
+        .iter_mut()
+        .find(|node| node["operation"]["operation_id"] == SELECTIVE_TONE_OPERATION_ID)
+        .unwrap();
+    let parameters = selective["parameters"].as_object_mut().unwrap();
+    for key in [
+        HIGHLIGHT_RED_SUPPRESSION_PARAMETER_KEY,
+        HIGHLIGHT_GREEN_SUPPRESSION_PARAMETER_KEY,
+        HIGHLIGHT_BLUE_SUPPRESSION_PARAMETER_KEY,
+    ] {
+        assert!(parameters.remove(key).is_some());
+    }
+    assert_eq!(parameters.len(), 4);
+    let legacy: RecipeSnapshot = serde_json::from_value(document).unwrap();
+    // This is a supported historical shape, not a corrupt Catalog fixture.
+    crate::recipe_v1::compile_recipe_render_plan(&legacy).unwrap();
+    let session =
+        open_desktop_session_at(&project.join("catalog.sqlite"), &project.join("cache")).unwrap();
+    let commit = RecipeCommitId::new_v7();
+    session
+        .catalog
+        .commit_recipe(&CommitRecipe {
+            photo_id: photo.parse().unwrap(),
+            commit: RecipeCommit::new(
+                commit,
+                RecipeId::new_v7(),
+                Vec::new(),
+                legacy,
+                Some("Supported four-parameter Selective Tone".to_owned()),
+                100,
+            )
+            .unwrap(),
+            update_refs: vec![RecipeRefTarget {
+                name: "working".to_owned(),
+                kind: RecipeRefKind::Working,
+                expectation: Some(RecipeRefExpectation::Missing),
+            }],
+        })
+        .unwrap();
+    drop(session);
+    let before = success(&project, json!({"op": "snapshot", "photo_id": photo}));
+    let preview = success(
+        &project,
+        json!({"op": "preview", "guard": before["guard"], "edits": [],
+        "destination": root.path().join("legacy-preview.png"), "bit_depth": 8}),
+    );
+    let exported = success(
+        &project,
+        json!({"op": "export", "guard": before["guard"],
+        "destination": root.path().join("legacy-export.png"), "bit_depth": 8}),
+    );
+    assert_eq!(exported["commit_id"], commit.to_string());
+    assert_eq!(exported["snapshot_digest"], before["snapshot_digest"]);
+    assert_eq!(exported["snapshot_digest_role"], "immutable_commit");
+    assert_eq!(preview["snapshot_digest_role"], "rendered_draft");
+    assert_ne!(
+        exported["rendered_snapshot_digest"],
+        exported["snapshot_digest"]
+    );
+    assert_eq!(
+        exported["rendered_snapshot_digest"],
+        preview["snapshot_digest"]
+    );
+    let preview_pixels = image::open(root.path().join("legacy-preview.png")).unwrap();
+    let export_pixels = image::open(root.path().join("legacy-export.png")).unwrap();
+    assert_eq!(preview_pixels.as_bytes(), export_pixels.as_bytes());
+    assert_eq!(
+        success(&project, json!({"op": "snapshot", "photo_id": photo})),
+        before
+    );
 }

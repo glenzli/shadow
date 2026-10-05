@@ -32,6 +32,13 @@ use crate::{
 const EXPORT_TILE_SIDE: u32 = 1_024;
 const SOURCE_CHANGED: &str = "export source changed since Catalog registration";
 
+/// Pixels and identity come from the same complete, immutable Recipe
+/// resolution. File adapters must not label draft pixels with the base digest.
+pub(crate) struct RenderedEditExport {
+    pub raster: ffi::FfiEditedExportRaster,
+    pub snapshot_digest: [u8; 32],
+}
+
 impl DesktopSession {
     pub(crate) fn render_basic_edit_export(
         &self,
@@ -39,6 +46,16 @@ impl DesktopSession {
         source_path: &str,
         request: &ffi::FfiEditExportRequest,
     ) -> AnyResult<ffi::FfiEditedExportRaster> {
+        self.render_basic_edit_export_receipt(photo_id, source_path, request)
+            .map(|rendered| rendered.raster)
+    }
+
+    pub(crate) fn render_basic_edit_export_receipt(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        request: &ffi::FfiEditExportRequest,
+    ) -> AnyResult<RenderedEditExport> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
         let native_path = catalog_native_path(&source)?;
         if fingerprint_source(&native_path).context("read export source metadata")? != source.source
@@ -90,7 +107,10 @@ impl DesktopSession {
         {
             bail!(SOURCE_CHANGED);
         }
-        Ok(raster)
+        Ok(RenderedEditExport {
+            raster,
+            snapshot_digest: recipe.snapshot_digest,
+        })
     }
 }
 

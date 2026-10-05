@@ -147,22 +147,31 @@ fn execute(root: &Path, command: Command) -> Result<Value> {
             after,
             limit,
         } => review::history(&session, &photo_id, after, limit),
+        Command::Preview {
+            guard,
+            edits,
+            destination,
+            bit_depth,
+        } => export::run(
+            &session,
+            root,
+            &guard,
+            export::RecipeInput::Draft(&edits),
+            &destination,
+            bit_depth,
+        ),
         Command::Export {
             guard,
             destination,
             bit_depth,
-        } => {
-            let (source, settings) = load_guard(&session, root, &guard)?;
-            export::run(
-                &session,
-                root,
-                &guard,
-                &source,
-                settings,
-                &destination,
-                bit_depth,
-            )
-        }
+        } => export::run(
+            &session,
+            root,
+            &guard,
+            export::RecipeInput::Committed,
+            &destination,
+            bit_depth,
+        ),
     }
 }
 
@@ -268,7 +277,7 @@ fn history_page(
 fn capabilities() -> Value {
     json!({
         "application": "shadow-cli", "phase": "persistent_project_v1",
-        "commands": ["capabilities", "init", "import", "photos", "snapshot", "commit", "history", "export",
+        "commands": ["capabilities", "init", "import", "photos", "snapshot", "preview", "commit", "history", "export",
             "decision", "set_decision", "decision_history"],
         "review_decisions": {
             "authority": "user_directed", "executors": ["user", "agent"],
@@ -282,6 +291,14 @@ fn capabilities() -> Value {
             "max_history_page": 100
         },
         "edits": ["set_basic", "set_node", "add_node", "remove_node", "move_node", "set_geometry"],
+        "draft_preview": {
+            "required": ["guard", "edits", "destination", "bit_depth"],
+            "quality": "native_full_resolution; same exact renderer as export",
+            "authored_history": "not_published", "committed_base_required": false,
+            "identity": "complete rendered draft digest; neutral/new nodes get fresh IDs per invocation",
+            "commit": "rerun guard and edits through existing CAS; preview is not a reservation",
+            "warm_session": "unsupported", "cancel": "unsupported"
+        },
         "originals": "managed_byte_exact_copy_read_only_by_shadow",
         "input": {"raster_extensions": shadow_bridge::photo_supported_raster_extensions(),
             "raw": "public_decoder_dependent; proprietary providers are not bundled",
