@@ -22,6 +22,7 @@ class FullEditDetailHandle;
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <stop_token>
 
@@ -77,11 +78,24 @@ class DecodeHandle final {
         rust::Str staging_manifest_path
     ) const;
     [[nodiscard]] std::unique_ptr<EditPreviewHandle>
+    prepare_edit_preview_with_staged_raw_development_plan(
+        std::uint32_t max_edge,
+        const FfiRawDevelopmentPlan& plan,
+        rust::Slice<const std::uint8_t> staging_manifest_path
+    ) const;
+    [[nodiscard]] std::unique_ptr<EditPreviewHandle>
     prepare_edit_preview_with_staged_raw_foundation(
         std::uint32_t max_edge,
         const FfiRawDevelopmentPlan& plan,
         const FfiRawFoundation& foundation,
         rust::Str staging_manifest_path
+    ) const;
+    [[nodiscard]] std::unique_ptr<EditPreviewHandle>
+    prepare_edit_preview_with_staged_raw_foundation(
+        std::uint32_t max_edge,
+        const FfiRawDevelopmentPlan& plan,
+        const FfiRawFoundation& foundation,
+        rust::Slice<const std::uint8_t> staging_manifest_path
     ) const;
     [[nodiscard]] std::unique_ptr<FullEditDetailHandle> prepare_edit_detail() const;
     [[nodiscard]] std::unique_ptr<FullEditDetailHandle>
@@ -101,14 +115,57 @@ class DecodeHandle final {
         const FfiDetailSessionRequirements& requirements
     ) const;
     [[nodiscard]] std::unique_ptr<FullEditDetailHandle>
+    prepare_edit_detail_with_staged_raw_development_plan(
+        const FfiRawDevelopmentPlan& plan,
+        rust::Slice<const std::uint8_t> staging_manifest_path,
+        const FfiDetailSessionRequirements& requirements
+    ) const;
+    [[nodiscard]] std::unique_ptr<FullEditDetailHandle>
     prepare_edit_detail_with_staged_raw_foundation(
         const FfiRawDevelopmentPlan& plan,
         const FfiRawFoundation& foundation,
         rust::Str staging_manifest_path,
         const FfiDetailSessionRequirements& requirements
     ) const;
+    [[nodiscard]] std::unique_ptr<FullEditDetailHandle>
+    prepare_edit_detail_with_staged_raw_foundation(
+        const FfiRawDevelopmentPlan& plan,
+        const FfiRawFoundation& foundation,
+        rust::Slice<const std::uint8_t> staging_manifest_path,
+        const FfiDetailSessionRequirements& requirements
+    ) const;
 
   private:
+    [[nodiscard]] std::unique_ptr<EditPreviewHandle>
+    prepare_edit_preview_with_staged_raw_development_plan(
+        std::uint32_t max_edge,
+        const FfiRawDevelopmentPlan& plan,
+        const std::filesystem::path& staging_manifest_path
+    ) const;
+
+    [[nodiscard]] std::unique_ptr<EditPreviewHandle>
+    prepare_edit_preview_with_staged_raw_foundation(
+        std::uint32_t max_edge,
+        const FfiRawDevelopmentPlan& plan,
+        const FfiRawFoundation& foundation,
+        const std::filesystem::path& staging_manifest_path
+    ) const;
+
+    [[nodiscard]] std::unique_ptr<FullEditDetailHandle>
+    prepare_edit_detail_with_staged_raw_development_plan(
+        const FfiRawDevelopmentPlan& plan,
+        const std::filesystem::path& staging_manifest_path,
+        const FfiDetailSessionRequirements& requirements
+    ) const;
+
+    [[nodiscard]] std::unique_ptr<FullEditDetailHandle>
+    prepare_edit_detail_with_staged_raw_foundation(
+        const FfiRawDevelopmentPlan& plan,
+        const FfiRawFoundation& foundation,
+        const std::filesystem::path& staging_manifest_path,
+        const FfiDetailSessionRequirements& requirements
+    ) const;
+
     std::unique_ptr<image::DecoderProvider> provider_;
     std::unique_ptr<image::DecodeSession> session_;
     std::shared_ptr<const image::OpticsProvider> optics_provider_;
@@ -224,6 +281,11 @@ class FullEditDetailHandle final {
 
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_libraw_utf8(rust::Str path);
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_photo_utf8(rust::Str path);
+// These additive entry points accept exact Unix OsStr bytes and reject embedded NUL.
+[[nodiscard]] std::unique_ptr<DecodeHandle>
+open_libraw_unix_bytes(rust::Slice<const std::uint8_t> path);
+[[nodiscard]] std::unique_ptr<DecodeHandle>
+open_photo_unix_bytes(rust::Slice<const std::uint8_t> path);
 // Prepares a rebindable RAW session from the isolated helper's paired
 // provider-neutral frame and metadata snapshot. This route intentionally has
 // no source path, so it cannot reopen a private RAW in the desktop process.
@@ -235,9 +297,21 @@ prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
     rust::Str staging_manifest_path,
     const FfiOpticsSettings& optics
 );
+[[nodiscard]] std::unique_ptr<EditPreviewHandle>
+prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+    const FfiMetadataSnapshot& metadata,
+    std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    rust::Slice<const std::uint8_t> staging_manifest_path,
+    const FfiOpticsSettings& optics
+);
 [[nodiscard]] rust::Vec<FfiOpticsProfileCandidate>
 query_libraw_optics_profiles_utf8(rust::Str path);
 [[nodiscard]] rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(rust::Str path);
+[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate>
+query_libraw_optics_profiles_unix_bytes(rust::Slice<const std::uint8_t> path);
+[[nodiscard]] rust::Vec<FfiOpticsProfileCandidate>
+query_photo_optics_profiles_unix_bytes(rust::Slice<const std::uint8_t> path);
 // Enumerates RAW optical profiles from metadata already persisted by the Catalog. This path is
 // deliberately independent from pixel decode: an unsupported RAW compression may still expose
 // complete camera/lens EXIF through an earlier metadata inspection or a private provider.
@@ -261,6 +335,11 @@ void validate_cube_lut_document(rust::Slice<const std::uint8_t> document);
 [[nodiscard]] rust::String raw_development_plan_identity(const FfiRawDevelopmentPlan& plan);
 [[nodiscard]] FfiEncodedProxy
 render_photo_reference_proxy(rust::Str path, std::uint32_t max_edge, std::uint8_t jpeg_quality);
+[[nodiscard]] FfiEncodedProxy render_photo_reference_proxy(
+    rust::Slice<const std::uint8_t> path,
+    std::uint32_t max_edge,
+    std::uint8_t jpeg_quality
+);
 [[nodiscard]] FfiDisplayLuma
 decode_jpeg_display_luma(rust::Slice<const std::uint8_t> encoded, std::uint32_t max_edge);
 

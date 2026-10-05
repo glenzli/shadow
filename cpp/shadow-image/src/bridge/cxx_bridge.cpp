@@ -2,6 +2,7 @@
 
 #include "adjustment_render_wire.hpp"
 #include "cxx_bridge_projection.hpp"
+#include "native_path_wire.hpp"
 
 #include <shadow/image/camera_profile_catalog.hpp>
 #include <shadow/image/decoder_error.hpp>
@@ -734,16 +735,6 @@ raw_camera_profile_status(const image::RawCameraProfileStatus status) {
     return result;
 }
 
-[[nodiscard]] std::filesystem::path filesystem_path_from_utf8(const rust::Str path) {
-    const std::string_view utf8_bytes(path.data(), path.size());
-    std::u8string utf8_path;
-    utf8_path.reserve(utf8_bytes.size());
-    for (const char byte : utf8_bytes) {
-        utf8_path.push_back(static_cast<char8_t>(static_cast<unsigned char>(byte)));
-    }
-    return std::filesystem::path(utf8_path);
-}
-
 [[nodiscard]] std::unique_ptr<DecodeHandle> open_provider_path(
     std::unique_ptr<image::DecoderProvider> provider,
     const std::filesystem::path& path
@@ -873,30 +864,16 @@ optics_profile_candidates_for(const image::DecodeSession& session) {
     return configured;
 }
 
-} // namespace cxx_bridge_projection
-
-using namespace cxx_bridge_projection;
-
-std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {
-    auto provider = image::make_libraw_decoder_provider();
-    return open_provider_path(std::move(provider), filesystem_path_from_utf8(path));
-}
-
-std::unique_ptr<DecodeHandle> open_photo_utf8(const rust::Str path) {
-    auto provider = image::make_photo_decoder_provider();
-    return open_provider_path(std::move(provider), filesystem_path_from_utf8(path));
-}
-
 std::unique_ptr<EditPreviewHandle>
-prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+prepare_staged_preview_from_metadata(
     const FfiMetadataSnapshot& metadata,
     const std::uint32_t max_edge,
     const FfiRawDevelopmentPlan& plan,
-    const rust::Str staging_manifest_path,
+    const std::filesystem::path& staging_manifest_path,
     const FfiOpticsSettings& optics
 ) {
     image::RawFrame staged_frame =
-        image::read_raw_frame_staging(filesystem_path_from_utf8(staging_manifest_path));
+        image::read_raw_frame_staging(staging_manifest_path);
     auto prepared = image::prepare_rebindable_warm_edit_preview(
         asset_metadata(metadata),
         max_edge,
@@ -908,15 +885,91 @@ prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
     return std::make_unique<EditPreviewHandle>(std::move(prepared));
 }
 
+FfiEncodedProxy render_photo_reference_proxy_path(
+    const std::filesystem::path& path,
+    const std::uint32_t max_edge,
+    const std::uint8_t jpeg_quality
+) {
+    auto provider = image::make_photo_decoder_provider();
+    auto session = provider->open(path);
+    return encoded_proxy(
+        image::render_reference_proxy_jpeg(*session, image::ProxyRequest{max_edge, jpeg_quality})
+    );
+}
+
+} // namespace cxx_bridge_projection
+
+using namespace cxx_bridge_projection;
+
+std::unique_ptr<DecodeHandle> open_libraw_utf8(const rust::Str path) {
+    auto provider = image::make_libraw_decoder_provider();
+    return open_provider_path(std::move(provider), native_path_wire::from_utf8(path));
+}
+
+std::unique_ptr<DecodeHandle> open_photo_utf8(const rust::Str path) {
+    auto provider = image::make_photo_decoder_provider();
+    return open_provider_path(std::move(provider), native_path_wire::from_utf8(path));
+}
+
+std::unique_ptr<DecodeHandle> open_libraw_unix_bytes(const rust::Slice<const std::uint8_t> path) {
+    auto provider = image::make_libraw_decoder_provider();
+    return open_provider_path(std::move(provider), native_path_wire::from_unix_bytes(path));
+}
+
+std::unique_ptr<DecodeHandle> open_photo_unix_bytes(const rust::Slice<const std::uint8_t> path) {
+    auto provider = image::make_photo_decoder_provider();
+    return open_provider_path(std::move(provider), native_path_wire::from_unix_bytes(path));
+}
+
+std::unique_ptr<EditPreviewHandle>
+prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+    const FfiMetadataSnapshot& metadata,
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    const rust::Str staging_manifest_path,
+    const FfiOpticsSettings& optics
+) {
+    return prepare_staged_preview_from_metadata(
+        metadata, max_edge, plan, native_path_wire::from_utf8(staging_manifest_path), optics
+    );
+}
+
+std::unique_ptr<EditPreviewHandle>
+prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+    const FfiMetadataSnapshot& metadata,
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    const rust::Slice<const std::uint8_t> staging_manifest_path,
+    const FfiOpticsSettings& optics
+) {
+    return prepare_staged_preview_from_metadata(
+        metadata, max_edge, plan, native_path_wire::from_unix_bytes(staging_manifest_path), optics
+    );
+}
+
 rust::Vec<FfiOpticsProfileCandidate> query_libraw_optics_profiles_utf8(const rust::Str path) {
     auto decoder = image::make_libraw_decoder_provider();
-    auto session = decoder->open(filesystem_path_from_utf8(path));
+    auto session = decoder->open(native_path_wire::from_utf8(path));
     return optics_profile_candidates_for(*session);
 }
 
 rust::Vec<FfiOpticsProfileCandidate> query_photo_optics_profiles_utf8(const rust::Str path) {
     auto decoder = image::make_photo_decoder_provider();
-    auto session = decoder->open(filesystem_path_from_utf8(path));
+    auto session = decoder->open(native_path_wire::from_utf8(path));
+    return optics_profile_candidates_for(*session);
+}
+
+rust::Vec<FfiOpticsProfileCandidate>
+query_libraw_optics_profiles_unix_bytes(const rust::Slice<const std::uint8_t> path) {
+    auto decoder = image::make_libraw_decoder_provider();
+    auto session = decoder->open(native_path_wire::from_unix_bytes(path));
+    return optics_profile_candidates_for(*session);
+}
+
+rust::Vec<FfiOpticsProfileCandidate>
+query_photo_optics_profiles_unix_bytes(const rust::Slice<const std::uint8_t> path) {
+    auto decoder = image::make_photo_decoder_provider();
+    auto session = decoder->open(native_path_wire::from_unix_bytes(path));
     return optics_profile_candidates_for(*session);
 }
 
@@ -1031,10 +1084,18 @@ FfiEncodedProxy render_photo_reference_proxy(
     const std::uint32_t max_edge,
     const std::uint8_t jpeg_quality
 ) {
-    auto provider = image::make_photo_decoder_provider();
-    auto session = provider->open(filesystem_path_from_utf8(path));
-    return encoded_proxy(
-        image::render_reference_proxy_jpeg(*session, image::ProxyRequest{max_edge, jpeg_quality})
+    return render_photo_reference_proxy_path(
+        native_path_wire::from_utf8(path), max_edge, jpeg_quality
+    );
+}
+
+FfiEncodedProxy render_photo_reference_proxy(
+    const rust::Slice<const std::uint8_t> path,
+    const std::uint32_t max_edge,
+    const std::uint8_t jpeg_quality
+) {
+    return render_photo_reference_proxy_path(
+        native_path_wire::from_unix_bytes(path), max_edge, jpeg_quality
     );
 }
 

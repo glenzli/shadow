@@ -8,7 +8,7 @@ use super::{
     BridgeError,
     adjustment::{AdjustmentLocalMask, AdjustmentRenderOperation, AdjustmentRenderPlan},
     decoder::{dimensions, open_photo},
-    ffi,
+    ffi, native_path,
     optics::{OpticsReceipt, OpticsSettings, ffi_optics_settings, optics_receipt},
     raw_development::{
         RawDevelopmentIntent, RawDevelopmentPlan, RawDevelopmentReceipt, RawPipelineReceipt,
@@ -415,9 +415,7 @@ impl LibRawEditDetailSession {
                 "staged RAW full resolution requires detail or export-image intent",
             ));
         }
-        let staging_manifest = staging_manifest_path
-            .to_str()
-            .ok_or_else(|| BridgeError::NonUtf8Path(staging_manifest_path.to_path_buf()))?;
+        native_path::validate(staging_manifest_path)?;
         let mut decode_handle = open_photo(path)?;
         if decode_handle.is_null() {
             return Err(BridgeError::NullHandle);
@@ -426,10 +424,11 @@ impl LibRawEditDetailSession {
             .pin_mut()
             .configure_optics(&ffi_optics_settings(optics))?;
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let handle = decode_handle.prepare_edit_detail_with_staged_raw_development_plan(
+        let handle = native_path::prepare_staged_detail(
+            decode_handle,
             &ffi_raw_development_plan(raw_development_plan),
-            staging_manifest,
-            &ffi::FfiDetailSessionRequirements {
+            staging_manifest_path,
+            ffi::FfiDetailSessionRequirements {
                 requires_cpu_replay: requirements.requires_cpu_replay(),
             },
         )?;
@@ -460,9 +459,7 @@ impl LibRawEditDetailSession {
                 "staged AI RAW foundation full resolution requires detail or export-image intent",
             ));
         }
-        let staging_manifest = staging_manifest_path
-            .to_str()
-            .ok_or_else(|| BridgeError::NonUtf8Path(staging_manifest_path.to_path_buf()))?;
+        native_path::validate(staging_manifest_path)?;
         let mut decode_handle = open_photo(path)?;
         if decode_handle.is_null() {
             return Err(BridgeError::NullHandle);
@@ -471,11 +468,12 @@ impl LibRawEditDetailSession {
             .pin_mut()
             .configure_optics(&ffi_optics_settings(optics))?;
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let handle = decode_handle.prepare_edit_detail_with_staged_raw_foundation(
+        let handle = native_path::prepare_staged_detail_with_foundation(
+            decode_handle,
             &ffi_raw_development_plan(raw_development_plan),
             foundation.ffi(),
-            staging_manifest,
-            &ffi::FfiDetailSessionRequirements {
+            staging_manifest_path,
+            ffi::FfiDetailSessionRequirements {
                 requires_cpu_replay: requirements.requires_cpu_replay(),
             },
         )?;

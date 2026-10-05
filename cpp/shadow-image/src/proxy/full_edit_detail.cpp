@@ -470,6 +470,8 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
         },
         DisplayOutputBackendMode::cpu
     );
+    // Snapshot this before moving the string: argument evaluation order is unspecified.
+    const bool fell_back = !fallback_diagnostic.empty();
     return RenderedDetailTile{
         .rect = rect,
         .full_dimensions = geometry_layout.output_dimensions,
@@ -478,7 +480,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
         .execution = detail_tile_execution_receipt(
             DetailTileRenderBackend::cpu,
             false,
-            !fallback_diagnostic.empty(),
+            fell_back,
             std::move(fallback_diagnostic)
         ),
     };
@@ -595,6 +597,8 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
         },
         DisplayOutputBackendMode::cpu
     );
+    // Snapshot this before moving the string: argument evaluation order is unspecified.
+    const bool fell_back = !fallback_diagnostic.empty();
     return RenderedDetailTile{
         .rect = rect,
         .full_dimensions = geometry_layout.output_dimensions,
@@ -603,7 +607,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
         .execution = detail_tile_execution_receipt(
             DetailTileRenderBackend::cpu,
             false,
-            !fallback_diagnostic.empty(),
+            fell_back,
             std::move(fallback_diagnostic)
         ),
     };

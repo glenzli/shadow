@@ -16,6 +16,7 @@ mod detail_session;
 mod display_luma;
 mod error;
 mod lut_baking;
+mod native_path;
 mod one_shot;
 mod optics;
 mod preview_analysis;
@@ -710,8 +711,15 @@ mod ffi {
             cancellation: &EditPreviewCancellationHandle,
         ) -> Result<FfiBakedCubeLut>;
 
+        #[allow(dead_code)]
         fn open_libraw_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
+        #[cfg(unix)]
+        fn open_libraw_unix_bytes(path: &[u8]) -> Result<UniquePtr<DecodeHandle>>;
+        #[allow(dead_code)]
         fn open_photo_utf8(path: &str) -> Result<UniquePtr<DecodeHandle>>;
+        #[cfg(unix)]
+        fn open_photo_unix_bytes(path: &[u8]) -> Result<UniquePtr<DecodeHandle>>;
+        #[allow(dead_code)]
         fn prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
             metadata: &FfiMetadataSnapshot,
             max_edge: u32,
@@ -719,8 +727,27 @@ mod ffi {
             staging_manifest_path: &str,
             optics: &FfiOpticsSettings,
         ) -> Result<UniquePtr<EditPreviewHandle>>;
+        #[cfg(unix)]
+        #[cxx_name = "prepare_edit_preview_with_staged_raw_development_plan_from_metadata"]
+        fn prepare_edit_preview_with_staged_raw_development_plan_from_metadata_unix_bytes(
+            metadata: &FfiMetadataSnapshot,
+            max_edge: u32,
+            plan: &FfiRawDevelopmentPlan,
+            staging_manifest_path: &[u8],
+            optics: &FfiOpticsSettings,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
+        #[allow(dead_code)]
         fn query_libraw_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
+        #[cfg(unix)]
+        fn query_libraw_optics_profiles_unix_bytes(
+            path: &[u8],
+        ) -> Result<Vec<FfiOpticsProfileCandidate>>;
+        #[allow(dead_code)]
         fn query_photo_optics_profiles_utf8(path: &str) -> Result<Vec<FfiOpticsProfileCandidate>>;
+        #[cfg(unix)]
+        fn query_photo_optics_profiles_unix_bytes(
+            path: &[u8],
+        ) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn query_optics_profiles_for_metadata(
             metadata: &FfiMetadataSnapshot,
         ) -> Vec<FfiOpticsProfileCandidate>;
@@ -734,8 +761,16 @@ mod ffi {
         fn cancel(self: &EditPreviewCancellationHandle) -> bool;
         fn photo_supported_raster_extensions() -> Vec<String>;
         fn raw_development_plan_identity(plan: &FfiRawDevelopmentPlan) -> Result<String>;
+        #[allow(dead_code)]
         fn render_photo_reference_proxy(
             path: &str,
+            max_edge: u32,
+            jpeg_quality: u8,
+        ) -> Result<FfiEncodedProxy>;
+        #[cfg(unix)]
+        #[cxx_name = "render_photo_reference_proxy"]
+        fn render_photo_reference_proxy_unix_bytes(
+            path: &[u8],
             max_edge: u32,
             jpeg_quality: u8,
         ) -> Result<FfiEncodedProxy>;
@@ -786,18 +821,37 @@ mod ffi {
             plan: &FfiRawDevelopmentPlan,
             foundation: &FfiRawFoundation,
         ) -> Result<UniquePtr<EditPreviewHandle>>;
+        #[allow(dead_code)]
         fn prepare_edit_preview_with_staged_raw_development_plan(
             self: &DecodeHandle,
             max_edge: u32,
             plan: &FfiRawDevelopmentPlan,
             staging_manifest_path: &str,
         ) -> Result<UniquePtr<EditPreviewHandle>>;
+        #[cfg(unix)]
+        #[cxx_name = "prepare_edit_preview_with_staged_raw_development_plan"]
+        fn prepare_edit_preview_with_staged_raw_development_plan_unix_bytes(
+            self: &DecodeHandle,
+            max_edge: u32,
+            plan: &FfiRawDevelopmentPlan,
+            staging_manifest_path: &[u8],
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
+        #[allow(dead_code)]
         fn prepare_edit_preview_with_staged_raw_foundation(
             self: &DecodeHandle,
             max_edge: u32,
             plan: &FfiRawDevelopmentPlan,
             foundation: &FfiRawFoundation,
             staging_manifest_path: &str,
+        ) -> Result<UniquePtr<EditPreviewHandle>>;
+        #[cfg(unix)]
+        #[cxx_name = "prepare_edit_preview_with_staged_raw_foundation"]
+        fn prepare_edit_preview_with_staged_raw_foundation_unix_bytes(
+            self: &DecodeHandle,
+            max_edge: u32,
+            plan: &FfiRawDevelopmentPlan,
+            foundation: &FfiRawFoundation,
+            staging_manifest_path: &[u8],
         ) -> Result<UniquePtr<EditPreviewHandle>>;
         #[allow(dead_code)]
         fn prepare_edit_detail(self: &DecodeHandle) -> Result<UniquePtr<FullEditDetailHandle>>;
@@ -812,17 +866,36 @@ mod ffi {
             foundation: &FfiRawFoundation,
             requirements: &FfiDetailSessionRequirements,
         ) -> Result<UniquePtr<FullEditDetailHandle>>;
+        #[allow(dead_code)]
         fn prepare_edit_detail_with_staged_raw_development_plan(
             self: &DecodeHandle,
             plan: &FfiRawDevelopmentPlan,
             staging_manifest_path: &str,
             requirements: &FfiDetailSessionRequirements,
         ) -> Result<UniquePtr<FullEditDetailHandle>>;
+        #[cfg(unix)]
+        #[cxx_name = "prepare_edit_detail_with_staged_raw_development_plan"]
+        fn prepare_edit_detail_with_staged_raw_development_plan_unix_bytes(
+            self: &DecodeHandle,
+            plan: &FfiRawDevelopmentPlan,
+            staging_manifest_path: &[u8],
+            requirements: &FfiDetailSessionRequirements,
+        ) -> Result<UniquePtr<FullEditDetailHandle>>;
+        #[allow(dead_code)]
         fn prepare_edit_detail_with_staged_raw_foundation(
             self: &DecodeHandle,
             plan: &FfiRawDevelopmentPlan,
             foundation: &FfiRawFoundation,
             staging_manifest_path: &str,
+            requirements: &FfiDetailSessionRequirements,
+        ) -> Result<UniquePtr<FullEditDetailHandle>>;
+        #[cfg(unix)]
+        #[cxx_name = "prepare_edit_detail_with_staged_raw_foundation"]
+        fn prepare_edit_detail_with_staged_raw_foundation_unix_bytes(
+            self: &DecodeHandle,
+            plan: &FfiRawDevelopmentPlan,
+            foundation: &FfiRawFoundation,
+            staging_manifest_path: &[u8],
             requirements: &FfiDetailSessionRequirements,
         ) -> Result<UniquePtr<FullEditDetailHandle>>;
         fn dimensions(self: &EditPreviewHandle) -> FfiDimensions;

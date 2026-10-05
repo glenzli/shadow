@@ -24,7 +24,9 @@ pub enum BridgeError {
     InvalidDisplayLumaRequest(&'static str),
     #[error("invalid JPEG display-luma decoder output: {0}")]
     InvalidDisplayLumaOutput(&'static str),
-    #[error("the Mac-first decoder bridge currently requires a UTF-8 path: {0}")]
+    #[error("invalid decoder path: {0}")]
+    InvalidPath(&'static str),
+    #[error("this platform's decoder bridge currently requires a UTF-8 path: {0}")]
     NonUtf8Path(PathBuf),
     #[error("the C++ decoder bridge returned a null handle")]
     NullHandle,
