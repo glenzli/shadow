@@ -139,8 +139,45 @@ human has a live editor open. Do not point this command at an active desktop Cat
 | `photos` | `limit` 1–100, optional `after` from `next_cursor`; optional shared Catalog `filter`; stable file-name order, no thumbnail decoding |
 | `snapshot` | `photo_id`, optional immutable `commit_id`; historical reads do not move the working head |
 | `commit` | Captured `guard` and `edits` (at most 64); returns the exact transaction receipt, not a mutable head readback |
-| `history` | `photo_id`, `limit` 1–100, optional `after` from `next_cursor`; existing newest-first keyset history |
+| `history` | `photo_id`, `limit` 1–100, optional `after` from `next_cursor`; existing newest-first keyset Recipe history |
+| `decision` | `photo_id`; current authoritative flag, rating and `head_sequence` |
+| `set_decision` | `photo_id`, `expected_head_sequence`, `flag`, `rating`, required explicit-user `provenance`; one atomic decision event |
+| `decision_history` | `photo_id`, `limit` 1–100, optional exclusive sequence `after` from `next_cursor`; oldest-first decision events |
 | `export` | Captured `guard`, `.png` `destination` outside the project, `bit_depth` 8 or 16; requires a committed content base |
+
+Review decisions use the existing append-only human decision ledger, independently of Recipe history.
+Read `decision` before setting both the desired flag (`unflagged`, `picked`, `rejected`) and rating
+(0–5, where 0 is unrated). Pass its exact `head_sequence`; an outdated value returns `conflict` with
+no new event. The mutation returns the event published by that transaction, not a later head read.
+An unchanged flag/rating pair is rejected as `invalid_decision` and does not append a no-op event.
+Malformed fields or missing provenance return `invalid_request`; a rating outside 0–5 but inside
+the wire's unsigned-byte range returns `invalid_decision`. Reconcile a lost response by reading
+`decision`/`decision_history` before retrying. Request-id deduplication is not implemented.
+
+```json
+{"schema_version":1,"command":{"op":"set_decision","photo_id":"<photo_id>",
+  "expected_head_sequence":0,"flag":"picked","rating":4,
+  "provenance":{"authority":"user_directed","executor":"agent"}}}
+```
+
+`provenance` is required. The only authority is `user_directed`: the caller must be applying a
+user's explicit choice of these flags/ratings, including an explicitly specified deterministic
+batch rule. `executor` distinguishes direct `user` execution from an `agent` carrying out that
+instruction. Agent-inferred quality, autonomous ranking, implicit approval and model output are
+not human decisions and must remain proposals outside this operation. Unsupported declarations
+are rejected; the declaration is a caller assertion, **not authenticated proof of user direction**.
+The existing ledger records `origin: "human"` only. The accepted executor declaration is returned
+as `request_provenance` with `request_provenance_storage: "response_only"`; it is not persisted.
+Historical events cannot establish whether a human or an instructed agent operated the tool, and
+`decision_history` reports `executor_provenance: "not_recorded"`. No schema migration or fabricated
+historical provenance is introduced.
+
+Decision history uses ascending, globally assigned sequence numbers scoped to one photo. Other
+photos can create gaps, so use `next_cursor` rather than incrementing a row count. The cursor is
+exclusive, defaults to 0, and must fit a nonnegative SQLite integer. `next_cursor` is null when the
+page has no more events. Normal `photos` filters (`flag`, `minimum_rating`) reflect committed
+changes after another process reopens the project. These operations neither author Recipes nor
+read or change original photo bytes. Multi-photo atomic decision updates are not yet supported.
 
 `set_basic` patches only the provided exposure, contrast, grade white-balance temperature/tint and
 saturation fields of `node_index`. Grade white-balance values are the native grading controls,
@@ -181,7 +218,8 @@ The 2 GiB CLI source cap is an outer bound; stricter format-specific byte/pixel 
 | Public RAW/raster inspection and import | `project import`; legacy `scan`, `inspect-raw` | Private decoders are not bundled; folder cache preparation remains LibRaw-specific |
 | Non-destructive grading and geometry | `project snapshot/commit` over the same complete Recipe and renderer | Fine color authoring, RAW Foundation controls, new masks, repair, paint, Liquify, LUT bindings |
 | Persistent photo history and recovery | Exact CAS receipts, paged `history`, historical snapshot/new restore commit, legacy backup/restore | Named version creation, Variant mutation, Library-wide history authoring |
-| Library discovery and filtering | `project photos` over shared bounded Catalog query; legacy statistics/scans | Albums, keyword mutation, culling/ratings and multi-photo editing |
+| Library discovery and filtering | `project photos` over shared bounded Catalog query; legacy statistics/scans | Albums, keyword mutation and multi-photo editing |
+| Explicit user culling and ratings | `project decision/set_decision/decision_history`, shared ledger CAS and photo filters | Autonomous decisions unsupported; executor assertion is response-only; no atomic multi-photo decision batch |
 | Remote Library | Existing authenticated serve/sync/materialize commands | Full desktop server UI lifecycle and project-managed import from a remote selection |
 | Native full-quality export | Shared exact renderer, PNG8/PNG16, immutable commit/source receipt, exclusive file publication | JPEG/TIFF output, resize/profile presets, watermarks, durable export queue runner |
 | Cancellation and retry | Source/edit failures preserve earlier commits; output conflicts do not overwrite | Export cancellation and job resume are **unsupported** |
@@ -202,8 +240,9 @@ cargo test --locked -j 2 -p shadow-cli --test project_contract -- --test-threads
 ```
 
 These contracts generate synthetic input and exercise separate CLI processes, full Recipe
-preservation, original protection, stale/concurrent CAS, historical restoration, PNG8/16, and strict
-request limits. The Unix native-path test exercises publication through non-UTF-8 paths where the
+preservation, original protection, stale/concurrent Recipe and decision CAS, explicit-user provenance,
+invalid/no-op decision rejection, photo-scoped decision-history paging, reopen/filter consistency,
+historical restoration, PNG8/16, and strict request limits. The Unix native-path test exercises publication through non-UTF-8 paths where the
 filesystem supports them. On macOS APFS it instead verifies structured rejection before project
 creation; that branch is not evidence for Linux's non-UTF-8 success path. Linux must run the tests
 independently. Export timing should name input/output dimensions, CPU/backend, build profile,

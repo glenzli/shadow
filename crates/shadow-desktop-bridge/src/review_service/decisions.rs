@@ -1,6 +1,7 @@
 //! Durable human Review decision mutations and ABI projection.
 
 use anyhow::{Context, Result as AnyResult, bail};
+use shadow_catalog::CatalogError;
 use shadow_domain::{
     MAX_PHOTO_RATING, NewPhotoDecisionEvent, PhotoDecisionEvent, PhotoDecisionOrigin,
     PhotoDecisionState, PhotoFlag, PhotoId,
@@ -32,18 +33,36 @@ impl ReviewService {
         flag: ffi::FfiDecisionFlag,
         rating: u8,
     ) -> AnyResult<ffi::FfiReviewDecisionMutationReceipt> {
+        self.set_photo_decision_event(photo_id, expected_head_sequence, photo_flag(flag)?, rating)
+            .map(ffi_photo_decision_receipt)
+    }
+
+    /// The same authoritative user-directed mutation for non-CXX consumers.
+    /// Return the transaction's exact event, never a later mutable state read.
+    pub(crate) fn set_photo_decision_event(
+        &self,
+        photo_id: &str,
+        expected_head_sequence: u64,
+        flag: PhotoFlag,
+        rating: u8,
+    ) -> AnyResult<PhotoDecisionEvent> {
         let photo_id: PhotoId = photo_id
             .parse()
             .with_context(|| format!("parse Review decision photo id {photo_id}"))?;
         if rating > MAX_PHOTO_RATING {
-            bail!("Review decision rating must be in 0 through {MAX_PHOTO_RATING}");
+            return Err(CatalogError::InvalidPhotoDecision(format!(
+                "Review decision rating must be in 0 through {MAX_PHOTO_RATING}"
+            ))
+            .into());
         }
         let before = self.catalog.photo_decision_state(photo_id)?;
         if before.head_sequence != expected_head_sequence {
-            bail!(
-                "stale Review decision head: expected {expected_head_sequence}, current {}",
-                before.head_sequence
-            );
+            return Err(CatalogError::PhotoDecisionHeadMismatch {
+                photo_id,
+                expected: expected_head_sequence,
+                actual: before.head_sequence,
+            }
+            .into());
         }
         let event = self
             .catalog
@@ -55,10 +74,10 @@ impl ReviewService {
                 expected_head_sequence,
                 before_flag: before.flag,
                 before_rating: before.rating,
-                after_flag: photo_flag(flag)?,
+                after_flag: flag,
                 after_rating: rating,
             })?;
-        Ok(ffi_photo_decision_receipt(event))
+        Ok(event)
     }
 }
 

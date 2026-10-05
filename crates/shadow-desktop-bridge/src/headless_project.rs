@@ -8,6 +8,7 @@
 mod edit;
 mod export;
 mod protocol;
+mod review;
 
 use std::{
     fs,
@@ -69,8 +70,11 @@ fn error_response(error: &anyhow::Error) -> Response {
         Some(
             CatalogError::RecipeRefExpectationMismatch { .. }
             | CatalogError::PhotoVariantExpectationMismatch { .. }
-            | CatalogError::EditRepositoryRefExpectationMismatch { .. },
+            | CatalogError::EditRepositoryRefExpectationMismatch { .. }
+            | CatalogError::PhotoDecisionHeadMismatch { .. }
+            | CatalogError::PhotoDecisionBeforeStateMismatch { .. },
         ) => "conflict",
+        Some(CatalogError::InvalidPhotoDecision(_)) => "invalid_decision",
         _ if error.downcast_ref::<std::io::Error>().is_some() => "io_error",
         _ => "operation_failed",
     };
@@ -81,34 +85,11 @@ fn execute(root: &Path, command: Command) -> Result<Value> {
     if matches!(command, Command::Capabilities {}) {
         return Ok(capabilities());
     }
-    let catalog = root.join("catalog.sqlite");
-    if matches!(command, Command::Init {}) {
-        fs::create_dir_all(root).context("create project directory")?;
-        fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&catalog)
-            .map_err(|error| {
-                if error.kind() == std::io::ErrorKind::AlreadyExists {
-                    fault(
-                        "already_exists",
-                        "project Catalog already exists; open it with snapshot/history instead",
-                    )
-                } else {
-                    error.into()
-                }
-            })?;
-    } else if !catalog.is_file() {
-        return Err(fault(
-            "project_not_initialized",
-            "initialize this project before opening it",
-        ));
-    }
-    let session = open_desktop_session_at(&catalog, &root.join("cache"))?;
+    let session = open_project(root, matches!(command, Command::Init {}))?;
     match command {
         Command::Capabilities {} => unreachable!("handled before opening a project"),
         Command::Init {} => Ok(
-            json!({"catalog": shadow_core::native_location(&catalog), "cache": shadow_core::native_location(&root.join("cache"))}),
+            json!({"catalog": shadow_core::native_location(&root.join("catalog.sqlite")), "cache": shadow_core::native_location(&root.join("cache"))}),
         ),
         Command::Import { source } => import(&session, root, &source),
         Command::Photos {
@@ -146,6 +127,26 @@ fn execute(root: &Path, command: Command) -> Result<Value> {
             after,
             limit,
         } => history_page(&session, &photo_id, after, limit),
+        Command::Decision { photo_id } => review::state(&session, &photo_id),
+        Command::SetDecision {
+            photo_id,
+            expected_head_sequence,
+            flag,
+            rating,
+            provenance,
+        } => review::set(
+            &session,
+            &photo_id,
+            expected_head_sequence,
+            flag,
+            rating,
+            &provenance,
+        ),
+        Command::DecisionHistory {
+            photo_id,
+            after,
+            limit,
+        } => review::history(&session, &photo_id, after, limit),
         Command::Export {
             guard,
             destination,
@@ -163,6 +164,33 @@ fn execute(root: &Path, command: Command) -> Result<Value> {
             )
         }
     }
+}
+
+fn open_project(root: &Path, initialize: bool) -> Result<Box<DesktopSession>> {
+    let catalog = root.join("catalog.sqlite");
+    if initialize {
+        fs::create_dir_all(root).context("create project directory")?;
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&catalog)
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    fault(
+                        "already_exists",
+                        "project Catalog already exists; open it with snapshot/history instead",
+                    )
+                } else {
+                    error.into()
+                }
+            })?;
+    } else if !catalog.is_file() {
+        return Err(fault(
+            "project_not_initialized",
+            "initialize this project before opening it",
+        ));
+    }
+    open_desktop_session_at(&catalog, &root.join("cache"))
 }
 
 fn photo_page(
@@ -240,7 +268,19 @@ fn history_page(
 fn capabilities() -> Value {
     json!({
         "application": "shadow-cli", "phase": "persistent_project_v1",
-        "commands": ["capabilities", "init", "import", "photos", "snapshot", "commit", "history", "export"],
+        "commands": ["capabilities", "init", "import", "photos", "snapshot", "commit", "history", "export",
+            "decision", "set_decision", "decision_history"],
+        "review_decisions": {
+            "authority": "user_directed", "executors": ["user", "agent"],
+            "flags": ["unflagged", "picked", "rejected"],
+            "rating_min": 0, "rating_max": shadow_domain::MAX_PHOTO_RATING,
+            "concurrency": "expected_head_sequence CAS",
+            "provenance": "required caller assertion; not authentication",
+            "request_provenance_storage": "response_only; ledger records human origin, not executor",
+            "autonomous_scoring": "unsupported", "no_op": "invalid_decision",
+            "history_order": "ascending global sequence, filtered to one photo",
+            "max_history_page": 100
+        },
         "edits": ["set_basic", "set_node", "add_node", "remove_node", "move_node", "set_geometry"],
         "originals": "managed_byte_exact_copy_read_only_by_shadow",
         "input": {"raster_extensions": shadow_bridge::photo_supported_raster_extensions(),

@@ -46,11 +46,49 @@ pub(super) enum Command {
         after: Option<HistoryCursor>,
         limit: u32,
     },
+    Decision {
+        photo_id: String,
+    },
+    SetDecision {
+        photo_id: String,
+        expected_head_sequence: u64,
+        flag: shadow_domain::PhotoFlag,
+        rating: u8,
+        provenance: DecisionProvenance,
+    },
+    DecisionHistory {
+        photo_id: String,
+        #[serde(default)]
+        after: u64,
+        limit: u32,
+    },
     Export {
         guard: SnapshotGuard,
         destination: PathBuf,
         bit_depth: u8,
     },
+}
+
+/// Required caller assertion for an explicit user instruction. This is not an
+/// authentication mechanism; the existing ledger persists Human origin only.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DecisionProvenance {
+    pub authority: DecisionAuthority,
+    pub executor: DecisionExecutor,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum DecisionAuthority {
+    UserDirected,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum DecisionExecutor {
+    User,
+    Agent,
 }
 
 /// Content ancestry is independent of the expected movable head. All fields
