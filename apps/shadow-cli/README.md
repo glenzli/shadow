@@ -81,9 +81,13 @@ lossless `native_path` bytes (Unix bytes or little-endian Windows UTF-16), and p
 `display_path`. Do not reopen a file through lossy display text. JSON request path strings are UTF-8;
 the command-line project root and returned native locations preserve non-UTF-8 Unix paths.
 
-Exit status is `0` for success, `2` for a JSON error, and `3` if stdout could not be written. If the
-response channel is lost after a commit, inspect `history`/`snapshot` before retrying; there is no
-request-id deduplication protocol. Error codes are stable categories; detailed messages are diagnostics.
+Exit status is `0` for success, `2` for a JSON error, and `3` if stdout could not be written.
+A lost response is not evidence that the operation failed: publication can finish before stdout
+fails. The stderr diagnostic names the recovery routes. Before retrying an edit, inspect
+`history`/`snapshot`; for a review decision, inspect `decision`/`decision_history`; for
+`preview`/`export`, inspect the requested destination. An existing PNG alone does not establish
+which request produced it. Retrying the same output name never replaces it. There is no request-id
+deduplication protocol. Error codes are stable categories; detailed messages are diagnostics.
 
 ```json
 {"schema_version":1,"command":{"op":"capabilities"}}
@@ -293,14 +297,16 @@ Use the same task-private target directory and CPU build environment above, then
 
 ```sh
 cargo test --locked -j 2 -p shadow-desktop-bridge --lib headless_project::tests -- --test-threads=1
-cargo test --locked -j 2 -p shadow-cli --test project_contract -- --test-threads=1
+cargo test --locked -j 2 -p shadow-cli --test project_contract --test project_response_loss_contract -- --test-threads=1
 ```
 
 These contracts generate synthetic input and exercise separate CLI processes, full Recipe
 preservation, original protection, stale/concurrent Recipe and decision CAS, explicit-user provenance,
 invalid/no-op decision rejection, photo-scoped decision-history paging, reopen/filter consistency,
 historical restoration, precommit draft rendering without authored-state publication, and exact
-preview/commit/export Recipe identity on a committed base plus pixel equality at PNG8/16. They
+preview/commit/export Recipe identity on a committed base plus pixel equality at PNG8/16. The lost
+response contracts close stdout before execution, verify published PNGs, commits and decision events,
+and confirm that retries cannot overwrite an output or duplicate a stale guarded mutation. They
 check strict request limits. The Unix native-path test exercises publication through non-UTF-8 paths where the
 filesystem supports them. On macOS APFS it instead verifies structured rejection before project
 creation; that branch is not evidence for Linux's non-UTF-8 success path. Linux must run the tests

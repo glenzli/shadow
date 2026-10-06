@@ -23,7 +23,12 @@ pub(super) fn run(arguments: &[OsString]) -> i32 {
     let status = if response.ok { 0 } else { 2 };
     let mut stdout = io::stdout().lock();
     if serde_json::to_writer(&mut stdout, &response).is_err() || writeln!(stdout).is_err() {
-        eprintln!("could not write the project response; inspect history before retrying a commit");
+        eprintln!(
+            "could not write the project response; the operation may already have completed. \
+             Before retrying, inspect snapshot/history for edits, decision/decision_history for \
+             review decisions, or the requested destination for preview/export. \
+             Requests have no deduplication."
+        );
         return 3;
     }
     status
