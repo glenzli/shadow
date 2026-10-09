@@ -27,6 +27,7 @@ class FullEditDetailGpuCache final {
         std::optional<std::vector<std::uint8_t>> bytes;
         bool source_cache_hit = false;
         std::string diagnostic;
+        WarmEditGpuBackend backend = WarmEditGpuBackend::metal;
     };
 
     [[nodiscard]] RenderAttempt render(

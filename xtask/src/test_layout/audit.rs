@@ -189,9 +189,10 @@ fn workspace_package_roots(repository_root: &Path) -> io::Result<Vec<PathBuf>> {
                 .manifest_path
                 .parent()
                 .expect("Cargo manifest has a parent directory")
-                .to_path_buf()
+                // Match the canonical root's verbatim Windows prefix as well as symlinks.
+                .canonicalize()
         })
-        .collect::<Vec<_>>();
+        .collect::<io::Result<Vec<_>>>()?;
     roots.sort();
     roots.dedup();
     Ok(roots)

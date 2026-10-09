@@ -518,6 +518,16 @@ impl LibRawEditPreviewSession {
             .then_some((presentation.temperature_kelvin, presentation.tint))
     }
 
+    /// Presents the camera-authored white point using the retained RAW calibration.
+    /// This reads no pixels, reopens no source, and also works without a local DCP.
+    #[must_use]
+    pub fn as_shot_white_balance(&self) -> Option<(u32, i16)> {
+        let presentation = self.handle.as_ref()?.as_shot_white_balance();
+        presentation
+            .available
+            .then_some((presentation.temperature_kelvin, presentation.tint))
+    }
+
     /// Creates a new immutable preview session over the same decoded/denoised RAW basis.
     ///
     /// Only white balance may differ from the source session's request. The returned session owns

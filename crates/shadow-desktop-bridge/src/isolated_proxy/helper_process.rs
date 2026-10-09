@@ -65,7 +65,7 @@ fn execute_decode_helper_with_timeout(
         // keep both pipes draining while retaining a capped diagnostic tail.
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    configure_helper_process_group(&mut command);
+    configure_helper_process(&mut command);
     configure(&mut command);
     let mut child = command
         .spawn()
@@ -140,7 +140,7 @@ fn execute_decode_helper_with_timeout(
     })
 }
 
-fn configure_helper_process_group(command: &mut Command) {
+fn configure_helper_process(command: &mut Command) {
     #[cfg(unix)]
     {
         // The helper gets its own process group so a timeout can terminate
@@ -148,7 +148,14 @@ fn configure_helper_process_group(command: &mut Command) {
         use std::os::unix::process::CommandExt as _;
         command.process_group(0);
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        // The worker still owns its redirected pipes and Job Object, but a GUI
+        // launch must never allocate a visible console for a decoder operation.
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+    #[cfg(not(any(unix, windows)))]
     let _ = command;
 }
 
@@ -156,7 +163,7 @@ fn terminate_helper_process_tree(child: &mut Child, process_tree: &HelperProcess
     process_tree.terminate();
     #[cfg(unix)]
     {
-        // The group id is the helper's PID because configure_helper_process_group
+        // The group id is the helper's PID because configure_helper_process
         // requested process_group(0). Ignore ESRCH: the child can exit in the
         // narrow interval between try_wait and this cleanup.
         if let Ok(process_group) = i32::try_from(child.id()) {

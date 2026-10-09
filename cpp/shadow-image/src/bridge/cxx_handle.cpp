@@ -657,6 +657,23 @@ EditPreviewHandle::rebind_raw_development_plan(const FfiRawDevelopmentPlan& plan
     );
 }
 
+FfiRawWhiteBalancePresentation EditPreviewHandle::as_shot_white_balance() const noexcept {
+    FfiRawWhiteBalancePresentation result{.available = false, .temperature_kelvin = 5'500U, .tint = 0};
+    const auto presentation = session_.as_shot_white_balance();
+    if (!presentation) {
+        return result;
+    }
+    const auto temperature = std::llround(presentation->temperature_kelvin);
+    const auto tint = std::llround(presentation->tint);
+    if (temperature < 2'000LL || temperature > 25'000LL || tint < -150LL || tint > 150LL) {
+        return result;
+    }
+    result.available = true;
+    result.temperature_kelvin = static_cast<std::uint32_t>(temperature);
+    result.tint = static_cast<std::int16_t>(tint);
+    return result;
+}
+
 bool EditPreviewHandle::supports_raw_foundation_amount_rebinding() const noexcept {
     return session_.supports_raw_foundation_amount_rebinding();
 }

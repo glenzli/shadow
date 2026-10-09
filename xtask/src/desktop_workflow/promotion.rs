@@ -14,7 +14,11 @@ pub(super) fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<(
     {
         promote_candidate(candidate, &validation_label)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        super::windows::promote(candidate, &validation_label)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = (candidate, validation_label);
         Err(io::Error::new(

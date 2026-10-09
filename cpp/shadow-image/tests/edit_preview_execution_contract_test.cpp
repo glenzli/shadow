@@ -219,7 +219,8 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
   const BoundaryRgbSession session;
   const auto warm = image::prepare_warm_edit_preview(session, 5U);
   const auto resident_before_render = warm.gpu_stats();
-  if (resident_before_render.resident) {
+  const bool metal_available = image::adjustment_backend_available(image::AdjustmentBackend::metal);
+  if (resident_before_render.resident && metal_available) {
     expect(resident_before_render.source_upload_count == 1U &&
                resident_before_render.gpu_buffer_allocation_count == 10U &&
                resident_before_render.render_count == 0U &&
@@ -257,7 +258,7 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
       "forced CPU warm preview reports CPU adjustment/display without "
       "fallback");
 
-  if (resident_before_render.resident) {
+  if (resident_before_render.resident && metal_available) {
     image::AnalyzedEditPreview metal;
     {
       const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION",
@@ -377,6 +378,16 @@ void warm_edit_preview_receipt_tracks_the_effective_display_backend() {
       expect(error.code() == image::EditErrorCode::backend_failure,
              "forced warm Metal failure preserves typed backend semantics");
     }
+  } else if (resident_before_render.resident) {
+    const auto accelerated = warm.render_jpeg_with_analysis(neutral_nodes, 90U);
+    expect(accelerated.execution.valid()
+               && accelerated.execution.display_backend == image::EditPreviewBackend::cuda
+               && accelerated.execution.fused_pipeline
+               && accelerated.execution.diagnostic.empty(),
+           "resident CUDA publishes its own fused display receipt");
+    expect(image::edit_preview_execution_receipt_identity(accelerated.execution)
+               != image::edit_preview_execution_receipt_identity(cpu.execution),
+           "CUDA and CPU cannot share an effective preview identity");
   } else {
     expect(std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
            "session-resident warm Metal was required but is unavailable");

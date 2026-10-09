@@ -5,6 +5,14 @@
 #include <tuple>
 #include <utility>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <array>
+#include <windows.h>
+#endif
+
 namespace shadow::image::lensfun_profile_catalog {
 
 namespace {
@@ -19,6 +27,27 @@ namespace {
 }
 
 #if SHADOW_IMAGE_HAS_LENSFUN
+
+[[nodiscard]] std::optional<std::filesystem::path> bundled_database_directory() {
+#ifdef _WIN32
+    std::array<wchar_t, 32768> executable{};
+    const auto size =
+        GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size()));
+    if (size != 0 && size < executable.size()) {
+        const auto directory = std::filesystem::path(executable.data()).parent_path() / "Lensfun";
+        std::error_code error;
+        if (std::filesystem::is_directory(directory, error)) {
+            return directory;
+        }
+    }
+#endif
+    return std::nullopt;
+}
+
+[[nodiscard]] std::string database_path_utf8(const std::filesystem::path& path) {
+    const auto encoded = path.u8string();
+    return {encoded.begin(), encoded.end()};
+}
 
 [[nodiscard]] std::string profile_match_key(
     const AssetMetadata& metadata,
@@ -46,15 +75,18 @@ namespace {
 Catalog::Catalog(std::optional<std::filesystem::path> database_directory) {
     info_.id = "lensfun";
 #if SHADOW_IMAGE_HAS_LENSFUN
+    if (!database_directory.has_value()) {
+        database_directory = bundled_database_directory();
+    }
     database_ = std::make_unique<lfDatabase>();
     bool loaded = false;
     if (database_directory.has_value()) {
 #if LF_VERSION_MICRO >= 99
-        loaded = database_->Load(database_directory->string().c_str()) == LF_NO_ERROR;
+        loaded = database_->Load(database_path_utf8(*database_directory).c_str()) == LF_NO_ERROR;
 #else
         // Stable Lensfun 0.3.4's Load(path) reads one XML file; directory loading is a
         // separate API. The 0.3.99 development line folds directory discovery into Load().
-        loaded = database_->LoadDirectory(database_directory->string().c_str());
+        loaded = database_->LoadDirectory(database_path_utf8(*database_directory).c_str());
 #endif
     } else {
         loaded = database_->Load() == LF_NO_ERROR;
@@ -65,7 +97,7 @@ Catalog::Catalog(std::optional<std::filesystem::path> database_directory) {
         return;
     }
     const auto directory = database_directory.has_value()
-        ? database_directory->string()
+        ? database_path_utf8(*database_directory)
         : std::string{"system"};
     info_.version = "lensfun-" + std::to_string(LF_VERSION_MAJOR) + "."
         + std::to_string(LF_VERSION_MINOR) + "." + std::to_string(LF_VERSION_MICRO)

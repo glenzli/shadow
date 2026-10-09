@@ -5,6 +5,7 @@
 #include <shadow/image/adjustment_layers.hpp>
 #include <shadow/image/edit_error.hpp>
 #include <shadow/image/full_edit_detail.hpp>
+#include <shadow/image/warm_edit_preview.hpp>
 
 #include <array>
 #include <cstddef>
@@ -20,6 +21,22 @@ using shadow::image::test_support::neutral_plan;
 using shadow::image::test_support::reference_rgb;
 using shadow::image::test_support::ScopedEnvironment;
 using shadow::image::test_support::SyntheticDecodeSession;
+
+[[nodiscard]] image::DetailTileRenderBackend available_reference_gpu_backend() {
+    // Probe a separate public consumer: the staged adjustment dispatcher reports only Metal,
+    // while resident preview/detail sessions may select CUDA.
+    constexpr image::Dimensions dimensions{4, 3};
+    SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
+    const auto preview = image::prepare_warm_edit_preview(decoder, dimensions.width);
+    if (!preview.gpu_stats().resident) {
+        return image::DetailTileRenderBackend::cpu;
+    }
+    const auto rendered = preview.render_jpeg_with_analysis(neutral_plan());
+    expect(rendered.execution.valid(), "independent GPU probe carries a valid receipt");
+    return rendered.execution.display_backend == image::EditPreviewBackend::cuda
+        ? image::DetailTileRenderBackend::cuda
+        : image::DetailTileRenderBackend::metal;
+}
 
 void preparation_retains_one_immutable_source_and_tiles_exactly() {
     constexpr image::Dimensions dimensions{4, 3};
@@ -38,6 +55,7 @@ void preparation_retains_one_immutable_source_and_tiles_exactly() {
     const image::DetailTileRect rect{1, 1, 2, 2};
     const auto plan = neutral_plan();
     const ScopedEnvironment automatic("SHADOW_IMAGE_ACCELERATION", "auto");
+    const auto gpu_backend = available_reference_gpu_backend();
     const auto first = session.render_rgb8(plan, rect);
     const auto second = session.render_rgb8(plan, rect);
     expect(decoder.render_count() == 1, "tile renders never ask the decoder to render again");
@@ -49,19 +67,21 @@ void preparation_retains_one_immutable_source_and_tiles_exactly() {
         first.execution.valid() && second.execution.valid(),
         "detail renders carry valid execution receipts"
     );
-    if (image::adjustment_backend_available(image::AdjustmentBackend::metal)) {
+    if (gpu_backend != image::DetailTileRenderBackend::cpu) {
         expect(
-            first.execution.backend == image::DetailTileRenderBackend::metal
+            first.execution.backend == gpu_backend
                 && !first.execution.source_cache_hit
-                && second.execution.backend == image::DetailTileRenderBackend::metal
-                && second.execution.source_cache_hit,
-            "a repeated detail viewport reuses its resident Metal source upload"
+                && !first.execution.fell_back && first.execution.diagnostic.empty()
+                && second.execution.backend == gpu_backend
+                && second.execution.source_cache_hit
+                && !second.execution.fell_back && second.execution.diagnostic.empty(),
+            "a repeated detail viewport reuses its resident GPU source upload"
         );
     } else {
         expect(
             first.execution.backend == image::DetailTileRenderBackend::cpu
                 && first.execution.fell_back && !first.execution.diagnostic.empty(),
-            "automatic detail rendering records an unavailable-Metal CPU fallback"
+            "automatic detail rendering records an unavailable-GPU CPU fallback"
         );
     }
     expect(
@@ -83,14 +103,15 @@ void automatic_layer_tiles_record_backend_and_fallback_without_redecoding() {
         .nodes = {nodes.begin(), nodes.end()},
     }};
     const ScopedEnvironment automatic("SHADOW_IMAGE_ACCELERATION", "auto");
+    const auto gpu_backend = available_reference_gpu_backend();
     const auto rendered = session.render_rgb8_layers(layers, {1, 1, 2, 2});
     expect(rendered.execution.valid(), "automatic layer rendering has a consistent receipt");
     expect(decoder.render_count() == 1, "automatic layer fallback retains the prepared source");
-    if (image::adjustment_backend_available(image::AdjustmentBackend::metal)) {
+    if (gpu_backend != image::DetailTileRenderBackend::cpu) {
         expect(
-            rendered.execution.backend == image::DetailTileRenderBackend::metal
+            rendered.execution.backend == gpu_backend
                 && !rendered.execution.fell_back && rendered.execution.diagnostic.empty(),
-            "available Metal layers report direct execution"
+            "available GPU layers report direct execution"
         );
     } else {
         expect(
@@ -98,6 +119,28 @@ void automatic_layer_tiles_record_backend_and_fallback_without_redecoding() {
                 && rendered.execution.fell_back && !rendered.execution.diagnostic.empty(),
             "automatic layer CPU fallback keeps its diagnostic paired with the fallback flag"
         );
+    }
+    if (gpu_backend == image::DetailTileRenderBackend::cuda) {
+        auto masked_layers = layers;
+        masked_layers[0].nodes[0].parameters = image::ExposureAdjustment{.stops = 0.5};
+        masked_layers[0].mask = image::LocalMask{
+            .kind = image::LocalMaskKind::linear_gradient,
+            .x0 = 0.0,
+            .y0 = 0.0,
+            .x1 = 1.0,
+            .y1 = 1.0,
+        };
+        const auto fallback = session.render_rgb8_layers(masked_layers, {1, 1, 2, 2});
+        expect(
+            fallback.execution.valid()
+                && fallback.execution.backend == image::DetailTileRenderBackend::cpu
+                && fallback.execution.fell_back && !fallback.execution.diagnostic.empty(),
+            "unsupported CUDA masks retain a consistent automatic CPU fallback receipt"
+        );
+        const ScopedEnvironment cpu("SHADOW_IMAGE_ACCELERATION", "cpu");
+        const auto reference = session.render_rgb8_layers(masked_layers, {1, 1, 2, 2});
+        expect(fallback.bytes == reference.bytes, "CUDA rejection replays the exact CPU layer plan");
+        expect(decoder.render_count() == 1, "CUDA rejection reuses the prepared source");
     }
 }
 

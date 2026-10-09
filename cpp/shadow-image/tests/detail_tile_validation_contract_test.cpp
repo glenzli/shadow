@@ -84,13 +84,13 @@ void tile_shape_bounds_and_plan_fail_closed() {
 }
 
 void metadata_limit_fails_before_reference_render() {
-    constexpr image::Dimensions oversized{10'000, 10'000};
+    constexpr image::Dimensions oversized{20'000, 10'000};
     constexpr image::Dimensions tiny{1, 1};
     SyntheticDecodeSession decoder(metadata(oversized), reference_rgb(tiny));
     expect_decode_error(
         [&] { static_cast<void>(image::prepare_full_edit_detail(decoder)); },
         image::DecodeErrorCode::resource_limit,
-        "oversized metadata is rejected by the 512 MiB RGB u16 preflight"
+        "oversized panorama metadata is rejected before reference RGB allocation"
     );
     expect(decoder.render_count() == 0, "metadata preflight runs before reference pixel I/O");
 }

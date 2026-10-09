@@ -2285,6 +2285,9 @@ mod ffi {
     #[derive(Debug)]
     struct FfiEditedPreview {
         terminal: FfiEditPreviewTerminal,
+        as_shot_white_balance_available: bool,
+        as_shot_temperature_kelvin: u32,
+        as_shot_tint: i16,
         width: u32,
         height: u32,
         /// Current geometry's level-zero output dimensions used by pixel-sized Recipe parameters.

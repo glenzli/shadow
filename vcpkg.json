@@ -5,19 +5,25 @@
   "description": "Windows native and Qt dependencies for Shadow",
   "dependencies": [
     "lcms",
+    "lensfun",
     "libheif",
     "libiconv",
     "libjpeg-turbo",
     "libpng",
-    "libraw",
+    { "name": "libraw", "features": ["dng-sdk"] },
     "tiff",
-    "opencv4",
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": ["calib3d", "jpeg", "png", "tiff"]
+    },
     "pkgconf",
     "qtbase",
     "qtdeclarative",
     "qtlocation",
     "qtpositioning",
     "qtsvg",
-    "qttools"
+    "qttools",
+    "qtwebview"
   ]
 }

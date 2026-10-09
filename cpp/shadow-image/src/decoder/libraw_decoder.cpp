@@ -647,16 +647,22 @@ class LibRawSession final : public DecodeSession {
     ) : path_(std::move(path)), settings_(settings), provider_info_(std::move(provider_info)) {
         decoder_.imgdata.rawparams.max_raw_memory_mb = 2'048U;
         require_libraw_success(libraw_open_path(decoder_, path_), "open_file");
+        dng_host_.attach(decoder_);
 
         metadata_ = read_metadata(decoder_);
         dng_noise_profile_ = read_dng_noise_profile(path_);
         previews_ = read_previews(decoder_.imgdata);
         libraw_decoder_info_t decoder_info{};
+        const bool decoder_info_available = decoder_.get_decoder_info(&decoder_info) == LIBRAW_SUCCESS;
+        const bool dng_sdk_can_unpack_jxl =
+            decoder_info_available && dng_host_.available()
+            && decoder_info.decoder_name != nullptr
+            && std::string_view(decoder_info.decoder_name) == "jxl_dng_load_raw_placeholder()";
         const bool decoder_advertises_unpack =
-            decoder_.get_decoder_info(&decoder_info) == LIBRAW_SUCCESS
-            && (decoder_info.decoder_flags
+            decoder_info_available
+            && (dng_sdk_can_unpack_jxl || (decoder_info.decoder_flags
                 & (LIBRAW_DECODER_UNSUPPORTED_FORMAT | LIBRAW_DECODER_NOTSET))
-                   == 0U;
+                   == 0U);
         // Preserve factual metadata and any camera JPEG for browse mode, but do not let public
         // LibRaw enter its unsafe HE/HE* development path. The photo router still gives an
         // independently installed private provider the opportunity to claim this source after
@@ -924,6 +930,7 @@ class LibRawSession final : public DecodeSession {
     std::filesystem::path path_;
     LibRawDevelopmentSettings settings_;
     ProviderInfo provider_info_;
+    LibRawDngHost dng_host_;
     LibRaw decoder_;
     AssetMetadata metadata_;
     DecodeCapabilities capabilities_;
@@ -946,6 +953,7 @@ class LibRawProvider final : public DecoderProvider {
         // Thus a transfer or gamut-mapping change cannot reuse bytes generated under the same
         // linked LibRaw release.
         info_.version = "lr=" + std::string(LibRaw::version())
+                        + ";k=" + std::to_string(capabilities)
                         + ";cap=" + std::to_string(libraw_reference_development_contract_version)
                         + ";l=" + std::to_string(processed_linear_reference_rgb_contract_version)
                         + ";r=" + std::to_string(raw_development_receipt_schema_version)

@@ -1199,6 +1199,7 @@ class EditController final : public QObject {
     void emitBusyChange(bool previous_busy);
     void parameterEdited(const QString& key, const BackendGradeStack& before);
     void foundationEdited(const QString& key, const BackendGradeStack& before);
+    void publishCameraWhiteBalance(const BackendEditedPreview& preview);
     void rawDenoiseEdited(const QString& key, const BackendGradeStack& before);
     void opticsEdited(const QString& key, const BackendGradeStack& before);
     void notifyParametersChanged();

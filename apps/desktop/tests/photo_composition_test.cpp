@@ -1,6 +1,7 @@
 #include "../src/composition_controller.hpp"
 #include "composition_engine.hpp"
 #include <QFile>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -170,13 +171,13 @@ class PhotoCompositionTest final : public QObject {
         QCOMPARE(original.readAll(), before);
         original.close();
         QSignalSpy saved(&controller, &CompositionController::saved);
-        QString destination = dir.filePath("joined.tif");
+        QString destination = dir.filePath(QStringLiteral("合成 joined.tif"));
         controller.save(QUrl::fromLocalFile(destination));
         QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
         QCOMPARE(saved.size(), 1);
         QCOMPARE(controller.savedPath(), destination);
         QCOMPARE(saved.at(0).at(0).toUrl(), QUrl::fromLocalFile(destination));
-        auto read = read_linear_tiff(std::filesystem::path(destination.toStdString()));
+        auto read = read_linear_tiff(QFileInfo(destination).filesystemFilePath());
         QVERIFY(read.dimensions.width > 640);
         controller.prepare(targets, "hdr");
         controller.start(2048, true, true, true);

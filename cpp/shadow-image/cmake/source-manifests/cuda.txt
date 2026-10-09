@@ -1,0 +1,2 @@
+src/acceleration/cuda/cuda_image_session.cu
+src/acceleration/cuda/warm_edit_gpu_cuda.cpp

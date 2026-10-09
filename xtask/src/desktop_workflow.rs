@@ -10,6 +10,8 @@ mod lock;
 mod process;
 mod promotion;
 mod run;
+#[cfg(target_os = "windows")]
+mod windows;
 
 use std::{ffi::OsString, io, path::PathBuf};
 

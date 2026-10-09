@@ -5,7 +5,11 @@ pub(super) fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<(
     {
         macos::run(arguments)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        super::windows::launch(arguments)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = arguments;
         Err(io::Error::new(

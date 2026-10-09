@@ -385,6 +385,25 @@ bool RawPreviewRebindingSource::supports_raw_white_balance_picker() const noexce
     return source_reconstruction_retains_sensor_cfa(impl_->basis);
 }
 
+std::optional<RawWhiteBalancePresentation>
+RawPreviewRebindingSource::as_shot_white_balance() const noexcept {
+    const auto* ordinary = std::get_if<SensorCfaSourceReconstructionBasis>(&impl_->basis);
+    if (ordinary == nullptr) {
+        return std::nullopt;
+    }
+    const auto& descriptor = ordinary->denoised_frame.descriptor;
+    const auto neutral = raw_as_shot_camera_neutral(descriptor);
+    if (!neutral) {
+        return std::nullopt;
+    }
+    if (impl_->camera_profile_definition) {
+        return raw_dcp_white_balance_presentation(
+            impl_->camera_profile_definition->profile, *neutral
+        );
+    }
+    return raw_frame_white_balance_presentation(descriptor, *neutral);
+}
+
 std::optional<RawWhiteBalancePresentation> RawPreviewRebindingSource::pick_raw_white_balance(
     const double normalized_x,
     const double normalized_y

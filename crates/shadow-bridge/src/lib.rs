@@ -451,6 +451,7 @@ mod ffi {
     enum FfiEditPreviewBackend {
         Cpu,
         Metal,
+        Cuda,
     }
 
     #[derive(Debug)]
@@ -913,6 +914,7 @@ mod ffi {
             normalized_y: f64,
         ) -> FfiRawWhiteBalancePresentation;
         fn auto_raw_white_balance(self: &EditPreviewHandle) -> FfiRawWhiteBalancePresentation;
+        fn as_shot_white_balance(self: &EditPreviewHandle) -> FfiRawWhiteBalancePresentation;
         fn curve_input_map(
             self: &EditPreviewHandle,
             request: &FfiAdjustmentRenderRequest,

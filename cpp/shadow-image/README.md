@@ -3,6 +3,11 @@
 `shadow-image` is Shadow's platform-neutral C++20 image kernel. Its first implemented provider
 uses LibRaw behind provider-neutral public contracts.
 
+The Windows dependency manifest uses [`cmake/vcpkg-ports`](../../cmake/vcpkg-ports/README.md)
+to enable public Adobe DNG SDK/JPEG XL decoding. `src/decoder/libraw_runtime.*` owns each
+SDK host's lifetime and limits SDK admission to JPEG XL DNGs; other LibRaw routes retain their
+existing semantics.
+
 Changes to an interactive render path must also follow the repository-wide
 [interactive editing pipeline contract](../../docs/development/interactive-editing-pipeline.md):
 it defines minimal invalidation, GPU continuity, cancellation, and preview/detail/export
@@ -29,6 +34,10 @@ The line-based manifests under
 by CMake and direct Cargo builds. Portable, Metal, and non-Metal fallback
 translation units are selected there; adding Windows acceleration must add a distinct manifest
 and backend owner rather than duplicate the portable kernel or fork this library.
+
+[`src/acceleration/cuda/`](src/acceleration/cuda/README.md) owns the optional Windows CUDA resident
+adjustment/display executor. Its source list is `cuda.txt`; `SHADOW_ENABLE_CUDA=ON` selects it in
+CMake. CPU RAW development and unsupported edit plans remain available with explicit receipts.
 
 ## Tone curves
 
@@ -182,6 +191,8 @@ Current contract rules:
   `src/raw/raw_preview_rebinding.*` owns the interactive exception to otherwise fixed source
   development: ordinary RAW keeps one already-neural/conventionally-denoised sensor frame, while
   a bounded AI preview keeps its original and full-strength AI oriented Camera RGB blend bases.
+  The retained RAW descriptor also presents the camera-authored white point without a local
+  DCP, pixel sampling, another decode, or an additional host/device transfer.
   A strength-only request rebinds those bases, and a temperature/tint-only request
   recompiles the generic camera transform or exact DCP and publishes a new immutable warm
   session, receipt, optics result, and GPU edit source without reopening the decoder, rereading the
@@ -447,7 +458,9 @@ contract and `raw_frame_source_preparation.*` for its development binding.
 Lensfun optics has responsibility-named production owners behind the stable `OpticsProvider` API.
 `src/optics/lensfun_profile_catalog.*` owns database selection and loading, normalized camera
 identity lookup, compatible-lens projection, explicit/manual profile resolution, synchronization,
-and the match cache. `src/optics/manual_optics.*` owns settings validation plus
+and the match cache. Windows discovers the offline `Lensfun/` database beside the executable;
+packagers supply it through `SHADOW_LENSFUN_DATABASE_PATH`. Explicit database paths retain priority.
+`src/optics/manual_optics.*` owns settings validation plus
 provider-independent manual distortion, transverse chromatic aberration, vignetting, and CPU
 fallback execution. `src/optics/metal_manual_optics.*` owns the bounded scene-linear fp32 Metal
 executor; automatic mode uses it for full-resolution manual optics while explicit CPU mode retains
@@ -662,7 +675,9 @@ and rendering stay with the warm-preview, full-detail, and proxy owners rather t
 leaf modules. `src/proxy/full_edit_detail_source_preparation.*` owns representation-specific
 metadata admission, owner-bound optical preparation, provider compatibility, and the complete
 forced-CPU versus automatic/forced-Metal source-routing transaction. Its result is a tagged
-materialized-or-resident owner with no null/dual state. Eligible forced-CPU RawFrame input retains
+materialized-or-resident owner with no null/dual state. It bounds resident CFA at 512 MiB,
+packed RGB at 1 GiB, and scene-linear RGB at 2 GiB; stitched panoramas retain one immutable
+source and continue through the same bounded detail tiles. Eligible forced-CPU RawFrame input retains
 `ResidentRawSource`; eligible automatic/Metal input publishes the same aggregate as a
 device-resident source. Pre-publication automatic failures may return the intact prepared owner to
 the existing materializer, while forced Metal fails closed. Unknown/non-resident optics on forced

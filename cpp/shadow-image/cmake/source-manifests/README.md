@@ -5,6 +5,8 @@ Both the native CMake target and the direct Cargo build in `shadow-bridge` read 
 
 - `portable.txt` contains sources compiled on every supported platform.
 - `metal.txt` and `metal-stubs.txt` select the Metal implementation or the non-Metal fallback.
+- `cuda.txt` selects the optional CMake CUDA executor, replacing the resident-session stub.
+  Direct Cargo builds retain CPU execution; desktop Cargo links the CMake-owned image library.
 
 Keep paths relative to `cpp/shadow-image`, one source per line. Headers and bridge-only
 translation units remain owned by their consuming build graph; do not list them here.

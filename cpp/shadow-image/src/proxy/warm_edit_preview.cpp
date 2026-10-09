@@ -529,6 +529,8 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
             return version == edit_preview_cpu_adjustment_backend_version;
         case EditPreviewBackend::metal:
             return version == edit_preview_metal_adjustment_backend_version;
+        case EditPreviewBackend::cuda:
+            return version == edit_preview_cuda_adjustment_backend_version;
         }
         return false;
     };
@@ -539,6 +541,8 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
             return version == edit_preview_cpu_display_backend_version;
         case EditPreviewBackend::metal:
             return version == edit_preview_metal_display_backend_version;
+        case EditPreviewBackend::cuda:
+            return version == edit_preview_cuda_display_backend_version;
         }
         return false;
     };
@@ -550,7 +554,9 @@ bool EditPreviewExecutionReceipt::valid() const noexcept {
            && (!adjustment_fell_back || adjustment_backend == EditPreviewBackend::cpu)
            && (!display_fell_back || display_backend == EditPreviewBackend::cpu)
            && (!presentation_fell_back || display_backend == EditPreviewBackend::metal)
-           && (!fused_pipeline || display_backend == EditPreviewBackend::metal)
+           && (!fused_pipeline || display_backend != EditPreviewBackend::cpu)
+           && (!fused_pipeline || adjustment_backend == EditPreviewBackend::cpu
+               || adjustment_backend == display_backend)
            && (!fused_pipeline || (!adjustment_fell_back && !display_fell_back))
            && ((adjustment_fell_back || display_fell_back || presentation_fell_back)
                == !diagnostic.empty());
@@ -566,6 +572,8 @@ std::string edit_preview_execution_receipt_identity(const EditPreviewExecutionRe
             return std::string_view{"cpu"};
         case EditPreviewBackend::metal:
             return std::string_view{"metal"};
+        case EditPreviewBackend::cuda:
+            return std::string_view{"cuda"};
         }
         throw std::invalid_argument("edit-preview execution backend is invalid");
     };
@@ -589,6 +597,9 @@ std::string edit_preview_generator_implementation_identity() {
            + std::string(display_output_backend_identity(DisplayOutputBackend::cpu))
            + ";display-metal="
            + std::string(display_output_backend_identity(DisplayOutputBackend::metal))
+#if defined(SHADOW_IMAGE_HAS_CUDA)
+           + ";warm-fused-cuda=v1"
+#endif
            + ";warm-denoise-range=v2;warm-fused-metal=v1;features=resident-source,double-slot,"
              "immutable-color-resources,technical-detail,texture,clarity,optics,"
              "adjustment,display"
@@ -728,6 +739,12 @@ std::optional<RawWhiteBalancePresentation>
 WarmEditPreviewSession::auto_raw_white_balance() const noexcept {
     return raw_rebinding_source_ != nullptr ? raw_rebinding_source_->auto_raw_white_balance()
                                             : std::nullopt;
+}
+
+std::optional<RawWhiteBalancePresentation>
+WarmEditPreviewSession::as_shot_white_balance() const noexcept {
+    return raw_rebinding_source_ != nullptr ? raw_rebinding_source_->as_shot_white_balance()
+                                           : std::nullopt;
 }
 
 raw_pipeline_detail::RawPreviewRebindingTelemetry

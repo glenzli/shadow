@@ -34,6 +34,8 @@ pub const EDIT_PREVIEW_CPU_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_CPU_DISPLAY_BACKEND_VERSION: u32 = 1;
 pub const EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION: u32 = 1;
+pub const EDIT_PREVIEW_CUDA_ADJUSTMENT_BACKEND_VERSION: u32 = 1;
+pub const EDIT_PREVIEW_CUDA_DISPLAY_BACKEND_VERSION: u32 = 1;
 // Must match `shadow::image::display_srgb8_output_transform_version` in the native image
 // kernel. The paired native-identity assertion in `analyzed_output_contract` makes a future
 // C++ display-transform revision fail at the bridge boundary before it reaches the desktop.
@@ -99,6 +101,7 @@ pub struct EditPreviewAnalysis {
 pub enum EditPreviewBackend {
     Cpu,
     Metal,
+    Cuda,
 }
 
 /// Effective adjustment and display route for one completed warm preview.
@@ -213,6 +216,7 @@ fn edit_preview_backend(
     match backend {
         ffi::FfiEditPreviewBackend::Cpu => Ok(EditPreviewBackend::Cpu),
         ffi::FfiEditPreviewBackend::Metal => Ok(EditPreviewBackend::Metal),
+        ffi::FfiEditPreviewBackend::Cuda => Ok(EditPreviewBackend::Cuda),
         _ => Err(BridgeError::InvalidEditPreviewOutput(
             "edit-preview receipt contains an unsupported backend",
         )),
@@ -241,6 +245,9 @@ pub(super) fn edit_preview_execution_receipt(
         EditPreviewBackend::Metal => {
             receipt.adjustment_backend_version == EDIT_PREVIEW_METAL_ADJUSTMENT_BACKEND_VERSION
         }
+        EditPreviewBackend::Cuda => {
+            receipt.adjustment_backend_version == EDIT_PREVIEW_CUDA_ADJUSTMENT_BACKEND_VERSION
+        }
     };
     let display_backend_version_is_current = match display_backend {
         EditPreviewBackend::Cpu => {
@@ -249,10 +256,16 @@ pub(super) fn edit_preview_execution_receipt(
         EditPreviewBackend::Metal => {
             receipt.display_backend_version == EDIT_PREVIEW_METAL_DISPLAY_BACKEND_VERSION
         }
+        EditPreviewBackend::Cuda => {
+            receipt.display_backend_version == EDIT_PREVIEW_CUDA_DISPLAY_BACKEND_VERSION
+        }
     };
     if !adjustment_backend_version_is_current
         || !display_backend_version_is_current
-        || (receipt.fused_pipeline && display_backend != EditPreviewBackend::Metal)
+        || (receipt.fused_pipeline && display_backend == EditPreviewBackend::Cpu)
+        || (receipt.fused_pipeline
+            && adjustment_backend != EditPreviewBackend::Cpu
+            && adjustment_backend != display_backend)
         || (receipt.fused_pipeline && (receipt.adjustment_fell_back || receipt.display_fell_back))
         || receipt.adjustment_execution_contract_version
             != EDIT_PREVIEW_EXECUTION_PLAN_CONTRACT_VERSION

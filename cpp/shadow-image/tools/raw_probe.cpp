@@ -3,6 +3,7 @@
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/display_luma.hpp>
 #include <shadow/image/raw_pipeline.hpp>
+#include <shadow/image/raw_white_balance.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include "../src/raw/bayer_sampling.hpp"
@@ -788,6 +789,19 @@ void inspect_raw_frame(
               << "raw_frame.output=" << (write_samples ? output_path.string() : "not-written")
               << '\n'
               << "timing.raw_frame_ms=" << timer.elapsed_ms() << '\n';
+    const auto camera_neutral = image::raw_as_shot_camera_neutral(frame.descriptor);
+    const auto camera_white_balance = camera_neutral.has_value()
+                                          ? image::raw_frame_white_balance_presentation(
+                                                frame.descriptor, *camera_neutral
+                                            )
+                                          : std::nullopt;
+    std::cout << "raw_frame.camera_white_balance.available="
+              << (camera_white_balance.has_value() ? "yes" : "no") << '\n';
+    if (camera_white_balance.has_value()) {
+        std::cout << "raw_frame.camera_white_balance.temperature_kelvin="
+                  << camera_white_balance->temperature_kelvin << '\n'
+                  << "raw_frame.camera_white_balance.tint=" << camera_white_balance->tint << '\n';
+    }
     if (!write_samples && frame.is_bayer_2x2()) {
         const RawFrameInspectionRegion region = inspection_region.value_or(
             RawFrameInspectionRegion{

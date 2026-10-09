@@ -18,6 +18,7 @@ add_custom_command(TARGET shadow-desktop POST_BUILD
     COMMENT "Installing the isolated photo composition worker")
 if(BUILD_TESTING)
     qt_add_executable(shadow-photo-composition-tests tests/photo_composition_test.cpp src/composition_controller.cpp src/composition_controller.hpp)
+    set_target_properties(shadow-photo-composition-tests PROPERTIES WIN32_EXECUTABLE FALSE)
     add_dependencies(shadow-photo-composition-tests shadow-photo-composition-worker)
     target_link_libraries(shadow-photo-composition-tests PRIVATE shadow-photo-composition Shadow::Image Qt6::Core Qt6::Test Qt6::Concurrent)
     add_test(NAME shadow-desktop-photo-composition COMMAND shadow-photo-composition-tests)

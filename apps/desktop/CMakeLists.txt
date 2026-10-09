@@ -309,6 +309,7 @@ endif()
 if(SHADOW_BUILD_DESKTOP)
 qt_add_executable(
     shadow-desktop
+    WIN32
     MACOSX_BUNDLE
     ${SHADOW_DESKTOP_EDIT_SETTINGS_PROJECTION_SOURCES}
     ${SHADOW_DESKTOP_HISTORY_PROJECTION_SOURCES}
@@ -557,6 +558,8 @@ qt_add_executable(
     src/rgb_curve_smoke_harness.hpp
     src/pipeline_smoke_harness.cpp
     src/pipeline_smoke_harness.hpp
+    src/raw_white_balance_smoke_harness.cpp
+    src/raw_white_balance_smoke_harness.hpp
     src/pipeline_runtime.cpp
     src/pipeline_run_controller.cpp
     src/pipeline_run_controller.hpp
@@ -815,6 +818,7 @@ endif()
 
 qt_add_executable(
     shadow-server-manager
+    WIN32
     MACOSX_BUNDLE
     src/server_manager/main.cpp
 )
@@ -875,36 +879,6 @@ set_target_properties(
         MACOSX_BUNDLE_BUNDLE_VERSION "1"
         OUTPUT_NAME "Shadow Server"
 )
-
-if(WIN32)
-    # Keep the Server Manager independently deployable while the full photo
-    # application is still being brought up on Windows. Qt's deployment script
-    # supplies QML imports and plugins; CMake resolves the non-Qt DLL closure
-    # needed by the controller. The decode helper's DLL imports are a subset
-    # of the controller's closure, so resolving it separately would present
-    # CMake with duplicate JPEG DLL copies from two build directories.
-    if(POLICY CMP0207)
-        cmake_policy(SET CMP0207 NEW)
-    endif()
-    install(
-        TARGETS shadow-server-manager
-        RUNTIME_DEPENDENCIES
-            DIRECTORIES "$<TARGET_FILE_DIR:Qt6::Core>"
-            PRE_EXCLUDE_REGEXES
-                "^api-ms-.*"
-                "^ext-ms-.*"
-            POST_EXCLUDE_REGEXES
-                ".*[/\\\\][Ww][Ii][Nn][Dd][Oo][Ww][Ss][/\\\\][Ss][Yy][Ss][Tt][Ee][Mm]32[/\\\\].*"
-        RUNTIME DESTINATION "."
-    )
-    install(TARGETS shadow-image-decode-helper RUNTIME DESTINATION ".")
-    qt_generate_deploy_qml_app_script(
-        TARGET shadow-server-manager
-        OUTPUT_SCRIPT shadow_server_manager_deploy_script
-        NO_TRANSLATIONS
-    )
-    install(SCRIPT "${shadow_server_manager_deploy_script}")
-endif()
 
 if(SHADOW_BUILD_DESKTOP)
 qt_add_qml_module(
@@ -1150,6 +1124,8 @@ if(BUILD_TESTING)
     target_compile_definitions(shadow-desktop PRIVATE SHADOW_DESKTOP_UI_SMOKE)
 endif()
 add_dependencies(shadow-desktop shadow-image-decode-helper)
+target_compile_definitions(shadow-desktop PRIVATE
+    "SHADOW_DECODE_HELPER_FILE_NAME=\"shadow-image-decode-helper${CMAKE_EXECUTABLE_SUFFIX}\"")
 add_dependencies(shadow-desktop shadow-server-manager)
 add_custom_command(
     TARGET shadow-desktop
@@ -1265,4 +1241,9 @@ if(SHADOW_BUILD_DESKTOP)
     include(cmake/ShadowDesktopComposition.cmake)
 else()
     include(cmake/ShadowServerManagerTests.cmake)
+endif()
+
+if(WIN32)
+    include(cmake/ShadowDesktopWindowsResources.cmake)
+    include(cmake/ShadowDesktopWindowsDeploy.cmake)
 endif()

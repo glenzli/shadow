@@ -12,6 +12,9 @@ use crate::ffi;
 pub(crate) fn cancelled_edited_preview() -> ffi::FfiEditedPreview {
     ffi::FfiEditedPreview {
         terminal: ffi::FfiEditPreviewTerminal::Cancelled,
+        as_shot_white_balance_available: false,
+        as_shot_temperature_kelvin: 5_500,
+        as_shot_tint: 0,
         width: 0,
         height: 0,
         level_zero_width: 0,
@@ -127,6 +130,9 @@ pub(crate) fn completed_edited_preview(
     );
     ffi::FfiEditedPreview {
         terminal: ffi::FfiEditPreviewTerminal::Completed,
+        as_shot_white_balance_available: false,
+        as_shot_temperature_kelvin: 5_500,
+        as_shot_tint: 0,
         width: proxy.dimensions.width,
         height: proxy.dimensions.height,
         level_zero_width: level_zero_dimensions.width,

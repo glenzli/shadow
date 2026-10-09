@@ -28,10 +28,24 @@ fn build_command_keeps_check_labels_and_verification_distinct() {
 
 #[test]
 fn workflow_outputs_must_stay_outside_the_repository() {
-    let repository = Path::new("/workspace/shadow");
-    assert!(validate_external_path(repository, Path::new("/workspace/build"), "OUTPUT").is_ok());
-    assert!(
-        validate_external_path(repository, Path::new("/workspace/shadow/build"), "OUTPUT").is_err()
-    );
+    let workspace = if cfg!(windows) {
+        Path::new("C:/workspace")
+    } else {
+        Path::new("/workspace")
+    };
+    let repository_path = workspace.join("shadow");
+    let repository = repository_path.as_path();
+    assert!(validate_external_path(repository, &workspace.join("build"), "OUTPUT").is_ok());
+    assert!(validate_external_path(repository, &repository.join("build"), "OUTPUT").is_err());
     assert!(validate_external_path(repository, Path::new("relative"), "OUTPUT").is_err());
+    let actual_repository = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let canonical_repository = actual_repository.canonicalize().unwrap();
+    assert!(
+        validate_external_path(
+            &canonical_repository,
+            &actual_repository.join("uncreated-build-output"),
+            "OUTPUT"
+        )
+        .is_err()
+    );
 }

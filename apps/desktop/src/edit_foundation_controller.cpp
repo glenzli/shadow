@@ -44,6 +44,31 @@ bool EditController::foundationWhiteBalanceCameraValueAvailable() const noexcept
     return grade_stack_.foundation.as_shot_white_balance_available;
 }
 
+void EditController::publishCameraWhiteBalance(const BackendEditedPreview& preview) {
+    if (!preview.as_shot_white_balance_available) {
+        return;
+    }
+    const auto& current = grade_stack_.foundation;
+    const bool changed = !current.as_shot_white_balance_available
+                         || current.as_shot_temperature_kelvin != preview.as_shot_temperature_kelvin
+                         || current.as_shot_tint != preview.as_shot_tint;
+    const auto apply = [&preview](BackendGradeStack& stack) {
+        auto& foundation = stack.foundation;
+        foundation.as_shot_white_balance_available = true;
+        foundation.as_shot_temperature_kelvin = preview.as_shot_temperature_kelvin;
+        foundation.as_shot_tint = preview.as_shot_tint;
+        if (foundation.raw_white_balance_mode == 0U) {
+            foundation.temperature_kelvin = preview.as_shot_temperature_kelvin;
+            foundation.tint = preview.as_shot_tint;
+        }
+    };
+    apply(grade_stack_);
+    apply(committed_grade_stack_);
+    if (changed) {
+        emit foundationChanged();
+    }
+}
+
 bool EditController::rawWhiteBalancePickerActive() const noexcept {
     return raw_white_balance_picker_active_;
 }

@@ -3,6 +3,7 @@
 #include "scoped_environment.hpp"
 
 #include <shadow/image/edit_error.hpp>
+#include <shadow/image/adjustment_execution.hpp>
 #include <shadow/image/warm_edit_preview.hpp>
 
 #include <array>
@@ -78,7 +79,7 @@ void supported_layers_publish_the_effective_resident_route() {
         "forced CPU layer rendering retains the staged CPU receipt"
     );
 
-    if (warm.gpu_stats().resident) {
+    if (warm.gpu_stats().resident && image::adjustment_backend_available(image::AdjustmentBackend::metal)) {
         image::AnalyzedEditPreview metal;
         {
             const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION", "metal");
@@ -93,6 +94,9 @@ void supported_layers_publish_the_effective_resident_route() {
             "supported local-mask layers publish one fused resident Metal receipt"
         );
     } else {
+        const auto automatic = warm.render_jpeg_with_analysis_layers(layers, 90U);
+        expect(automatic.proxy.bytes == cpu.proxy.bytes && automatic.analysis == cpu.analysis,
+               "unsupported resident mask plans replay the full CPU reference");
         expect(
             std::getenv("SHADOW_TEST_REQUIRE_WARM_METAL") == nullptr,
             "resident layer Metal was required but unavailable"
@@ -125,7 +129,7 @@ void brush_layers_use_resident_metal_and_failure_replays_atomically() {
             },
         },
     };
-    if (warm.gpu_stats().resident) {
+    if (warm.gpu_stats().resident && image::adjustment_backend_available(image::AdjustmentBackend::metal)) {
         {
             const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION", "metal");
             const auto metal = warm.render_jpeg_with_analysis_layers(brush_layers, 90U);

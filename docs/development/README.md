@@ -130,9 +130,26 @@ the Qt/QML runtime, non-Qt DLL dependencies, and the isolated decode helper.
 
 The Windows workflow runs the native-path fixtures, configures the selected Server or desktop
 graph, compiles the Rust/CXX bridge, and builds the portable image kernel. Runtime launch and
-immutable debug promotion remain platform backends behind the shared xtask commands; the macOS
-backends are implemented here, and Windows can add its backend without changing the command
-contract.
+immutable debug promotion remain platform backends behind the shared xtask commands. Windows
+`desktop-build-promote` builds both applications, checks localization and startup, deploys their
+dependency closure, and promotes an immutable copy. Set `SHADOW_CANONICAL_DEBUG_BUILD_DIR` to
+the task-private external build directory, `SHADOW_GEONAMES_CITY_INDEX_PATH` to the prepared
+offline index, and optionally `VCPKG_INSTALLED_DIR` to a preinstalled dependency tree.
+`SHADOW_CUDA_TOOLKIT_ROOT` enables the CMake CUDA backend using that toolkit's `nvcc.exe`.
+Set `SHADOW_LENSFUN_DATABASE_PATH` to an offline Lensfun XML database compatible with the
+linked library (version 1 for Lensfun 0.3.4); Windows deploys it beside both applications.
+`cmake/ShadowWindowsDependencies.cmake` decodes localized MSVC `/utf-8` include diagnostics
+explicitly so console and headless Ninja builds retain header-dependency tracking.
+The CUDA executor owns resident pixel-local adjustments and display output; RAW development,
+neighborhood/mask/geometry fallback and RGB16 export preserve the existing CPU semantics.
+
+Windows promotion uses the same canonical-debug steward lock. It verifies every copied file,
+retains immutable revisions under `releases/windows-debug`, and atomically updates
+`current-debug-windows.json`, including the previous revision for rollback. The shared
+`cargo xtask desktop-run-debug` command resolves this pointer; `--server` launches Shadow Server.
+PowerShell users can use `scripts/run_debug.ps1` with the same arguments. A prepared deployment
+can also be promoted with `cargo xtask desktop-promote-debug <absolute-directory> <validation-label>`.
+Private Nikon binaries and their local decoder link remain separate from this public deployment.
 
 Repository instructions require build output outside the source tree. Agents and concurrent tasks
 must use task-private external Cargo and CMake directories; see [AGENTS.md](../../AGENTS.md) for the

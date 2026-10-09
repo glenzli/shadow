@@ -5,6 +5,13 @@
 #include <sstream>
 #include <string>
 
+#if __has_include(<shadow_dng_host.h>)
+#include <shadow_dng_host.h>
+#define SHADOW_LIBRAW_HAS_DNG_HOST 1
+#else
+#define SHADOW_LIBRAW_HAS_DNG_HOST 0
+#endif
+
 namespace shadow::image {
 
 namespace {
@@ -40,6 +47,36 @@ namespace {
 }
 
 } // namespace
+
+LibRawDngHost::LibRawDngHost() {
+#if SHADOW_LIBRAW_HAS_DNG_HOST
+    if ((LibRaw::capabilities() & LIBRAW_CAPS_DNGSDK) != 0U) {
+        host_ = shadow_dng_host_create();
+    }
+#endif
+}
+
+LibRawDngHost::~LibRawDngHost() {
+#if SHADOW_LIBRAW_HAS_DNG_HOST
+    shadow_dng_host_destroy(host_);
+#endif
+}
+
+void LibRawDngHost::attach(LibRaw& decoder) const noexcept {
+    libraw_decoder_info_t info{};
+    if (host_ != nullptr && decoder.get_decoder_info(&info) == LIBRAW_SUCCESS
+        && info.decoder_name != nullptr
+        && std::string_view(info.decoder_name) == "jxl_dng_load_raw_placeholder()") {
+        decoder.set_dng_host(host_);
+        // JPEG XL is admitted by LibRaw's explicit codec rule regardless of this
+        // mask. Other DNGs keep their existing public LibRaw execution semantics.
+        decoder.imgdata.rawparams.use_dngsdk = LIBRAW_DNG_NONE;
+        // Lossy JPEG/JPEG XL DNG may encode a non-linear or colour-scaled
+        // raster. Its declared Stage 2/3 opcodes restore the camera-linear
+        // source before LibRaw applies white balance and colour development.
+        decoder.imgdata.rawparams.options |= LIBRAW_RAWOPTIONS_DNG_STAGE23_IFPRESENT_JPGJXL;
+    }
+}
 
 [[noreturn]] void throw_libraw_error(
     const int result,

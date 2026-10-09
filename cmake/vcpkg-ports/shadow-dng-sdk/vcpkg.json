@@ -1,0 +1,12 @@
+{
+  "name": "shadow-dng-sdk",
+  "version-string": "1.7.1",
+  "description": "Adobe DNG SDK and JPEG XL for Shadow's public LibRaw runtime",
+  "homepage": "https://www.adobe.com/support/downloads/dng/dng_sdk.html",
+  "license": "BSD-3-Clause",
+  "dependencies": [
+    "libjxl",
+    { "name": "vcpkg-cmake", "host": true },
+    { "name": "vcpkg-cmake-config", "host": true }
+  ]
+}

@@ -103,6 +103,12 @@ void ordinary_raw_rebinds_without_a_second_decode() {
         "owned RawFrame warm preview advertises camera-space colour rebinding"
     );
     const auto automatic_white_balance = initial.auto_raw_white_balance();
+    const auto camera_white_balance = initial.as_shot_white_balance();
+    expect(
+        camera_white_balance.has_value() && camera_white_balance->valid()
+            && decoder.raw_frame_count() == 1U,
+        "camera RAW white balance is presented from retained calibration without a DCP or decode"
+    );
     expect(
         initial.supports_raw_white_balance_picker() && automatic_white_balance.has_value()
             && automatic_white_balance->valid() && decoder.raw_frame_count() == 1U,
@@ -110,6 +116,14 @@ void ordinary_raw_rebinds_without_a_second_decode() {
     );
 
     const auto rebound = initial.rebind_raw_development_plan(manual_white_balance_plan());
+    const auto rebound_camera_white_balance = rebound.as_shot_white_balance();
+    expect(
+        rebound_camera_white_balance.has_value()
+            && rebound_camera_white_balance->temperature_kelvin
+                   == camera_white_balance->temperature_kelvin
+            && rebound_camera_white_balance->tint == camera_white_balance->tint,
+        "manual white balance preserves the camera-authored reset value"
+    );
     expect(
         initial.highlight_chroma_risk_map().has_value()
             && rebound.highlight_chroma_risk_map().has_value()

@@ -310,6 +310,7 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::finish_render(
             .bytes = std::move(attempt.output->rgb8),
             .source_cache_hit = source_cache_hit,
             .diagnostic = {},
+            .backend = output.backend,
         };
     }
     const std::uint32_t core_offset_x = core_rect.x - working_rect.x;
@@ -328,6 +329,7 @@ FullEditDetailGpuCache::RenderAttempt FullEditDetailGpuCache::finish_render(
         .bytes = std::move(core),
         .source_cache_hit = source_cache_hit,
         .diagnostic = {},
+        .backend = output.backend,
     };
 }
 

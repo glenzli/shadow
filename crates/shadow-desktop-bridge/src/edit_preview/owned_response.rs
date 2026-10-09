@@ -41,6 +41,18 @@ impl std::fmt::Debug for OwnedEditedPreview {
 }
 
 impl OwnedEditedPreview {
+    pub(crate) fn with_as_shot_white_balance(
+        mut self: Box<Self>,
+        presentation: Option<(u32, i16)>,
+    ) -> Box<Self> {
+        if let Some((temperature, tint)) = presentation {
+            self.projection.as_shot_white_balance_available = true;
+            self.projection.as_shot_temperature_kelvin = temperature;
+            self.projection.as_shot_tint = tint;
+        }
+        self
+    }
+
     pub(crate) fn with_completion_basis(
         mut self: Box<Self>,
         basis: Option<shadow_domain::ImageCompletionColorBasis>,
@@ -189,6 +201,9 @@ fn interactive_projection(
     let mask_coverage = frame.mask_coverage();
     ffi::FfiEditedPreview {
         terminal: ffi::FfiEditPreviewTerminal::Completed,
+        as_shot_white_balance_available: false,
+        as_shot_temperature_kelvin: 5_500,
+        as_shot_tint: 0,
         width: dimensions.width,
         height: dimensions.height,
         level_zero_width: level_zero_dimensions.width,

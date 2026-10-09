@@ -46,7 +46,7 @@ void validate_full_detail_source_preflight(
             0,
             storage == FullDetailSourceStorage::resident_raw_candidate
                 ? "full edit detail metadata exceeds the 512 MiB resident CFA limit"
-                : "full edit detail metadata exceeds the 1 GiB scene-linear RGB limit"
+                : "full edit detail metadata exceeds the 2 GiB scene-linear RGB limit"
         );
     }
 }
@@ -64,11 +64,11 @@ namespace {
     }
     const std::uint64_t bytes =
         static_cast<std::uint64_t>(source.samples.capacity()) * sizeof(std::uint16_t);
-    if (bytes > maximum_full_edit_detail_retained_bytes) {
+    if (bytes > maximum_full_edit_packed_rgb_retained_bytes) {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
             0,
-            "full edit detail source exceeds the 512 MiB retained limit"
+            "full edit detail source exceeds the 1 GiB packed RGB retained limit"
         );
     }
     return bytes;
@@ -81,7 +81,7 @@ namespace {
         throw DecodeError(
             DecodeErrorCode::resource_limit,
             0,
-            "full edit scene-linear RAW source exceeds the 1 GiB retained-buffer limit"
+            "full edit scene-linear RAW source exceeds the 2 GiB retained-buffer limit"
         );
     }
     return bytes;

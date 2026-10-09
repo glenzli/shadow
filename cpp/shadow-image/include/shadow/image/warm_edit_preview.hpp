@@ -63,11 +63,14 @@ inline constexpr std::uint32_t edit_preview_cpu_adjustment_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_metal_adjustment_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_cpu_display_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_metal_display_backend_version = 1U;
+inline constexpr std::uint32_t edit_preview_cuda_adjustment_backend_version = 1U;
+inline constexpr std::uint32_t edit_preview_cuda_display_backend_version = 1U;
 inline constexpr std::uint32_t edit_preview_jpeg_444_contract_version = 1U;
 
 enum class EditPreviewBackend : std::uint8_t {
     cpu,
     metal,
+    cuda,
 };
 
 struct EditPreviewExecutionReceipt final {
@@ -234,6 +237,8 @@ class WarmEditPreviewSession final {
     // rebinding: it requires an ordinary retained CFA frame, not an RGB
     // compatibility or AI-foundation representation.
     [[nodiscard]] bool supports_raw_white_balance_picker() const noexcept;
+    [[nodiscard]] std::optional<RawWhiteBalancePresentation>
+    as_shot_white_balance() const noexcept;
     [[nodiscard]] std::optional<RawWhiteBalancePresentation>
     pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
     [[nodiscard]] std::optional<RawWhiteBalancePresentation>

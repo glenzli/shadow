@@ -186,6 +186,7 @@ fn explicit_roots_and_original_permission_bound_the_manifest() {
             .prepare_original(shared_asset.photo_id, shared_asset.representation_id)
             .is_err()
     );
+    drop(catalog);
     fs::remove_dir_all(root).expect("remove fixture");
 }
 

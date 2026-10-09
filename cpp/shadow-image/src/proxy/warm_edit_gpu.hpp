@@ -26,6 +26,7 @@ namespace shadow::image::detail {
 
 struct WarmEditGpuPreparation;
 class WarmEditGpuPresentationSurface;
+enum class WarmEditGpuBackend : std::uint8_t { metal, cuda };
 
 struct WarmEditGpuHostSourceAttempt final {
     std::shared_ptr<const FloatRgbImage> source;
@@ -116,6 +117,7 @@ class WarmEditGpuSession final {
         // pre-adjustment input and geometrically paired with this RGB frame.
         std::optional<MaskCoverageResult> mask_coverage;
         bool had_active_adjustments = false;
+        WarmEditGpuBackend backend = WarmEditGpuBackend::metal;
     };
 
     enum class RenderStatus : std::uint8_t {

@@ -428,7 +428,7 @@ void unsupported_orientation_fails_closed_during_region_preparation() {
 
 void metadata_preflight_uses_the_actual_retained_representation() {
     image::AssetMetadata metadata;
-    metadata.raw_dimensions = {10'000U, 10'000U};
+    metadata.raw_dimensions = {20'000U, 10'000U};
     metadata.image_dimensions = metadata.raw_dimensions;
     try {
         image::proxy_detail::validate_full_detail_source_preflight(
@@ -436,19 +436,29 @@ void metadata_preflight_uses_the_actual_retained_representation() {
             image::proxy_detail::FullDetailSourceStorage::resident_raw_candidate
         );
     } catch (const image::DecodeError&) {
-        expect(false, "100 MP metadata fits the resident uint16 CFA memory contract");
+        expect(false, "200 MP metadata fits the resident uint16 CFA memory contract");
     }
     try {
         image::proxy_detail::validate_full_detail_source_preflight(
             metadata,
             image::proxy_detail::FullDetailSourceStorage::materialized_scene_linear
         );
-        expect(false, "100 MP metadata exceeds complete fp32 scene-linear materialization");
+        expect(false, "200 MP metadata exceeds complete fp32 scene-linear materialization");
     } catch (const image::DecodeError& error) {
         expect(
             error.code() == image::DecodeErrorCode::resource_limit,
-            "materialized 100 MP metadata fails with the typed memory limit"
+            "materialized 200 MP metadata fails with the typed memory limit"
         );
+    }
+    metadata.raw_dimensions = {16'000U, 10'000U};
+    metadata.image_dimensions = metadata.raw_dimensions;
+    try {
+        image::proxy_detail::validate_full_detail_source_preflight(
+            metadata,
+            image::proxy_detail::FullDetailSourceStorage::materialized_scene_linear
+        );
+    } catch (const image::DecodeError&) {
+        expect(false, "160 MP stitched panorama fits bounded scene-linear source preparation");
     }
 }
 

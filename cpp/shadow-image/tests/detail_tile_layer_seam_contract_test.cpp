@@ -165,6 +165,11 @@ void resident_gradient_layers_preserve_full_resolution_tile_seams() {
 } // namespace
 
 int main() {
-    resident_gradient_layers_preserve_full_resolution_tile_seams();
+    try {
+        resident_gradient_layers_preserve_full_resolution_tile_seams();
+    } catch (const std::exception& error) {
+        std::cerr << "Detail layer seam contract failed: " << error.what() << '\n';
+        return EXIT_FAILURE;
+    }
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

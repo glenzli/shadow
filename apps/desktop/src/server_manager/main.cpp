@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QIcon>
 #include <QLocale>
 #include <QLockFile>
 #include <QMessageBox>
@@ -70,6 +71,9 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName(QStringLiteral("Shadow"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow Server"));
+#if defined(Q_OS_WIN)
+    application.setWindowIcon(QIcon(QStringLiteral(":/branding/app-icon-source.png")));
+#endif
 
     const QString decode_helper_path = QDir(QCoreApplication::applicationDirPath())
                                            .filePath(QStringLiteral(SHADOW_DECODE_HELPER_FILE_NAME));

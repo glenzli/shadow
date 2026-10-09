@@ -367,3 +367,31 @@ fn edit_preview_execution_receipt_validation_is_strict_and_keeps_diagnostics_sep
         Err(BridgeError::InvalidEditPreviewOutput(_))
     ));
 }
+
+#[test]
+fn cuda_receipts_keep_backend_identity_and_reject_stale_or_fallback_claims() {
+    let make_cuda = || {
+        let mut receipt = valid_ffi_edit_preview_execution_receipt();
+        receipt.adjustment_backend = ffi::FfiEditPreviewBackend::Cuda;
+        receipt.display_backend = ffi::FfiEditPreviewBackend::Cuda;
+        receipt.fused_pipeline = true;
+        receipt.cache_identity = format!(
+            "shadow-edit-preview-execution-v1;adjustment=cuda-v1;plan=1;display=cuda-v1;\
+             display-contract={DISPLAY_SRGB8_OUTPUT_CONTRACT_VERSION};route=fused"
+        );
+        receipt
+    };
+    let validated = edit_preview_execution_receipt(make_cuda()).expect("current CUDA receipt");
+    assert_eq!(validated.adjustment_backend, EditPreviewBackend::Cuda);
+    assert_eq!(validated.display_backend, EditPreviewBackend::Cuda);
+    let mut stale = make_cuda();
+    stale.display_backend_version += 1;
+    assert!(edit_preview_execution_receipt(stale).is_err());
+    let mut fallback = make_cuda();
+    fallback.adjustment_fell_back = true;
+    fallback.diagnostic = "device failure".to_owned();
+    assert!(edit_preview_execution_receipt(fallback).is_err());
+    let mut mixed = make_cuda();
+    mixed.adjustment_backend = ffi::FfiEditPreviewBackend::Metal;
+    assert!(edit_preview_execution_receipt(mixed).is_err());
+}

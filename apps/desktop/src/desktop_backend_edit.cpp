@@ -546,6 +546,9 @@ BackendEditedPreview DesktopBackend::renderEditPreview(
         .level_zero_width = payload.level_zero_width,
         .level_zero_height = payload.level_zero_height,
         .terminal = EditPreviewTerminal::Completed,
+        .as_shot_white_balance_available = payload.as_shot_white_balance_available,
+        .as_shot_temperature_kelvin = payload.as_shot_temperature_kelvin,
+        .as_shot_tint = payload.as_shot_tint,
     };
     if (interactive) {
         result.frame = makeRustOwnedEditPreviewFrame(std::move(owned_payload));

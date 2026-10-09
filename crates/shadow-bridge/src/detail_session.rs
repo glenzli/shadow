@@ -31,9 +31,9 @@ pub const MAX_EDIT_DETAIL_TILE_SIDE: u32 = 1_024;
 
 /// Hard bound for the largest complete immutable source retained by one detail session.
 ///
-/// Packed u16 raster sources retain at most 512 MiB. Owned `RawFrame` development retains fp32
-/// scene-linear RGB and is independently capped at 1 GiB by the native session.
-pub const MAX_EDIT_DETAIL_RETAINED_BYTES: u64 = 1_024 * 1_024 * 1_024;
+/// Packed u16 RGB retains at most 1 GiB; resident CFA keeps its separate 512 MiB bound.
+/// Scene-linear RGB, including stitched panoramas, is capped at 2 GiB by the native session.
+pub const MAX_EDIT_DETAIL_RETAINED_BYTES: u64 = 2 * 1_024 * 1_024 * 1_024;
 
 /// Runtime source capabilities required by a complete full-detail render plan.
 ///
@@ -149,6 +149,7 @@ pub struct RenderedDetailTile16 {
 pub enum DetailTileRenderBackend {
     Cpu,
     Metal,
+    Cuda,
 }
 
 /// Runtime-only execution provenance. `source_cache_hit` reports whether an expanded working
@@ -173,6 +174,7 @@ fn detail_execution_receipt(
     let backend = match execution_backend {
         0 => DetailTileRenderBackend::Cpu,
         1 => DetailTileRenderBackend::Metal,
+        2 => DetailTileRenderBackend::Cuda,
         _ => {
             return Err(BridgeError::InvalidEditDetailOutput(
                 "detail execution backend is unknown",
@@ -182,7 +184,7 @@ fn detail_execution_receipt(
     let diagnostic = (!diagnostic.is_empty()).then_some(diagnostic);
     if execution_backend_version != 1
         || (backend == DetailTileRenderBackend::Cpu && source_cache_hit)
-        || (backend == DetailTileRenderBackend::Metal && fell_back)
+        || (backend != DetailTileRenderBackend::Cpu && fell_back)
         || fell_back != diagnostic.is_some()
     {
         return Err(BridgeError::InvalidEditDetailOutput(
@@ -498,7 +500,7 @@ impl LibRawEditDetailSession {
         }
         if retained_bytes == 0 || retained_bytes > MAX_EDIT_DETAIL_RETAINED_BYTES {
             return Err(BridgeError::InvalidEditDetailOutput(
-                "retained bytes must be in 1..=1 GiB",
+                "retained bytes must be in 1..=2 GiB",
             ));
         }
         if requirements.requires_cpu_replay() && !cpu_replay_available {
