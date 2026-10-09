@@ -25,6 +25,7 @@ class PipelineRunController final : public QObject {
     Q_PROPERTY(bool navigationEnabled READ navigationEnabled NOTIFY changed)
     Q_PROPERTY(bool currentPhotoEditable READ currentPhotoEditable NOTIFY changed)
     Q_PROPERTY(bool interactive READ interactive CONSTANT)
+    Q_PROPERTY(bool externalEdit READ externalEdit CONSTANT)
     Q_PROPERTY(bool finished READ finished NOTIFY changed)
     Q_PROPERTY(int currentIndex READ currentIndex NOTIFY changed)
     Q_PROPERTY(int completedCount READ completedCount NOTIFY changed)
@@ -51,6 +52,9 @@ class PipelineRunController final : public QObject {
     }
     bool navigationEnabled() const noexcept;
     bool currentPhotoEditable() const noexcept;
+    bool externalEdit() const noexcept {
+        return request_.external.has_value();
+    }
     bool interactive() const noexcept {
         return request_.interactive;
     }
@@ -87,6 +91,7 @@ class PipelineRunController final : public QObject {
     Q_INVOKABLE void cancel();
   signals:
     void changed();
+    void terminationRequested(int exit_code);
 
   private:
     struct AdmissionResult {
@@ -110,6 +115,7 @@ class PipelineRunController final : public QObject {
     std::shared_ptr<std::atomic_bool> cancellation_token_;
     std::shared_ptr<std::atomic_bool> admission_cancellation_;
     QSet<QString> completed_paths_;
+    std::optional<BackendExportReceipt> external_receipt_;
     QString error_text_;
     QString output_folder_;
     QString progress_title_;

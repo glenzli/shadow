@@ -22,7 +22,8 @@ ApplicationWindow {
     flags: Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
     visible: true
     color: Theme.window
-    readonly property string descriptiveTitle: qsTr("Shadow · Independent Editor")
+    readonly property string descriptiveTitle: pipeline.externalEdit
+        ? qsTr("Shadow · Material Editor") : qsTr("Shadow · Independent Editor")
     title: Qt.platform.os === "osx" ? "" : descriptiveTitle
 
     Binding { target: Theme; property: "effectiveDark"; value: window.preferences.dark }
@@ -142,11 +143,19 @@ ApplicationWindow {
                     visible: !pipeline.finished
                     color: Theme.border
                 }
+                ShadowButton {
+                    objectName: "externalEditReturnButton"
+                    text: qsTr("Return edited image")
+                    variant: ShadowButton.Primary
+                    visible: pipeline.externalEdit && !pipeline.finished
+                    enabled: pipeline.photoCount > 0 && !pipeline.busy
+                    onClicked: window.exportPhotos()
+                }
                 ShadowIconButton {
                     objectName: "pipelineExportPhotosButton"
                     variant: ShadowIconButton.Tinted
                     source: pipeline.completedCount > 0 ? "qrc:/icons/refresh.svg" : "qrc:/icons/export.svg"
-                    visible: !pipeline.finished
+                    visible: !pipeline.finished && !pipeline.externalEdit
                     toolTipText: pipeline.completedCount > 0
                         ? qsTr("Retry remaining") : qsTr("Export %1 photos…").arg(pipeline.photoCount)
                     enabled: pipeline.photoCount > 0 && !pipeline.busy
@@ -305,6 +314,7 @@ ApplicationWindow {
             anchors.margins: 6
             BusyIndicator { running: pipeline.busy; visible: running; implicitWidth: 28; implicitHeight: 28 }
             Label {
+                objectName: "pipelineStatusLabel"
                 Layout.fillWidth: true
                 text: pipeline.statusText
                 color: Theme.textSecondary

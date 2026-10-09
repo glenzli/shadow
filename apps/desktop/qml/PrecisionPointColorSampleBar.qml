@@ -40,8 +40,22 @@ ColumnLayout {
         swatchFlickable.ensurePositionVisible(selectedSamplePosition)
     }
 
+    function revealFocusedOrSelectedSwatch() {
+        // Layout and parameter updates may queue this before keyboard focus
+        // moves. Resolve current focus now so a stale selection reveal cannot
+        // scroll the focused delegate out of view.
+        for (let position = 0; position < swatchRepeater.count; ++position) {
+            const swatch = swatchRepeater.itemAt(position)
+            if (swatch && swatch.activeFocus) {
+                swatchFlickable.ensurePositionVisible(position)
+                return
+            }
+        }
+        revealSelectedSwatch()
+    }
+
     function queueRevealSelectedSwatch() {
-        Qt.callLater(sampleBar.revealSelectedSwatch)
+        Qt.callLater(sampleBar.revealFocusedOrSelectedSwatch)
     }
 
     Component.onCompleted: queueRevealSelectedSwatch()

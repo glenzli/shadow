@@ -22,6 +22,13 @@ constexpr int EDIT_PREVIEW_THROTTLE_MS = 16;
     return {"EditController", source, arguments};
 }
 
+bool clear_completed_tool_feedback(const bool running, LocalizedUiMessage& message) {
+    if (running || message.isEmpty())
+        return false;
+    message.clear();
+    return true;
+}
+
 } // namespace
 
 void EditController::beginParameterEdit(const QString& parameter_key) {
@@ -110,6 +117,8 @@ void EditController::undo() {
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Undid the last session adjustment"))
     );
+    if (clear_completed_tool_feedback(tool_operation_running_, tool_activity_message_))
+        emit statusTextChanged();
 }
 
 void EditController::redo() {
@@ -142,6 +151,8 @@ void EditController::redo() {
     setStatusMessage(
         edit_message(QT_TRANSLATE_NOOP("EditController", "Redid the last session adjustment"))
     );
+    if (clear_completed_tool_feedback(tool_operation_running_, tool_activity_message_))
+        emit statusTextChanged();
 }
 
 void EditController::resetAllAdjustments() {
@@ -408,6 +419,11 @@ void EditController::recordWorkingTransition(const QString& key, const BackendGr
     if (dirty_ && !stateTaskRunning()) {
         scheduleAutosave();
     }
+    // Structural edits may notify parameters before recording their revision, or
+    // not notify them at all. Dismiss completed tool feedback at this common
+    // transition boundary, after autosave admission reflects the new draft.
+    if (clear_completed_tool_feedback(tool_operation_running_, tool_activity_message_))
+        emit statusTextChanged();
 }
 
 void EditController::parameterEdited(const QString& key, const BackendGradeStack& before) {

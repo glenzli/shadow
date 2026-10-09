@@ -11,7 +11,7 @@ use super::{
         validate_jpeg_quality, validate_warm_edit_max_edge,
     },
     decoder::{dimensions, open_photo},
-    ffi,
+    ffi, native_path,
     optics::{
         OpticsReceipt, OpticsSettings, ffi_metadata_snapshot, ffi_optics_settings, optics_receipt,
     },
@@ -312,9 +312,7 @@ impl LibRawEditPreviewSession {
                 "staged RAW warm previews require preview RAW-development intent",
             ));
         }
-        let staging_manifest = staging_manifest_path
-            .to_str()
-            .ok_or_else(|| BridgeError::NonUtf8Path(staging_manifest_path.to_path_buf()))?;
+        native_path::validate(staging_manifest_path)?;
         let mut decode_handle = open_photo(path)?;
         if decode_handle.is_null() {
             return Err(BridgeError::NullHandle);
@@ -323,10 +321,11 @@ impl LibRawEditPreviewSession {
             .pin_mut()
             .configure_optics(&ffi_optics_settings(optics))?;
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let handle = decode_handle.prepare_edit_preview_with_staged_raw_development_plan(
+        let handle = native_path::prepare_staged_preview(
+            decode_handle,
             max_edge,
             &ffi_raw_development_plan(raw_development_plan),
-            staging_manifest,
+            staging_manifest_path,
         )?;
         Self::from_prepared_handle(handle)
     }
@@ -354,14 +353,11 @@ impl LibRawEditPreviewSession {
                 "staged RAW warm previews require preview RAW-development intent",
             ));
         }
-        let staging_manifest = staging_manifest_path
-            .to_str()
-            .ok_or_else(|| BridgeError::NonUtf8Path(staging_manifest_path.to_path_buf()))?;
-        let handle = ffi::prepare_edit_preview_with_staged_raw_development_plan_from_metadata(
+        let handle = native_path::prepare_preview_from_metadata(
             &ffi_metadata_snapshot(metadata),
             max_edge,
             &ffi_raw_development_plan(raw_development_plan),
-            staging_manifest,
+            staging_manifest_path,
             &ffi_optics_settings(optics),
         )?;
         Self::from_prepared_handle(handle)
@@ -391,9 +387,7 @@ impl LibRawEditPreviewSession {
                 "staged AI RAW foundation warm previews require preview RAW-development intent",
             ));
         }
-        let staging_manifest = staging_manifest_path
-            .to_str()
-            .ok_or_else(|| BridgeError::NonUtf8Path(staging_manifest_path.to_path_buf()))?;
+        native_path::validate(staging_manifest_path)?;
         let mut decode_handle = open_photo(path)?;
         if decode_handle.is_null() {
             return Err(BridgeError::NullHandle);
@@ -402,11 +396,12 @@ impl LibRawEditPreviewSession {
             .pin_mut()
             .configure_optics(&ffi_optics_settings(optics))?;
         let decode_handle = decode_handle.as_ref().ok_or(BridgeError::NullHandle)?;
-        let handle = decode_handle.prepare_edit_preview_with_staged_raw_foundation(
+        let handle = native_path::prepare_staged_preview_with_foundation(
+            decode_handle,
             max_edge,
             &ffi_raw_development_plan(raw_development_plan),
             foundation.ffi(),
-            staging_manifest,
+            staging_manifest_path,
         )?;
         Self::from_prepared_handle(handle)
     }

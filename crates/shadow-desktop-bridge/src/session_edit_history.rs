@@ -6,14 +6,15 @@
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_bridge::query_raw_white_balance_presentation_from_metadata;
 use shadow_catalog::{
-    CatalogError, CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository,
-    EditObjectPackWrite, EditRepositoryRefUpdate, RecipeCommitRecord, RecipeRefExpectation,
-    RecipeRefKind, RecipeRefTarget,
+    CommitEditRepository, CommitRecipe, CommitRecipeAndEditRepository, EditObjectPackWrite,
+    EditRepositoryRefUpdate, RecipeCommitRecord, RecipeRefExpectation, RecipeRefKind,
+    RecipeRefTarget,
 };
 use shadow_domain::{
     EditEntityMapV1, EditObject, EditObjectKind, EditObjectPack, EditRepositoryCommit,
     EditRepositoryCommitPayloadV1, EditRepositoryRefExpectation, EditRepositoryRefKind, EntityId,
-    LibraryRootV1, PhotoId, PhotoVariantId, RecipeCommit, RecipeCommitId, RecipeId, VersionName,
+    LibraryRootV1, PhotoId, PhotoVariantId, RecipeCommit, RecipeCommitId, RecipeId,
+    RepresentationId, VersionName,
 };
 
 use super::{
@@ -407,16 +408,15 @@ impl DesktopSession {
         )
     }
 
-    /// Publishes an already-decoded draft through the same bounded working-ref
+    /// Publishes an already-decoded draft through the same exact working-ref
     /// CAS transaction as ordinary desktop autosave.
     ///
     /// Internal authoring workflows use this boundary when their state cannot
     /// be represented losslessly by the public Qt edit DTO, such as a newly
     /// promoted managed-raster mask.
     ///
-    /// The bounded CAS/rebase loop is one autosave publication transaction;
-    /// extracting fragments would obscure which working-head observation each
-    /// retry owns.
+    /// A changed working head rejects the full draft: retaining a new parent
+    /// does not merge its content into the caller's independently edited state.
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn autosave_grade_stack_working_at(
         &self,
@@ -449,7 +449,87 @@ impl DesktopSession {
         created_at_ms: i64,
         expected_variant_id: Option<&str>,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
+        let (record, _, _) = self.commit_grade_stack_working_for_variant_at(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            grade_stack,
+            created_at_ms,
+            expected_variant_id,
+            None,
+        )?;
+        self.photo_edit_state_for(record.photo_id, source_path)
+    }
+
+    /// The tool owner holds the in-memory draft reservation; Catalog still
+    /// arbitrates other sessions through its existing head + Variant CAS.
+    /// All fallible projection happens before publication. No postcommit query
+    /// can turn an acknowledged write into an apparent failure or another head.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_edit_tool_draft(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        representation_id: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        expected_variant_id: &str,
+        settings: &ffi::FfiEditSettings,
+    ) -> AnyResult<ffi::FfiEditCommitReceipt> {
+        if expected_variant_id.is_empty() || representation_id.is_empty() {
+            bail!("tool commit requires an explicit Variant and representation");
+        }
+        let draft = decode_grade_stack_draft_recipe_v1(settings)?;
+        let canonical_settings = encode_grade_stack_draft_recipe_v1(draft.clone())?;
+        let (record, representation, variant) = self.commit_grade_stack_working_for_variant_at(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            &draft,
+            current_time_ms()?,
+            Some(expected_variant_id),
+            Some(representation_id),
+        )?;
+        Ok(ffi::FfiEditCommitReceipt {
+            photo_id: record.photo_id.to_string(),
+            representation_id: representation.to_string(),
+            variant_id: variant.to_string(),
+            commit_id: record.commit.id().to_string(),
+            recipe_id: record.commit.recipe_id().to_string(),
+            snapshot_digest: crate::digest_hex::encode_hex(&record.snapshot_digest),
+            settings: canonical_settings,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    fn commit_grade_stack_working_for_variant_at(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        grade_stack: &GradeStackDraft,
+        created_at_ms: i64,
+        expected_variant_id: Option<&str>,
+        expected_representation_id: Option<&str>,
+    ) -> AnyResult<(RecipeCommitRecord, RepresentationId, PhotoVariantId)> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
+        if expected_representation_id
+            .is_some_and(|expected| expected != source.representation_id.to_string())
+        {
+            bail!("tool commit source representation changed");
+        }
+        if expected_representation_id.is_some() {
+            let native_path = shadow_core::native_path_from_location(&source.location)?;
+            if shadow_core::fingerprint_source(&native_path)
+                .context("read tool commit source metadata")?
+                != source.source
+            {
+                bail!("tool commit source changed since Catalog registration");
+            }
+        }
         let expected_variant_id = expected_variant_id
             .filter(|value| !value.is_empty())
             .map(|value| {
@@ -479,12 +559,6 @@ impl DesktopSession {
                     })?,
             )
         };
-        // Normal editing carries the durable `working` head as both its content
-        // base and its CAS expectation. A checked-out named Version is the one
-        // exception: it remains the content base while the durable head is only
-        // used to publish the new draft safely.
-        let base_is_expected_working_head =
-            base_commit_id.as_ref() == expected_working_commit_id.as_ref();
         // A historical named Version may be loaded as a transient draft. Its
         // content is the parent of a new autosave while the current durable
         // working head remains independently CAS-protected.
@@ -497,89 +571,42 @@ impl DesktopSession {
                     })
             })
             .transpose()?;
-        let autosave_request = |parent: Option<&RecipeCommitRecord>,
-                                expected_working: Option<RecipeCommitId>|
-         -> AnyResult<CommitRecipe> {
-            let snapshot = grade_stack_recipe_v1_snapshot(
-                grade_stack,
-                parent.map(|record| record.commit.snapshot()),
-            )?;
-            let (recipe_id, parents) = if let Some(record) = parent {
-                (record.commit.recipe_id(), vec![record.commit.id()])
-            } else {
-                (RecipeId::new_v7(), Vec::new())
-            };
-            let commit = RecipeCommit::new(
+        let snapshot = grade_stack_recipe_v1_snapshot(
+            grade_stack,
+            base_record.as_ref().map(|record| record.commit.snapshot()),
+        )?;
+        let (recipe_id, parents) = base_record.as_ref().map_or_else(
+            || (RecipeId::new_v7(), Vec::new()),
+            |record| (record.commit.recipe_id(), vec![record.commit.id()]),
+        );
+        let request = CommitRecipe {
+            photo_id,
+            commit: RecipeCommit::new(
                 RecipeCommitId::new_v7(),
                 recipe_id,
                 parents,
                 snapshot,
                 None,
                 created_at_ms,
-            )?;
-            Ok(CommitRecipe {
-                photo_id,
-                commit,
-                update_refs: vec![RecipeRefTarget {
-                    name: WORKING_RECIPE_REF.to_owned(),
-                    kind: RecipeRefKind::Working,
-                    expectation: Some(
-                        expected_working
-                            .map_or(RecipeRefExpectation::Missing, RecipeRefExpectation::At),
-                    ),
-                }],
-            })
+            )?,
+            update_refs: vec![RecipeRefTarget {
+                name: WORKING_RECIPE_REF.to_owned(),
+                kind: RecipeRefKind::Working,
+                expectation: Some(
+                    expected_working_commit_id
+                        .map_or(RecipeRefExpectation::Missing, RecipeRefExpectation::At),
+                ),
+            }],
         };
-
-        // Every autosave is a complete immutable draft. A conflicting `working` ref means a
-        // newer autosave (or another open Shadow session) published between this controller's
-        // snapshot and the catalog transaction. Rebase the full draft repeatedly on the exact
-        // observed head instead of surfacing a normal CAS race as a user-visible save failure.
-        // The bounded loop preserves fail-closed behavior for a genuinely hot external writer.
-        let mut expected_working = expected_working_commit_id;
-        let mut rebased_working_record: Option<RecipeCommitRecord> = None;
-        let mut published = false;
-        for _ in 0..AUTOSAVE_WORKING_REF_REBASE_ATTEMPTS {
-            let parent = if base_is_expected_working_head || base_record.is_none() {
-                rebased_working_record.as_ref().or(base_record.as_ref())
-            } else {
-                // A checked-out named Version remains the content parent. Its durable working
-                // ref only provides the CAS guard, so a concurrent autosave does not rewrite
-                // the branch point selected by the photographer.
-                base_record.as_ref()
-            };
-            let request = autosave_request(parent, expected_working)?;
-            match self
-                .catalog
-                .commit_recipe_for_variant(&request, expected_variant_id)
-            {
-                Ok(_) => {
-                    published = true;
-                    break;
-                }
-                Err(CatalogError::RecipeRefExpectationMismatch { name, actual, .. })
-                    if name == WORKING_RECIPE_REF =>
-                {
-                    rebased_working_record = actual
-                        .map(|commit_id| {
-                            self.catalog.recipe_commit(photo_id, commit_id)?.ok_or_else(|| {
-                                anyhow!(
-                                    "autosave conflict refers to unavailable working Recipe commit {commit_id}"
-                                )
-                            })
-                        })
-                        .transpose()?;
-                    expected_working = actual;
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        if !published {
-            bail!(
-                "autosave could not publish after {AUTOSAVE_WORKING_REF_REBASE_ATTEMPTS} concurrent working-state updates"
-            );
-        }
-        self.photo_edit_state_for(photo_id, &source.location.display_path)
+        // A complete draft cannot be automatically rebased by changing only
+        // its expected head and parent: that would replace intervening human
+        // or AI edits with stale values. The controller serializes its own
+        // saves and carries their acknowledged heads. A conflict must return
+        // to that caller, which retains the draft for explicit reconciliation.
+        let record = self
+            .catalog
+            .commit_recipe_for_variant(&request, expected_variant_id)?;
+        Ok((record, source.representation_id, expected_variant_id))
     }
 
     pub(crate) fn checkout_basic_edit_version(
@@ -714,10 +741,6 @@ impl DesktopSession {
 }
 
 pub(crate) const WORKING_RECIPE_REF: &str = "working";
-// Autosave submissions are complete snapshots, so a short sequence of CAS conflicts can safely
-// be rebased without losing local work. This is not a spin lock: an actively contended external
-// writer still becomes an explicit error after the bounded retry budget.
-const AUTOSAVE_WORKING_REF_REBASE_ATTEMPTS: usize = 8;
 pub(crate) const NAMED_VERSION_REF_PREFIX: &str = "versions/";
 pub(crate) const LIBRARY_EDIT_MAIN_REF: &str = "heads/main";
 pub(crate) const LIBRARY_EDIT_VERSION_REF_PREFIX: &str = "versions/";

@@ -1,0 +1,811 @@
+#include "edit_tool_controller.hpp"
+#include "backend/export_backend.hpp"
+#include "backend/export_output_file.hpp"
+#include "backend/export_settings_codec.hpp"
+#include "edit_controller.hpp"
+#include "edit_paint_controller.hpp"
+#include "edit_targeted_curve_controller.hpp"
+#include "export_task_runner.hpp"
+#include <QCryptographicHash>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QImageReader>
+#include <QJsonArray>
+#include <QUuid>
+#include <QtConcurrent>
+#include <algorithm>
+#include <stdexcept>
+
+namespace {
+QString token() {
+    return QUuid::createUuid().toString(QUuid::WithoutBraces);
+}
+QString newOutput(const QString& path, const bool preview, const QJsonObject& external_stage) {
+    const QFileInfo info(path);
+    const auto suffix = info.suffix().toLower();
+    if (!info.isAbsolute() || info.exists() || info.isSymLink() || !info.dir().exists()
+        || (preview ? suffix != "jpg" && suffix != "jpeg" : suffix != "png"))
+        throw std::invalid_argument(
+            "output must be a new absolute JPEG preview or PNG export in an existing directory"
+        );
+    const auto output = QDir(info.dir().canonicalPath()).filePath(info.fileName());
+    for (const auto* field : {"outputPath", "resultPath"}) {
+        if (external_stage.isEmpty())
+            break;
+        const QFileInfo reserved(external_stage.value(field).toString());
+        auto path = QDir(reserved.dir().canonicalPath()).filePath(reserved.fileName());
+        auto candidate = output;
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+        path = path.toCaseFolded();
+        candidate = candidate.toCaseFolded();
+#endif
+#ifdef Q_OS_MACOS
+        // QFile::encodeName publishes Darwin paths in decomposed form. Match
+        // that identity even while these reserved filenames do not exist yet.
+        path = path.normalized(QString::NormalizationForm_D);
+        candidate = candidate.normalized(QString::NormalizationForm_D);
+#endif
+        if (path == candidate)
+            throw std::invalid_argument(
+                "the stage return path is reserved; use complete to return its artifact"
+            );
+    }
+    return output;
+}
+QJsonObject artifact(
+    const QString& path,
+    const QString& format,
+    const QSize& size,
+    const QByteArray& digest,
+    const qint64 bytes
+) {
+    return {
+        {"path", path},
+        {"format", format},
+        {"width", size.width()},
+        {"height", size.height()},
+        {"sha256", QString::fromLatin1(digest.toHex())},
+        {"byteLength", QString::number(bytes)}
+    };
+}
+bool editable(
+    const BackendGradeNode& node,
+    const EditToolProtocol::EditKind kind = EditToolProtocol::EditKind::Exposure
+) {
+    if (!node.enabled || !node.shared_layer_id.isEmpty())
+        return false;
+    using enum EditToolProtocol::EditKind;
+    switch (kind) {
+    case Exposure:
+        return !node.exposure_render_op_id.isEmpty();
+    case Contrast:
+        return !node.contrast_render_op_id.isEmpty();
+    case Saturation:
+        return !node.saturation_render_op_id.isEmpty();
+    }
+    return false;
+}
+double BackendBasicEditParameters::* parameter(const EditToolProtocol::EditKind kind) {
+    using enum EditToolProtocol::EditKind;
+    switch (kind) {
+    case Exposure:
+        return &BackendBasicEditParameters::exposure_stops;
+    case Contrast:
+        return &BackendBasicEditParameters::contrast_factor;
+    case Saturation:
+        return &BackendBasicEditParameters::saturation_factor;
+    }
+    throw std::invalid_argument("unsupported adjustment");
+}
+} // namespace
+
+EditToolController::EditToolController(
+    EditController& owner,
+    std::shared_ptr<DesktopBackend> backend,
+    QString admitted_source
+) :
+    owner_(owner), backend_(std::move(backend)), session_id_(token()),
+    admitted_source_(std::move(admitted_source)) {
+    connect(
+        &watcher_,
+        &QFutureWatcher<EditToolTaskResult>::finished,
+        this,
+        &EditToolController::finishTask
+    );
+    connect(&owner_, &EditController::parametersChanged, this, &EditToolController::invalidate);
+    connect(&owner_, &EditController::photoVariantsChanged, this, &EditToolController::invalidate);
+    connect(&owner_, &EditController::activeChanged, this, &EditToolController::invalidate);
+}
+EditToolController::~EditToolController() {
+    disconnectClient();
+    watcher_.waitForFinished();
+    owner_.tool_commit_reserved_ = false;
+    owner_.tool_operation_running_ = false;
+    owner_.tool_activity_message_.clear();
+}
+void EditToolController::fail(const QString& id, const QString& code, const QString& message) {
+    emit reply(EditToolProtocol::failure(id, code, message));
+}
+bool EditToolController::feedbackCurrent(const TerminalFeedback& feedback) const {
+    return owner_.active_ && feedback.photo_generation == owner_.photo_generation_
+           && feedback.working_revision == owner_.working_revision_
+           && feedback.variant == owner_.active_variant_id_;
+}
+void EditToolController::invalidate() {
+    ++owner_epoch_;
+    // Automatic status/head refreshes do not dismiss a terminal result. A new
+    // human draft, Variant or photo does; the next admitted tool operation also does.
+    if (terminal_feedback_ && !owner_.tool_operation_running_
+        && !feedbackCurrent(*terminal_feedback_)) {
+        terminal_feedback_.reset();
+        owner_.tool_activity_message_.clear();
+        emit owner_.statusTextChanged();
+    }
+    if (preview_stage_) {
+        int expected = 0;
+        if (preview_stage_->compare_exchange_strong(expected, 1))
+            (void)backend_->cancelEditPreviewRequest(preview_token_);
+    }
+}
+void EditToolController::disconnectClient() {
+    if (preview_stage_) {
+        int expected = 0;
+        if (preview_stage_->compare_exchange_strong(expected, 1))
+            (void)backend_->cancelEditPreviewRequest(preview_token_);
+    }
+    // Detach on EOF. Keep the real window and any human edits alive.
+}
+bool EditToolController::gestureActive() const {
+    return !owner_.active_parameter_gestures_.isEmpty() || owner_.liquify_live_before_.has_value()
+           || (owner_.paint_controller_ && owner_.paint_controller_->strokeActive())
+           || (owner_.targeted_curve_controller_ && owner_.targeted_curve_controller_->dragging());
+}
+bool EditToolController::current() const {
+    if (!snapshot_ || !owner_.active_ || owner_.source_path_ != admitted_source_)
+        return false;
+    const auto& capture = *snapshot_;
+    const auto& id = capture.identity;
+    const QFileInfo source(capture.source);
+    return source.isFile() && source.size() == capture.source_bytes
+           && source.lastModified().toMSecsSinceEpoch() == capture.source_modified_ms
+           && capture.owner_epoch == owner_epoch_
+           && capture.photo_generation == owner_.photo_generation_
+           && capture.working_revision == owner_.working_revision_
+           && id.value("photoId").toString() == owner_.photo_id_
+           && id.value("representationId").toString() == owner_.representation_id_
+           && id.value("baseCommitId").toString() == owner_.base_commit_id_
+           && id.value("workingCommitId").toString() == owner_.durable_working_commit_id_
+           && id.value("activeVariantId").toString() == owner_.active_variant_id_
+           && capture.stack == owner_.grade_stack_;
+}
+bool EditToolController::admit(const EditToolProtocol::Request& request) {
+    if (owner_.presentation_commit_requested_
+        || owner_.persistence_state_.closePhotoAfterAutosave()) {
+        fail(request.id, "session_finishing", "the human editor is saving or closing this photo");
+        return false;
+    }
+    if (!current() || request.expected != snapshot_->identity) {
+        fail(
+            request.id,
+            "stale_snapshot",
+            "capture a fresh snapshot; the editor or session changed"
+        );
+        return false;
+    }
+    if (owner_.dirty_ || owner_.autosavePending() || owner_.autosaveFailed() || gestureActive()) {
+        fail(
+            request.id,
+            "draft_pending",
+            "finish and save the human draft before using this snapshot"
+        );
+        return false;
+    }
+    if (owner_.busy() || owner_.interactionLocked()) {
+        fail(
+            request.id,
+            "busy",
+            "the editor owns an active operation; retry with a fresh snapshot"
+        );
+        return false;
+    }
+    return true;
+}
+void EditToolController::setAdmissionError(const QString& message) {
+    admission_error_ = message;
+}
+void EditToolController::setExternalStage(
+    const QJsonObject& description,
+    const QString& session_id
+) {
+    external_stage_ = description;
+    session_id_ = session_id;
+}
+void EditToolController::setStageReturning(const bool returning) {
+    stage_returning_ = returning;
+}
+void EditToolController::sealSession() {
+    stage_finishing_ = true;
+    reserveCommit(true);
+    operationRunning(true);
+}
+void EditToolController::capture(const QString& id) {
+    if (!owner_.active_ && !admission_error_.isEmpty()) {
+        fail(id, "source_unavailable", admission_error_);
+        return;
+    }
+    // A failed asynchronous history open retains its source identity; normal
+    // finalizePhotoClose clears that identity before making the owner inactive.
+    if (!owner_.active_ && !owner_.stateTaskRunning() && owner_.source_path_ == admitted_source_) {
+        fail(id, "source_unavailable", owner_.statusText());
+        return;
+    }
+    if (!owner_.active_ || owner_.stateTaskRunning() || owner_.source_path_ != admitted_source_) {
+        fail(id, "not_ready", "the explicitly admitted photo is not ready in this editor");
+        return;
+    }
+    // Observing an unchanged owner must not consume its reviewed proposal.
+    // current() retains every source, generation, draft and Variant guard.
+    if (!current()) {
+        Snapshot captured;
+        captured.identity = {
+            {"sessionId", session_id_},
+            {"snapshotId", token()},
+            {"photoId", owner_.photo_id_},
+            {"representationId", owner_.representation_id_},
+            {"baseCommitId", owner_.base_commit_id_},
+            {"workingCommitId", owner_.durable_working_commit_id_},
+            {"activeVariantId", owner_.active_variant_id_},
+            {"draftRevision", QString::number(owner_.working_revision_)}
+        };
+        captured.stack = owner_.grade_stack_;
+        captured.source = owner_.source_path_;
+        const QFileInfo source(captured.source);
+        captured.source_bytes = source.size();
+        captured.source_modified_ms = source.lastModified().toMSecsSinceEpoch();
+        captured.photo_generation = owner_.photo_generation_;
+        captured.working_revision = owner_.working_revision_;
+        captured.owner_epoch = owner_epoch_;
+        snapshot_ = std::move(captured);
+        proposal_.reset();
+    }
+    QJsonArray nodes;
+    for (const auto& node : snapshot_->stack.grade_nodes) {
+        QJsonArray available;
+        for (const auto& spec : EditToolProtocol::editSpecs)
+            if (editable(node, spec.kind))
+                available.append(spec.type);
+        nodes.append(
+            QJsonObject{
+                {"nodeId", node.grade_node_id},
+                {"label", node.label},
+                {"exposureStops", node.basic.exposure_stops},
+                {"contrastFactor", node.basic.contrast_factor},
+                {"saturationFactor", node.basic.saturation_factor},
+                {"availableEdits", available},
+                {"editable", editable(node)}
+            }
+        );
+    }
+    emit reply(
+        EditToolProtocol::success(
+            id,
+            {{"identity", snapshot_->identity},
+             {"nodes", nodes},
+             {"sourceFingerprint",
+              QJsonObject{
+                  {"byteLength", QString::number(snapshot_->source_bytes)},
+                  {"modifiedAtMs", QString::number(snapshot_->source_modified_ms)},
+                  {"kind", "size_mtime_not_content_hash"}
+              }},
+             {"dirty", owner_.dirty_},
+             {"autosavePending", owner_.autosavePending()},
+             {"autosaveFailed", owner_.autosaveFailed()},
+             {"gestureActive", gestureActive()},
+             {"busy", owner_.busy() || owner_.interactionLocked()},
+             {"canUndo", owner_.canUndo()}}
+        )
+    );
+}
+void EditToolController::receive(const QByteArray& line) {
+    const auto parsed = EditToolProtocol::parse(line);
+    if (!parsed.request) {
+        fail(parsed.id, "invalid_request", parsed.error);
+        return;
+    }
+    const auto& request = *parsed.request;
+    if (seen_ids_.contains(request.id)) {
+        fail(request.id, "duplicate_request", "use a new correlation id");
+        return;
+    }
+    seen_ids_.insert(request.id);
+    id_order_.enqueue(request.id);
+    if (id_order_.size() > 256)
+        seen_ids_.remove(id_order_.dequeue());
+    using enum EditToolProtocol::Command;
+    if (request.command == Discover) {
+        auto capabilities = EditToolProtocol::discovery();
+        if (!external_stage_.isEmpty()) {
+            auto operations = capabilities.value("operations").toArray();
+            operations.append("complete");
+            capabilities.insert("operations", operations);
+            capabilities.insert("externalStage", external_stage_);
+        }
+        emit reply(EditToolProtocol::success(request.id, capabilities));
+        return;
+    }
+    if (stage_finishing_ || stage_returning_) {
+        fail(
+            request.id,
+            "session_finishing",
+            "the stage is returning or cancelling; read its terminal result"
+        );
+        return;
+    }
+    if (request.command == Complete && external_stage_.isEmpty()) {
+        fail(
+            request.id,
+            "unsupported_operation",
+            "complete is only available in an external edit stage"
+        );
+        return;
+    }
+    if (request.command == Cancel) {
+        if (!task_ || task_->id != request.request_id) {
+            fail(request.id, "not_running", "request is not running");
+            return;
+        }
+        if (task_->command != Preview && task_->command != RenderCurrent) {
+            fail(request.id, "cancel_unsupported", "apply and export cannot be cancelled");
+            return;
+        }
+        int expected = 0;
+        const bool accepted =
+            preview_stage_ && preview_stage_->compare_exchange_strong(expected, 1);
+        if (accepted)
+            (void)backend_->cancelEditPreviewRequest(preview_token_);
+        emit reply(
+            EditToolProtocol::success(
+                request.id,
+                {{"accepted", accepted},
+                 {"reason", accepted ? "cancel_requested" : "publication_started_or_finished"}}
+            )
+        );
+        return;
+    }
+    if (task_) {
+        fail(request.id, "busy", "one tool operation is already running");
+        return;
+    }
+    if (request.command == Snapshot) {
+        capture(request.id);
+        return;
+    }
+    if (request.command == Shutdown) {
+        if (owner_.dirty_ || owner_.autosavePending() || gestureActive() || owner_.busy()
+            || owner_.stateBusy()) {
+            fail(
+                request.id,
+                "draft_pending",
+                "editor work is still active; shutdown did not discard it"
+            );
+            return;
+        }
+        if (!external_stage_.isEmpty()) {
+            stage_finishing_ = true;
+            emit reply(
+                EditToolProtocol::success(
+                    request.id,
+                    {{"closing", true}, {"outcome", "cancel_requested"}}
+                )
+            );
+            emit shutdownRequested();
+            return;
+        }
+        reserveCommit(true);
+        operationRunning(true); // Hold the clean state through stdout backpressure and drain.
+        emit reply(EditToolProtocol::success(request.id, {{"closing", true}}));
+        emit shutdownRequested();
+        return;
+    }
+    if (!admit(request))
+        return;
+    try {
+        switch (request.command) {
+        case Complete:
+            emit reply(
+                EditToolProtocol::success(
+                    request.id,
+                    {{"accepted", true}, {"resultPath", external_stage_.value("resultPath")}}
+                )
+            );
+            emit completeRequested();
+            break;
+        case RenderCurrent:
+        case Preview:
+            renderPreview(request);
+            break;
+        case Apply:
+            apply(request);
+            break;
+        case Export:
+            exportFile(request);
+            break;
+        default:
+            break;
+        }
+    } catch (const std::exception& error) {
+        fail(request.id, "invalid_operation", QString::fromUtf8(error.what()));
+    }
+}
+void EditToolController::renderPreview(const EditToolProtocol::Request& request) {
+    const bool proposes = request.command == EditToolProtocol::Command::Preview;
+    auto stack = snapshot_->stack;
+    QJsonArray changes;
+    for (const auto& edit : request.edits) {
+        auto found =
+            std::find_if(stack.grade_nodes.begin(), stack.grade_nodes.end(), [&](const auto& node) {
+                return node.grade_node_id == edit.node_id && editable(node, edit.kind);
+            });
+        if (found == stack.grade_nodes.end())
+            throw std::invalid_argument(
+                "node does not support this local adjustment in the captured snapshot"
+            );
+        auto& value = found->basic.*parameter(edit.kind);
+        if (value != edit.value) {
+            const auto& spec = EditToolProtocol::editSpecs.at(static_cast<size_t>(edit.kind));
+            changes.append(
+                QJsonObject{
+                    {"type", spec.type},
+                    {"nodeId", edit.node_id},
+                    {"previousValue", value},
+                    {"value", edit.value},
+                    {"units", spec.units}
+                }
+            );
+            value = edit.value;
+        }
+    }
+    if (proposes && changes.isEmpty())
+        throw std::invalid_argument("proposal would not change the captured adjustments");
+    const auto output = newOutput(request.output_path, true, external_stage_);
+    // Validate the whole candidate before admitting work or replacing the previous proposal.
+    // Keep at most one reviewed proposal plus one in-flight replacement. Publish
+    // the replacement only after rendering and artifact publication both succeed.
+    auto stage = std::make_shared<std::atomic_int>(0);
+    const auto preview_token = backend_->beginEditPreviewRequest();
+    // Observation shares the render/cancel/publication owner, but never replaces
+    // a reviewed candidate or installs a draft. Only an actual proposal needs it.
+    if (proposes)
+        pending_proposal_ = Proposal{{}, request.edits.front().node_id, stack, changes};
+    preview_stage_ = std::move(stage);
+    preview_token_ = preview_token;
+    task_ = request;
+    operationRunning(true);
+    watcher_.setFuture(
+        QtConcurrent::run([backend = backend_,
+                           capture = *snapshot_,
+                           stack,
+                           output,
+                           stage = preview_stage_,
+                           token = preview_token_] {
+            EditToolTaskResult result;
+            try {
+                const auto preview = backend->renderAutoStartPreview(
+                    capture.identity.value("photoId").toString(),
+                    capture.source,
+                    capture.identity.value("baseCommitId").toString(),
+                    stack,
+                    token,
+                    {}
+                );
+                int expected = 0;
+                if (preview.terminal == EditPreviewTerminal::Cancelled
+                    || !stage->compare_exchange_strong(expected, 2)) {
+                    result.code = "cancelled";
+                    result.error = "preview cancelled before artifact publication";
+                    return result;
+                }
+                ExportOutputFile file(output);
+                if (file.device().write(preview.bytes) != preview.bytes.size())
+                    throw std::runtime_error("could not stage complete preview JPEG");
+                const auto bytes = file.commit();
+                result.artifact = artifact(
+                    output,
+                    "jpeg",
+                    QSize(static_cast<int>(preview.width), static_cast<int>(preview.height)),
+                    QCryptographicHash::hash(preview.bytes, QCryptographicHash::Sha256),
+                    static_cast<qint64>(bytes)
+                );
+            } catch (const std::exception& error) {
+                result.error = QString::fromUtf8(error.what());
+                result.code = "preview_failed";
+            }
+            stage->store(3);
+            return result;
+        })
+    );
+}
+void EditToolController::operationRunning(bool running, const QString& terminal_code) {
+    terminal_feedback_.reset();
+    owner_.tool_activity_message_.clear();
+    if (!running) {
+        const char* message = nullptr;
+        const bool observing = task_ && task_->command == EditToolProtocol::Command::RenderCurrent;
+        if (terminal_code == "cancelled" && observing)
+            message = QT_TRANSLATE_NOOP("EditToolController", "Current edits preview cancelled.");
+        else if (terminal_code == "cancelled")
+            message = QT_TRANSLATE_NOOP("EditToolController", "Proposed preview cancelled.");
+        else if (terminal_code == "preview_failed" && observing)
+            message = QT_TRANSLATE_NOOP(
+                "EditToolController",
+                "Could not preview the current edits. Try again."
+            );
+        else if (terminal_code == "preview_failed")
+            message = QT_TRANSLATE_NOOP(
+                "EditToolController",
+                "Could not preview the proposed adjustments. Try again."
+            );
+        else if (terminal_code == "commit_rejected")
+            message = QT_TRANSLATE_NOOP(
+                "EditToolController",
+                "Could not apply the proposed adjustments. Review the current edits and try again."
+            );
+        else if (terminal_code == "export_failed")
+            message = QT_TRANSLATE_NOOP(
+                "EditToolController",
+                "Could not export the captured adjustments. Try again."
+            );
+        if (message && snapshot_) {
+            // Completion belongs to the captured owner, never a newer human
+            // draft that happened to invalidate this task while it ran.
+            TerminalFeedback feedback{
+                snapshot_->photo_generation,
+                snapshot_->working_revision,
+                snapshot_->identity.value("activeVariantId").toString()
+            };
+            if (feedbackCurrent(feedback)) {
+                owner_.tool_activity_message_ = {"EditToolController", message};
+                terminal_feedback_ = std::move(feedback);
+            }
+        }
+    }
+    if (running && task_) {
+        using enum EditToolProtocol::Command;
+        switch (task_->command) {
+        case RenderCurrent:
+            owner_.tool_activity_message_ = {
+                "EditToolController",
+                QT_TRANSLATE_NOOP("EditToolController", "Rendering current edits…")
+            };
+            break;
+        case Preview:
+            owner_.tool_activity_message_ = {
+                "EditToolController",
+                QT_TRANSLATE_NOOP("EditToolController", "Rendering proposed adjustments…")
+            };
+            break;
+        case Apply:
+            owner_.tool_activity_message_ = {
+                "EditToolController",
+                QT_TRANSLATE_NOOP("EditToolController", "Applying proposed adjustments…")
+            };
+            break;
+        case Export:
+            owner_.tool_activity_message_ = {
+                "EditToolController",
+                QT_TRANSLATE_NOOP("EditToolController", "Exporting the captured adjustments…")
+            };
+            break;
+        default:
+            break;
+        }
+    }
+    owner_.tool_operation_running_ = running;
+    emit owner_.statusTextChanged();
+    emit owner_.busyChanged();
+}
+void EditToolController::reserveCommit(bool reserved) {
+    owner_.tool_commit_reserved_ = reserved;
+    emit owner_.stateBusyChanged();
+    emit owner_.busyChanged();
+    emit owner_.historyChanged();
+}
+void EditToolController::apply(const EditToolProtocol::Request& request) {
+    if (!proposal_ || request.proposal_id != proposal_->id)
+        throw std::invalid_argument("preview this exact snapshot before applying its proposal");
+    task_ = request;
+    // Reserve before emitting activity/status signals, which can synchronously
+    // re-enter Qt callbacks. Every observable apply state already owns the draft.
+    reserveCommit(true);
+    operationRunning(true);
+    watcher_.setFuture(
+        QtConcurrent::run([backend = backend_, capture = *snapshot_, stack = proposal_->stack] {
+            EditToolTaskResult result;
+            try {
+                const auto& id = capture.identity;
+                result.commit = backend->commitEditToolDraft(
+                    id.value("photoId").toString(),
+                    capture.source,
+                    id.value("representationId").toString(),
+                    id.value("baseCommitId").toString(),
+                    id.value("workingCommitId").toString(),
+                    id.value("activeVariantId").toString(),
+                    stack
+                );
+                // These presentation facts are deliberately absent from Recipe bytes.
+                // These Grade adjustments preserve Foundation, including source As Shot metadata.
+                result.commit.grade_stack.foundation = capture.stack.foundation;
+            } catch (const std::exception& error) {
+                result.error = QString::fromUtf8(error.what());
+                result.code = "commit_rejected";
+            }
+            return result;
+        })
+    );
+}
+void EditToolController::exportFile(const EditToolProtocol::Request& request) {
+    const auto& id = snapshot_->identity;
+    const auto commit = id.value("workingCommitId").toString();
+    if (commit.isEmpty() || commit != id.value("baseCommitId").toString())
+        throw std::invalid_argument(
+            "export requires an applied committed Recipe, not a neutral or historical draft"
+        );
+    const auto output = newOutput(request.output_path, false, external_stage_);
+
+    const BackendDurableExportTarget target{
+        id.value("photoId").toString(),
+        snapshot_->source,
+        output,
+        commit,
+        id.value("representationId").toString()
+    };
+    task_ = request;
+    operationRunning(true);
+    // Subsequent human editing is allowed: the queue receives this immutable
+    // commit identity, never closes the owner or chooses a later working head.
+    watcher_.setFuture(QtConcurrent::run([backend = backend_, target] {
+        EditToolTaskResult result;
+        try {
+            auto export_backend =
+                std::shared_ptr<ExportBackend>(backend, &backend->exportBackend());
+            const auto options = ExportSettingsCodec::fromVariantMap({{"format", "png"}});
+            const auto exported = ExportTaskRunner::runDurableExport(
+                export_backend,
+                {target},
+                ExportSettingsCodec::toDurableJson(options),
+                false,
+                std::make_shared<std::atomic_bool>(false),
+                [](int, int, int, int, const QString&) {}
+            );
+            if (exported.completed != 1
+                || exported.destination_paths != QStringList{target.output_path})
+                throw std::runtime_error(
+                    exported.errors.isEmpty() ? "export did not complete"
+                                              : exported.errors.join('\n').toStdString()
+                );
+            // Publication is already acknowledged. Optional readback metadata
+            // cannot turn a successful write into a misleading export failure.
+            result.artifact = {
+                {"path", target.output_path},
+                {"format", "png"},
+                {"commitId", target.recipe_commit_id},
+                {"published", true}
+            };
+            QFile file(target.output_path);
+            QCryptographicHash hash(QCryptographicHash::Sha256);
+            const QSize size = QImageReader(target.output_path).size();
+            if (file.open(QIODevice::ReadOnly) && hash.addData(&file) && size.isValid()) {
+                result.artifact =
+                    artifact(target.output_path, "png", size, hash.result(), file.size());
+                result.artifact.insert("commitId", target.recipe_commit_id);
+                result.artifact.insert("published", true);
+                result.artifact.insert("metadataSource", "post_publication_readback");
+            } else {
+                result.artifact.insert("metadataUnavailable", true);
+            }
+        } catch (const std::exception& error) {
+            result.error = QString::fromUtf8(error.what());
+            result.code = "export_failed";
+        }
+        return result;
+    }));
+}
+void EditToolController::finishTask() {
+    auto result = watcher_.result();
+    const auto request = *task_;
+    // Keep request admission closed across synchronous Qt status/state callbacks.
+    preview_stage_.reset();
+    preview_token_ = 0;
+    if (request.command == EditToolProtocol::Command::Apply) {
+        if (result.error.isEmpty()) {
+            const auto& receipt = result.commit;
+            // No database readback here. Report the acknowledged transaction
+            // even if another session has already advanced the durable head.
+            owner_.applyCommittedGradeStack(
+                std::move(result.commit.grade_stack),
+                receipt.commit_id,
+                snapshot_->stack,
+                proposal_->node_id,
+                QStringLiteral("tool/adjustments")
+            );
+            for (auto& value : owner_.photo_variants_) {
+                auto variant = value.toMap();
+                if (variant.value("variantId").toString() == receipt.variant_id) {
+                    variant.insert("headCommitId", receipt.commit_id);
+                    variant.insert("hasHead", true);
+                    value = variant;
+                }
+            }
+            emit owner_.photoVariantsChanged();
+            reserveCommit(false);
+            proposal_.reset();
+            snapshot_.reset();
+            operationRunning(false);
+            task_.reset();
+            emit reply(
+                EditToolProtocol::success(
+                    request.id,
+                    {{"photoId", receipt.photo_id},
+                     {"representationId", receipt.representation_id},
+                     {"activeVariantId", receipt.variant_id},
+                     {"commitId", receipt.commit_id},
+                     {"recipeId", receipt.recipe_id},
+                     {"snapshotDigest", receipt.snapshot_digest},
+                     {"undoSteps", 1}}
+                )
+            );
+            return;
+        }
+        reserveCommit(false);
+        proposal_.reset();
+    }
+    operationRunning(false, result.code);
+    if ((request.command == EditToolProtocol::Command::Preview
+         || request.command == EditToolProtocol::Command::RenderCurrent)
+        && !current())
+        proposal_.reset();
+    if (!result.error.isEmpty()) {
+        pending_proposal_.reset();
+        task_.reset();
+        fail(request.id, result.code, result.error);
+        return;
+    }
+    if (request.command == EditToolProtocol::Command::Preview) {
+        auto replacement = std::move(*pending_proposal_);
+        pending_proposal_.reset();
+        const auto changes = replacement.changes;
+        const bool still_current = current();
+        const auto proposal_id = still_current ? token() : QString{};
+        if (still_current) {
+            replacement.id = proposal_id;
+            proposal_ = std::move(replacement);
+        }
+        task_.reset();
+        emit reply(
+            EditToolProtocol::success(
+                request.id,
+                {{"artifact", result.artifact},
+                 {"proposalId", proposal_id},
+                 {"current", still_current},
+                 {"changes", changes},
+                 {"expected", request.expected}}
+            )
+        );
+    } else if (request.command == EditToolProtocol::Command::RenderCurrent) {
+        const bool still_current = current();
+        task_.reset();
+        emit reply(
+            EditToolProtocol::success(
+                request.id,
+                {{"artifact", result.artifact},
+                 {"current", still_current},
+                 {"expected", request.expected}}
+            )
+        );
+    } else {
+        task_.reset();
+        emit reply(EditToolProtocol::success(request.id, {{"artifact", result.artifact}}));
+    }
+}

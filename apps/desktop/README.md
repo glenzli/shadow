@@ -29,6 +29,32 @@ remote Mac manifest / client-local proxy cache
 
 QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests use a stable URL across Library generations, allowing Qt to reuse decoded images and textures when the ticket is unchanged; comparison requests retain their generation identity. Grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
 
+## Single-photo external edit tools
+
+[`edit_tool_protocol.*`](src/edit_tool_protocol.hpp), [`edit_tool_stdio.*`](src/edit_tool_stdio.hpp),
+and [`edit_tool_controller.*`](src/edit_tool_controller.hpp) own the bounded process protocol,
+transport, and same-owner snapshot/proposal lifecycle. Optional `render_current` observes the captured
+saved stack through the same bounded render/cancel/publication owner without consuming a reviewed
+proposal or adding history. Its artifact is separate from external-stage completion; all tool output
+paths respect the stage return/result reservation. Bounded exposure/contrast/saturation
+compositions share one preview, CAS publication and Undo entry, with activity projected through the
+existing editor status owner. Terminal failures remain visible through ordinary status refreshes;
+unchanged snapshot observation and failed/cancelled replacement preserve the reviewed proposal under
+the same identity guards. The [wire contract and invocation](../../docs/development/agent-edit-stdio.md)
+define its explicit independent-session scope. Existing Recipe CAS, Undo, transient preview and
+durable export remain with their original owners; opt-in UI acceptance is in
+[`edit_tool_ui_smoke.*`](src/edit_tool_ui_smoke.hpp), separately from the formal entry.
+
+## External material edit stage
+
+[`external_edit_contract.*`](src/external_edit_contract.hpp) owns the strict single-material
+request, bounded SHA-256 input snapshot and terminal receipt projection. The existing
+`PipelineRunController` owns admission/save/export/return; `EditController` remains the shared human
+and AI draft owner. `complete` joins this lifecycle, with result publication before stdio drain.
+The durable export owner supplies frozen Recipe/representation identities and hashes the same
+staging artifact before exclusive publication. The [wire contract](../../docs/development/external-edit-stage.md)
+defines the supported PNG materialization and the caller-owned Candidate/Accept boundary.
+
 ## HDR and panorama composition
 
 Select 2–12 photos in Review, then use **Merge → HDR merge / Panorama merge**. Remote originals
@@ -108,6 +134,19 @@ Application startup is split from environment-driven automation:
   owns the independent window; [`qml/PipelineExportDialog.qml`](qml/PipelineExportDialog.qml)
   owns interactive output choices. [`src/pipeline_smoke_harness.*`](src/pipeline_smoke_harness.hpp)
   drives opt-in packaged session acceptance, registered in `ShadowDesktopPipelineTests.cmake`.
+  [`src/auto_start_smoke_harness.*`](src/auto_start_smoke_harness.hpp) owns disposable Auto
+  preview, apply and undo/redo acceptance. The `shadow-desktop-pipeline-auto-start-identity`
+  registration uses a synthetic ramp and `SHADOW_AUTO_START_SMOKE_MEASURED_ONLY=1` to disable
+  inference only in its temporary session; `SHADOW_AUTO_START_SMOKE_VARIANT=1` additionally
+  checks same-head Variant retirement, including its pending preview timer, before applying a fresh
+  suggestion. These are acceptance
+  hooks, not the external agent editing protocol. With `BUILD_TESTING=ON`, adding
+  `SHADOW_AUTO_START_SMOKE_UI=1` exercises the actual packaged Auto, compare, apply and undo/redo controls through QtTest window pointer
+  events and verifies that each press reaches its target. [`src/auto_start_ui_smoke.*`](src/auto_start_ui_smoke.hpp) captures only that app
+  window in an existing `SHADOW_AUTO_START_EVIDENCE_DIR`; it requests no OS accessibility
+  permission and is inert in ordinary launches. The `shadow-desktop-pipeline-auto-start-ui`
+  registration runs those controls offscreen with its own disposable capture directory;
+  visible-window acceptance additionally uses the same hooks with the normal platform backend.
   [`src/rgb_curve_smoke_harness.*`](src/rgb_curve_smoke_harness.hpp) owns five-channel curve
   history, photo isolation, persisted checkout and export acceptance.
   [`src/direct_edit_smoke_harness.*`](src/direct_edit_smoke_harness.hpp) owns sampled curve gestures
@@ -958,6 +997,11 @@ admission, background execution, preset persistence, and backend publication:
   renderer's RGB16 boundary and rejects an expanded RGB8 input; it retains lossless Deflate,
   output-profile, resolution, and explicit metadata behavior. The DNG route instead preserves the
   original up-to-16-bit CFA samples and is not a rendered RGB image.
+- [`src/backend/export_output_file.*`](src/backend/export_output_file.hpp) owns raster-output
+  staging, file synchronization, and exclusive publication. A destination created while encoding,
+  including a dangling symbolic link, remains untouched and becomes a queue conflict. Abandoned
+  writers remove their staging files. Unsupported exclusive publication fails without an overwrite
+  fallback.
 
 `DesktopBackend` composes that export component with the shared session but does not forward its
 workflow operations. [`tests/backend_export_contract_test.cpp`](tests/backend_export_contract_test.cpp)
@@ -967,6 +1011,8 @@ normalization, persistence, stable built-in identities, runtime retranslation, a
 user-authored names; [`tests/export_raster_encoder_contract_test.cpp`](tests/export_raster_encoder_contract_test.cpp)
 reopens generated 8-bit and 16-bit TIFF files and verifies their sample depth, high-bit values,
 profile, lossless compression, resolution, and explicit copyright fields.
+[`tests/export_output_file_contract_test.cpp`](tests/export_output_file_contract_test.cpp) verifies
+publication races, complete-output visibility, and failed-encoder cleanup.
 
 Review presentation keeps the workspace as the composition and compatibility surface:
 
@@ -1729,6 +1775,14 @@ outputs remain identified even if the rest is cancelled or fails. Exit codes are
 be new files in existing directories. DNG source-stage export is excluded because it does not
 apply editing adjustments. Relative paths, when supplied, resolve against the process working
 directory. Requests are limited to 1 MiB and 256 photos.
+
+Requests hand off to the human editor; they do not execute an `operations` list or import a
+`recipe` field. Unknown request, per-photo, and export fields are rejected before opening the
+session so unsupported intent cannot be silently dropped. Export fields use the shared desktop
+export codec and its normalization rules; preset `id`/`name` metadata and `filenameSuffix`
+are not accepted because output paths are explicit. Batch
+requests continue to tolerate legacy root `input`/`output` fields, with `photos` authoritative.
+`requestId` is echoed correlation, not a durable deduplication or replay key.
 
 After a partial export, the session opens the first unfinished photo for further editing and retry.
 Completed photos remain viewable but read-only; retry leaves their exported bytes untouched.

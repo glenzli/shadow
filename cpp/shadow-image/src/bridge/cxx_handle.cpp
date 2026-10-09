@@ -2,6 +2,7 @@
 
 #include "adjustment_render_wire.hpp"
 #include "cxx_bridge_projection.hpp"
+#include "native_path_wire.hpp"
 #include "raw_foundation_wire.hpp"
 
 #include <shadow/image/decoder_error.hpp>
@@ -26,16 +27,6 @@ namespace shadow::bridge {
 using namespace cxx_bridge_projection;
 
 namespace {
-
-[[nodiscard]] std::filesystem::path staging_path_from_utf8(const rust::Str path) {
-    const std::string_view bytes(path.data(), path.size());
-    std::u8string encoded;
-    encoded.reserve(bytes.size());
-    for (const char byte : bytes) {
-        encoded.push_back(static_cast<char8_t>(static_cast<unsigned char>(byte)));
-    }
-    return std::filesystem::path(encoded);
-}
 
 struct MaskCoverageTarget final {
     std::uint32_t layer_index = 0U;
@@ -450,8 +441,30 @@ DecodeHandle::prepare_edit_preview_with_staged_raw_development_plan(
     const FfiRawDevelopmentPlan& plan,
     const rust::Str staging_manifest_path
 ) const {
+    return prepare_edit_preview_with_staged_raw_development_plan(
+        max_edge, plan, native_path_wire::from_utf8(staging_manifest_path)
+    );
+}
+
+std::unique_ptr<EditPreviewHandle>
+DecodeHandle::prepare_edit_preview_with_staged_raw_development_plan(
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    const rust::Slice<const std::uint8_t> staging_manifest_path
+) const {
+    return prepare_edit_preview_with_staged_raw_development_plan(
+        max_edge, plan, native_path_wire::from_unix_bytes(staging_manifest_path)
+    );
+}
+
+std::unique_ptr<EditPreviewHandle>
+DecodeHandle::prepare_edit_preview_with_staged_raw_development_plan(
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    const std::filesystem::path& staging_manifest_path
+) const {
     image::RawFrame staged_frame =
-        image::read_raw_frame_staging(staging_path_from_utf8(staging_manifest_path));
+        image::read_raw_frame_staging(staging_manifest_path);
     auto prepared = image::prepare_rebindable_warm_edit_preview(
         *session_,
         max_edge,
@@ -465,16 +478,40 @@ DecodeHandle::prepare_edit_preview_with_staged_raw_development_plan(
     return std::make_unique<EditPreviewHandle>(std::move(prepared));
 }
 
-std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_staged_raw_foundation(
+std::unique_ptr<EditPreviewHandle>
+DecodeHandle::prepare_edit_preview_with_staged_raw_foundation(
     const std::uint32_t max_edge,
     const FfiRawDevelopmentPlan& plan,
     const FfiRawFoundation& foundation,
     const rust::Str staging_manifest_path
 ) const {
+    return prepare_edit_preview_with_staged_raw_foundation(
+        max_edge, plan, foundation, native_path_wire::from_utf8(staging_manifest_path)
+    );
+}
+
+std::unique_ptr<EditPreviewHandle>
+DecodeHandle::prepare_edit_preview_with_staged_raw_foundation(
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    const FfiRawFoundation& foundation,
+    const rust::Slice<const std::uint8_t> staging_manifest_path
+) const {
+    return prepare_edit_preview_with_staged_raw_foundation(
+        max_edge, plan, foundation, native_path_wire::from_unix_bytes(staging_manifest_path)
+    );
+}
+
+std::unique_ptr<EditPreviewHandle> DecodeHandle::prepare_edit_preview_with_staged_raw_foundation(
+    const std::uint32_t max_edge,
+    const FfiRawDevelopmentPlan& plan,
+    const FfiRawFoundation& foundation,
+    const std::filesystem::path& staging_manifest_path
+) const {
     const image::RawFoundationCameraRgbView view =
         raw_foundation_wire::raw_foundation_view(foundation);
     image::RawFrame staged_frame =
-        image::read_raw_frame_staging(staging_path_from_utf8(staging_manifest_path));
+        image::read_raw_frame_staging(staging_manifest_path);
     auto prepared = image::prepare_rebindable_warm_edit_preview(
         *session_,
         max_edge,
@@ -915,8 +952,30 @@ DecodeHandle::prepare_edit_detail_with_staged_raw_development_plan(
     const rust::Str staging_manifest_path,
     const FfiDetailSessionRequirements& requirements
 ) const {
+    return prepare_edit_detail_with_staged_raw_development_plan(
+        plan, native_path_wire::from_utf8(staging_manifest_path), requirements
+    );
+}
+
+std::unique_ptr<FullEditDetailHandle>
+DecodeHandle::prepare_edit_detail_with_staged_raw_development_plan(
+    const FfiRawDevelopmentPlan& plan,
+    const rust::Slice<const std::uint8_t> staging_manifest_path,
+    const FfiDetailSessionRequirements& requirements
+) const {
+    return prepare_edit_detail_with_staged_raw_development_plan(
+        plan, native_path_wire::from_unix_bytes(staging_manifest_path), requirements
+    );
+}
+
+std::unique_ptr<FullEditDetailHandle>
+DecodeHandle::prepare_edit_detail_with_staged_raw_development_plan(
+    const FfiRawDevelopmentPlan& plan,
+    const std::filesystem::path& staging_manifest_path,
+    const FfiDetailSessionRequirements& requirements
+) const {
     image::RawFrame staged_frame =
-        image::read_raw_frame_staging(staging_path_from_utf8(staging_manifest_path));
+        image::read_raw_frame_staging(staging_manifest_path);
     auto prepared = image::prepare_full_edit_detail(
         *session_,
         raw_development_plan(plan),
@@ -932,16 +991,40 @@ DecodeHandle::prepare_edit_detail_with_staged_raw_development_plan(
     return std::make_unique<FullEditDetailHandle>(std::move(prepared));
 }
 
-std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail_with_staged_raw_foundation(
+std::unique_ptr<FullEditDetailHandle>
+DecodeHandle::prepare_edit_detail_with_staged_raw_foundation(
     const FfiRawDevelopmentPlan& plan,
     const FfiRawFoundation& foundation,
     const rust::Str staging_manifest_path,
     const FfiDetailSessionRequirements& requirements
 ) const {
+    return prepare_edit_detail_with_staged_raw_foundation(
+        plan, foundation, native_path_wire::from_utf8(staging_manifest_path), requirements
+    );
+}
+
+std::unique_ptr<FullEditDetailHandle>
+DecodeHandle::prepare_edit_detail_with_staged_raw_foundation(
+    const FfiRawDevelopmentPlan& plan,
+    const FfiRawFoundation& foundation,
+    const rust::Slice<const std::uint8_t> staging_manifest_path,
+    const FfiDetailSessionRequirements& requirements
+) const {
+    return prepare_edit_detail_with_staged_raw_foundation(
+        plan, foundation, native_path_wire::from_unix_bytes(staging_manifest_path), requirements
+    );
+}
+
+std::unique_ptr<FullEditDetailHandle> DecodeHandle::prepare_edit_detail_with_staged_raw_foundation(
+    const FfiRawDevelopmentPlan& plan,
+    const FfiRawFoundation& foundation,
+    const std::filesystem::path& staging_manifest_path,
+    const FfiDetailSessionRequirements& requirements
+) const {
     const image::RawFoundationCameraRgbView view =
         raw_foundation_wire::raw_foundation_view(foundation);
     image::RawFrame staged_frame =
-        image::read_raw_frame_staging(staging_path_from_utf8(staging_manifest_path));
+        image::read_raw_frame_staging(staging_manifest_path);
     auto prepared = image::prepare_full_edit_detail(
         *session_,
         raw_development_plan(plan),

@@ -39,6 +39,11 @@ impl StagedDerivedRasterProposal {
         self.generation
     }
 
+    /// The target bound by the consumed execution lease, before durable promotion.
+    pub fn target(&self) -> &shadow_ai::ObservationTarget {
+        self.completed.provenance().target()
+    }
+
     pub const fn payload(&self) -> &AiGeneratedPayload {
         self.completed.payload()
     }

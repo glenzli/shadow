@@ -8,6 +8,7 @@
     "libheif",
     "libiconv",
     "libjpeg-turbo",
+    "libpng",
     "libraw",
     "tiff",
     "opencv4",

@@ -1,13 +1,14 @@
 #include <shadow/image/color_management.hpp>
-#include <shadow/image/linear_raster.hpp>
 #include <shadow/image/decoder_error.hpp>
 #include <shadow/image/decoder_metadata.hpp>
 #include <shadow/image/decoder_session.hpp>
 #include <shadow/image/decoder_types.hpp>
+#include <shadow/image/linear_raster.hpp>
 #include <shadow/image/raw_frame.hpp>
 #include <shadow/image/reference_pixels.hpp>
 
 #include "heif_decoder.hpp"
+#include "png_decoder.hpp"
 #include "raster_exif.hpp"
 
 #include <jconfig.h>
@@ -114,22 +115,19 @@ void cleanup(JpegDecodeState& state) noexcept {
 
 [[nodiscard]] std::string path_for_message(const std::filesystem::path& path) {
     const auto native = path.u8string();
-    return native.empty()
-        ? std::string{"<unnamed file>"}
-        : std::string(native.begin(), native.end());
+    return native.empty() ? std::string{"<unnamed file>"}
+                          : std::string(native.begin(), native.end());
 }
 
 [[nodiscard]] bool dimensions_within_limits(const Dimensions dimensions) noexcept {
     return dimensions.width > 0U && dimensions.height > 0U
-        && dimensions.width <= maximum_raster_source_dimension
-        && dimensions.height <= maximum_raster_source_dimension
-        && dimensions.pixel_count() <= maximum_raster_source_pixels;
+           && dimensions.width <= maximum_raster_source_dimension
+           && dimensions.height <= maximum_raster_source_dimension
+           && dimensions.pixel_count() <= maximum_raster_source_pixels;
 }
 
-[[nodiscard]] Dimensions oriented_dimensions(
-    const Dimensions stored,
-    const std::uint16_t orientation
-) noexcept {
+[[nodiscard]] Dimensions
+oriented_dimensions(const Dimensions stored, const std::uint16_t orientation) noexcept {
     switch (orientation) {
     case 5U:
     case 6U:
@@ -144,8 +142,12 @@ void cleanup(JpegDecodeState& state) noexcept {
 void parse_jpeg_exif(const jpeg_saved_marker_ptr markers, RasterExif& exif) {
     for (auto marker = markers; marker != nullptr; marker = marker->next) {
         constexpr std::array<std::uint8_t, 6U> exif_prefix{
-            static_cast<std::uint8_t>('E'), static_cast<std::uint8_t>('x'),
-            static_cast<std::uint8_t>('i'), static_cast<std::uint8_t>('f'), 0U, 0U,
+            static_cast<std::uint8_t>('E'),
+            static_cast<std::uint8_t>('x'),
+            static_cast<std::uint8_t>('i'),
+            static_cast<std::uint8_t>('f'),
+            0U,
+            0U,
         };
         if (marker->marker != JPEG_APP0 + 1U || marker->data_length <= exif_prefix.size()
             || std::memcmp(marker->data, exif_prefix.data(), exif_prefix.size()) != 0) {
@@ -164,12 +166,18 @@ void parse_jpeg_exif(const jpeg_saved_marker_ptr markers, RasterExif& exif) {
 
 void copy_embedded_icc(jpeg_decompress_struct& decoder, JpegDecodeState& state) {
     constexpr std::array<std::uint8_t, 12U> signature{
-        static_cast<std::uint8_t>('I'), static_cast<std::uint8_t>('C'),
-        static_cast<std::uint8_t>('C'), static_cast<std::uint8_t>('_'),
-        static_cast<std::uint8_t>('P'), static_cast<std::uint8_t>('R'),
-        static_cast<std::uint8_t>('O'), static_cast<std::uint8_t>('F'),
-        static_cast<std::uint8_t>('I'), static_cast<std::uint8_t>('L'),
-        static_cast<std::uint8_t>('E'), 0U,
+        static_cast<std::uint8_t>('I'),
+        static_cast<std::uint8_t>('C'),
+        static_cast<std::uint8_t>('C'),
+        static_cast<std::uint8_t>('_'),
+        static_cast<std::uint8_t>('P'),
+        static_cast<std::uint8_t>('R'),
+        static_cast<std::uint8_t>('O'),
+        static_cast<std::uint8_t>('F'),
+        static_cast<std::uint8_t>('I'),
+        static_cast<std::uint8_t>('L'),
+        static_cast<std::uint8_t>('E'),
+        0U,
     };
     struct Segment final {
         const JOCTET* bytes = nullptr;
@@ -260,8 +268,8 @@ void select_idct_scale(jpeg_decompress_struct& decoder, const std::uint32_t max_
     state->error.base.error_exit = handle_raster_jpeg_error;
     if (setjmp(state->error.jump) != 0) {
         const std::string message = state->error.message[0] == '\0'
-            ? "unknown JPEG decoder error"
-            : std::string(state->error.message);
+                                        ? "unknown JPEG decoder error"
+                                        : std::string(state->error.message);
         cleanup(*state);
         delete state;
         throw DecodeError(DecodeErrorCode::corrupt_data, 0, "JPEG decode failed: " + message);
@@ -453,17 +461,15 @@ void select_idct_scale(jpeg_decompress_struct& decoder, const std::uint32_t max_
     if (jpeg.rgb.empty() || !dimensions_within_limits(jpeg.decoded_dimensions)) {
         throw DecodeError(DecodeErrorCode::corrupt_data, 0, "JPEG decoder returned no RGB pixels");
     }
-    const Dimensions output_dimensions = oriented_dimensions(
-        jpeg.decoded_dimensions,
-        jpeg.exif.orientation
-    );
+    const Dimensions output_dimensions =
+        oriented_dimensions(jpeg.decoded_dimensions, jpeg.exif.orientation);
     const std::uint64_t output_samples = output_dimensions.pixel_count() * 3U;
     if (output_samples > std::numeric_limits<std::size_t>::max()) {
         throw DecodeError(DecodeErrorCode::resource_limit, 0, "JPEG output allocation overflows");
     }
     const IccProfile source_profile = jpeg.icc.empty()
-        ? make_display_srgb_icc_profile()
-        : load_icc_profile(std::as_bytes(std::span(jpeg.icc)));
+                                          ? make_display_srgb_icc_profile()
+                                          : load_icc_profile(std::as_bytes(std::span(jpeg.icc)));
     const IccProfile destination_profile = make_linear_srgb_icc_profile();
     const IccTransform transform = make_icc_transform(
         source_profile,
@@ -476,8 +482,8 @@ void select_idct_scale(jpeg_decompress_struct& decoder, const std::uint32_t max_
     output.dimensions = output_dimensions;
     output.bits_per_channel = 16U;
     output.channels = 3U;
-    output.row_stride_bytes = static_cast<std::size_t>(output_dimensions.width) * 3U
-        * sizeof(std::uint16_t);
+    output.row_stride_bytes =
+        static_cast<std::size_t>(output_dimensions.width) * 3U * sizeof(std::uint16_t);
     output.primaries = RgbPrimaries::srgb_rec709_d65;
     output.transfer_function = RgbTransferFunction::linear;
     output.reference = RgbBufferReference::decoded_raster;
@@ -509,11 +515,14 @@ void select_idct_scale(jpeg_decompress_struct& decoder, const std::uint32_t max_
                 (static_cast<std::size_t>(output_y) * output_dimensions.width + output_x) * 3U;
             for (std::size_t channel = 0U; channel < 3U; ++channel) {
                 output.samples[output_index + channel] = static_cast<std::uint16_t>(std::clamp(
-                    std::llround(std::clamp(
-                        static_cast<double>(transformed_row[input_index + channel]),
-                        0.0,
-                        1.0
-                    ) * 65'535.0),
+                    std::llround(
+                        std::clamp(
+                            static_cast<double>(transformed_row[input_index + channel]),
+                            0.0,
+                            1.0
+                        )
+                        * 65'535.0
+                    ),
                     0LL,
                     65'535LL
                 ));
@@ -535,17 +544,16 @@ void select_idct_scale(jpeg_decompress_struct& decoder, const std::uint32_t max_
     lower.reserve(extension.size() - 1U);
     for (std::size_t index = 1U; index < extension.size(); ++index) {
         const char8_t byte = extension[index];
-        lower.push_back(static_cast<char>(
-            byte >= u8'A' && byte <= u8'Z' ? byte - u8'A' + u8'a' : byte
-        ));
+        lower.push_back(
+            static_cast<char>(byte >= u8'A' && byte <= u8'Z' ? byte - u8'A' + u8'a' : byte)
+        );
     }
     return std::ranges::find(extensions, std::string_view(lower)) != extensions.end();
 }
 
 class RasterSession final : public DecodeSession {
-public:
-    explicit RasterSession(std::filesystem::path path)
-        : path_(std::move(path)) {
+  public:
+    explicit RasterSession(std::filesystem::path path) : path_(std::move(path)) {
         if (!has_extension(path_, {"jpg", "jpeg"})) {
             throw DecodeError(
                 DecodeErrorCode::unsupported,
@@ -587,9 +595,8 @@ public:
         return pixel_buffer_from_jpeg(decode_jpeg_file(path_, true));
     }
 
-    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
-        const std::uint32_t max_edge
-    ) const override {
+    [[nodiscard]] PixelBuffer
+    render_reference_rgb_for_preview(const std::uint32_t max_edge) const override {
         if (max_edge == 0U || max_edge > maximum_preview_edge) {
             throw DecodeError(
                 DecodeErrorCode::invalid_request,
@@ -600,20 +607,20 @@ public:
         return pixel_buffer_from_jpeg(decode_jpeg_file(path_, true, max_edge));
     }
 
-private:
+  private:
     std::filesystem::path path_;
     AssetMetadata metadata_;
     DecodeCapabilities capabilities_;
 };
 
 class RasterProvider final : public DecoderProvider {
-public:
+  public:
     RasterProvider() {
         info_.id = "shadow-raster";
-        info_.version = "jpeg-libjpeg-turbo-" SHADOW_STRINGIFY(LIBJPEG_TURBO_VERSION)
-            ";contract=" + std::to_string(raster_decoder_contract_version)
-            + ";heif=" + heif_decoder_version()
-            + ";display=" + std::to_string(display_srgb8_output_transform_version);
+        info_.version = "jpeg-libjpeg-turbo-" SHADOW_STRINGIFY(LIBJPEG_TURBO_VERSION) ";contract="
+                        + std::to_string(raster_decoder_contract_version)
+                        + ";heif=" + heif_decoder_version() + ";png=" + png_decoder_version()
+                        + ";display=" + std::to_string(display_srgb8_output_transform_version);
         info_.jpeg = true;
     }
 
@@ -621,11 +628,13 @@ public:
         return info_;
     }
 
-    [[nodiscard]] std::unique_ptr<DecodeSession> open(
-        const std::filesystem::path& path
-    ) const override {
+    [[nodiscard]] std::unique_ptr<DecodeSession>
+    open(const std::filesystem::path& path) const override {
         if (has_extension(path, {"tif", "tiff"})) {
             return open_linear_tiff(path);
+        }
+        if (has_extension(path, {"png"})) {
+            return open_png_decode_session(path);
         }
         if (has_extension(path, {"heic", "heif"})) {
             return open_heif_decode_session(path);
@@ -633,7 +642,7 @@ public:
         return std::make_unique<RasterSession>(path);
     }
 
-private:
+  private:
     ProviderInfo info_;
 };
 
@@ -644,7 +653,7 @@ std::unique_ptr<DecoderProvider> make_raster_decoder_provider() {
 }
 
 std::vector<std::string> raster_supported_file_extensions() {
-    std::vector<std::string> extensions{"jpg", "jpeg", "tif", "tiff"};
+    std::vector<std::string> extensions{"jpg", "jpeg", "png", "tif", "tiff"};
     if (heif_decoder_available()) {
         extensions.emplace_back("heic");
         extensions.emplace_back("heif");

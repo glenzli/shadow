@@ -88,7 +88,7 @@ class EditSubjectEmphasisController final : public QObject {
     BackendGradeStack before_;
     BackendGradeStack draft_;
     BackendSubjectMaskResult candidate_;
-    QString photo_id_, source_path_, target_id_, applied_id_, query_;
+    QString photo_id_, source_path_, variant_id_, target_id_, applied_id_, query_;
     QString status_, description_, image_source_, mask_source_;
     QStringList queries_;
     std::uint64_t photo_generation_ = 0, generation_ = 0, job_ = 0, input_ = 0;

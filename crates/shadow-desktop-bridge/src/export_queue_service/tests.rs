@@ -23,6 +23,8 @@ fn raw_dng_execution_requires_the_frozen_dng_format() {
 fn export_target_requires_complete_absolute_identity() {
     let output_path = std::env::temp_dir().join("shadow-durable-export-test.jpg");
     let valid = ffi::FfiDurableExportTarget {
+        recipe_commit_id: String::new(),
+        representation_id: String::new(),
         photo_id: "photo-id".into(),
         source_path: "/source/raw.nef".into(),
         output_path: crate::native_path_ffi::location_to_ffi(&shadow_native_path::native_location(
@@ -33,6 +35,8 @@ fn export_target_requires_complete_absolute_identity() {
     validate_export_target(&valid).expect("absolute target is valid");
 
     let invalid = ffi::FfiDurableExportTarget {
+        recipe_commit_id: String::new(),
+        representation_id: String::new(),
         photo_id: "photo-id".into(),
         source_path: "/source/raw.nef".into(),
         output_path: crate::native_path_ffi::location_to_ffi(&shadow_native_path::native_location(
@@ -62,6 +66,8 @@ fn export_target_requires_complete_absolute_identity() {
         ),
     };
     let foreign = ffi::FfiDurableExportTarget {
+        recipe_commit_id: String::new(),
+        representation_id: String::new(),
         photo_id: "photo-id".into(),
         source_path: "/source/raw.nef".into(),
         output_path: ffi::FfiNativePath {

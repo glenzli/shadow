@@ -146,6 +146,7 @@ BackendPhotoEditState DesktopBackend::applySubjectMaskProposal(
     ffi_request.generation = request.generation;
     ffi_request.base_commit_id = request.base_commit_id.toStdString();
     ffi_request.expected_working_commit_id = request.expected_working_commit_id.toStdString();
+    ffi_request.expected_variant_id = request.expected_variant_id.toStdString();
     ffi_request.settings = ffi_grade_stack(request.grade_stack);
     ffi_request.target_grade_node_index = request.target_grade_node_index;
     ffi_request.target_grade_node_id = request.target_grade_node_id.toStdString();

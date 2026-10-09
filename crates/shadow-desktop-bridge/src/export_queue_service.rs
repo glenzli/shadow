@@ -71,26 +71,44 @@ impl ExportQueueService {
             }
             let (photo_id, source) =
                 session.validated_photo_source(&target.photo_id, &target.source_path)?;
-            let state = session.photo_edit_state_for(photo_id, &source.location.display_path)?;
-            let state = if state.has_working_version {
-                state
+            let recipe_commit_id: RecipeCommitId = if !target.recipe_commit_id.is_empty()
+                || !target.representation_id.is_empty()
+            {
+                if target.recipe_commit_id.is_empty()
+                    || target.representation_id != source.representation_id.to_string()
+                {
+                    bail!(
+                        "pinned export requires an exact commit and current source representation"
+                    );
+                }
+                target
+                    .recipe_commit_id
+                    .parse()
+                    .context("parse pinned export Recipe commit")?
             } else {
-                // A neutral photo still needs a durable, exact source Recipe.
-                // This is the same autosave path used by regular editing and
-                // deliberately does not create a named Version checkpoint.
-                session.autosave_basic_edit_working_at(
-                    &target.photo_id,
-                    &target.source_path,
-                    "",
-                    "",
-                    &state.settings,
-                    now_ms,
-                )?
+                let state =
+                    session.photo_edit_state_for(photo_id, &source.location.display_path)?;
+                let state = if state.has_working_version {
+                    state
+                } else {
+                    // A neutral photo still needs a durable, exact source Recipe.
+                    // This is the same autosave path used by regular editing and
+                    // deliberately does not create a named Version checkpoint.
+                    session.autosave_basic_edit_working_at(
+                        &target.photo_id,
+                        &target.source_path,
+                        "",
+                        "",
+                        &state.settings,
+                        now_ms,
+                    )?
+                };
+                let recipe_commit_id: RecipeCommitId = state
+                    .working_commit_id
+                    .parse()
+                    .context("parse frozen working Recipe commit for export")?;
+                recipe_commit_id
             };
-            let recipe_commit_id: RecipeCommitId = state
-                .working_commit_id
-                .parse()
-                .context("parse frozen working Recipe commit for export")?;
             let recipe = self
                 .catalog
                 .recipe_commit(photo_id, recipe_commit_id)?
@@ -182,6 +200,9 @@ impl ExportQueueService {
                 source_path: source.location.display_path,
                 output_path: crate::native_path_ffi::location_to_ffi(&item.output)?,
                 settings_json: job.settings_json,
+                recipe_commit_id: item.recipe_commit_id.to_string(),
+                representation_id: item.representation_id.to_string(),
+                recipe_snapshot_digest: encode_hex(&item.recipe_snapshot_digest),
             }));
         }
     }
@@ -518,7 +539,12 @@ impl ExportQueueService {
         let job_id = parse_job_id(&item.job_id)?;
         let persisted = self.item_by_id_for_job(job_id, item_id)?;
         let received_output = crate::native_path_ffi::location_from_ffi(&item.output_path)?;
-        if persisted.photo_id.to_string() != item.photo_id || persisted.output != received_output {
+        if persisted.photo_id.to_string() != item.photo_id
+            || persisted.output != received_output
+            || persisted.recipe_commit_id.to_string() != item.recipe_commit_id
+            || persisted.representation_id.to_string() != item.representation_id
+            || encode_hex(&persisted.recipe_snapshot_digest) != item.recipe_snapshot_digest
+        {
             bail!("durable export item identity changed after it was claimed");
         }
         Ok(persisted)

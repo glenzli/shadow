@@ -185,6 +185,11 @@ void write_tiff(QIODevice& destination, const QImage& input, const BackendExport
                 throw std::runtime_error("could not encode a TIFF scanline");
             }
         }
+        // TIFFClose has no result: check deferred strips and directory writes
+        // before allowing the staging owner to publish a complete output.
+        if (TIFFFlush(tiff) != 1) {
+            throw std::runtime_error("could not finalize the TIFF output");
+        }
         TIFFClose(tiff);
     } catch (...) {
         TIFFClose(tiff);

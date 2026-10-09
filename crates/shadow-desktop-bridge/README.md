@@ -1,13 +1,16 @@
 # shadow-desktop-bridge
 
 `shadow-desktop-bridge` is the long-lived Rust application boundary consumed by the Qt desktop
-shell. It owns coarse desktop services and the CXX-facing `DesktopSession`; it does not own QML
+shell and the headless CLI. It owns coarse application services and the CXX-facing `DesktopSession`; it does not own QML
 presentation, SQLite schema details, or native image algorithms.
 
 ## Responsibility index
 
 | Change | Primary owner |
 | --- | --- |
+| Persistent Qt-free JSON project operations, exact existing Recipe/CAS delegation, managed original admission, precommit draft preview and headless PNG file delivery | [`src/headless_project.rs`](src/headless_project.rs), [`src/headless_project/`](src/headless_project/) |
+| Headless basic/geometry and five-channel curve authoring/read projection into the canonical desktop DTO, preserving complete Recipe state and existing CAS | [`src/headless_project/edit.rs`](src/headless_project/edit.rs), [`src/headless_project/protocol.rs`](src/headless_project/protocol.rs) |
+| Headless explicitly user-directed flags/ratings, exact existing decision-ledger CAS receipts, bounded history and honest provenance limits | [`src/headless_project/review.rs`](src/headless_project/review.rs), [`src/review_service/decisions.rs`](src/review_service/decisions.rs) |
 | Desktop CXX structs, methods, and session composition | [`src/lib.rs`](src/lib.rs) |
 | Versioned Recipe document projection and verified bundled LUT storage | [`src/recipe_interchange.rs`](src/recipe_interchange.rs), [`src/recipe_lut_resources.rs`](src/recipe_lut_resources.rs) |
 | Exact pre-curve recipe prefix, existing warm-source lookup and cancellable scalar input map | [`src/edit_preview/curve_input.rs`](src/edit_preview/curve_input.rs) |
@@ -73,6 +76,11 @@ presentation, SQLite schema details, or native image algorithms.
 | Recipe-exact raster export execution (including fail-closed AI RAW-foundation routing and provider-neutral RawFrame staging when the public decoder cannot develop the source), durable queueing, and source-stage RAW DNG publication that preserves the staged CFA mosaic and source calibration without applying the Recipe; isolated display JPEGs are never substituted for RAW export | [`src/export_service.rs`](src/export_service.rs), [`src/export_queue_service.rs`](src/export_queue_service.rs), [`src/raw_dng_export.rs`](src/raw_dng_export.rs), [`src/isolated_proxy/raw_frame_staging.rs`](src/isolated_proxy/raw_frame_staging.rs) |
 | Cache ownership and explicit maintenance | [`src/cache_maintenance_service.rs`](src/cache_maintenance_service.rs) |
 | Cross-responsibility facade contracts and responsibility-owned fixtures | [`src/tests/mod.rs`](src/tests/mod.rs), [`src/tests/fixtures/mod.rs`](src/tests/fixtures/mod.rs) |
+
+The single-photo [external tool contract](../../docs/development/agent-edit-stdio.md) reuses
+`session_edit_history` for exact transaction receipts and `export_queue_service` for explicit
+immutable commit/representation selection. These paths do not infer the result from a later
+movable working ref or define another Recipe format.
 
 Add behavior to the module that owns its lifecycle and failure policy. Change `lib.rs` only when
 the CXX contract, session composition, or a narrow delegation must change. A new independent
@@ -169,8 +177,22 @@ curves retain one deterministic Grade-local slot and independent point sets.
 `session_auto_start` owns exact transient candidate-mask rendering and strict-CAS starting-point
 publication. Temporary render plans resolve staged raster bytes without promoting them or writing
 Recipe/cache state; apply promotes every selected mask and publishes all nodes in one working-head
-transaction. Stale proposals fail instead of using autosave rebasing. Its adjacent tests compare
+transaction. Stale proposals fail against the exact expected working head. Its adjacent tests compare
 transient and durable native plans at different strengths and verify atomic/stale-head behavior.
+
+`session_edit_history` uses exact working-head CAS for ordinary autosave and internal
+full-draft publication. The desktop entry also carries the caller’s expected active Variant;
+internal callers without an explicit Variant bind it at invocation. A stale head returns a conflict
+without publishing a commit or replacing another editor's adjustments. Ordinary desktop autosave
+keeps the unsaved draft and surfaces its existing save-failure recovery; the caller must reconcile before retrying
+against a newly observed head. A checked-out named Version remains the content parent, separately
+from the expected movable working ref. Merely assigning a newer parent is not a content merge.
+AI mask/completion apply carries the Variant captured by the UI and validates the existing
+lease-bound Photo target before consuming the proposal. An empty expected Variant is rejected;
+publication repeats the Variant/head CAS in the Catalog transaction. These checks do not prove
+freshness of replaced source bytes or another representation of the same Photo.
+AI mask/completion publication may already have consumed its proposal before the final CAS; a
+stale proposal must be prepared again after reconciliation rather than replaying that token.
 
 [`src/people_library_store/scan.rs`](src/people_library_store/scan.rs) stores completed input
 identities for incremental analysis. It keeps no biometric vectors. Each completed batch is

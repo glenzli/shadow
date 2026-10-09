@@ -4,7 +4,7 @@ use std::path::Path;
 
 use shadow_domain::RawMetadataSnapshot;
 
-use super::{BridgeError, ffi};
+use super::{BridgeError, ffi, native_path};
 
 /// Persisted input-transform contract understood by the C++ optics provider.
 pub const OPTICS_SETTINGS_SCHEMA_VERSION: u32 = 1;
@@ -94,10 +94,7 @@ pub struct RawWhiteBalancePresentation {
 pub fn query_libraw_optics_profiles(
     path: &Path,
 ) -> Result<Vec<OpticsProfileCandidate>, BridgeError> {
-    let utf8_path = path
-        .to_str()
-        .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
-    Ok(ffi::query_libraw_optics_profiles_utf8(utf8_path)?
+    Ok(native_path::query_libraw_optics_profiles(path)?
         .into_iter()
         .map(|candidate| OpticsProfileCandidate {
             camera_maker: candidate.camera_maker,
@@ -120,10 +117,7 @@ pub fn query_libraw_optics_profiles(
 pub fn query_photo_optics_profiles(
     path: &Path,
 ) -> Result<Vec<OpticsProfileCandidate>, BridgeError> {
-    let utf8_path = path
-        .to_str()
-        .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
-    Ok(ffi::query_photo_optics_profiles_utf8(utf8_path)?
+    Ok(native_path::query_photo_optics_profiles(path)?
         .into_iter()
         .map(|candidate| OpticsProfileCandidate {
             camera_maker: candidate.camera_maker,

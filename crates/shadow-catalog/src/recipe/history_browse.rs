@@ -87,7 +87,7 @@ impl Catalog {
         for row in rows {
             let (stored_id, stored_recipe_id, json, snapshot_digest) = row?;
             records.push(decode_recipe_record(
-                &self.connection,
+                self,
                 photo_id,
                 stored_id,
                 stored_recipe_id,

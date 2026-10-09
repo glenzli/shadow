@@ -364,57 +364,65 @@ fn autosave_persists_combined_perceptual_color_controls() {
 }
 
 #[test]
-fn autosave_recovers_a_stale_missing_working_head_without_losing_the_draft() {
+fn autosave_rejects_stale_missing_head_without_replacing_another_session() {
     let (root, session, photo_id, source_path) = test_edit_session();
+    let other = open_desktop_session(
+        root.join("catalog.sqlite").to_str().expect("catalog path"),
+        root.join("cache").to_str().expect("cache path"),
+    )
+    .expect("open independent editor");
     let first = session
         .autosave_basic_edit_working_at(
             &photo_id,
             &source_path,
             "",
             "",
-            &ffi_parameters(0.15, 1.0, [0.0; 2], 1.0),
+            &ffi_parameters(0.4, 1.0, [0.0; 2], 1.0),
             1_000,
         )
-        .expect("create first working autosave");
-    let first_id = first.working_commit_id;
+        .expect("publish first editor's exposure");
 
-    // Simulate a controller which queued its initial autosave before a different local
-    // state task published the first `working` ref. The second call still carries a full
-    // current draft, so it must become a child of the discovered working head rather than
-    // surfacing a permanent Missing-vs-Some CAS error to the editor.
-    let recovered = session
-        .autosave_basic_edit_working_at(
-            &photo_id,
-            &source_path,
-            "",
-            "",
-            &ffi_parameters(0.85, 1.15, [0.02, -0.01], 0.94),
-            1_500,
-        )
-        .expect("rebase stale missing autosave");
-    assert_ne!(recovered.working_commit_id, first_id);
-    assert_close(recovered.settings.grade_nodes[0].basic.exposure_stops, 0.85);
-    assert!(recovered.versions.is_empty());
+    // The other editor still believes that no working Recipe exists. Its full
+    // draft changes contrast, but must not reset the exposure just published.
+    let stale_draft = ffi_parameters(0.0, 1.15, [0.0; 2], 1.0);
+    for timestamp in [1_500, 1_750] {
+        let error = other
+            .autosave_basic_edit_working_at(
+                &photo_id,
+                &source_path,
+                "",
+                "",
+                &stale_draft,
+                timestamp,
+            )
+            .expect_err("stale Missing expectation must remain a conflict, including retry");
+        assert!(matches!(
+            error.downcast_ref::<shadow_catalog::CatalogError>(),
+            Some(shadow_catalog::CatalogError::RecipeRefExpectationMismatch { .. })
+        ));
+    }
+    let preserved = other.photo_edit_state(&photo_id, &source_path).unwrap();
+    assert_eq!(preserved.working_commit_id, first.working_commit_id);
+    assert_close(preserved.settings.grade_nodes[0].basic.exposure_stops, 0.4);
+    assert_close(preserved.settings.grade_nodes[0].basic.contrast_factor, 1.0);
+    assert_eq!(
+        session
+            .catalog
+            .recipe_commits(photo_id.parse().unwrap())
+            .unwrap()
+            .len(),
+        1
+    );
+    // Failure does not consume or mutate the caller's unsaved draft.
+    assert_close(stale_draft.grade_nodes[0].basic.contrast_factor, 1.15);
 
-    let parsed_photo_id: PhotoId = photo_id.parse().expect("parse photo id");
-    let recovered_id: RecipeCommitId = recovered
-        .working_commit_id
-        .parse()
-        .expect("parse recovered working id");
-    let recovered_record = session
-        .catalog
-        .recipe_commit(parsed_photo_id, recovered_id)
-        .expect("read recovered working commit")
-        .expect("recovered working commit exists");
-    let first_id: RecipeCommitId = first_id.parse().expect("parse first working id");
-    assert_eq!(recovered_record.commit.parents(), &[first_id]);
-
+    drop(other);
     drop(session);
-    std::fs::remove_dir_all(root).expect("remove autosave conflict fixture");
+    std::fs::remove_dir_all(root).expect("remove missing-head conflict fixture");
 }
 
 #[test]
-fn autosave_rebases_a_stale_expected_working_head_without_losing_the_draft() {
+fn autosave_rejects_stale_expected_head_and_accepts_explicitly_reconciled_draft() {
     let (root, session, photo_id, source_path) = test_edit_session();
     let first = session
         .autosave_basic_edit_working_at(
@@ -425,57 +433,88 @@ fn autosave_rebases_a_stale_expected_working_head_without_losing_the_draft() {
             &ffi_parameters(0.15, 1.0, [0.0; 2], 1.0),
             1_000,
         )
-        .expect("create initial working autosave");
+        .expect("publish shared starting point");
+    let other = open_desktop_session(
+        root.join("catalog.sqlite").to_str().expect("catalog path"),
+        root.join("cache").to_str().expect("cache path"),
+    )
+    .expect("open independent editor");
     let first_id = first.working_commit_id;
-
-    // A controller has already captured the first head for its current
-    // draft, then another local state task publishes an adjacent autosave.
-    // This mirrors the normal At(A)-vs-current-B conflict seen in the app:
-    // the current draft must be appended to B rather than becoming a
-    // permanent save failure.
     let interleaved = session
         .autosave_basic_edit_working_at(
             &photo_id,
             &source_path,
             &first_id,
             &first_id,
-            &ffi_parameters(0.4, 1.05, [0.01, 0.0], 0.98),
+            &ffi_parameters(0.4, 1.0, [0.0; 2], 1.0),
             1_250,
         )
-        .expect("publish adjacent autosave");
-    let interleaved_id = interleaved.working_commit_id;
-
-    let recovered = session
+        .expect("first editor changes only exposure");
+    let stale_draft = ffi_parameters(0.15, 1.15, [0.0; 2], 1.0);
+    let error = other
         .autosave_basic_edit_working_at(
             &photo_id,
             &source_path,
             &first_id,
             &first_id,
-            &ffi_parameters(0.85, 1.15, [0.02, -0.01], 0.94),
+            &stale_draft,
             1_500,
         )
-        .expect("rebase stale expected working autosave");
-    assert_ne!(recovered.working_commit_id, interleaved_id);
-    assert_close(recovered.settings.grade_nodes[0].basic.exposure_stops, 0.85);
-    assert!(recovered.versions.is_empty());
+        .expect_err("second editor must not overwrite exposure with its old full draft");
+    assert!(matches!(
+        error.downcast_ref::<shadow_catalog::CatalogError>(),
+        Some(shadow_catalog::CatalogError::RecipeRefExpectationMismatch { .. })
+    ));
+    let preserved = other.photo_edit_state(&photo_id, &source_path).unwrap();
+    assert_eq!(preserved.working_commit_id, interleaved.working_commit_id);
+    assert_close(preserved.settings.grade_nodes[0].basic.exposure_stops, 0.4);
+    assert_close(preserved.settings.grade_nodes[0].basic.contrast_factor, 1.0);
+    let parsed_photo_id: PhotoId = photo_id.parse().unwrap();
+    assert_eq!(
+        session
+            .catalog
+            .recipe_commits(parsed_photo_id)
+            .unwrap()
+            .len(),
+        2
+    );
 
-    let parsed_photo_id: PhotoId = photo_id.parse().expect("parse photo id");
-    let recovered_id: RecipeCommitId = recovered
-        .working_commit_id
-        .parse()
-        .expect("parse recovered working id");
-    let recovered_record = session
+    // Once the caller has deliberately reconciled with the returned current
+    // head, the normal exact-CAS path saves both edits and keeps their ancestry.
+    let reconciled = other
+        .autosave_basic_edit_working_at(
+            &photo_id,
+            &source_path,
+            &preserved.working_commit_id,
+            &preserved.working_commit_id,
+            &ffi_parameters(0.4, 1.15, [0.0; 2], 1.0),
+            2_000,
+        )
+        .expect("save explicitly reconciled adjustments");
+    assert_close(reconciled.settings.grade_nodes[0].basic.exposure_stops, 0.4);
+    assert_close(
+        reconciled.settings.grade_nodes[0].basic.contrast_factor,
+        1.15,
+    );
+    let record = session
         .catalog
-        .recipe_commit(parsed_photo_id, recovered_id)
-        .expect("read recovered working commit")
-        .expect("recovered working commit exists");
-    let interleaved_id: RecipeCommitId = interleaved_id
-        .parse()
-        .expect("parse interleaved working id");
-    assert_eq!(recovered_record.commit.parents(), &[interleaved_id]);
+        .recipe_commit(
+            parsed_photo_id,
+            reconciled.working_commit_id.parse().unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        record.commit.parents(),
+        &[preserved
+            .working_commit_id
+            .parse::<RecipeCommitId>()
+            .unwrap()]
+    );
 
+    drop(other);
     drop(session);
-    std::fs::remove_dir_all(root).expect("remove stale expected autosave fixture");
+    std::fs::remove_dir_all(root).expect("remove stale-head conflict fixture");
 }
 
 #[test]

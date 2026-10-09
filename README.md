@@ -36,6 +36,10 @@ Shadow 同时面向 AI 参与的摄影工作流设计。长期目标是在用户
 - **非破坏性精修**：节点化 Recipe 覆盖基础 RAW 开发、白平衡、色调与颜色、裁剪、旋转、透视/几何、局部蒙版、修复和液化；AI 主体与人物细节选择会自动创建并绑定新的调色节点。
 - **本地智能辅助**：人物分组、语义发现、AI RAW 降噪、焦点细节检查以及基于 SAM 2.1 和人脸解析的选择性蒙版，通过本地 Infer Runtime 执行并保留来源与执行信息。
 - **位置与交付**：地图浏览、逆地理信息、手动位置补全、无 GPS 照片的拍摄事件聚类，以及导出预设、格式/尺寸/质量控制和水印管理。
+- **人机共同编辑**：外部 AI 可通过 [进程工具](docs/development/agent-edit-stdio.md)查看当前已保存画面，并提出曝光、反差与饱和度的组合方案，先生成预览再确认应用；人工可接手、继续调整和撤销。工具使用同一个编辑会话，不运行模型或代替用户接受外部素材。
+- **素材编辑阶段**：[外部素材入口](docs/development/external-edit-stage.md)可接收受支持的 PNG，在独立窗口编辑后返回新图片与版本回执，供其他应用继续处理。原素材保持只读。
+
+- **无界面项目流程（首阶段）**：原项目的 [`shadow-cli project`](apps/shadow-cli/README.md) 复用桌面共享服务，提供导入、基础节点/几何编辑、持久化历史、重开及精确 PNG8/16 导出；完整桌面覆盖和 Linux 独立验收仍有明确缺口。
 
 ### 当前边界
 
@@ -97,6 +101,10 @@ Shadow is also designed for photographic workflows in which AI participates. The
 - **Non-destructive refinement**: a node-based Recipe covers foundational RAW development, white balance, tone and color, crop, rotation, perspective/geometry, local masks, retouch, and Liquify. AI subject and people-detail selections automatically create and bind a new grading node.
 - **Local intelligent assistance**: people grouping, semantic discovery, AI RAW denoise, focus-detail inspection, and selective masks based on SAM 2.1 and face parsing run through the local Infer Runtime and retain source and execution information.
 - **Location and delivery**: map browsing, reverse-geographic information, manual location completion, capture-event grouping for photos without GPS, plus export presets, format/size/quality control, and watermark management.
+- **Shared human and AI editing**: external AI clients can use the [process tools](docs/development/agent-edit-stdio.md) to inspect the current saved image and propose exposure, contrast, and saturation together, review a preview, then apply. People can take over, continue editing, and undo in the same session. The tools do not execute models or accept external materials on the user’s behalf.
+- **Material editing stage**: the [external material entry](docs/development/external-edit-stage.md) receives a supported PNG, opens an independent editor, and returns a new image with its version receipt for another application to consume. Source material stays read-only.
+
+- **Headless projects (phase 1)**: the original [`shadow-cli project`](apps/shadow-cli/README.md) shares desktop services for import, basic node/geometry edits, persistent history, reopening and exact PNG8/16 export. Full desktop coverage and independent Linux acceptance remain open.
 
 ### Current boundaries
 

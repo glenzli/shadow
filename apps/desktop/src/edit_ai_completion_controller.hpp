@@ -63,6 +63,7 @@ class EditAiCompletionController final {
     struct Context final {
         QString photo_id;
         QString source_path;
+        QString expected_variant_id;
         std::uint64_t photo_generation = 0;
     };
 

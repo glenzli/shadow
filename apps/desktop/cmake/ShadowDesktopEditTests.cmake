@@ -1894,3 +1894,32 @@ if(BUILD_TESTING)
     set_tests_properties(shadow-desktop-color-warper-interaction PROPERTIES TIMEOUT 30 LABELS "desktop;grading"
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic")
 endif()
+
+    add_executable(shadow-edit-tool-protocol-test
+        tests/edit_tool_protocol_test.cpp src/edit_tool_protocol.cpp src/edit_tool_protocol.hpp)
+    target_compile_features(shadow-edit-tool-protocol-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-edit-tool-protocol-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-edit-tool-protocol-test PRIVATE Qt6::Core)
+    add_test(NAME shadow-desktop-edit-tool-protocol COMMAND shadow-edit-tool-protocol-test)
+
+    add_executable(shadow-edit-tool-stdio-test tests/edit_tool_stdio_test.cpp
+        src/edit_tool_stdio.cpp src/edit_tool_stdio.hpp src/edit_tool_protocol.cpp)
+    target_compile_features(shadow-edit-tool-stdio-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-edit-tool-stdio-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-edit-tool-stdio-test PRIVATE Qt6::Core)
+    add_test(NAME shadow-desktop-edit-tool-stdio COMMAND shadow-edit-tool-stdio-test)
+
+    if(UNIX)
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_executable(shadow-edit-tool-fixture tests/edit_tool_fixture.cpp)
+        target_compile_features(shadow-edit-tool-fixture PRIVATE cxx_std_20)
+        target_link_libraries(shadow-edit-tool-fixture PRIVATE Qt6::Gui)
+        add_test(NAME shadow-desktop-edit-tool-integration
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/edit_tool_stdio_integration.py"
+                    $<TARGET_FILE:shadow-desktop> $<TARGET_FILE:shadow-edit-tool-fixture>)
+        set_tests_properties(shadow-desktop-edit-tool-integration PROPERTIES TIMEOUT 180 LABELS "desktop;editing;protocol")
+        add_test(NAME shadow-desktop-edit-tool-owner-ui
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/edit_tool_owner_ui_test.py"
+                    $<TARGET_FILE:shadow-desktop> $<TARGET_FILE:shadow-edit-tool-fixture>)
+        set_tests_properties(shadow-desktop-edit-tool-owner-ui PROPERTIES TIMEOUT 150 LABELS "desktop;editing;ui")
+    endif()

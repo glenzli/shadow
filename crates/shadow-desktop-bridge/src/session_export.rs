@@ -34,6 +34,9 @@ impl DesktopSession {
                     display_path: String::new(),
                 },
                 settings_json: String::new(),
+                recipe_commit_id: String::new(),
+                representation_id: String::new(),
+                recipe_snapshot_digest: String::new(),
             }))
     }
 

@@ -32,9 +32,7 @@ void apply_durable_progress(
     const BackendDurableExportProgress& progress
 ) {
     result.completed = checked_export_count(progress.completed);
-    result.failed = checked_export_count(
-        progress.failed + progress.paused_conflict
-    );
+    result.failed = checked_export_count(progress.failed + progress.paused_conflict);
     result.paused_conflicts = checked_export_count(progress.paused_conflict);
     result.cancelled_items = checked_export_count(progress.cancelled);
     result.requested = checked_export_count(progress.total);
@@ -66,8 +64,7 @@ ExportTaskResult ExportTaskRunner::runDurableExport(
     QString selected_job_id;
     try {
         if (recover_existing) {
-            const BackendDurableExportRecovery recovery =
-                backend->recoverDurableExportQueue();
+            const BackendDurableExportRecovery recovery = backend->recoverDurableExportQueue();
             result.requested = checked_export_count(recovery.queued_items);
             if (result.requested == 0) {
                 return result;
@@ -89,8 +86,7 @@ ExportTaskResult ExportTaskRunner::runDurableExport(
             if (cancellation_token->load(std::memory_order_relaxed)) {
                 if (!selected_job_id.isEmpty()) {
                     backend->cancelDurableExportJob(selected_job_id);
-                    const auto progress =
-                        backend->durableExportProgress(selected_job_id);
+                    const auto progress = backend->durableExportProgress(selected_job_id);
                     apply_durable_progress(result, progress);
                 }
                 result.cancelled = true;
@@ -98,8 +94,7 @@ ExportTaskResult ExportTaskRunner::runDurableExport(
             }
 
             if (!selected_job_id.isEmpty()) {
-                const auto progress =
-                    backend->durableExportProgress(selected_job_id);
+                const auto progress = backend->durableExportProgress(selected_job_id);
                 apply_durable_progress(result, progress);
                 if (progress.queued == 0 && progress.active == 0) {
                     break;
@@ -115,16 +110,12 @@ ExportTaskResult ExportTaskRunner::runDurableExport(
                 report_progress(
                     result.completed,
                     result.failed,
-                    std::min(
-                        result.requested,
-                        result.completed + result.failed + 1
-                    ),
+                    std::min(result.requested, result.completed + result.failed + 1),
                     result.requested,
                     title
                 );
             } else {
-                const auto progress =
-                    backend->durableExportProgress(selected_job_id);
+                const auto progress = backend->durableExportProgress(selected_job_id);
                 apply_durable_progress(result, progress);
                 report_progress(
                     result.completed,
@@ -139,16 +130,13 @@ ExportTaskResult ExportTaskRunner::runDurableExport(
             try {
                 const auto receipt = backend->executeDurableExportItem(*item);
                 item_succeeded = true;
-                if (selected_job_id.isEmpty()
-                    || item->job_id == selected_job_id) {
-                    result.destination_paths.push_back(
-                        receipt.destination_path
-                    );
+                if (selected_job_id.isEmpty() || item->job_id == selected_job_id) {
+                    result.receipts.push_back(receipt);
+                    result.destination_paths.push_back(receipt.destination_path);
                 }
             } catch (const std::exception& error) {
                 result.errors.push_back(
-                    QStringLiteral("%1 · %2")
-                        .arg(title, QString::fromUtf8(error.what()))
+                    QStringLiteral("%1 · %2").arg(title, QString::fromUtf8(error.what()))
                 );
             }
 
@@ -164,16 +152,12 @@ ExportTaskResult ExportTaskRunner::runDurableExport(
                 report_progress(
                     result.completed,
                     result.failed,
-                    std::min(
-                        result.requested,
-                        result.completed + result.failed
-                    ),
+                    std::min(result.requested, result.completed + result.failed),
                     result.requested,
                     title
                 );
             } else {
-                const auto progress =
-                    backend->durableExportProgress(selected_job_id);
+                const auto progress = backend->durableExportProgress(selected_job_id);
                 apply_durable_progress(result, progress);
                 report_progress(
                     result.completed,
@@ -186,8 +170,7 @@ ExportTaskResult ExportTaskRunner::runDurableExport(
         }
 
         if (!selected_job_id.isEmpty()) {
-            const auto progress =
-                backend->durableExportProgress(selected_job_id);
+            const auto progress = backend->durableExportProgress(selected_job_id);
             apply_durable_progress(result, progress);
             result.cancelled = result.cancelled || progress.cancelled > 0;
         }

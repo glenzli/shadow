@@ -10,6 +10,8 @@ that same private wire representation:
 
 - [`src/decoder.rs`](src/decoder.rs) owns source-neutral inspection, embedded-preview extraction,
   and shared decoder wire mappings.
+- [`src/native_path.rs`](src/native_path.rs) owns host path selection for all source and staged-RAW
+  entry points; its native codec is [`native_path_wire.cpp`](../../cpp/shadow-image/src/bridge/native_path_wire.cpp).
 - [`src/display_luma.rs`](src/display_luma.rs) owns bounded, versioned display-proxy analysis.
 - [`src/lut_baking.rs`](src/lut_baking.rs) owns bounded color-only LUT sampling, shared cancellation,
   production-parser admission, and measured interpolation-error results.
@@ -79,7 +81,7 @@ The decoder side of the bridge follows this coarse-grained path:
 
 ```text
 Rust path
-→ CXX open_libraw_utf8
+→ host-selected CXX path entry
 → C++ DecoderProvider / DecodeSession
 → owned metadata + capability + preview snapshots / compressed visual payload
 → pure shadow-domain types
@@ -159,7 +161,15 @@ not by itself make differently authored embedded/generated proxies comparable.
 
 ## Path contract
 
-The first implementation is Mac-first and accepts a UTF-8 path. This limitation is explicit: `inspect_libraw` rejects a non-UTF-8 `Path` instead of using a lossy display string. The Windows adapter will add a native UTF-16 entry point while preserving the existing provider and snapshot schemas.
+On Unix, source and staged-RAW manifest paths cross CXX as exact borrowed `OsStr` bytes and
+become native `std::filesystem::path` values without UTF-8 or locale conversion. Embedded NUL
+is rejected before decoder I/O. Filesystem filename admission remains platform-specific; APFS can
+reject byte names that a Linux filesystem accepts. Existing C++ UTF-8 entry points remain available
+as compatibility wrappers.
+
+Other platforms retain the existing UTF-8 contract: a non-UTF-8 `Path` returns
+`BridgeError::NonUtf8Path`. This change does not add Windows UTF-16 decoder support or change
+separate application resource-path contracts such as managed LUT loading.
 
 ## Build
 

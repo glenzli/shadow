@@ -102,6 +102,7 @@ EditSubjectEmphasisController::~EditSubjectEmphasisController() {
 
 bool EditSubjectEmphasisController::current() const noexcept {
     return active_ && photo_id_ == owner_.photo_id_ && source_path_ == owner_.source_path_
+           && variant_id_ == owner_.active_variant_id_
            && photo_generation_ == owner_.photo_generation_ && before_ == owner_.grade_stack_;
 }
 bool EditSubjectEmphasisController::canApply() const noexcept {
@@ -167,6 +168,7 @@ void EditSubjectEmphasisController::analyze() {
     }
     photo_id_ = owner_.photo_id_;
     source_path_ = owner_.source_path_;
+    variant_id_ = owner_.active_variant_id_;
     photo_generation_ = owner_.photo_generation_;
     ++generation_;
     active_ = true;
@@ -329,6 +331,7 @@ void EditSubjectEmphasisController::apply() {
         .generation = candidate_.generation,
         .base_commit_id = owner_.base_commit_id_,
         .expected_working_commit_id = owner_.durable_working_commit_id_,
+        .expected_variant_id = variant_id_,
         .grade_stack = std::move(stack),
         .target_grade_node_index = static_cast<std::uint32_t>(draft_.grade_nodes.size() - 1),
         .target_grade_node_id = target_id_,
@@ -351,6 +354,10 @@ void EditSubjectEmphasisController::apply() {
                 task.state = backend->applySubjectMaskProposal(photo, source, request);
             } catch (const std::exception& error) {
                 task.error = QString::fromUtf8(error.what());
+                // Apply owns this token; a preflight rejection may leave it staged.
+                try {
+                    backend->discardSubjectMaskProposal(request.proposal_token);
+                } catch (...) {}
             }
             return task;
         })

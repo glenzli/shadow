@@ -255,3 +255,61 @@ fn full_edit_detail_contract_is_send_sync_and_rejects_invalid_rectangles_locally
     .validate(dimensions)
     .expect("maximum in-bounds detail tile is valid without opening a RAW");
 }
+
+#[test]
+fn rgb8_node_and_layer_auto_fallback_receipts_stay_consistent() {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/desktop/assets/lut-preview-reference.jpg");
+    let session = PhotoEditDetailSession::open(&source).unwrap();
+    let node_plan = plan(None);
+    let mut layer_plan = node_plan.clone();
+    layer_plan.nodes.insert(
+        0,
+        AdjustmentRenderNode {
+            node_id: "neutral-layer-start".to_owned(),
+            parameter_schema_version: 1,
+            implementation_version: 1,
+            enabled: true,
+            operation: AdjustmentRenderOperation::LocalMaskLayerStart {
+                opacity: 1.0,
+                mask: None,
+            },
+        },
+    );
+    layer_plan.nodes.push(AdjustmentRenderNode {
+        node_id: "neutral-layer-end".to_owned(),
+        parameter_schema_version: 1,
+        implementation_version: 1,
+        enabled: true,
+        operation: AdjustmentRenderOperation::LocalMaskLayerEnd,
+    });
+    let request = DetailTileRequest {
+        rect: DetailTileRect {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 8,
+        },
+    };
+    let node_tile = session.render_plan_tile(&node_plan, request).unwrap();
+    let layer_tile = session.render_plan_tile(&layer_plan, request).unwrap();
+    assert_eq!(node_tile.bytes, layer_tile.bytes);
+
+    // The normal run uses auto (including on no-Metal builds). Explicit CPU remains a valid
+    // caller policy and must report direct execution instead of fabricating fallback.
+    let forced_cpu = std::env::var("SHADOW_IMAGE_ACCELERATION").is_ok_and(|mode| mode == "cpu");
+    for tile in [node_tile, layer_tile] {
+        if tile.execution.backend == DetailTileRenderBackend::Cpu && !forced_cpu {
+            assert!(tile.execution.fell_back);
+            assert!(
+                tile.execution
+                    .diagnostic
+                    .as_deref()
+                    .is_some_and(|diagnostic| !diagnostic.is_empty())
+            );
+        } else {
+            assert!(!tile.execution.fell_back);
+            assert!(tile.execution.diagnostic.is_none());
+        }
+    }
+}

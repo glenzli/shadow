@@ -9,7 +9,7 @@ use super::{
         validate_jpeg_quality, validate_proxy_max_edge,
     },
     decoder::{dimensions, open_libraw, preview_codec},
-    ffi,
+    native_path,
     render_wire::{ffi_render_request, proxy_payload},
 };
 
@@ -54,11 +54,8 @@ pub fn render_photo_reference_proxy(
 ) -> Result<shadow_domain::ProxyPayload, BridgeError> {
     validate_proxy_max_edge(max_edge)?;
     validate_jpeg_quality(jpeg_quality)?;
-    let utf8_path = path
-        .to_str()
-        .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
-    Ok(proxy_payload(ffi::render_photo_reference_proxy(
-        utf8_path,
+    Ok(proxy_payload(native_path::render_photo_reference_proxy(
+        path,
         max_edge,
         jpeg_quality,
     )?))

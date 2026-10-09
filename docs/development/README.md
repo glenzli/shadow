@@ -11,6 +11,11 @@ defines the required minimal invalidation path, source/receipt continuity, host/
 budget, and interactive-versus-settled behavior. The project-local
 `$shadow-interactive-rendering` skill turns that contract into the required change workflow.
 
+## External single-photo edit tools
+
+The [stdio edit-tool contract](agent-edit-stdio.md) documents the explicit one-photo launch, typed
+exposure proposal, shared owner/CAS arbitration, immutable export, and temporary-session limits.
+
 ## Multi-photo composition
 
 The [desktop composition owner](../../apps/desktop/README.md#hdr-and-panorama-composition)

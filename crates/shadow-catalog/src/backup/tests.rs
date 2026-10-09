@@ -106,3 +106,68 @@ fn corrupt_file_fails_the_restore_drill() {
 
     assert!(verify_catalog_backup(&corrupt).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn dangling_symlink_destination_is_preserved() {
+    let directory = TempDirectory::new();
+    let source = directory.join("catalog.sqlite");
+    let destination = directory.join("existing.sqlite");
+    let missing_target = directory.join("missing.sqlite");
+    let _catalog = Catalog::open(&source).expect("open source catalog");
+    std::os::unix::fs::symlink(&missing_target, &destination).expect("create dangling symlink");
+
+    assert!(matches!(
+        create_catalog_backup(&source, &destination),
+        Err(CatalogBackupError::DestinationExists(_))
+    ));
+    assert_eq!(
+        fs::read_link(&destination).expect("preserve symlink"),
+        missing_target
+    );
+    assert!(!missing_target.exists());
+}
+
+#[test]
+fn destination_occupied_after_preparation_is_preserved_at_publication() {
+    let directory = TempDirectory::new();
+    let source = directory.join("catalog.sqlite");
+    let destination = directory.join("backup.sqlite");
+    let partial = directory.join("backup.partial");
+    let _catalog = Catalog::open(&source).expect("open source catalog");
+    create_and_verify_partial(&source, &partial).expect("prepare verified backup");
+    fs::write(&destination, b"another publisher").expect("occupy destination after preparation");
+
+    assert!(matches!(
+        publish_backup(&partial, &destination),
+        Err(CatalogBackupError::DestinationExists(_))
+    ));
+    assert_eq!(
+        fs::read(&destination).expect("preserved destination"),
+        b"another publisher"
+    );
+    assert!(
+        !partial.exists(),
+        "failed publication cleans up its own partial"
+    );
+}
+
+#[test]
+fn successful_publication_preserves_verified_bytes_and_removes_partial() {
+    let directory = TempDirectory::new();
+    let source = directory.join("catalog.sqlite");
+    let destination = directory.join("backup.sqlite");
+    let partial = directory.join("backup.partial");
+    let _catalog = Catalog::open(&source).expect("open source catalog");
+    let verification =
+        create_and_verify_partial(&source, &partial).expect("prepare verified backup");
+    let bytes = fs::read(&partial).expect("read prepared bytes");
+
+    publish_backup(&partial, &destination).expect("publish without replacement");
+    assert_eq!(fs::read(&destination).expect("published bytes"), bytes);
+    assert!(!partial.exists());
+    assert_eq!(
+        verify_catalog_backup(&destination).expect("verify published backup"),
+        verification
+    );
+}

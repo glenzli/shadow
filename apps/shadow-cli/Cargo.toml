@@ -19,5 +19,9 @@ shadow-library-sharing.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 
+[dev-dependencies]
+image.workspace = true
+tempfile.workspace = true
+
 [lints]
 workspace = true

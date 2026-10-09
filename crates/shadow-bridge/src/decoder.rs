@@ -9,7 +9,7 @@ use shadow_domain::{
     RawDevelopmentCapabilitySnapshot, RawMetadataSnapshot,
 };
 
-use super::{BridgeError, ffi};
+use super::{BridgeError, ffi, native_path};
 
 /// Opens a RAW file through the `LibRaw` provider and copies a stable, owned
 /// descriptor snapshot into Rust. Pixel buffers intentionally remain on the
@@ -17,9 +17,8 @@ use super::{BridgeError, ffi};
 ///
 /// # Errors
 ///
-/// Returns [`BridgeError::NonUtf8Path`] for paths not yet representable by the
-/// Mac-first bridge, or a decoder error when the C++ provider cannot open and
-/// identify the file.
+/// Returns a path or decoder error when the C++ provider cannot open and identify the file.
+/// Unix paths preserve native bytes; other platforms currently require UTF-8.
 pub fn inspect_libraw(path: &Path) -> Result<DecoderSnapshot, BridgeError> {
     let handle = open_libraw(path)?;
     let handle = handle.as_ref().ok_or(BridgeError::NullHandle)?;
@@ -51,7 +50,7 @@ pub fn inspect_photo(path: &Path) -> Result<DecoderSnapshot, BridgeError> {
 ///
 /// # Errors
 ///
-/// Returns [`BridgeError`] when the path cannot cross the Mac-first bridge or
+/// Returns [`BridgeError`] when the path cannot cross the host bridge or
 /// the provider fails while decoding the selected preview.
 pub fn extract_best_libraw_preview(
     path: &Path,
@@ -98,17 +97,11 @@ pub fn extract_best_photo_preview(
 }
 
 pub(super) fn open_libraw(path: &Path) -> Result<cxx::UniquePtr<ffi::DecodeHandle>, BridgeError> {
-    let utf8_path = path
-        .to_str()
-        .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
-    ffi::open_libraw_utf8(utf8_path).map_err(Into::into)
+    native_path::open_libraw(path)
 }
 
 pub(super) fn open_photo(path: &Path) -> Result<cxx::UniquePtr<ffi::DecodeHandle>, BridgeError> {
-    let utf8_path = path
-        .to_str()
-        .ok_or_else(|| BridgeError::NonUtf8Path(path.to_path_buf()))?;
-    ffi::open_photo_utf8(utf8_path).map_err(Into::into)
+    native_path::open_photo(path)
 }
 
 fn snapshot(handle: &ffi::DecodeHandle) -> DecoderSnapshot {

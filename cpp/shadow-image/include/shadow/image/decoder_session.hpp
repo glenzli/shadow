@@ -19,7 +19,7 @@ namespace shadow::image {
 
 /// One opened source and the provider-owned caches needed to decode it.
 class DecodeSession {
-public:
+  public:
     DecodeSession() = default;
     DecodeSession(const DecodeSession&) = delete;
     DecodeSession& operator=(const DecodeSession&) = delete;
@@ -44,18 +44,14 @@ public:
     // RAW providers advertise their exact source-development contract here. Rendered-raster
     // providers intentionally leave it unavailable: JPEG/HEIF still share the edit graph, but a
     // RAW plan has no hidden effect on their already-developed pixels.
-    [[nodiscard]] virtual const RawDevelopmentCapabilities& raw_development_capabilities() const
-        noexcept {
+    [[nodiscard]] virtual const RawDevelopmentCapabilities&
+    raw_development_capabilities() const noexcept {
         return capabilities().raw_development;
     }
 
-    [[nodiscard]] virtual RawDevelopmentPlanNegotiation negotiate_raw_development_plan(
-        const RawDevelopmentPlan& plan
-    ) const noexcept {
-        return shadow::image::negotiate_raw_development_plan(
-            plan,
-            raw_development_capabilities()
-        );
+    [[nodiscard]] virtual RawDevelopmentPlanNegotiation
+    negotiate_raw_development_plan(const RawDevelopmentPlan& plan) const noexcept {
+        return shadow::image::negotiate_raw_development_plan(plan, raw_development_capabilities());
     }
 
     // These overloads keep existing third-party and test sessions source-compatible. A provider
@@ -63,9 +59,7 @@ public:
     // callers can observe the unavailable negotiation result and no RAW receipt is fabricated.
     // Plan-aware RAW providers must override them and record the requested/effective plan in the
     // returned RawDevelopmentReceipt.
-    [[nodiscard]] virtual PixelBuffer render_reference_rgb(
-        const RawDevelopmentPlan& plan
-    ) const {
+    [[nodiscard]] virtual PixelBuffer render_reference_rgb(const RawDevelopmentPlan& plan) const {
         (void)plan;
         return render_reference_rgb();
     }
@@ -74,9 +68,8 @@ public:
     // default keeps third-party/provider test implementations exact; LibRaw overrides it with
     // its documented half-size RAW path only when the native frame is far larger than the
     // requested preview. Full-detail rendering always calls render_reference_rgb().
-    [[nodiscard]] virtual PixelBuffer render_reference_rgb_for_preview(
-        std::uint32_t max_edge
-    ) const {
+    [[nodiscard]] virtual PixelBuffer
+    render_reference_rgb_for_preview(std::uint32_t max_edge) const {
         (void)max_edge;
         return render_reference_rgb();
     }
@@ -92,7 +85,7 @@ public:
 
 /// Opens sources for one concrete decoder implementation.
 class DecoderProvider {
-public:
+  public:
     DecoderProvider() = default;
     DecoderProvider(const DecoderProvider&) = delete;
     DecoderProvider& operator=(const DecoderProvider&) = delete;
@@ -101,9 +94,8 @@ public:
     virtual ~DecoderProvider() = default;
 
     [[nodiscard]] virtual const ProviderInfo& info() const noexcept = 0;
-    [[nodiscard]] virtual std::unique_ptr<DecodeSession> open(
-        const std::filesystem::path& path
-    ) const = 0;
+    [[nodiscard]] virtual std::unique_ptr<DecodeSession>
+    open(const std::filesystem::path& path) const = 0;
 };
 
 [[nodiscard]] std::unique_ptr<DecoderProvider> make_libraw_decoder_provider(
@@ -111,7 +103,8 @@ public:
 );
 
 // Decodes ordinary display-referred image files into Shadow's common 16-bit linear sRGB
-// reference contract. JPEG is built in through libjpeg-turbo; HEIF/HEIC availability is an
+// reference contract. JPEG uses libjpeg-turbo; bounded opaque sRGB8 PNG uses libpng.
+// HEIF/HEIC availability is an
 // optional backend capability and is reported as an explicit unsupported error when omitted
 // from a local build. This provider never pretends to expose sensor RawFrames or RAW development
 // provenance.
@@ -137,9 +130,8 @@ public:
 // the environment/discovered form above. The path is never scanned, copied, persisted, or
 // distributed by Shadow; it is only passed to the local private-plugin loader for this provider
 // instance.
-[[nodiscard]] std::unique_ptr<DecoderProvider> make_photo_decoder_provider(
-    const std::filesystem::path& private_decoder_plugin_path
-);
+[[nodiscard]] std::unique_ptr<DecoderProvider>
+make_photo_decoder_provider(const std::filesystem::path& private_decoder_plugin_path);
 
 /// Provider graph admitted by the isolated decoder-host process.
 ///
@@ -155,8 +147,7 @@ struct PhotoDecoderProviderInventory final {
 [[nodiscard]] PhotoDecoderProviderInventory photo_decoder_provider_inventory();
 
 /// Explicit-test form of the provider inventory. An empty path verifies the public graph only.
-[[nodiscard]] PhotoDecoderProviderInventory photo_decoder_provider_inventory(
-    const std::filesystem::path& private_decoder_plugin_path
-);
+[[nodiscard]] PhotoDecoderProviderInventory
+photo_decoder_provider_inventory(const std::filesystem::path& private_decoder_plugin_path);
 
 } // namespace shadow::image

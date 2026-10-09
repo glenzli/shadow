@@ -2,6 +2,7 @@
 #include "scoped_environment.hpp"
 
 #include <shadow/image/adjustment_execution.hpp>
+#include <shadow/image/adjustment_layers.hpp>
 #include <shadow/image/edit_error.hpp>
 #include <shadow/image/full_edit_detail.hpp>
 
@@ -72,6 +73,34 @@ void preparation_retains_one_immutable_source_and_tiles_exactly() {
     );
 }
 
+void automatic_layer_tiles_record_backend_and_fallback_without_redecoding() {
+    constexpr image::Dimensions dimensions{4, 3};
+    SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
+    const auto session = image::prepare_full_edit_detail(decoder);
+    const auto nodes = neutral_plan();
+    const std::array layers{image::AdjustmentLayer{
+        .layer_id = "neutral-layer",
+        .nodes = {nodes.begin(), nodes.end()},
+    }};
+    const ScopedEnvironment automatic("SHADOW_IMAGE_ACCELERATION", "auto");
+    const auto rendered = session.render_rgb8_layers(layers, {1, 1, 2, 2});
+    expect(rendered.execution.valid(), "automatic layer rendering has a consistent receipt");
+    expect(decoder.render_count() == 1, "automatic layer fallback retains the prepared source");
+    if (image::adjustment_backend_available(image::AdjustmentBackend::metal)) {
+        expect(
+            rendered.execution.backend == image::DetailTileRenderBackend::metal
+                && !rendered.execution.fell_back && rendered.execution.diagnostic.empty(),
+            "available Metal layers report direct execution"
+        );
+    } else {
+        expect(
+            rendered.execution.backend == image::DetailTileRenderBackend::cpu
+                && rendered.execution.fell_back && !rendered.execution.diagnostic.empty(),
+            "automatic layer CPU fallback keeps its diagnostic paired with the fallback flag"
+        );
+    }
+}
+
 void adjustments_apply_only_to_the_requested_crop() {
     constexpr image::Dimensions dimensions{4, 3};
     SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
@@ -127,6 +156,7 @@ void rgb_curves_match_full_detail_and_preserve_source() {
 int main() {
     rgb_curves_match_full_detail_and_preserve_source();
     preparation_retains_one_immutable_source_and_tiles_exactly();
+    automatic_layer_tiles_record_backend_and_fallback_without_redecoding();
     adjustments_apply_only_to_the_requested_crop();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -6872,6 +6872,14 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PipelineEditor</name>
     <message>
+        <source>Shadow · Material Editor</source>
+        <translation>Shadow · 素材编辑</translation>
+    </message>
+    <message>
+        <source>Return edited image</source>
+        <translation>返回编辑后的图片</translation>
+    </message>
+    <message>
         <location filename="../qml/PipelineEditor.qml" line="25"/>
         <source>Shadow · Independent Editor</source>
         <translation>Shadow · 独立编辑器</translation>
@@ -15811,6 +15819,49 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     <message>
         <source>Save</source>
         <translation>保存</translation>
+    </message>
+</context>
+<context>
+    <name>EditToolController</name>
+    <message>
+        <source>Rendering current edits…</source>
+        <translation>正在渲染当前编辑…</translation>
+    </message>
+    <message>
+        <source>Current edits preview cancelled.</source>
+        <translation>当前编辑预览已取消。</translation>
+    </message>
+    <message>
+        <source>Could not preview the current edits. Try again.</source>
+        <translation>无法预览当前编辑，请重试。</translation>
+    </message>
+    <message>
+        <source>Rendering proposed adjustments…</source>
+        <translation>正在渲染调整方案…</translation>
+    </message>
+    <message>
+        <source>Applying proposed adjustments…</source>
+        <translation>正在应用调整方案…</translation>
+    </message>
+    <message>
+        <source>Exporting the captured adjustments…</source>
+        <translation>正在导出已确认的调整…</translation>
+    </message>
+    <message>
+        <source>Proposed preview cancelled.</source>
+        <translation>调整方案预览已取消。</translation>
+    </message>
+    <message>
+        <source>Could not preview the proposed adjustments. Try again.</source>
+        <translation>调整方案预览失败，请重试。</translation>
+    </message>
+    <message>
+        <source>Could not apply the proposed adjustments. Review the current edits and try again.</source>
+        <translation>调整方案应用失败，请检查当前调整后重试。</translation>
+    </message>
+    <message>
+        <source>Could not export the captured adjustments. Try again.</source>
+        <translation>已确认的调整导出失败，请重试。</translation>
     </message>
 </context>
 </TS>

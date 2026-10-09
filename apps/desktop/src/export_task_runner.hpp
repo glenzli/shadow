@@ -19,16 +19,12 @@ struct ExportTaskResult final {
     int cancelled_items = 0;
     QString job_id;
     QStringList destination_paths;
+    QVector<BackendExportReceipt> receipts;
     QStringList errors;
 };
 
-using ExportProgressReporter = std::function<void(
-    int completed,
-    int failed,
-    int current,
-    int total,
-    const QString& current_title
-)>;
+using ExportProgressReporter = std::function<
+    void(int completed, int failed, int current, int total, const QString& current_title)>;
 
 namespace ExportTaskRunner {
 

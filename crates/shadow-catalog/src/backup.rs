@@ -5,6 +5,7 @@ use std::{
 };
 
 use rusqlite::{Connection, OpenFlags, backup::Backup};
+use tempfile::TempPath;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -83,7 +84,7 @@ pub enum CatalogBackupError {
 /// `SQLite`'s Online Backup API includes committed WAL state. Shadow writes to a
 /// unique partial file in the destination directory, reopens that file for a
 /// complete restore drill, synchronizes it, and only then publishes the final
-/// path. Existing destinations are never intentionally overwritten.
+/// path. Publication refuses to replace existing destinations, including symlinks.
 ///
 /// # Errors
 ///
@@ -113,27 +114,33 @@ pub fn create_catalog_backup(
         }
     };
 
-    // Check again after the potentially long copy. This is not a cross-process
-    // reservation primitive, but it prevents ordinary accidental replacement;
-    // Shadow generates unique timestamped backup names at the application
-    // layer, and Windows rename also refuses an occupied destination.
-    if destination.exists() {
-        let _ = fs::remove_file(&partial);
-        return Err(CatalogBackupError::DestinationExists(destination));
-    }
-    if let Err(source) = fs::rename(&partial, &destination) {
-        let _ = fs::remove_file(&partial);
-        return Err(CatalogBackupError::Io {
-            operation: "publish",
-            path: destination,
-            source,
-        });
-    }
+    publish_backup(&partial, &destination)?;
     sync_parent_directory(&destination)?;
 
     Ok(CatalogBackupReceipt {
         destination,
         verification,
+    })
+}
+
+fn publish_backup(partial: &Path, destination: &Path) -> Result<(), CatalogBackupError> {
+    // The final operation must reserve the destination without replacement. An
+    // exists-then-rename check can lose a race or replace a dangling symlink.
+    let temporary = TempPath::try_from_path(partial).map_err(|source| CatalogBackupError::Io {
+        operation: "prepare publication",
+        path: partial.to_path_buf(),
+        source,
+    })?;
+    temporary.persist_noclobber(destination).map_err(|error| {
+        if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+            CatalogBackupError::DestinationExists(destination.to_path_buf())
+        } else {
+            CatalogBackupError::Io {
+                operation: "publish",
+                path: destination.to_path_buf(),
+                source: error.error,
+            }
+        }
     })
 }
 

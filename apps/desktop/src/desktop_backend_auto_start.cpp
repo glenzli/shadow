@@ -51,6 +51,7 @@ BackendPhotoEditState DesktopBackend::applyAutoStart(
     const QString& source,
     const QString& base,
     const QString& expected,
+    const QString& expected_variant,
     const BackendGradeStack& stack,
     const QVector<BackendAutoStartMask>& masks
 ) const {
@@ -61,6 +62,7 @@ BackendPhotoEditState DesktopBackend::applyAutoStart(
         source.toStdString(),
         base.toStdString(),
         expected.toStdString(),
+        expected_variant.toStdString(),
         settings,
         rust::Slice<const shadow::desktop::FfiAutoStartMask>(candidates.data(), candidates.size())
     ));

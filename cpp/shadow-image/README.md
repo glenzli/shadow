@@ -362,7 +362,7 @@ same API against the CPU/stub implementation.
 ### Local private-provider development path
 
 `make_photo_decoder_provider()` is the normal application route. It uses raster decoding for
-JPEG/HEIF, otherwise public LibRaw by default. It also discovers local native decoder modules
+JPEG/HEIF and bounded PNG, otherwise public LibRaw by default. It also discovers local native decoder modules
 from a per-user plugin root:
 
 ```text
@@ -584,6 +584,21 @@ Decoder contract tests follow the production responsibilities instead of one agg
   `tests/dcp_color_contract_test_support.hpp`; catalog file fixtures remain with the catalog.
 - Test-only support is responsibility-named: shared assertions, processed-RGB sessions, optics
   observations, and scoped environment overrides live in separate narrow headers.
+
+### Opaque PNG material sources
+
+`src/decoder/png_decoder.*` admits RGB8/opaque RGBA8 PNG through the same raster provider, backed by
+libpng and zlib. It caps encoded bytes at 64 MiB, dimensions at 16,384 per axis, pixels at 16,777,216
+and chunks at 16,384. CRC/critical-chunk/order checks precede decompression. Transparency, ICC/gamma/
+chromaticity/EXIF/HDR overrides, animation, compressed text, grayscale and 16-bit input fail explicitly.
+Untagged RGB is assumed sRGB. Libpng preserves RGB8; the existing sRGB-to-linear ICC owner supplies a
+256-entry transfer table (libpng's direct linear path produced a gamma approximation on this build).
+One opened decoder retains its immutable encoded source. Cold preparation decodes the full bounded
+image, with one RGBA8 temporary plus the existing RGB16 reference; warm gestures reuse the normal
+preview owner. No extra GPU transfer or pixel history is introduced. The provider identity includes
+the PNG decoder revision, so prior cache entries cannot impersonate this source capability.
+`png_decoder_contract_test.cpp` covers pixels, bounds, color/structure rejection, neutral preview
+identity, cancellation recovery and source-path replacement.
 
 ## CPU edit reference
 

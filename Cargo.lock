@@ -1395,6 +1395,7 @@ dependencies = [
  "serde_json",
  "shadow-ai",
  "shadow-domain",
+ "tempfile",
  "thiserror",
  "uuid",
 ]
@@ -1404,6 +1405,7 @@ name = "shadow-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "image",
  "serde_json",
  "shadow-ai",
  "shadow-bridge",
@@ -1413,6 +1415,7 @@ dependencies = [
  "shadow-desktop-bridge",
  "shadow-domain",
  "shadow-library-sharing",
+ "tempfile",
  "uuid",
 ]
 
@@ -1445,6 +1448,7 @@ dependencies = [
  "cxx",
  "cxx-build",
  "image",
+ "png",
  "rusqlite",
  "serde",
  "serde_json",
