@@ -12,6 +12,9 @@
 #include <QVariantList>
 
 #include <functional>
+#include <memory>
+
+class QSettings;
 
 struct SmartCategoryTaskResult final {
     BackendSmartClassificationBatch batch;
@@ -72,9 +75,11 @@ class SmartCategoryController final : public QObject {
         FeedbackWriter feedback_writer,
         ReviewCompleter review_completer,
         PauseWriter pause_writer,
+        const QString& isolated_settings_file = {},
         QObject* parent = nullptr
     );
     ~SmartCategoryController() override;
+    void setProfileSwitchPending(bool pending);
 
     [[nodiscard]] QVariantList categories() const;
     [[nodiscard]] bool busy() const noexcept;
@@ -143,6 +148,7 @@ class SmartCategoryController final : public QObject {
         QString description;
         float minimum_similarity = 0.20F;
         bool enabled = true;
+        bool uses_default_name = false;
     };
 
     enum class State { Idle, Running, Paused, Ready, NeedsUpdate, Failed };
@@ -169,6 +175,7 @@ class SmartCategoryController final : public QObject {
     FeedbackWriter feedback_writer_;
     ReviewCompleter review_completer_;
     PauseWriter pause_writer_;
+    std::unique_ptr<QSettings> settings_;
     QFutureWatcher<SmartCategoryTaskResult> watcher_;
     QVector<Category> categories_;
     QHash<QString, qulonglong> category_counts_;
@@ -186,6 +193,7 @@ class SmartCategoryController final : public QObject {
     State state_ = State::Idle;
     bool has_published_results_ = false;
     bool pause_requested_ = false;
+    bool profile_switch_pending_ = false;
     bool first_batch_ = false;
     bool clear_embeddings_ = false;
     bool refresh_queued_ = false;

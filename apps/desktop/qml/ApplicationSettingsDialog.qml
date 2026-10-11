@@ -22,6 +22,7 @@ Popup {
 
     signal openLutLibraryRequested()
     signal openOpticsProfileLibraryRequested()
+    signal manageLibrariesRequested()
 
     readonly property real doneButtonRightInset:
         settingsHeader.width - applicationSettingsDoneButton.x
@@ -96,7 +97,7 @@ Popup {
             Column {
                 anchors.left: parent.left
                 anchors.leftMargin: 18
-                anchors.right: applicationSettingsDoneButton.left
+                anchors.right: manageLibrariesButton.left
                 anchors.rightMargin: 14
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 1
@@ -117,6 +118,17 @@ Popup {
                     font.pixelSize: Theme.fontMeta
                     elide: Text.ElideRight
                 }
+            }
+
+            ShadowButton {
+                id: manageLibrariesButton
+                objectName: "manageLibrariesButton"
+                anchors.right: applicationSettingsDoneButton.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                compact: true
+                text: qsTr("Libraries…")
+                onClicked: root.manageLibrariesRequested()
             }
 
             ShadowButton {

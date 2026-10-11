@@ -97,67 +97,72 @@
 <context>
     <name>ApplicationSettingsDialog</name>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="31"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
         <source>General</source>
         <translation>通用</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="31"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
         <source>Appearance &amp; language</source>
         <translation>外观与语言</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
         <source>Library</source>
         <translation>图库</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="32"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
         <source>Thumbnails &amp; metadata</source>
         <translation>缩略图与元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="34"/>
         <source>AI &amp; Models</source>
         <translation>AI 与模型</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="33"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="34"/>
         <source>Local processing policy</source>
         <translation>本地处理策略</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="34"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="35"/>
         <source>Storage &amp; Cache</source>
         <translation>存储与缓存</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="34"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="35"/>
         <source>Limits &amp; maintenance</source>
         <translation>上限与维护</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="35"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="36"/>
         <source>Maps &amp; Location</source>
         <translation>地图与位置</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="35"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="36"/>
         <source>Offline city data &amp; Google</source>
         <translation>离线城市数据与 Google</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="106"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="107"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../qml/ApplicationSettingsDialog.qml" line="115"/>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="116"/>
         <source>Application, local AI, storage, and service preferences</source>
         <translation>应用、本地 AI、存储和服务偏好设置</translation>
     </message>
     <message>
         <location filename="../qml/ApplicationSettingsDialog.qml" line="130"/>
+        <source>Libraries…</source>
+        <translation>资料库…</translation>
+    </message>
+    <message>
+        <location filename="../qml/ApplicationSettingsDialog.qml" line="142"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
@@ -414,120 +419,120 @@
 <context>
     <name>EditAutoStartController</name>
     <message>
-        <location filename="../src/auto_start_analysis.cpp" line="208"/>
+        <location filename="../src/auto_start_analysis.cpp" line="204"/>
         <source>Auto · skin %1</source>
         <translation>自动 · 肤色 %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="122"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="124"/>
         <source>Preserving the scene lighting; no global correction suggested.</source>
         <translation>保留现场光线氛围，暂不建议全局校正。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="125"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="127"/>
         <source>White balance: a small correction around the current white point.</source>
         <translation>白平衡：在当前白点附近做轻微校正。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="127"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="129"/>
         <source>White balance: no reliable RAW neutral estimate; kept unchanged.</source>
         <translation>白平衡：未找到可靠的 RAW 中性参考，保持原值。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="129"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="131"/>
         <source>Tone: %1 EV, gentle highlight and shadow balance.</source>
         <translation>明暗：%1 EV，轻微平衡高光与阴影。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="132"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="134"/>
         <source>Tone: already balanced, or insufficient evidence to change it.</source>
         <translation>明暗：已较均衡，或暂不足以判断需要调整。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../src/edit_auto_start_controller.cpp" line="135"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="137"/>
         <source>Skin: subtle hue uniformity for %n person(s), preserving each person&apos;s colour.</source>
         <translation>
             <numerusform>肤色：轻微均匀 %n 人的色相，保留各自原有肤色。</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="142"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="144"/>
         <source>Skin: no confident correction suggested.</source>
         <translation>肤色：暂无有把握的校正建议。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="143"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="145"/>
         <source>Skin: local selection was unavailable or skipped.</source>
         <translation>肤色：本地选区不可用，或已跳过。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="190"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="192"/>
         <source>Automatic adjustment needs room for an adjustment node.</source>
         <translation>自动调整需要至少一个可用的调整节点位置。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="196"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="198"/>
         <source>Auto · tone</source>
         <translation>自动 · 明暗</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="198"/>
-        <location filename="../src/edit_auto_start_controller.cpp" line="296"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="200"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="299"/>
         <source>Could not prepare suggestions · %1</source>
         <translation>无法准备建议 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="215"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="218"/>
         <source>Preparing automatic adjustments…</source>
         <translation>正在为当前照片准备自动调整…</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="228"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="231"/>
         <source>Save the current adjustments before analyzing.</source>
         <translation>请先保存当前调整，再开始分析。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="253"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="256"/>
         <source>Measuring tone and white balance; local AI will refine the suggestion…</source>
         <translation>正在测量明暗与白平衡，随后由本地 AI 完善建议…</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="272"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="275"/>
         <source>Basic preview ready. Local AI is checking scene lighting and skin…</source>
         <translation>基础预览已就绪，本地 AI 正在检查场景光线与肤色…</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="302"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="305"/>
         <source>Local AI suggestion ready · %1. Review before applying.</source>
         <translation>本地 AI 建议已就绪 · %1。请预览后应用。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="303"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="306"/>
         <source>Measured suggestion ready. Scene AI is unavailable or disabled; review the lighting.</source>
         <translation>测量建议已就绪。场景 AI 不可用或已关闭，请检查光线氛围。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="362"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="365"/>
         <source>Could not preview suggestions · %1</source>
         <translation>无法预览建议 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="379"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="382"/>
         <source>Applying automatic adjustments…</source>
         <translation>正在应用自动调整…</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="408"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="413"/>
         <source>Could not apply suggestions · %1. Analyze again to retry.</source>
         <translation>无法应用建议 · %1。请重新分析后重试。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="427"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="432"/>
         <source>Automatic adjustments applied. Every adjustment remains editable; undo once to restore.</source>
         <translation>已应用自动调整。每项调整均可继续编辑，一次撤销即可恢复。</translation>
     </message>
     <message>
-        <location filename="../src/edit_auto_start_controller.cpp" line="460"/>
+        <location filename="../src/edit_auto_start_controller.cpp" line="465"/>
         <source>Cancelled. The photo and edit history are unchanged.</source>
         <translation>已取消，照片与编辑历史未改变。</translation>
     </message>
@@ -535,131 +540,131 @@
 <context>
     <name>EditController</name>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="560"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="627"/>
         <source>AI Completion applied · the region is now managed by the photo node</source>
         <translation>AI 补全已应用 · 该区域现由照片节点管理</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="426"/>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="492"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="476"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="557"/>
         <source>AI Completion cancelled</source>
         <translation>已取消 AI 补全</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="530"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="595"/>
         <source>AI Completion candidate ready · apply, retry, or cancel</source>
         <translation>AI 补全候选已就绪 · 可以应用、重试或取消</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="309"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="351"/>
         <source>AI Completion cannot continue until the current adjustments are saved</source>
         <translation>保存当前调整后才能继续 AI 补全</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="473"/>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="508"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="538"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="573"/>
         <source>AI Completion failed · %1</source>
         <translation>AI 补全失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="278"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="319"/>
         <source>AI Completion is before Liquify · bypass Liquify before generating</source>
         <translation>AI 补全位于液化之前 · 生成前请旁路液化</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="498"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="563"/>
         <source>AI Completion is unavailable · check Infer Runtime and the local model · %1</source>
         <translation>AI 补全不可用 · 请检查 Infer Runtime 和本地模型 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="321"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="363"/>
         <source>AI Completion is waiting for current adjustments to finish saving</source>
         <translation>AI 补全正在等待当前调整保存完成</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="272"/>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="334"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="309"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="376"/>
         <source>AI Completion requires local execution permission</source>
         <translation>AI 补全需要本机执行权限</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="519"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="584"/>
         <source>AI Completion returned an invalid candidate preview</source>
         <translation>AI 补全返回了无效的候选预览</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="230"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="266"/>
         <source>AI Completion selection is too complex</source>
         <translation>AI 补全选区过于复杂</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="406"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="454"/>
         <source>AI Completion · applying candidate…</source>
         <translation>AI 补全 · 正在应用候选…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="365"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="411"/>
         <source>AI Completion · generating a local candidate…</source>
         <translation>AI 补全 · 正在生成本地候选…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="203"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="222"/>
         <source>AI Completion · paint the area to replace, then generate</source>
         <translation>AI 补全 · 涂抹要替换的区域，然后生成</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="543"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="608"/>
         <source>Could not apply AI Completion · %1</source>
         <translation>无法应用 AI 补全 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_completion_controller.cpp" line="345"/>
+        <location filename="../src/edit_ai_completion_controller.cpp" line="387"/>
         <source>Could not start AI Completion · %1</source>
         <translation>无法启动 AI 补全 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="516"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="537"/>
         <source>Enter a semantic subject of at most 256 bytes</source>
         <translation>请输入不超过 256 字节的语义主体</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1158"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1181"/>
         <source>Semantic Mask for %1 applied · copying reruns it on the target photo</source>
         <translation>已应用“%1”的语义蒙版 · 复制时将在目标照片上重新计算</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="897"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="919"/>
         <source>Semantic Mask is locating %1…</source>
         <translation>语义蒙版正在定位“%1”…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1023"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1046"/>
         <source>Semantic Mask is unavailable or found no match · check Infer Runtime · %1</source>
         <translation>语义蒙版不可用或未找到匹配项 · 请检查 Infer Runtime · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="623"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="645"/>
         <source>Semantic Mask · locating %1…</source>
         <translation>语义蒙版 · 正在定位“%1”…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1103"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1126"/>
         <source>Semantic candidate ready · confirm or cancel</source>
         <translation>语义候选已就绪 · 请确认或取消</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="731"/>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="748"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="753"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="770"/>
         <source>AI Mask · click the subject to select it</source>
         <translation>AI 蒙版 · 点击要选择的主体</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="744"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="766"/>
         <source>People details · choose a person and details</source>
         <translation>人物细节 · 选择人物与细节</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="798"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="820"/>
         <source>AI Mask cannot continue until the current adjustments are saved</source>
         <translation>当前调整保存完成前无法继续生成 AI 蒙版</translation>
     </message>
@@ -916,17 +921,17 @@
         <translation>绿边去除量</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="78"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="81"/>
         <source>Finish the current version operation first</source>
         <translation>请先完成当前版本操作</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="85"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="88"/>
         <source>This photo is already open in Precision</source>
         <translation>此照片已在精修中打开</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="193"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="197"/>
         <source>Loading non-destructive edit history…</source>
         <translation>正在加载无损编辑历史…</translation>
     </message>
@@ -1252,19 +1257,19 @@
         <translation>可选颜色</translation>
     </message>
     <message>
-        <location filename="../src/edit_point_color_controller.cpp" line="232"/>
-        <location filename="../src/edit_point_color_controller.cpp" line="242"/>
+        <location filename="../src/edit_point_color_controller.cpp" line="235"/>
+        <location filename="../src/edit_point_color_controller.cpp" line="245"/>
         <source>White Balance needs a ready preview</source>
         <translation>白平衡取样需要就绪的预览图像</translation>
     </message>
     <message>
-        <location filename="../src/edit_point_color_controller.cpp" line="311"/>
-        <location filename="../src/edit_point_color_controller.cpp" line="321"/>
+        <location filename="../src/edit_point_color_controller.cpp" line="314"/>
+        <location filename="../src/edit_point_color_controller.cpp" line="324"/>
         <source>Point Color needs a ready preview</source>
         <translation>点颜色需要就绪的预览图像</translation>
     </message>
     <message>
-        <location filename="../src/edit_point_color_controller.cpp" line="358"/>
+        <location filename="../src/edit_point_color_controller.cpp" line="361"/>
         <source>Point Color supports at most 16 samples</source>
         <translation>点颜色最多支持 16 个取样</translation>
     </message>
@@ -1301,32 +1306,32 @@
         <translation>已移除修复点</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="38"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="41"/>
         <source>The selected Review item has no editable original source</source>
         <translation>所选照片没有可编辑的原始文件</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="45"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="48"/>
         <source>The original file is missing · return to Library to relink its folder</source>
         <translation>原片已丢失 · 请返回图库重新定位其文件夹</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="73"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="76"/>
         <source>Preparing the selected photo…</source>
         <translation>正在准备所选照片…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="107"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="110"/>
         <source>Autosave failed · resolve it before replacing this photo&apos;s working changes</source>
         <translation>自动保存失败 · 请先解决此问题，再切换此照片的工作调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="120"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="123"/>
         <source>Saving current adjustments before opening the selected photo…</source>
         <translation>正在保存当前调整，然后打开所选照片…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="344"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="350"/>
         <source>Resetting this photo’s development edits…</source>
         <translation>正在重置此照片的开发调整…</translation>
     </message>
@@ -1507,12 +1512,12 @@
         <translation>无法在曲线的这个位置添加控制点</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="109"/>
+        <location filename="../src/edit_history_controller.cpp" line="118"/>
         <source>Undid the last session adjustment</source>
         <translation>已撤销本次会话中的上一项调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="141"/>
+        <location filename="../src/edit_history_controller.cpp" line="152"/>
         <source>Redid the last session adjustment</source>
         <translation>已重做本次会话中的上一项调整</translation>
     </message>
@@ -1532,205 +1537,205 @@
         <translation>已清空全部调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="156"/>
+        <location filename="../src/edit_history_controller.cpp" line="169"/>
         <source>Could not reset adjustments · %1</source>
         <translation>无法重置调整 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="169"/>
+        <location filename="../src/edit_history_controller.cpp" line="182"/>
         <source>Reset all adjustments</source>
         <translation>已重置全部调整</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="183"/>
+        <location filename="../src/edit_history_controller.cpp" line="196"/>
         <source>Discarded working changes and restored the Library version</source>
         <translation>已放弃工作区修改并恢复图库版本</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="201"/>
+        <location filename="../src/edit_history_controller.cpp" line="214"/>
         <source>Restored the current saved version</source>
         <translation>已恢复当前保存的版本</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="365"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="371"/>
         <source>Enter a name for this version</source>
         <translation>请为此版本输入名称</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="423"/>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="435"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="429"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="441"/>
         <source>Saving current adjustments before loading another version</source>
         <translation>正在保存当前调整，然后加载另一版本</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="565"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="580"/>
         <source>Autosave failed · %1</source>
         <translation>自动保存失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="573"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="588"/>
         <source>This photo uses an earlier development edit recipe that this build cannot read. Resetting removes only this photo’s edit history; the original file, Library metadata, ratings, flags, and albums are unchanged.</source>
         <translation>此照片使用了当前版本无法读取的早期开发调整配方。重置只会删除此照片的调整历史；原始文件、图库元数据、评分、旗标和相册不会受影响。</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="583"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="598"/>
         <source>Could not reset this photo’s old development edits · %1</source>
         <translation>无法重置此照片的旧开发调整 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="593"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="608"/>
         <source>Could not open this photo · %1</source>
         <translation>无法打开此照片 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="598"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="613"/>
         <source>Version operation failed · %1</source>
         <translation>版本操作失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="551"/>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="633"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="566"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="648"/>
         <source>Saving newer adjustments locally…</source>
         <translation>正在自动保存更新后的调整…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="673"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="691"/>
         <source>Edit history ready · rendering preview</source>
         <translation>编辑历史已就绪 · 正在渲染预览</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="680"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="698"/>
         <source>Old development edits reset · rendering the current recipe</source>
         <translation>旧开发调整已重置 · 正在渲染当前配方</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="696"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="714"/>
         <source>Current adjustments saved locally</source>
         <translation>当前调整已自动保存</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="700"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="718"/>
         <source>Named version loaded as a draft · adjust it to create a new working state</source>
         <translation>命名版本已作为草稿载入；继续调整会创建新的当前工作状态</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="154"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="162"/>
         <source>This RAW can be browsed from its embedded preview, but the active local decoder cannot parse it for Precision. Use a compatible local RAW provider or convert it to DNG.</source>
         <translation>该 RAW 可通过内嵌预览在图库中浏览，但当前本地解码器无法将其解析为精修图像。请使用兼容的本地 RAW 解码器，或将照片转换为 DNG。</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="160"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="168"/>
         <source>Preview render failed · %1</source>
         <translation>预览渲染失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="243"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="259"/>
         <source>Saving adjustments · preview is current</source>
         <translation>正在保存调整 · 预览为最新</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="247"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="263"/>
         <source>Working state and preview are current</source>
         <translation>当前工作状态与预览均为最新</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="261"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="277"/>
         <source>Neutral baseline failed · %1</source>
         <translation>中性基线失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_detail_render_controller.cpp" line="159"/>
+        <location filename="../src/edit_detail_render_controller.cpp" line="164"/>
         <source>Full detail failed · %1</source>
         <translation>完整细节加载失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_detail_render_controller.cpp" line="208"/>
+        <location filename="../src/edit_detail_render_controller.cpp" line="216"/>
         <source>Full detail returned an invalid RGB8 tile layout</source>
         <translation>完整细节返回了无效的 RGB8 图块布局</translation>
     </message>
     <message>
-        <location filename="../src/edit_detail_render_controller.cpp" line="234"/>
+        <location filename="../src/edit_detail_render_controller.cpp" line="271"/>
         <source>Full-resolution detail ready · %1 MiB local source</source>
         <translation>全分辨率细节已就绪 · 本地源文件 %1 MiB</translation>
     </message>
     <message>
-        <location filename="../src/edit_render_coordinator.cpp" line="384"/>
+        <location filename="../src/edit_render_coordinator.cpp" line="410"/>
         <source>Rendering preview…</source>
         <translation>正在渲染预览…</translation>
     </message>
     <message>
-        <location filename="../src/edit_detail_render_controller.cpp" line="268"/>
+        <location filename="../src/edit_detail_render_controller.cpp" line="308"/>
         <source>Preparing exact full-resolution detail…</source>
         <translation>正在准备精确的全分辨率细节…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="750"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="768"/>
         <source>Catalog returned edit state for a different photo</source>
         <translation>图库目录返回了其他照片的编辑状态</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="210"/>
+        <location filename="../src/edit_history_controller.cpp" line="223"/>
         <source>The saved edit exceeds the 16-Grade-Node desktop limit</source>
         <translation>保存的编辑超过桌面版 16 个调色节点的上限</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="829"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="847"/>
         <source>Saving current adjustments locally…</source>
         <translation>正在自动保存当前调整…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="849"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="867"/>
         <source>Catalog returned autosave state for a different photo</source>
         <translation>图库目录返回了其他照片的自动保存状态</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.cpp" line="467"/>
+        <location filename="../src/edit_controller.cpp" line="495"/>
         <source>Select a Grade Node before editing</source>
         <translation>请先选择一个调色节点再进行编辑</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.cpp" line="472"/>
+        <location filename="../src/edit_controller.cpp" line="500"/>
         <source>Enable the selected Grade Node before editing its controls</source>
         <translation>请先启用选中的调色节点，再编辑其控件</translation>
     </message>
     <message>
-        <location filename="../src/edit_history_controller.cpp" line="272"/>
+        <location filename="../src/edit_history_controller.cpp" line="285"/>
         <source>The saved Tone Curve cannot be represented safely</source>
         <translation>无法安全表示已保存的色调曲线</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="244"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="250"/>
         <source>Saving current adjustments before closing Precision…</source>
         <translation>正在保存当前调整，然后关闭精修…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="273"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="279"/>
         <source>Updating the Library preview…</source>
         <translation>正在更新图库预览…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="382"/>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="390"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="388"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="396"/>
         <source>Creating Library version “%1”…</source>
         <translation>正在创建图库版本“%1”…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="444"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="450"/>
         <source>Loading saved version into working changes…</source>
         <translation>正在将已保存版本载入工作修改…</translation>
     </message>
     <message>
-        <location filename="../src/edit_persistence_coordinator.cpp" line="689"/>
+        <location filename="../src/edit_persistence_coordinator.cpp" line="707"/>
         <source>Library version created · the previous state remains available</source>
         <translation>图库版本已创建 · 之前的状态仍然保留</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.cpp" line="480"/>
+        <location filename="../src/edit_controller.cpp" line="508"/>
         <source>%1 is outside the supported preview range</source>
         <translation>%1 超出支持的预览范围</translation>
     </message>
     <message>
-        <location filename="../src/edit_controller.hpp" line="1265"/>
+        <location filename="../src/edit_controller.hpp" line="1293"/>
         <source>Open a photo from Review to begin editing</source>
         <translation>请从选片中打开一张照片开始编辑</translation>
     </message>
@@ -1770,121 +1775,121 @@
         <translation>明度下限不能高于上限</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="709"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="731"/>
         <source>AI Mask accepts at most 16 prompt points</source>
         <translation>AI 蒙版最多接受 16 个提示点</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1162"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1185"/>
         <source>AI Mask applied · Undo is available</source>
         <translation>AI 蒙版已应用 · 可以撤销</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="957"/>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1016"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="980"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1039"/>
         <source>AI Mask cancelled</source>
         <translation>AI 蒙版已取消</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="999"/>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1042"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1022"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1065"/>
         <source>AI Mask failed · %1</source>
         <translation>AI 蒙版失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="902"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="924"/>
         <source>AI Mask is identifying the subject…</source>
         <translation>AI 蒙版正在识别主体…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="901"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="923"/>
         <source>AI Mask is identifying facial details…</source>
         <translation>AI 蒙版正在识别人脸细节…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="810"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="832"/>
         <source>AI Mask is waiting for the current adjustments to finish saving</source>
         <translation>AI 蒙版正在等待当前调整保存完成</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="560"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="581"/>
         <source>AI selection needs room for a new Grade Node</source>
         <translation>AI 选择需要有空间新建调色节点</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1079"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1102"/>
         <source>AI Mask returned no applicable proposal</source>
         <translation>AI 蒙版没有返回可应用的结果</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="624"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="646"/>
         <source>AI Mask · click the subject to add an include point</source>
         <translation>AI 蒙版 · 点击主体添加包含点</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="544"/>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="789"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="565"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="811"/>
         <source>AI subject selection is disabled in Settings</source>
         <translation>设置中已禁止执行 AI 主体选择</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="943"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="966"/>
         <source>Applying AI Mask…</source>
         <translation>正在应用 AI 蒙版…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1089"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1112"/>
         <source>AI Mask returned an invalid candidate preview</source>
         <translation>AI 蒙版返回了无效的候选预览</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1108"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1131"/>
         <source>AI Mask candidate ready · add points to refine or apply</source>
         <translation>AI 蒙版候选已就绪 · 可继续添加提示点细化或应用</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1104"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1127"/>
         <source>Facial detail candidate ready · choose another region or apply</source>
         <translation>人脸细节候选已就绪 · 可选择其他区域或应用</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1123"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1146"/>
         <source>Could not apply AI Mask · %1</source>
         <translation>无法应用 AI 蒙版 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="570"/>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="833"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="591"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="855"/>
         <source>Could not start AI Mask · %1</source>
         <translation>无法启动 AI 蒙版 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1031"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1054"/>
         <source>Local SAM 2.1 is unavailable · check the model directory · %1</source>
         <translation>本地 SAM 2.1 不可用 · 请检查模型目录 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1027"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1050"/>
         <source>Local face parsing is unavailable · check Infer Runtime · %1</source>
         <translation>本地人脸解析不可用 · 请检查 Infer Runtime · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="621"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="643"/>
         <source>People details · detecting people…</source>
         <translation>人物细节 · 正在检测人物…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="900"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="922"/>
         <source>AI Mask is detecting people…</source>
         <translation>AI 蒙版正在检测人物…</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1054"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1077"/>
         <source>People details · no people detected</source>
         <translation>人物细节 · 未检测到人物</translation>
     </message>
     <message>
-        <location filename="../src/edit_ai_mask_controller.cpp" line="1064"/>
+        <location filename="../src/edit_ai_mask_controller.cpp" line="1087"/>
         <source>Selected details are not visible · choose another region</source>
         <translation>所选细节不可见 · 请选择其他区域</translation>
     </message>
@@ -2720,114 +2725,114 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>EditSubjectEmphasisController</name>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="142"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="143"/>
         <source>Enable local image understanding and subject selection in Settings first.</source>
         <translation>请先在设置中启用本地图像理解和主体选择。</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="147"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="148"/>
         <source>Subject emphasis needs room for one adjustment node.</source>
         <translation>主体增强需要一个可用的调整节点位置。</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="157"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="158"/>
         <source>Subject emphasis</source>
         <translation>主体增强</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="164"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="165"/>
         <source>Could not start local analysis · %1</source>
         <translation>无法启动本地分析 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="182"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="184"/>
         <source>Preparing the current photo for local QwenVL…</source>
         <translation>正在为本地 QwenVL 准备当前照片…</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="196"/>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="245"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="198"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="247"/>
         <source>Selecting “%1” locally…</source>
         <translation>正在本地选择“%1”…</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="210"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="212"/>
         <source>Save the current adjustments before analyzing.</source>
         <translation>请先保存当前调整，再进行分析。</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="225"/>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="278"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="227"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="280"/>
         <source>Local analysis failed · %1</source>
         <translation>本地分析失败 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="244"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="246"/>
         <source>QwenVL is analyzing locally. The first run may take a minute…</source>
         <translation>QwenVL 正在本地分析，首次运行可能需要一分钟…</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="287"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="289"/>
         <source>%1 · choose the intended subject, or enter an English object name.</source>
         <translation>%1 · 请选择想要突出的主体，或输入英文物体名称。</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="294"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="296"/>
         <source>The selection preview is invalid. Try another subject.</source>
         <translation>选区预览无效，请尝试其他主体。</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="297"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="299"/>
         <source>Suggested: gently lift the subject (+0.18 EV). Check the blue selection before applying.</source>
         <translation>建议：轻微提亮主体（+0.18 EV）。应用前请检查蓝色选区。</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="301"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="303"/>
         <source>Suggested: gently restrain the background (−0.12 EV), preserving subject highlights.</source>
         <translation>建议：轻微压暗背景（−0.12 EV），保留主体高光。</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="304"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="306"/>
         <source>The selection is too broad, too small, or uncertain. Try a more specific subject.</source>
         <translation>选区过大、过小或不够明确，请尝试更具体的主体名称。</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="309"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="311"/>
         <source>The subject is already distinct, or the lighting may be intentional. No adjustment is suggested.</source>
         <translation>主体已经突出，或当前明暗可能是有意安排，建议保持原样。</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="312"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="314"/>
         <source>Local selection is unavailable · %1</source>
         <translation>本地选区不可用 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="322"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="324"/>
         <source>Subject emphasis · background</source>
         <translation>主体增强 · 背景</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="323"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="325"/>
         <source>Subject emphasis · subject</source>
         <translation>主体增强 · 主体</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="343"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="346"/>
         <source>Applying subject emphasis…</source>
         <translation>正在应用主体增强…</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="365"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="372"/>
         <source>Could not apply subject emphasis · %1</source>
         <translation>无法应用主体增强 · %1</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="379"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="386"/>
         <source>Applied as an editable node. Adjust strength, compare before/after, or undo once.</source>
         <translation>已添加可编辑节点，可调整强度、对比前后效果，或一次撤销。</translation>
     </message>
     <message>
-        <location filename="../src/edit_subject_emphasis_controller.cpp" line="401"/>
+        <location filename="../src/edit_subject_emphasis_controller.cpp" line="408"/>
         <source>Cancelled. The photo and edit history are unchanged.</source>
         <translation>已取消，照片和编辑历史未改变。</translation>
     </message>
@@ -2853,6 +2858,68 @@ R %2 · G %3 · B %4</translation>
         <location filename="../src/edit_targeted_curve_controller.cpp" line="73"/>
         <source>Drag on the photo to adjust similar tones · Esc to cancel</source>
         <translation>在照片上拖动以调整相近色调 · Esc 取消</translation>
+    </message>
+</context>
+<context>
+    <name>EditToolController</name>
+    <message>
+        <location filename="../src/edit_tool_controller.cpp" line="580"/>
+        <source>Rendering current edits…</source>
+        <translation>正在渲染当前编辑…</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_tool_controller.cpp" line="537"/>
+        <location filename="../src/edit_tool_ui_smoke.cpp" line="1017"/>
+        <source>Current edits preview cancelled.</source>
+        <translation>当前编辑预览已取消。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_tool_controller.cpp" line="541"/>
+        <source>Could not preview the current edits. Try again.</source>
+        <translation>无法预览当前编辑，请重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_tool_controller.cpp" line="586"/>
+        <location filename="../src/edit_tool_ui_smoke.cpp" line="346"/>
+        <location filename="../src/edit_tool_ui_smoke.cpp" line="418"/>
+        <source>Rendering proposed adjustments…</source>
+        <translation>正在渲染调整方案…</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_tool_controller.cpp" line="592"/>
+        <source>Applying proposed adjustments…</source>
+        <translation>正在应用调整方案…</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_tool_controller.cpp" line="598"/>
+        <location filename="../src/edit_tool_ui_smoke.cpp" line="588"/>
+        <location filename="../src/edit_tool_ui_smoke.cpp" line="717"/>
+        <source>Exporting the captured adjustments…</source>
+        <translation>正在导出已确认的调整…</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_tool_controller.cpp" line="539"/>
+        <source>Proposed preview cancelled.</source>
+        <translation>调整方案预览已取消。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_tool_controller.cpp" line="546"/>
+        <source>Could not preview the proposed adjustments. Try again.</source>
+        <translation>调整方案预览失败，请重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_tool_controller.cpp" line="551"/>
+        <source>Could not apply the proposed adjustments. Review the current edits and try again.</source>
+        <translation>调整方案应用失败，请检查当前调整后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/edit_tool_controller.cpp" line="556"/>
+        <location filename="../src/edit_tool_ui_smoke.cpp" line="675"/>
+        <location filename="../src/edit_tool_ui_smoke.cpp" line="684"/>
+        <location filename="../src/edit_tool_ui_smoke.cpp" line="727"/>
+        <location filename="../src/edit_tool_ui_smoke.cpp" line="762"/>
+        <source>Could not export the captured adjustments. Try again.</source>
+        <translation>已确认的调整导出失败，请重试。</translation>
     </message>
 </context>
 <context>
@@ -3034,77 +3101,82 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>ExportController</name>
     <message>
-        <location filename="../src/export_controller.cpp" line="194"/>
+        <location filename="../src/export_controller.cpp" line="192"/>
         <source>Checking unfinished exports…</source>
         <translation>正在检查未完成的导出…</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="246"/>
+        <location filename="../src/export_controller.cpp" line="239"/>
         <source>Choose an export folder</source>
         <translation>选择导出文件夹</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="271"/>
+        <location filename="../src/export_controller.cpp" line="262"/>
         <source>Select at least one photo to export</source>
         <translation>请至少选择一张要导出的照片</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="319"/>
+        <location filename="../src/export_controller.cpp" line="306"/>
         <source>Queueing %1 photos…</source>
         <translation>正在将 %1 张照片加入队列…</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="369"/>
+        <location filename="../src/export_controller.cpp" line="352"/>
         <source>Cancelling after the current photo…</source>
         <translation>将在当前照片完成后取消…</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="452"/>
+        <location filename="../src/export_controller.cpp" line="422"/>
+        <source>Exports paused · remaining photos will resume when this library reopens</source>
+        <translation>导出已暂停 · 重开此资料库时将继续导出剩余照片</translation>
+    </message>
+    <message>
+        <location filename="../src/export_controller.cpp" line="428"/>
         <source>No unfinished exports</source>
         <translation>没有未完成的导出</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="457"/>
+        <location filename="../src/export_controller.cpp" line="432"/>
         <source>Resuming exports paused</source>
         <translation>正在恢复已暂停的导出</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="463"/>
+        <location filename="../src/export_controller.cpp" line="436"/>
         <source>Resumed %1 photos · %2 need attention</source>
         <translation>已恢复 %1 张照片 · %2 张需要处理</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="471"/>
+        <location filename="../src/export_controller.cpp" line="441"/>
         <source>Resumed %1 exports</source>
         <translation>已恢复 %1 个导出任务</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="479"/>
+        <location filename="../src/export_controller.cpp" line="446"/>
         <source>Resumed %1 exports · %2 failed</source>
         <translation>已恢复 %1 个导出任务 · %2 个失败</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="487"/>
+        <location filename="../src/export_controller.cpp" line="451"/>
         <source>Export cancelled · %1 exported · %2 failed</source>
         <translation>导出已取消 · 已导出 %1 张 · %2 张失败</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="495"/>
+        <location filename="../src/export_controller.cpp" line="456"/>
         <source>Exported %1 photos · %2 need attention</source>
         <translation>已导出 %1 张照片 · %2 张需要处理</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="503"/>
+        <location filename="../src/export_controller.cpp" line="461"/>
         <source>Exported %1 photos</source>
         <translation>已导出 %1 张照片</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="511"/>
+        <location filename="../src/export_controller.cpp" line="466"/>
         <source>Exported %1 photos · %2 failed</source>
         <translation>已导出 %1 张照片 · %2 张失败</translation>
     </message>
     <message>
-        <location filename="../src/export_controller.cpp" line="552"/>
+        <location filename="../src/export_controller.cpp" line="506"/>
         <source>Exporting %1 of %2 · %3</source>
         <translation>正在导出第 %1 / %2 张 · %3</translation>
     </message>
@@ -3956,57 +4028,57 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>ImageUnderstandingController</name>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="129"/>
+        <location filename="../src/image_understanding_controller.cpp" line="139"/>
         <source>Local photo understanding is disabled.</source>
         <translation>本地照片理解已关闭。</translation>
     </message>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="131"/>
+        <location filename="../src/image_understanding_controller.cpp" line="141"/>
         <source>Eligible photos are waiting for local analysis.</source>
         <translation>符合条件的照片正在等待本地分析。</translation>
     </message>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="132"/>
+        <location filename="../src/image_understanding_controller.cpp" line="142"/>
         <source>Background photo understanding is off.</source>
         <translation>后台照片理解未开启。</translation>
     </message>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="134"/>
+        <location filename="../src/image_understanding_controller.cpp" line="144"/>
         <source>Pausing after the current photo…</source>
         <translation>将在当前照片处理完成后暂停…</translation>
     </message>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="135"/>
+        <location filename="../src/image_understanding_controller.cpp" line="145"/>
         <source>Understanding photos locally… %1 of %2</source>
         <translation>正在本地理解照片… %1 / %2</translation>
     </message>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="139"/>
+        <location filename="../src/image_understanding_controller.cpp" line="149"/>
         <source>Photo understanding is paused at %1 of %2.</source>
         <translation>照片理解已暂停于 %1 / %2。</translation>
     </message>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="143"/>
+        <location filename="../src/image_understanding_controller.cpp" line="153"/>
         <source>Eligible photos are up to date.</source>
         <translation>符合条件的照片已全部更新。</translation>
     </message>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="145"/>
+        <location filename="../src/image_understanding_controller.cpp" line="155"/>
         <source>Photo understanding was interrupted.</source>
         <translation>照片理解已中断。</translation>
     </message>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="154"/>
+        <location filename="../src/image_understanding_controller.cpp" line="164"/>
         <source>Infer Runtime is unavailable. Start it, then resume.</source>
         <translation>Infer Runtime 当前不可用。请启动后继续。</translation>
     </message>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="155"/>
+        <location filename="../src/image_understanding_controller.cpp" line="165"/>
         <source>The checkpoint is safe. Resume after the local model is available.</source>
         <translation>进度检查点已安全保存。本地模型可用后可继续。</translation>
     </message>
     <message>
-        <location filename="../src/image_understanding_controller.cpp" line="185"/>
+        <location filename="../src/image_understanding_controller.cpp" line="195"/>
         <source>The advanced local review could not finish. Check Infer Runtime and try again.</source>
         <translation>高级本地复核未能完成。请检查 Infer Runtime 后重试。</translation>
     </message>
@@ -5348,6 +5420,11 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>Main</name>
     <message>
+        <location filename="../qml/Main.qml" line="96"/>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
         <location filename="../qml/MainLibrarySortMenu.qml" line="105"/>
         <source>Capture date · Newest first</source>
         <translation>拍摄日期 · 最新优先</translation>
@@ -5398,32 +5475,32 @@ R %2 · G %3 · B %4</translation>
         <translation>打开高级图库筛选</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="78"/>
+        <location filename="../qml/Main.qml" line="87"/>
         <source>Shadow · Review</source>
         <translation>Shadow · 选片</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="80"/>
+        <location filename="../qml/Main.qml" line="89"/>
         <source>Shadow · Precision</source>
         <translation>Shadow · 精修</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="82"/>
+        <location filename="../qml/Main.qml" line="91"/>
         <source>Shadow · Map</source>
         <translation>Shadow · 地图</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="85"/>
+        <location filename="../qml/Main.qml" line="94"/>
         <source>Shadow · Library</source>
         <translation>Shadow · 图库</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="84"/>
+        <location filename="../qml/Main.qml" line="93"/>
         <source>Shadow · People</source>
         <translation>Shadow · 人物</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="216"/>
+        <location filename="../qml/Main.qml" line="251"/>
         <source>Choose a photo folder</source>
         <translation>选择照片文件夹</translation>
     </message>
@@ -5478,74 +5555,79 @@ R %2 · G %3 · B %4</translation>
         <translation>正在解析全分辨率 RAW…</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="86"/>
+        <location filename="../qml/MainTitleBar.qml" line="113"/>
         <source>REVIEW</source>
         <translation>选片</translation>
     </message>
     <message>
         <location filename="../qml/MainStatusBar.qml" line="135"/>
-        <location filename="../qml/MainTitleBar.qml" line="101"/>
+        <location filename="../qml/MainTitleBar.qml" line="128"/>
         <source>PRECISION</source>
         <translation>精修</translation>
     </message>
     <message>
         <location filename="../qml/MainStatusBar.qml" line="139"/>
-        <location filename="../qml/MainTitleBar.qml" line="133"/>
+        <location filename="../qml/MainTitleBar.qml" line="160"/>
         <source>PEOPLE</source>
         <translation>人物</translation>
     </message>
     <message>
         <location filename="../qml/MainStatusBar.qml" line="137"/>
-        <location filename="../qml/MainTitleBar.qml" line="118"/>
+        <location filename="../qml/MainTitleBar.qml" line="145"/>
         <source>MAP</source>
         <translation>地图</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="154"/>
+        <location filename="../qml/MainTitleBar.qml" line="74"/>
+        <source>Manage Libraries</source>
+        <translation>管理资料库</translation>
+    </message>
+    <message>
+        <location filename="../qml/MainTitleBar.qml" line="181"/>
         <source>SAVED</source>
         <translation>已保存</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="206"/>
-        <location filename="../qml/PipelineEditor.qml" line="109"/>
+        <location filename="../qml/MainTitleBar.qml" line="233"/>
+        <location filename="../qml/PipelineEditor.qml" line="110"/>
         <source>Undo</source>
         <translation>撤销</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="215"/>
-        <location filename="../qml/PipelineEditor.qml" line="118"/>
+        <location filename="../qml/MainTitleBar.qml" line="242"/>
+        <location filename="../qml/PipelineEditor.qml" line="119"/>
         <source>Redo</source>
         <translation>重做</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="245"/>
+        <location filename="../qml/MainTitleBar.qml" line="272"/>
         <source>Return to Review</source>
         <translation>返回选片</translation>
     </message>
     <message>
         <location filename="../qml/MainLibraryFilterBar.qml" line="60"/>
         <location filename="../qml/MainLibraryFilterBar.qml" line="142"/>
-        <location filename="../qml/ReviewGallerySurface.qml" line="281"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="441"/>
         <source>Clear all Library filters</source>
         <translation>清除图库筛选</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="155"/>
+        <location filename="../qml/MainTitleBar.qml" line="182"/>
         <source>SAVE FAILED</source>
         <translation>保存失败</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="156"/>
+        <location filename="../qml/MainTitleBar.qml" line="183"/>
         <source>SAVING</source>
         <translation>正在保存</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="156"/>
+        <location filename="../qml/MainTitleBar.qml" line="183"/>
         <source>DRAFT</source>
         <translation>草稿</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="233"/>
+        <location filename="../qml/MainTitleBar.qml" line="260"/>
         <source>History</source>
         <translation>历史</translation>
     </message>
@@ -5605,42 +5687,42 @@ R %2 · G %3 · B %4</translation>
         <translation>图库</translation>
     </message>
     <message>
-        <location filename="../qml/MainTitleBar.qml" line="257"/>
+        <location filename="../qml/MainTitleBar.qml" line="284"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../qml/AutosaveFailureRecovery.qml" line="106"/>
+        <location filename="../qml/AutosaveFailureRecovery.qml" line="113"/>
         <source>AUTOSAVE FAILED</source>
         <translation>自动保存失败</translation>
     </message>
     <message>
-        <location filename="../qml/AutosaveFailureRecovery.qml" line="117"/>
+        <location filename="../qml/AutosaveFailureRecovery.qml" line="124"/>
         <source>Shadow could not save the latest working adjustments locally. You can retry, keep editing, or quit without the unsaved changes.</source>
         <translation>Shadow 无法将最新工作调整保存到本地。你可以重试、继续编辑，或不保存这些调整直接退出。</translation>
     </message>
     <message>
-        <location filename="../qml/AutosaveFailureRecovery.qml" line="116"/>
+        <location filename="../qml/AutosaveFailureRecovery.qml" line="123"/>
         <source>Shadow could not save this photo’s latest working adjustments. The selected photo will remain unopened until you retry, keep editing, or open it without these unsaved changes.</source>
         <translation>Shadow 无法保存这张照片最新的工作调整。所选照片会保持未打开状态，直到你重试、继续编辑，或不保存这些调整直接打开它。</translation>
     </message>
     <message>
-        <location filename="../qml/AutosaveFailureRecovery.qml" line="148"/>
+        <location filename="../qml/AutosaveFailureRecovery.qml" line="155"/>
         <source>KEEP EDITING</source>
         <translation>继续编辑</translation>
     </message>
     <message>
-        <location filename="../qml/AutosaveFailureRecovery.qml" line="155"/>
+        <location filename="../qml/AutosaveFailureRecovery.qml" line="162"/>
         <source>RETRY SAVE</source>
         <translation>重试保存</translation>
     </message>
     <message>
-        <location filename="../qml/AutosaveFailureRecovery.qml" line="165"/>
+        <location filename="../qml/AutosaveFailureRecovery.qml" line="172"/>
         <source>QUIT WITHOUT SAVING</source>
         <translation>不保存并退出</translation>
     </message>
     <message>
-        <location filename="../qml/AutosaveFailureRecovery.qml" line="164"/>
+        <location filename="../qml/AutosaveFailureRecovery.qml" line="171"/>
         <source>OPEN WITHOUT SAVING</source>
         <translation>不保存并打开</translation>
     </message>
@@ -6281,91 +6363,91 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PeopleAnalysisController</name>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="89"/>
+        <location filename="../src/people_analysis_controller.cpp" line="90"/>
         <source>Ready to organize people locally.</source>
         <translation>已准备好在本机整理人物。</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="108"/>
+        <location filename="../src/people_analysis_controller.cpp" line="109"/>
         <source>Preparing local people analysis…</source>
         <translation>正在准备本机人物分析…</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="102"/>
+        <location filename="../src/people_analysis_controller.cpp" line="103"/>
         <source>Analyzing photo %1 of at most %2 · %3 faces · %4 compared</source>
         <translation>正在分析第 %1 张照片（最多 %2 张）· 已发现 %3 张人脸 · 已比对 %4 张</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="90"/>
+        <location filename="../src/people_analysis_controller.cpp" line="91"/>
         <source>People analysis is off. Enable it to begin.</source>
         <translation>人物分析已关闭。启用后即可开始。</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="92"/>
+        <location filename="../src/people_analysis_controller.cpp" line="93"/>
         <source>Allow local people analysis before starting.</source>
         <translation>开始前请先允许本机人物分析。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../src/people_analysis_controller.cpp" line="95"/>
+        <location filename="../src/people_analysis_controller.cpp" line="96"/>
         <source>Preparing anonymous groups from %n compared faces…</source>
         <translation>
             <numerusform>正在根据已比对的 %n 张人脸准备匿名分组…</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="110"/>
+        <location filename="../src/people_analysis_controller.cpp" line="111"/>
         <source>Stopping after the current model request…</source>
         <translation>正在当前模型请求完成后停止…</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="112"/>
+        <location filename="../src/people_analysis_controller.cpp" line="113"/>
         <source>Analysis stopped. Stored people data was kept.</source>
         <translation>分析已停止。已存储的人物数据已保留。</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="113"/>
+        <location filename="../src/people_analysis_controller.cpp" line="114"/>
         <source>Analysis stopped.</source>
         <translation>分析已停止。</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="115"/>
+        <location filename="../src/people_analysis_controller.cpp" line="116"/>
         <source>Local people data is ready.</source>
         <translation>本地人物数据已就绪。</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="117"/>
+        <location filename="../src/people_analysis_controller.cpp" line="118"/>
         <source>Local people analysis could not finish.</source>
         <translation>本机人物分析未能完成。</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="126"/>
+        <location filename="../src/people_analysis_controller.cpp" line="127"/>
         <source>Make sure Infer Runtime is running and Shadow access is configured, then try again.</source>
         <translation>请确认 Infer Runtime 正在运行且已为 Shadow 配置访问权限，然后重试。</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="189"/>
+        <location filename="../src/people_analysis_controller.cpp" line="190"/>
         <source>Select at least two people that should be one person.</source>
         <translation>请选择至少两个应归为同一人的人物分组。</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="192"/>
+        <location filename="../src/people_analysis_controller.cpp" line="193"/>
         <source>Select one more person to merge.</source>
         <translation>请再选择一个人物分组进行合并。</translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="195"/>
+        <location filename="../src/people_analysis_controller.cpp" line="196"/>
         <source>These groups contain faces from the same photo and cannot be merged.</source>
         <translation>这些分组包含来自同一张照片的人脸，不能合并。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../src/people_analysis_controller.cpp" line="197"/>
+        <location filename="../src/people_analysis_controller.cpp" line="198"/>
         <source>%n people selected for merging.</source>
         <translation>
             <numerusform>已选择 %n 个人物分组进行合并。</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../src/people_analysis_controller.cpp" line="385"/>
+        <location filename="../src/people_analysis_controller.cpp" line="386"/>
         <source>Person %1</source>
         <translation>人物 %1</translation>
     </message>
@@ -6373,7 +6455,7 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PeopleScopeController</name>
     <message>
-        <location filename="../src/people_scope_controller.cpp" line="181"/>
+        <location filename="../src/people_scope_controller.cpp" line="218"/>
         <source>Could not count people in this scope.</source>
         <translation>无法统计当前范围内的人物。</translation>
     </message>
@@ -6381,192 +6463,192 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PeopleWorkspace</name>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="391"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="438"/>
         <source>Name</source>
         <translation>命名</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="146"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="157"/>
         <source>Name person</source>
         <translation>为人物命名</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="164"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="175"/>
         <source>Names stay in this device&apos;s local People data.</source>
         <translation>姓名仅保存在本机的人物数据中。</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="175"/>
-        <location filename="../qml/PeopleWorkspace.qml" line="176"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="186"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="187"/>
         <source>Person name</source>
         <translation>人物姓名</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="249"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="260"/>
         <source>%1 photos checked · %2 people</source>
         <translation>已检查 %1 张照片 · %2 个人物</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="391"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="438"/>
         <source>Rename</source>
         <translation>重命名</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="146"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="157"/>
         <source>Rename person</source>
         <translation>重命名人物</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="197"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="208"/>
         <source>People</source>
         <translation>人物</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="207"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="218"/>
         <source>Start Analysis</source>
         <translation>开始分析</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="215"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="226"/>
         <source>Stop</source>
         <translation>停止</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="215"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="226"/>
         <source>Stopping…</source>
         <translation>正在停止…</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="223"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="234"/>
         <source>Reanalyze all photos, keeping names and corrections</source>
         <translation>重新分析全部照片，保留姓名和人工整理结果</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="231"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="242"/>
         <source>Clear People Data</source>
         <translation>清除人物数据</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="405"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="458"/>
         <source>Find and organize people locally. Open a person to browse their photos.</source>
         <translation>在本机识别并整理人物，打开人物即可浏览其照片。</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="290"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="334"/>
         <source>Merge selected</source>
         <translation>合并所选</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="340"/>
-        <location filename="../qml/PeopleWorkspace.qml" line="374"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="384"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="419"/>
         <source>Person %1</source>
         <translation>人物 %1</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="89"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="101"/>
         <source>Enable People?</source>
         <translation>启用人物功能？</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="106"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="118"/>
         <source>Shadow will analyze faces in this Library and organize recurring people across photos. Photos, face features, and people data stay on this device.</source>
         <translation>Shadow 将分析此图库中的人脸，并整理多张照片中重复出现的人物。照片、面部特征和人物数据始终留在本机。</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="113"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="125"/>
         <source>You can stop new analysis or clear all people data at any time in Settings.</source>
         <translation>你可以随时在设置中停止新的分析，或清除全部人物数据。</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="127"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="139"/>
         <source>Clear people data?</source>
         <translation>清除人物数据？</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="133"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="144"/>
         <source>Stored face references, people groups, thumbnails, and your merges will be removed. Original photos and edits are not changed.</source>
         <translation>已存储的人脸引用、人物分组、缩略图以及你的合并结果将被移除。原始照片和编辑不会改变。</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="205"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="216"/>
         <source>Enable People</source>
         <translation>启用人物功能</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="206"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="217"/>
         <source>Continue analysis</source>
         <translation>继续分析</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="206"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="217"/>
         <source>Check for new photos</source>
         <translation>检查新照片</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="267"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="311"/>
         <source>Undo correction</source>
         <translation>撤销人物整理</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="275"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="319"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="275"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="319"/>
         <source>Select</source>
         <translation>选择</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="307"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="351"/>
         <source>This batch is saved. Continue to analyze the remaining photos; completed photos will be reused.</source>
         <translation>本批结果已保存。可继续分析剩余照片，已完成的照片会复用结果。</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="404"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="457"/>
         <source>No faces were found in the analyzed photos.</source>
         <translation>已分析的照片中未发现人脸。</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="262"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="306"/>
         <source>Find a person by name…</source>
         <translation>按姓名查找人物…</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="403"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="454"/>
         <source>No matching people</source>
         <translation>没有匹配的人物</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/PeopleWorkspace.qml" line="383"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="428"/>
         <source>%n photos</source>
         <translation>
             <numerusform>%n 张照片</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="268"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="271"/>
         <source>Current album and filters</source>
         <translation>当前相册与筛选</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="274"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="277"/>
         <source>All Library</source>
         <translation>整个图库</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="288"/>
-        <location filename="../qml/PeopleWorkspace.qml" line="448"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="291"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="451"/>
         <source>Counting people in the current scope…</source>
         <translation>正在统计当前范围内的人物…</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="289"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="292"/>
         <source>People shown here match the current album and filters.</source>
         <translation>这里的人物符合当前相册与筛选条件。</translation>
     </message>
     <message>
-        <location filename="../qml/PeopleWorkspace.qml" line="452"/>
+        <location filename="../qml/PeopleWorkspace.qml" line="456"/>
         <source>No analyzed people in the current scope.</source>
         <translation>当前范围内没有已分析的人物。</translation>
     </message>
@@ -6872,126 +6954,128 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PipelineEditor</name>
     <message>
+        <location filename="../qml/PipelineEditor.qml" line="26"/>
         <source>Shadow · Material Editor</source>
         <translation>Shadow · 素材编辑</translation>
     </message>
     <message>
+        <location filename="../qml/PipelineEditor.qml" line="148"/>
         <source>Return edited image</source>
         <translation>返回编辑后的图片</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="25"/>
+        <location filename="../qml/PipelineEditor.qml" line="26"/>
         <source>Shadow · Independent Editor</source>
         <translation>Shadow · 独立编辑器</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="91"/>
+        <location filename="../qml/PipelineEditor.qml" line="92"/>
         <source>Independent Editor</source>
         <translation>独立编辑器</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="97"/>
+        <location filename="../qml/PipelineEditor.qml" line="98"/>
         <source>This session is separate from your Library.</source>
         <translation>本次编辑独立于图库。</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="127"/>
-        <location filename="../qml/PipelineEditor.qml" line="277"/>
+        <location filename="../qml/PipelineEditor.qml" line="129"/>
+        <location filename="../qml/PipelineEditor.qml" line="302"/>
         <source>Open photos…</source>
         <translation>打开照片…</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="135"/>
+        <location filename="../qml/PipelineEditor.qml" line="137"/>
         <source>Close</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="135"/>
+        <location filename="../qml/PipelineEditor.qml" line="137"/>
         <source>Cancel session</source>
         <translation>取消本次编辑</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="143"/>
+        <location filename="../qml/PipelineEditor.qml" line="160"/>
         <source>Retry remaining</source>
         <translation>重试剩余照片</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="143"/>
+        <location filename="../qml/PipelineEditor.qml" line="160"/>
         <source>Export %1 photos…</source>
         <translation>导出 %1 张照片…</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="161"/>
+        <location filename="../qml/PipelineEditor.qml" line="178"/>
         <source>Previous photo</source>
         <translation>上一张照片</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="178"/>
+        <location filename="../qml/PipelineEditor.qml" line="195"/>
         <source>Next photo</source>
         <translation>下一张照片</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="185"/>
+        <location filename="../qml/PipelineEditor.qml" line="202"/>
         <source>%1 / %2</source>
         <translation>%1 / %2</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="220"/>
+        <location filename="../qml/PipelineEditor.qml" line="237"/>
         <source>Retry saving</source>
         <translation>重试保存</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="258"/>
+        <location filename="../qml/PipelineEditor.qml" line="283"/>
         <source>Export complete</source>
         <translation>导出完成</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="260"/>
+        <location filename="../qml/PipelineEditor.qml" line="285"/>
         <source>Open one photo or a set of photos</source>
         <translation>打开一张或多张照片</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="270"/>
+        <location filename="../qml/PipelineEditor.qml" line="295"/>
         <source>Drop photos here or choose files. Originals stay unchanged; adjustments are kept for this session.</source>
         <translation>将照片拖到这里，或选择文件。原图保持不变；调整会在本次编辑中保留。</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="299"/>
+        <location filename="../qml/PipelineEditor.qml" line="325"/>
         <source>Stop export</source>
         <translation>停止导出</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="307"/>
+        <location filename="../qml/PipelineEditor.qml" line="333"/>
         <source>Open photos for independent editing</source>
         <translation>打开照片进行独立编辑</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="309"/>
+        <location filename="../qml/PipelineEditor.qml" line="335"/>
         <source>All files (*)</source>
         <translation>所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="309"/>
+        <location filename="../qml/PipelineEditor.qml" line="335"/>
         <source>Photos (*.nef *.nrw *.cr2 *.cr3 *.arw *.raf *.orf *.rw2 *.pef *.srw *.dng *.jpg *.jpeg *.tif *.tiff *.heic *.heif)</source>
         <translation>照片 (*.nef *.nrw *.cr2 *.cr3 *.arw *.raf *.orf *.rw2 *.pef *.srw *.dng *.jpg *.jpeg *.tif *.tiff *.heic *.heif)</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="322"/>
+        <location filename="../qml/PipelineEditor.qml" line="349"/>
         <source>Close this editing session?</source>
         <translation>关闭本次编辑？</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="324"/>
+        <location filename="../qml/PipelineEditor.qml" line="351"/>
         <source>Unexported adjustments will be discarded. Originals and files already exported will be kept.</source>
         <translation>尚未导出的调整将被丢弃。原图和已经导出的文件都会保留。</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="330"/>
+        <location filename="../qml/PipelineEditor.qml" line="361"/>
         <source>Keep editing</source>
         <translation>继续编辑</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="331"/>
+        <location filename="../qml/PipelineEditor.qml" line="362"/>
         <source>Close session</source>
         <translation>关闭本次编辑</translation>
     </message>
@@ -6999,58 +7083,59 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PipelineExportDialog</name>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="15"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="16"/>
         <source>Export edited photos</source>
         <translation>导出编辑后的照片</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="20"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="21"/>
         <source>Export all %1 photos. Existing files are never overwritten.</source>
         <translation>导出全部 %1 张照片，不覆盖已有文件。</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="29"/>
-        <location filename="../qml/PipelineExportDialog.qml" line="81"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="30"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="98"/>
         <source>Choose an output folder</source>
         <translation>选择输出文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="34"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="35"/>
         <source>Choose…</source>
         <translation>选择…</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="40"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="41"/>
         <source>Format</source>
         <translation>格式</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="42"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="43"/>
         <source>Color space</source>
         <translation>色彩空间</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="44"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="45"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="54"/>
         <source>JPEG quality</source>
         <translation>JPEG 质量</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="46"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="56"/>
         <source>TIFF bit depth</source>
         <translation>TIFF 位深</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="51"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="61"/>
         <source>Full resolution · filenames end in -edited · no source metadata is copied</source>
         <translation>完整分辨率 · 文件名以 -edited 结尾 · 不复制原图元数据</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="66"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="80"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineExportDialog.qml" line="68"/>
+        <location filename="../qml/PipelineExportDialog.qml" line="83"/>
         <source>Export</source>
         <translation>导出</translation>
     </message>
@@ -7098,22 +7183,22 @@ R %2 · G %3 · B %4</translation>
         <translation>一次最多可以编辑 256 张照片。</translation>
     </message>
     <message>
-        <location filename="../src/pipeline_run_controller.cpp" line="243"/>
+        <location filename="../src/pipeline_run_controller.cpp" line="254"/>
         <source>Choose an existing output folder.</source>
         <translation>请选择已存在的输出文件夹。</translation>
     </message>
     <message>
-        <location filename="../src/pipeline_run_controller.cpp" line="305"/>
+        <location filename="../src/pipeline_run_controller.cpp" line="316"/>
         <source>Adjustments could not be saved. Retry saving before switching or exporting.</source>
         <translation>调整未能保存，请重试保存后再切换或导出。</translation>
     </message>
     <message>
-        <location filename="../src/pipeline_run_controller.cpp" line="394"/>
+        <location filename="../src/pipeline_run_controller.cpp" line="424"/>
         <source>Export stopped. Completed files are kept; you can retry the remaining photos.</source>
         <translation>导出已停止。已完成的文件会保留，可以重试剩余照片。</translation>
     </message>
     <message>
-        <location filename="../src/pipeline_run_controller.cpp" line="398"/>
+        <location filename="../src/pipeline_run_controller.cpp" line="428"/>
         <source>Export did not complete. Check the output folder and retry.</source>
         <translation>导出未完成，请检查输出文件夹后重试。</translation>
     </message>
@@ -7210,18 +7295,18 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>PrecisionCanvasPickerInput</name>
     <message>
-        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="386"/>
+        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="393"/>
         <source>Stroke limit reached. Release, then continue with a new stroke.</source>
         <translation>已达到单笔上限。松开后，请用新笔画继续。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="444"/>
-        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="513"/>
+        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="451"/>
+        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="520"/>
         <source>SOURCE</source>
         <translation>源区</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="532"/>
+        <location filename="../qml/PrecisionCanvasPickerInput.qml" line="539"/>
         <source>%1 px</source>
         <translation>%1 像素</translation>
     </message>
@@ -7373,35 +7458,48 @@ R %2 · G %3 · B %4</translation>
 </context>
 <context>
     <name>PrecisionWorkspace</name>
-    <message><source>Regenerate to enable automatic RAW color matching</source><translation>重新生成以启用自动 RAW 颜色匹配</translation></message>
-    <message><source>Source settings have changed. Check this region or regenerate it.</source><translation>源图调整已变化，请检查此区域或重新生成。</translation></message>
     <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="353"/>
+        <source>Regenerate to enable automatic RAW color matching</source>
+        <translation>重新生成以启用自动 RAW 颜色匹配</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="382"/>
+        <source>Source settings have changed. Check this region or regenerate it.</source>
+        <translation>源图调整已变化，请检查此区域或重新生成。</translation>
+    </message>
+    <message>
+        <location filename="../qml/PrecisionWorkspace.qml" line="479"/>
         <source>Previous photo</source>
         <translation>上一张照片</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionWorkspace.qml" line="498"/>
         <source>Next photo</source>
         <translation>下一张照片</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionWorkspace.qml" line="487"/>
         <source>Preparing next photo…</source>
         <translation>正在预备下一张照片…</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionWorkspace.qml" line="489"/>
         <source>Next photo prepared</source>
         <translation>下一张照片已预备</translation>
     </message>
     <message>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="428"/>
         <source>Finish painting to adjust the accepted regions.</source>
         <translation>结束绘制后，即可调整已接受的区域。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="482"/>
+        <location filename="../qml/PrecisionInspector.qml" line="491"/>
         <source>Expand color map</source>
         <translation>展开颜色映射</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="349"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="353"/>
         <source> · %L1 MASK PART(S)</source>
         <translation> · %L1 个蒙版组件</translation>
     </message>
@@ -7507,180 +7605,180 @@ R %2 · G %3 · B %4</translation>
         <translation>减去</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="346"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="413"/>
         <location filename="../qml/PrecisionPaintTools.qml" line="67"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="252"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="260"/>
         <source>%n REGION(S) · AFTER GRADES · BYPASSED</source>
         <translation>
             <numerusform>%n 个区域 · 调色后 · 已旁路</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="250"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="259"/>
         <source>%n REGION(S) · AFTER GRADES</source>
         <translation>
             <numerusform>%n 个区域 · 调色后</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="435"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="438"/>
         <source>%n REGION(S) · BEFORE GRADES</source>
         <translation>
             <numerusform>%n 个区域 · 调色前</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="437"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="440"/>
         <source>%n REGION(S) · BEFORE GRADES · BYPASSED</source>
         <translation>
             <numerusform>%n 个区域 · 调色前 · 已旁路</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="275"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="305"/>
         <source>ACCEPTED REGIONS · %L1</source>
         <translation>已接受区域 · %L1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="54"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="58"/>
         <source>AI COMPLETION</source>
         <translation>AI 补全</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="247"/>
-        <location filename="../qml/PrecisionInspector.qml" line="187"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="435"/>
+        <location filename="../qml/PrecisionInspector.qml" line="188"/>
         <source>AI Completion</source>
         <translation>AI 补全</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="258"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="257"/>
         <source>AI Completion (older)</source>
         <translation>AI 补全（旧版）</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="156"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="186"/>
         <source>Bypass Liquify while painting and generating a new AI Completion region. Accepted regions can be regenerated with Liquify enabled.</source>
         <translation>涂抹并生成新的 AI 补全区域时，请先旁路液化。重新生成已接受区域时，可保持液化启用。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="66"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="70"/>
         <source>Adjust or remove accepted regions, or paint a new region to repair another area.</source>
         <translation>调整或移除已接受的区域，也可以绘制新区域，继续修复其他位置。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="35"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="40"/>
         <source>Allow local AI Completion?</source>
         <translation>允许本机 AI 补全吗？</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="138"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="142"/>
         <location filename="../qml/PrecisionPaintTools.qml" line="163"/>
         <source>Brush size</source>
         <translation>画笔大小</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="153"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="158"/>
         <source>Selection expansion</source>
         <translation>选区外扩</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="171"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="175"/>
         <source>Expand a painted selection around soft edges, then generate again. Changing this discards the current candidate.</source>
         <translation>柔和边缘未被完整覆盖时，可外扩已涂抹的选区并重新生成。调整后当前候选会失效。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="212"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="242"/>
         <source>Cancel generation</source>
         <translation>取消生成</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="191"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="221"/>
         <source>Candidate preview is shown on the photo.</source>
         <translation>候选预览已显示在照片上。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="254"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="442"/>
         <source>EMPTY · PAINT TO CREATE</source>
         <translation>空 · 涂抹以创建</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="105"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="109"/>
         <location filename="../qml/PrecisionPaintTools.qml" line="113"/>
         <source>Erase</source>
         <translation>擦除</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="229"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="259"/>
         <source>Exit</source>
         <translation>退出</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="212"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="242"/>
         <source>Generate preview</source>
         <translation>生成预览</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="189"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="219"/>
         <source>Generating a local candidate…</source>
         <translation>正在生成本地候选…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="192"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="222"/>
         <source>No candidate generated yet.</source>
         <translation>尚未生成候选。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="94"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="98"/>
         <location filename="../qml/PrecisionPaintTools.qml" line="22"/>
         <source>Paint</source>
         <translation>涂抹</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="76"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="80"/>
         <source>Paint a new region</source>
         <translation>涂抹新区域</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="65"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="69"/>
         <source>Paint the area to replace. Generation creates a preview candidate; the photo Recipe changes only after Apply.</source>
         <translation>涂抹要替换的区域。生成只会创建预览候选；点击应用后才会修改照片 Recipe。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="309"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="342"/>
         <source>Region %L1</source>
         <translation>区域 %L1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="321"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="354"/>
         <source>Regenerate this region with the current photo</source>
         <translation>以当前照片重新生成此区域</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="344"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="374"/>
         <source>Older region: regenerate it to follow future adjustments</source>
         <translation>旧版区域：重新生成后可跟随后续调整</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="318"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="363"/>
         <source>Remove this accepted region</source>
         <translation>移除此已接受区域</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="251"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="281"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="45"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="49"/>
         <source>Shadow will send a bounded crop of this photo and the selected area to Infer Runtime on this device. The request is not uploaded by Shadow. You can turn this permission off later in AI &amp; Models settings.</source>
         <translation>Shadow 会将此照片的有限裁剪区域和所选区域发送到本机 Infer Runtime。Shadow 不会上传该请求。之后可在“AI 与模型”设置中关闭此权限。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="118"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="122"/>
         <source>Undo stroke</source>
         <translation>撤销笔划</translation>
     </message>
@@ -7935,19 +8033,19 @@ R %2 · G %3 · B %4</translation>
         <translation>已固定 · 点击照片可重新定位</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="254"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="256"/>
         <location filename="../qml/PrecisionDetailLoupe.qml" line="329"/>
         <source>Preparing 100% detail…</source>
         <translation>正在准备 100% 细节…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="258"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="260"/>
         <location filename="../qml/PrecisionDetailLoupe.qml" line="331"/>
         <source>Rendering 100% detail…</source>
         <translation>正在渲染 100% 细节…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="261"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="263"/>
         <location filename="../qml/PrecisionDetailLoupe.qml" line="332"/>
         <source>Waiting for 100% detail…</source>
         <translation>正在等待 100% 细节…</translation>
@@ -7983,34 +8081,34 @@ R %2 · G %3 · B %4</translation>
         <translation>节点已隐藏 · AI 结果当前不应用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="614"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="641"/>
         <source>Hide AI RAW Denoise node</source>
         <translation>隐藏 AI RAW 降噪节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="615"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="642"/>
         <source>Show AI RAW Denoise node</source>
         <translation>显示 AI RAW 降噪节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="126"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="395"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="137"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="399"/>
         <source>Hide %1</source>
         <translation>隐藏%1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="127"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="396"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="138"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="400"/>
         <source>Show %1</source>
         <translation>显示%1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="505"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="532"/>
         <source>Hide RAW Development</source>
         <translation>隐藏 RAW 显影</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="506"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="533"/>
         <source>Show RAW Development</source>
         <translation>显示 RAW 显影</translation>
     </message>
@@ -8026,7 +8124,7 @@ R %2 · G %3 · B %4</translation>
         <translation>关闭 AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="569"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="596"/>
         <source>AI RAW Denoise</source>
         <translation>AI RAW 降噪</translation>
     </message>
@@ -8036,12 +8134,12 @@ R %2 · G %3 · B %4</translation>
         <translation>关</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="582"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="609"/>
         <source>PROCESSING</source>
         <translation>处理中</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="584"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="611"/>
         <source>SOURCE · %L1%</source>
         <translation>源影像 · %L1%</translation>
     </message>
@@ -8071,82 +8169,82 @@ R %2 · G %3 · B %4</translation>
         <translation>曝光</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="161"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="172"/>
         <source>NODES</source>
         <translation>节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="168"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="179"/>
         <source>GRADES %L1 / %L2</source>
         <translation>调整节点 %L1 / %L2</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="179"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="190"/>
         <source>Add an adjustment or open a structural tool</source>
         <translation>添加调整节点或打开结构工具</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="180"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="191"/>
         <source>Add node</source>
         <translation>添加节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="189"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="200"/>
         <source>Import / export grading…</source>
         <translation>导入／导出调色…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="220"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="276"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="231"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="280"/>
         <source>EMPTY · DRAW TO CREATE</source>
         <translation>空 · 绘制后创建</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="349"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="353"/>
         <source>SHARED · V%1 · ENABLED</source>
         <translation>共享 · V%1 · 已启用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="349"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="353"/>
         <source>SHARED · V%1 · BYPASSED</source>
         <translation>共享 · V%1 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="349"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="353"/>
         <source>LOCAL · ENABLED</source>
         <translation>本地 · 已启用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="349"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="353"/>
         <source>LOCAL · BYPASSED</source>
         <translation>本地 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="369"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="373"/>
         <source>Edit this node mask</source>
         <translation>编辑此节点蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="369"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="373"/>
         <source>Add a mask to this node</source>
         <translation>为此节点添加蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="199"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="218"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="274"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="210"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="229"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="278"/>
         <source>PHOTO · ENABLED</source>
         <translation>照片 · 已启用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="199"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="219"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="275"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="210"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="230"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="279"/>
         <source>PHOTO · BYPASSED</source>
         <translation>照片 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="718"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="745"/>
         <source>Read from bottom source to top output. Fixed-order photo nodes appear only after you add them.</source>
         <translation>从底部源图读到顶部输出。固定顺序的照片节点只在主动添加后显示。</translation>
     </message>
@@ -8156,7 +8254,7 @@ R %2 · G %3 · B %4</translation>
         <translation>结构工具</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="197"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="208"/>
         <source>Crop &amp; Geometry</source>
         <translation>裁剪与几何</translation>
     </message>
@@ -8186,12 +8284,12 @@ R %2 · G %3 · B %4</translation>
         <translation>仅运行一次，之后保留可随时撤销的缓存基础影像</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="696"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="723"/>
         <source>Remove AI RAW Denoise</source>
         <translation>移除 AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="697"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="724"/>
         <source>Remove Crop &amp; Geometry</source>
         <translation>移除裁剪与几何</translation>
     </message>
@@ -8281,7 +8379,7 @@ R %2 · G %3 · B %4</translation>
         <translation>将所选节点导出为 LUT…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="258"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="288"/>
         <location filename="../qml/PrecisionAiMaskPromptOverlay.qml" line="357"/>
         <location filename="../qml/PrecisionGeometryTools.qml" line="223"/>
         <location filename="../qml/PrecisionGradeNodeMenus.qml" line="331"/>
@@ -8428,52 +8526,52 @@ R %2 · G %3 · B %4</translation>
         <translation>上下并排</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="468"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="495"/>
         <source>RAW Development</source>
         <translation>RAW 显影</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="479"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="506"/>
         <source>SOURCE · ENABLED</source>
         <translation>源图 · 已启用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="480"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="507"/>
         <source>SOURCE · BYPASSED</source>
         <translation>源图 · 已旁路</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="588"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="615"/>
         <source>SOURCE · NOT GENERATED</source>
         <translation>源图 · 尚未生成</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="580"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="607"/>
         <source>NODE · HIDDEN</source>
         <translation>节点 · 已隐藏</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="587"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="614"/>
         <source>SOURCE · AI OFF</source>
         <translation>源图 · AI 已关闭</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="647"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="674"/>
         <source>Duplicate selected Grade Node</source>
         <translation>创建所选调色节点的副本</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="655"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="682"/>
         <source>Delete selected Grade Node</source>
         <translation>删除所选调色节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="664"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="691"/>
         <source>Move selected Grade Node up</source>
         <translation>上移选中的调色节点</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="672"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="699"/>
         <source>Move selected Grade Node down</source>
         <translation>下移选中的调色节点</translation>
     </message>
@@ -8537,62 +8635,62 @@ R %2 · G %3 · B %4</translation>
         <translation>调整后</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="165"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="167"/>
         <source>BEFORE · NEUTRAL BASE</source>
         <translation>调整前 · 中性基线</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="168"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="170"/>
         <source>BEFORE / AFTER · VERTICAL WIPE</source>
         <translation>原图 / 调整后 · 垂直滑动</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="172"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="174"/>
         <source>BEFORE / AFTER · HORIZONTAL WIPE</source>
         <translation>原图 / 调整后 · 水平滑动</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="176"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="178"/>
         <source>BEFORE / AFTER · SIDE BY SIDE</source>
         <translation>原图 / 调整后 · 左右并排</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="179"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="181"/>
         <source>BEFORE / AFTER · TOP / BOTTOM</source>
         <translation>原图 / 调整后 · 上下并排</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="250"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="252"/>
         <source>Full-detail viewport unavailable · showing proxy</source>
         <translation>全细节视图不可用 · 正在显示代理</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="302"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="304"/>
         <source>Preparing neutral import baseline…</source>
         <translation>正在准备中性导入基线…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="305"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="307"/>
         <source>Waiting for the current preview…</source>
         <translation>正在等待当前预览…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="332"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="334"/>
         <source>Rendering local edit</source>
         <translation>正在渲染本地编辑</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="334"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="336"/>
         <source>Opening photo</source>
         <translation>正在打开照片</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="351"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="353"/>
         <source>PREVIEW ERROR</source>
         <translation>预览错误</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="352"/>
+        <location filename="../qml/PrecisionCanvasStatusOverlays.qml" line="354"/>
         <source>NO PHOTO OPEN</source>
         <translation>未打开照片</translation>
     </message>
@@ -8607,7 +8705,7 @@ R %2 · G %3 · B %4</translation>
         <translation>拍摄元数据不可用</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="296"/>
+        <location filename="../qml/PrecisionInspector.qml" line="298"/>
         <source>ADJUST</source>
         <translation>调整</translation>
     </message>
@@ -8664,59 +8762,59 @@ R %2 · G %3 · B %4</translation>
         <translation>按颜色</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="136"/>
+        <location filename="../qml/PrecisionInspector.qml" line="137"/>
         <source>Finish mask editing</source>
         <translation>完成蒙版编辑</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="136"/>
+        <location filename="../qml/PrecisionInspector.qml" line="137"/>
         <source>Create or edit a node mask</source>
         <translation>创建或编辑节点蒙版</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="153"/>
+        <location filename="../qml/PrecisionInspector.qml" line="154"/>
         <source>Crop and straighten</source>
         <translation>裁剪与校正</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionGradeNodeMenus.qml" line="137"/>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="271"/>
-        <location filename="../qml/PrecisionInspector.qml" line="164"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="275"/>
+        <location filename="../qml/PrecisionInspector.qml" line="165"/>
         <source>Repair</source>
         <translation>修复</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="224"/>
+        <location filename="../qml/PrecisionInspector.qml" line="225"/>
         <source>Hide mask overlay · O</source>
         <translation>隐藏蒙版叠加 · O</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="224"/>
+        <location filename="../qml/PrecisionInspector.qml" line="225"/>
         <source>Show mask overlay · O</source>
         <translation>显示蒙版叠加 · O</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="249"/>
+        <location filename="../qml/PrecisionInspector.qml" line="250"/>
         <source>Reset all adjustments…</source>
         <translation>重置所有调整…</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="405"/>
+        <location filename="../qml/PrecisionInspector.qml" line="414"/>
         <source>NODE STRENGTH</source>
         <translation>节点强度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="406"/>
+        <location filename="../qml/PrecisionInspector.qml" line="415"/>
         <source>%1%</source>
         <translation>%1%</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="408"/>
+        <location filename="../qml/PrecisionInspector.qml" line="417"/>
         <source>Blend the complete Grade Node with its input. Zero bypasses the node; the adjustment graph is evaluated only once.</source>
         <translation>将完整调色节点与其输入混合。零强度会旁路节点；调整图只计算一次。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="237"/>
+        <location filename="../qml/PrecisionInspector.qml" line="238"/>
         <source>Exit this tool and keep its adjustments</source>
         <translation>退出此工具并保留调整</translation>
     </message>
@@ -8858,27 +8956,27 @@ R %2 · G %3 · B %4</translation>
         <translation>色相</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="183"/>
+        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="197"/>
         <source>Add a Point Color sample from the image</source>
         <translation>从图像中添加点颜色取样</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="195"/>
+        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="209"/>
         <source>Remove selected Point Color sample</source>
         <translation>移除选中的点颜色取样</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="205"/>
+        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="219"/>
         <source>Click a color in the photo · Esc cancels</source>
         <translation>在照片中点击颜色 · Esc 取消</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="207"/>
+        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="221"/>
         <source>Selected range is ready to refine.</source>
         <translation>可继续微调所选范围。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="208"/>
+        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="222"/>
         <source>Sample a color from the photo to begin.</source>
         <translation>从照片中取样颜色以开始。</translation>
     </message>
@@ -8913,17 +9011,17 @@ R %2 · G %3 · B %4</translation>
         <translation>目标色相（OKLCh）</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="471"/>
+        <location filename="../qml/PrecisionInspector.qml" line="480"/>
         <source>COLOR MAP</source>
         <translation>颜色映射</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="472"/>
+        <location filename="../qml/PrecisionInspector.qml" line="481"/>
         <source>OKLAB 5×5</source>
         <translation>Oklab 5×5</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="473"/>
+        <location filename="../qml/PrecisionInspector.qml" line="482"/>
         <source>Move a smooth connected Oklab mesh after Color Mixer and Point Color. This is a separate chroma-field correction, not a hue-keyed slider.</source>
         <translation>在颜色混合与点颜色之后移动平滑连接的 Oklab 网格。这是独立的色度场校正，不是按色相区分的滑块。</translation>
     </message>
@@ -9118,17 +9216,17 @@ R %2 · G %3 · B %4</translation>
         <translation>去朦胧</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="515"/>
+        <location filename="../qml/PrecisionInspector.qml" line="524"/>
         <source>COLOR GRADING</source>
         <translation>颜色分级</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="573"/>
+        <location filename="../qml/PrecisionInspector.qml" line="582"/>
         <source>Blending</source>
         <translation>混合</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="579"/>
+        <location filename="../qml/PrecisionInspector.qml" line="588"/>
         <source>Balance</source>
         <translation>平衡</translation>
     </message>
@@ -9350,13 +9448,13 @@ R %2 · G %3 · B %4</translation>
     <message>
         <location filename="../qml/PrecisionEffectsSection.qml" line="70"/>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="246"/>
-        <location filename="../qml/PrecisionInspector.qml" line="546"/>
+        <location filename="../qml/PrecisionInspector.qml" line="555"/>
         <source>Highlights</source>
         <translation>高光</translation>
     </message>
     <message>
         <location filename="../qml/PrecisionFoundationAdjustments.qml" line="247"/>
-        <location filename="../qml/PrecisionInspector.qml" line="532"/>
+        <location filename="../qml/PrecisionInspector.qml" line="541"/>
         <source>Shadows</source>
         <translation>阴影</translation>
     </message>
@@ -9444,17 +9542,17 @@ R %2 · G %3 · B %4</translation>
         <translation>点颜色</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="129"/>
+        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="143"/>
         <source>Point Color sample %1</source>
         <translation>点颜色样本 %1</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="133"/>
+        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="147"/>
         <source>Select this sampled color range</source>
         <translation>选择此取样颜色范围</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="182"/>
+        <location filename="../qml/PrecisionPointColorSampleBar.qml" line="196"/>
         <source>Cancel Point Color sampling · Esc</source>
         <translation>取消点颜色取样 · Esc</translation>
     </message>
@@ -9498,17 +9596,17 @@ R %2 · G %3 · B %4</translation>
         <translation>明度</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="297"/>
+        <location filename="../qml/PrecisionInspector.qml" line="299"/>
         <source>Core tone, color, detail, and optics controls</source>
         <translation>基础明暗、色彩、细节与光学控制</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="307"/>
+        <location filename="../qml/PrecisionInspector.qml" line="309"/>
         <source>LOOKS</source>
         <translation>风格</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="308"/>
+        <location filename="../qml/PrecisionInspector.qml" line="310"/>
         <source>Color grading, LUTs, and finishing effects</source>
         <translation>颜色分级、LUT 与成片效果</translation>
     </message>
@@ -9570,12 +9668,12 @@ R %2 · G %3 · B %4</translation>
         <translation>使用吸管从图像建立一个或多个精确的 Oklch 颜色范围。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="516"/>
+        <location filename="../qml/PrecisionInspector.qml" line="525"/>
         <source>Tint shadows, midtones, and highlights independently with perceptual color wheels.</source>
         <translation>用感知色轮分别为阴影、中间调和高光着色。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="539"/>
+        <location filename="../qml/PrecisionInspector.qml" line="548"/>
         <source>Midtones</source>
         <translation>中间调</translation>
     </message>
@@ -9932,7 +10030,7 @@ R %2 · G %3 · B %4</translation>
         <translation>建议 · %1° · 垂直 %2% · 水平 %3% · %4 条线</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="244"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="274"/>
         <location filename="../qml/PrecisionGeometryTools.qml" line="211"/>
         <source>Apply</source>
         <translation>应用</translation>
@@ -10392,7 +10490,7 @@ R %2 · G %3 · B %4</translation>
         <translation>AI 人物细节</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="128"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="132"/>
         <location filename="../qml/PrecisionLocalMaskTools.qml" line="152"/>
         <location filename="../qml/PrecisionRetouchTools.qml" line="277"/>
         <source>Clear</source>
@@ -10589,8 +10687,8 @@ R %2 · G %3 · B %4</translation>
         <translation>液化</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="215"/>
-        <location filename="../qml/PrecisionInspector.qml" line="175"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="226"/>
+        <location filename="../qml/PrecisionInspector.qml" line="176"/>
         <source>Liquify</source>
         <translation>液化</translation>
     </message>
@@ -10600,8 +10698,8 @@ R %2 · G %3 · B %4</translation>
         <translation>在最终裁剪前以非破坏方式推动像素。液化仅属于当前照片，不能作为调色节点共享。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionAiCompletionTools.qml" line="328"/>
-        <location filename="../qml/PrecisionInspector.qml" line="417"/>
+        <location filename="../qml/PrecisionAiCompletionTools.qml" line="393"/>
+        <location filename="../qml/PrecisionInspector.qml" line="426"/>
         <location filename="../qml/PrecisionLiquifyTools.qml" line="106"/>
         <location filename="../qml/PrecisionPaintTools.qml" line="233"/>
         <location filename="../qml/PrecisionRawDenoiseAdjustments.qml" line="39"/>
@@ -10734,14 +10832,14 @@ R %2 · G %3 · B %4</translation>
         <translation>应用增强</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="237"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="248"/>
         <source>%n PAINT LAYER(S)</source>
         <translation>
             <numerusform>%n 个绘制层</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionInspector.qml" line="201"/>
+        <location filename="../qml/PrecisionInspector.qml" line="202"/>
         <source>Paint · color repair and light shaping</source>
         <translation>绘制 · 补色与明暗修饰</translation>
     </message>
@@ -10882,7 +10980,7 @@ R %2 · G %3 · B %4</translation>
         <translation>请启用图层后再绘制。</translation>
     </message>
     <message>
-        <location filename="../qml/PrecisionGradeNodePane.qml" line="236"/>
+        <location filename="../qml/PrecisionGradeNodePane.qml" line="247"/>
         <source>Paint layers</source>
         <translation>绘制层</translation>
     </message>
@@ -11011,7 +11109,7 @@ R %2 · G %3 · B %4</translation>
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../src/main.cpp" line="194"/>
+        <location filename="../src/main.cpp" line="285"/>
         <source>Catalog reset failed</source>
         <translation>catalog 重置失败</translation>
     </message>
@@ -11026,14 +11124,9 @@ R %2 · G %3 · B %4</translation>
         <translation>%1 · Shadow 图库</translation>
     </message>
     <message>
-        <location filename="../src/server_manager/main.cpp" line="88"/>
-        <source>Shadow Server is already running</source>
-        <translation>Shadow Server 已在运行</translation>
-    </message>
-    <message>
-        <location filename="../src/server_manager/main.cpp" line="89"/>
-        <source>Use the existing Shadow Server window to manage Library sharing.</source>
-        <translation>请使用已打开的 Shadow Server 窗口管理图库共享。</translation>
+        <location filename="../src/server_manager/main.cpp" line="72"/>
+        <source>Could not open library</source>
+        <translation>无法打开资料库</translation>
     </message>
     <message>
         <location filename="../src/catalog_startup_recovery.cpp" line="18"/>
@@ -11082,6 +11175,64 @@ Details: %3</source>
         <location filename="../src/catalog_startup_recovery.cpp" line="106"/>
         <source>Recovery could not finish. Preserved files remain in %1.</source>
         <translation>恢复操作未能完成。已保留的文件位于 %1。</translation>
+    </message>
+</context>
+<context>
+    <name>ReviewClusteringController</name>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="76"/>
+        <source>Choose photos or an album to group similar review candidates.</source>
+        <translation>选择照片或相册以生成相似审片候选组。</translation>
+    </message>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="78"/>
+        <source>Choose at least two local photos for candidate grouping.</source>
+        <translation>请至少选择两张本地照片以生成候选组。</translation>
+    </message>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="80"/>
+        <source>Collecting album photos…</source>
+        <translation>正在收集相册照片…</translation>
+    </message>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="82"/>
+        <source>Grouping candidates · %L1 of %L2 photos checked</source>
+        <translation>正在生成候选组 · 已检查 %L1 / %L2 张照片</translation>
+    </message>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="84"/>
+        <source>Pausing after the current photo…</source>
+        <translation>正在当前照片完成后暂停…</translation>
+    </message>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="86"/>
+        <source>Paused · %L1 of %L2 photos checked</source>
+        <translation>已暂停 · 已检查 %L1 / %L2 张照片</translation>
+    </message>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="88"/>
+        <source>Cancelling the current photo…</source>
+        <translation>正在取消当前照片的处理…</translation>
+    </message>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="90"/>
+        <source>%L1 candidate groups ready from the first %L2 photos.</source>
+        <translation>已从前 %L2 张照片生成 %L1 个候选组。</translation>
+    </message>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="93"/>
+        <source>%L1 candidate groups ready from %L2 photos.</source>
+        <translation>已从 %L2 张照片生成 %L1 个候选组。</translation>
+    </message>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="97"/>
+        <source>Candidate grouping was cancelled.</source>
+        <translation>已取消候选分组。</translation>
+    </message>
+    <message>
+        <location filename="../src/review_clustering_controller.cpp" line="99"/>
+        <source>Candidate grouping could not finish. Check Infer Runtime and try again.</source>
+        <translation>候选分组未能完成。请检查 Infer Runtime 后重试。</translation>
     </message>
 </context>
 <context>
@@ -11192,32 +11343,32 @@ Details: %3</source>
         <translation>所选照片的标记已一致</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="137"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="138"/>
         <source>Appending an explicit flag decision…</source>
         <translation>正在追加明确的标记决定…</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="151"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="152"/>
         <source>Rating must be between 0 and 5 stars</source>
         <translation>评分必须在 0 到 5 星之间</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="162"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="163"/>
         <source>Select a loaded photo before setting a rating</source>
         <translation>设置评分前，请选择一张已加载的照片</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="166"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="167"/>
         <source>Could not read the current star rating · %1</source>
         <translation>无法读取当前星级评分 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="180"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="181"/>
         <source>Rating already matches the selected photo</source>
         <translation>所选照片的评分已一致</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="186"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="188"/>
         <source>Appending an explicit star rating…</source>
         <translation>正在追加明确的星级评分…</translation>
     </message>
@@ -11252,17 +11403,17 @@ Details: %3</source>
         <translation>无法应用共享调色节点 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="202"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="204"/>
         <source>Local undo is disabled because the authoritative decision changed</source>
         <translation>当前有效决定已更改，无法在本地撤销</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="206"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="208"/>
         <source>No decision from this app session is available to undo</source>
         <translation>本次应用会话中没有可撤销的决定</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="214"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="216"/>
         <source>Appending an inverse decision event…</source>
         <translation>正在追加反向决定事件…</translation>
     </message>
@@ -11272,22 +11423,22 @@ Details: %3</source>
         <translation>无法获取导入进度 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="368"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="384"/>
         <source>Live Library refresh delayed · import is still safe and continuing · %1</source>
         <translation>实时图库刷新延迟 · 导入仍在安全继续 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="373"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="389"/>
         <source>Library refresh failed · visible photos retained · %1</source>
         <translation>资料库刷新失败 · 保留当前可见照片 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_query_coordinator.cpp" line="487"/>
+        <location filename="../src/review_library_query_coordinator.cpp" line="516"/>
         <source>Could not count Library photos · %1</source>
         <translation>无法统计资料库照片 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_library_facet_coordinator.cpp" line="206"/>
+        <location filename="../src/review_library_facet_coordinator.cpp" line="218"/>
         <source>Could not update Library facets · %1</source>
         <translation>无法更新图库分面 · %1</translation>
     </message>
@@ -11402,37 +11553,37 @@ Details: %3</source>
         <translation>已非破坏性地遗忘最新证据 · 源事件仍保留</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="302"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="304"/>
         <source>Undo blocked · authoritative decision changed outside this session</source>
         <translation>撤销被阻止 · 当前有效决定已在本次会话之外更改</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="308"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="310"/>
         <source>Undo write failed · unchanged state remains retryable · %1</source>
         <translation>撤销写入失败 · 状态未变，仍可重试 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="316"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="318"/>
         <source>Decision write failed · authoritative state refreshed · %1</source>
         <translation>决定写入失败 · 已刷新当前有效状态 · %1</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="324"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="326"/>
         <source>Decision write failed · refresh also failed · %1 · %2</source>
         <translation>决定写入失败 · 刷新也失败 · %1 · %2</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="336"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="338"/>
         <source>Decision receipt was invalid; local state retained</source>
         <translation>决定回执无效；已保留本地状态</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="346"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="348"/>
         <source>Inverse decision appended · sequence %1 · history retained</source>
         <translation>已追加反向决定 · 序列 %1 · 历史记录已保留</translation>
     </message>
     <message>
-        <location filename="../src/review_decision_coordinator.cpp" line="355"/>
+        <location filename="../src/review_decision_coordinator.cpp" line="357"/>
         <source>Manual decision recorded · sequence %1</source>
         <translation>手动决定已记录 · 序列 %1</translation>
     </message>
@@ -11534,7 +11685,7 @@ Details: %3</source>
         <translation>正在导入 · 已检查 %1 个文件 · 支持 %2 个 · 已收录 %3 个 · 已排队 %4 项预览检查 · %5 个文件系统问题</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="764"/>
+        <location filename="../src/review_controller.hpp" line="777"/>
         <source>Choose a folder to build your Review library</source>
         <translation>请选择文件夹来建立选片图库</translation>
     </message>
@@ -11544,8 +11695,8 @@ Details: %3</source>
         <translation>手动选择会记录为证据；偏好模型尚未启用</translation>
     </message>
     <message>
-        <location filename="../src/review_controller.hpp" line="768"/>
-        <location filename="../src/review_decision_coordinator.hpp" line="121"/>
+        <location filename="../src/review_controller.hpp" line="781"/>
+        <location filename="../src/review_decision_coordinator.hpp" line="123"/>
         <source>Flags and stars are explicit local library decisions</source>
         <translation>标记和星级都是本地图库中的明确决定</translation>
     </message>
@@ -11735,69 +11886,69 @@ Details: %3</source>
 <context>
     <name>ReviewGalleryGroupingController</name>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="326"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="488"/>
         <source> + </source>
         <translation> + </translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="472"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="336"/>
         <source> · </source>
         <translation> · </translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="198"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="216"/>
         <source>%1 · Week %2</source>
         <translation>%1 · 第 %2 周</translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="187"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="205"/>
         <source>%2 %1</source>
         <translation>%1年%2</translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="32"/>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="37"/>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="42"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="35"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="40"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="45"/>
         <source>DATE</source>
         <translation>日期</translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="47"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="50"/>
         <source>LOCATION</source>
         <translation>地点</translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="46"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="49"/>
         <source>Location</source>
         <translation>地点</translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="36"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="39"/>
         <source>Month</source>
         <translation>月</translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="436"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="291"/>
         <source>Other photos</source>
         <translation>其他照片</translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="175"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="193"/>
         <source>Unknown date</source>
         <translation>拍摄日期未知</translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="211"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="229"/>
         <source>Unknown location</source>
         <translation>地点未知</translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="41"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="44"/>
         <source>Week</source>
         <translation>周</translation>
     </message>
     <message>
-        <location filename="../src/review_gallery_grouping_controller.cpp" line="31"/>
+        <location filename="../src/review_gallery_grouping_controller.cpp" line="34"/>
         <source>Year</source>
         <translation>年</translation>
     </message>
@@ -11856,7 +12007,7 @@ Details: %3</source>
         <translation>纠正智能分类</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSinglePreview.qml" line="130"/>
+        <location filename="../qml/ReviewSinglePreview.qml" line="198"/>
         <source>ORIGINAL NOT FOUND</source>
         <translation>找不到原片</translation>
     </message>
@@ -12065,11 +12216,12 @@ Details: %3</source>
 <context>
     <name>ReviewSinglePreview</name>
     <message>
+        <location filename="../qml/ReviewSinglePreview.qml" line="237"/>
         <source>Loading more photos…</source>
         <translation>正在载入更多照片…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSinglePreview.qml" line="97"/>
+        <location filename="../qml/ReviewSinglePreview.qml" line="165"/>
         <source>Select a photo to begin review</source>
         <translation>选择一张照片开始选片</translation>
     </message>
@@ -12316,19 +12468,22 @@ Details: %3</source>
 <context>
     <name>ReviewWorkspace</name>
     <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="335"/>
         <source>Auto advance is on · click to turn off</source>
         <translation>已开启自动下一张 · 点击关闭</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="29"/>
         <source>Auto advance after rating or flagging</source>
         <translation>评分或标记后自动下一张</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="324"/>
         <source>Undo last rating or flag (⌘Z / Ctrl+Z)</source>
         <translation>撤销上一次评分或标记（⌘Z / Ctrl+Z）</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="266"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="426"/>
         <source>No photos match the current filters.</source>
         <translation>没有符合当前筛选条件的照片。</translation>
     </message>
@@ -12439,12 +12594,12 @@ Details: %3</source>
         <translation>应用</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="36"/>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="46"/>
         <source>Set location for selected photos</source>
         <translation>设置所选照片的位置</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="70"/>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="80"/>
         <source>Complete missing photo locations</source>
         <translation>补全缺失的照片位置</translation>
     </message>
@@ -12540,12 +12695,12 @@ Details: %3</source>
         <translation>%1 · %L2 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="249"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="257"/>
         <source>Compare the two selected photos</source>
         <translation>比较两张已选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="250"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="258"/>
         <source>Compare the selected photo with the next photo</source>
         <translation>将已选照片与下一张照片比较</translation>
     </message>
@@ -13080,13 +13235,13 @@ Details: %3</source>
     </message>
     <message>
         <location filename="../qml/ReviewSystemCollections.qml" line="41"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="280"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="320"/>
         <source>All Photos</source>
         <translation>所有照片</translation>
     </message>
     <message>
         <location filename="../qml/ReviewSystemCollections.qml" line="48"/>
-        <location filename="../qml/ReviewSystemCollections.qml" line="155"/>
+        <location filename="../qml/ReviewSystemCollections.qml" line="143"/>
         <source>%L1</source>
         <translation>%L1</translation>
     </message>
@@ -13136,12 +13291,12 @@ Details: %3</source>
         <translation>本次会话中有 %L1 条有效记录</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="188"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="196"/>
         <source>Browse as a photo grid</source>
         <translation>以照片网格浏览</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="198"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="206"/>
         <source>Review one photo with a filmstrip</source>
         <translation>以胶片带逐张选片</translation>
     </message>
@@ -13168,6 +13323,7 @@ Details: %3</source>
         <location filename="../qml/LibraryAlbumDeleteDialog.qml" line="67"/>
         <location filename="../qml/LibraryAlbumManageDialog.qml" line="94"/>
         <location filename="../qml/LibraryAlbumMembershipDialog.qml" line="98"/>
+        <location filename="../qml/ReviewClusteringControl.qml" line="126"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
@@ -13321,19 +13477,20 @@ Details: %3</source>
     </message>
     <message>
         <location filename="../qml/ReviewSystemCollections.qml" line="69"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="313"/>
         <source>Recent Imports</source>
         <translation>最近导入</translation>
     </message>
     <message>
         <location filename="../qml/LibraryAdvancedFilterPopup.qml" line="74"/>
-        <location filename="../qml/ReviewSystemCollections.qml" line="77"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="273"/>
+        <location filename="../qml/ReviewSystemCollections.qml" line="75"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="311"/>
         <source>Liked</source>
         <translation>喜欢</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewSystemCollections.qml" line="85"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="275"/>
+        <location filename="../qml/ReviewSystemCollections.qml" line="81"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="315"/>
         <source>5 Stars</source>
         <translation>5 星</translation>
     </message>
@@ -13349,29 +13506,29 @@ Details: %3</source>
     </message>
     <message>
         <location filename="../qml/LibraryMapWorkspace.qml" line="144"/>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="125"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="127"/>
         <source>%L1 visible</source>
         <translation>显示 %L1 张</translation>
     </message>
     <message>
         <location filename="../qml/LibraryMapWorkspace.qml" line="166"/>
-        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="75"/>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="85"/>
         <source>Manage photo sources</source>
         <translation>管理照片来源</translation>
     </message>
     <message>
         <location filename="../qml/LibraryMapWorkspace.qml" line="159"/>
-        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="27"/>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="37"/>
         <source>Assign and filter Library keywords</source>
         <translation>分配并筛选图库关键词</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="51"/>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="61"/>
         <source>Create a Manual Album first</source>
         <translation>请先创建手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="159"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="167"/>
         <source>Open the candidate duel</source>
         <translation>打开精选对决</translation>
     </message>
@@ -13386,122 +13543,122 @@ Details: %3</source>
         <translation>展开图库范围选择器</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="160"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="168"/>
         <source>Add at least two photos to start the candidate duel</source>
         <translation>至少加入两张照片才能开始精选对决</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="206"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="214"/>
         <source>SCALE</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="22"/>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="67"/>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="80"/>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="223"/>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="23"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="69"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="82"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="231"/>
         <source>Thumbnail scale</source>
         <translation>缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="87"/>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="232"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="89"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="240"/>
         <source>Restore default thumbnail scale</source>
         <translation>恢复默认缩略图大小</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="31"/>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="41"/>
         <source>Open photo metadata</source>
         <translation>打开照片元数据</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="42"/>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="52"/>
         <source>Apply a shared Grade Node to selection</source>
         <translation>将共享调色节点应用到所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="50"/>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="60"/>
         <source>Add selected photos to a Manual Album</source>
         <translation>将所选照片添加到手动相册</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="61"/>
+        <location filename="../qml/ReviewGalleryActionsMenu.qml" line="71"/>
         <source>Remove selected photos from this Manual Album</source>
         <translation>从此手动相册移除所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="273"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="344"/>
         <source>Merge</source>
         <translation>合成</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="276"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="347"/>
         <source>Merge 2–12 selected photos</source>
         <translation>合成所选的 2–12 张照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="283"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="354"/>
         <source>HDR merge…</source>
         <translation>HDR 合成…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="284"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="355"/>
         <source>Panorama merge…</source>
         <translation>全景合成…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="304"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="375"/>
         <source>Export selected photos</source>
         <translation>导出所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="67"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="198"/>
         <source>Highly related</source>
         <translation>强相关</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="68"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="199"/>
         <source>Closest matches for “%1”</source>
         <translation>与“%1”最接近的结果</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="76"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="207"/>
         <source>Similarity order</source>
         <translation>按相似度排序</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="77"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="208"/>
         <source>Relative similarity for your query; review the photos to confirm</source>
         <translation>按查询内容的相对相似度排列，请查看照片确认</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="262"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="422"/>
         <source>Searching the folder for supported photos…
 New RAW files will appear here as they are catalogued.</source>
         <translation>正在文件夹中搜索支持的照片…
 新的 RAW 文件会在收录后显示于此。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="264"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="424"/>
         <source>Import stopped, and no RAW files are currently visible.
 Already catalogued files remain safely stored.</source>
         <translation>导入已停止，目前没有可见的 RAW 文件。
 已收录的文件仍安全存储。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="267"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="427"/>
         <source>Add a folder to the local Library.
 Shadow will show embedded previews immediately, then replace them with locally generated proxies.</source>
         <translation>向本地图库添加文件夹。
 Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="336"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="496"/>
         <source>Finding the first photos</source>
         <translation>正在查找首批照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGallerySurface.qml" line="337"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="497"/>
         <source>Loading local Library</source>
         <translation>正在加载本地图库</translation>
     </message>
@@ -13722,53 +13879,53 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>照片比较</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="71"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="74"/>
         <source>Preview comparison · double-click to zoom, drag to pan. Use Precision for original detail.</source>
         <translation>预览比较 · 双击缩放，拖动平移。原图细节请在精修中查看。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="79"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="82"/>
         <source>Link zoom and pan</source>
         <translation>联动缩放与平移</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="91"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="94"/>
         <source>Swap the left and right photos</source>
         <translation>交换左右照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="98"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="101"/>
         <source>Exit comparison (Esc)</source>
         <translation>退出比较（Esc）</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="147"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="150"/>
         <source>‹</source>
         <translation>‹</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="148"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="153"/>
         <source>Previous photo in this pane</source>
         <translation>此侧的上一张照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="167"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="172"/>
         <source>›</source>
         <translation>›</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="168"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="175"/>
         <source>Next photo in this pane</source>
         <translation>此侧的下一张照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="203"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="210"/>
         <location filename="../qml/ReviewCullingArena.qml" line="111"/>
         <source>IMAGE LOAD FAILED</source>
         <translation>图像加载失败</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonView.qml" line="203"/>
+        <location filename="../qml/ReviewComparisonView.qml" line="210"/>
         <location filename="../qml/ReviewCullingArena.qml" line="111"/>
         <source>LOADING PHOTO…</source>
         <translation>正在加载照片…</translation>
@@ -13785,7 +13942,7 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
     <message>
         <location filename="../qml/LibraryLocationCompletionGallery.qml" line="329"/>
-        <location filename="../qml/ReviewGallerySurface.qml" line="198"/>
+        <location filename="../qml/ReviewGallerySurface.qml" line="335"/>
         <source>%L1 photos</source>
         <translation>%L1 张照片</translation>
     </message>
@@ -13886,69 +14043,69 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>此地图区域内没有带地理位置的照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="239"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="277"/>
         <source>Daily</source>
         <translation>日常</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="259"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="297"/>
         <source>Travel</source>
         <translation>旅行</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="262"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="300"/>
         <source>Review uncertain</source>
         <translation>确认不确定分类</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="277"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="317"/>
         <source>Search Results</source>
         <translation>搜索结果</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="279"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="319"/>
         <source>Filtered Photos</source>
         <translation>筛选结果</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="440"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="663"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="577"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="820"/>
         <source>Downloading the original from the remote Library…</source>
         <translation>正在从远程图库下载原始文件…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="441"/>
-        <location filename="../qml/ReviewWorkspace.qml" line="662"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="578"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="819"/>
         <source>Preparing the cached original…</source>
         <translation>正在准备已缓存原片…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="669"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="826"/>
         <source>Original file not found. Relink its folder or remove it from the Library.</source>
         <translation>原片未找到。请重新定位其文件夹，或将其从图库中移除。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="712"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="869"/>
         <source>Connect to the remote Library in Settings, then try again.</source>
         <translation>请先在设置中连接远程图库，然后重试。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="714"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="871"/>
         <source>The remote server does not currently allow this RAW to be downloaded.</source>
         <translation>远程服务器当前不允许下载此 RAW。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="716"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="873"/>
         <source>The remote server is offline and this original is not cached locally.</source>
         <translation>远程服务器离线，且此原片尚未缓存在本机。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="718"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="875"/>
         <source>This remote photo is no longer available in the local mirror.</source>
         <translation>本机远程镜像中已没有这张照片。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewWorkspace.qml" line="720"/>
+        <location filename="../qml/ReviewWorkspace.qml" line="877"/>
         <source>The remote RAW could not be downloaded. Check the server connection and try again.</source>
         <translation>无法下载远程 RAW。请检查服务器连接后重试。</translation>
     </message>
@@ -14033,12 +14190,12 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>服务器图库 · 离线 · 已缓存到本机</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonState.qml" line="33"/>
+        <location filename="../qml/ReviewComparisonState.qml" line="36"/>
         <source>A photo cannot occupy both comparison panes.</source>
         <translation>同一张照片不能同时占据比较两侧。</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewComparisonState.qml" line="35"/>
+        <location filename="../qml/ReviewComparisonState.qml" line="38"/>
         <source>No other photo is available in the current view.</source>
         <translation>当前视图中没有其他可用照片。</translation>
     </message>
@@ -14294,130 +14451,157 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>移除</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="291"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="362"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="294"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="365"/>
         <source>Edit selected photo</source>
         <translation>编辑所选照片</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="301"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="372"/>
         <source>Export…</source>
         <translation>导出…</translation>
     </message>
     <message>
-        <location filename="../qml/ReviewGalleryToolbar.qml" line="312"/>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="383"/>
         <source>More…</source>
         <translation>更多…</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="172"/>
         <source>Similar review candidates</source>
         <translation>相似审片候选</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="173"/>
         <source>Image similarity near the selected photo · review each candidate</source>
         <translation>所选照片附近的图像相似候选 · 请逐张核对</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="288"/>
         <source>Find similar photos near the selected photo</source>
         <translation>查找所选照片附近的相似照片</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="283"/>
         <source>Finding similar review candidates…</source>
         <translation>正在查找相似审片候选…</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="285"/>
         <source>Open similar photo comparison (%L1 candidates)</source>
         <translation>打开相似照片对比（%L1 张候选）</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="316"/>
         <source>Clear similar review candidates</source>
         <translation>清除相似审片候选</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="72"/>
         <source>Similar group · %L1 photos · arrows stay within this group. Check each photo before deciding.</source>
         <translation>相似组 · %L1 张照片 · 箭头仅在组内切换。请逐张核对后再决定。</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="152"/>
         <source>Previous photo in this group</source>
         <translation>组内上一张照片</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewComparisonView.qml" line="174"/>
         <source>Next photo in this group</source>
         <translation>组内下一张照片</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="474"/>
         <source>Similar candidates are not loaded in this view. Adjust filters or load more photos.</source>
         <translation>当前视图尚未载入这些相似候选。请调整筛选条件或加载更多照片。</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="352"/>
         <source>Compare group</source>
         <translation>对比本组</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="366"/>
         <source>Show photos</source>
         <translation>展开照片</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="366"/>
         <source>Collapse stack</source>
         <translation>收起堆栈</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewClusteringControl.qml" line="19"/>
         <source>Group similar review candidates</source>
         <translation>将相似审片候选分组</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewClusteringControl.qml" line="45"/>
         <source>Group similar photos</source>
         <translation>将相似照片分组</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewClusteringControl.qml" line="52"/>
         <source>Suggested stacks use nearby image similarity. Review each group before deciding; ratings stay untouched.</source>
         <translation>候选堆栈依据附近照片的图像相似性生成。请逐组核对后再决定；星级不会被修改。</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewClusteringControl.qml" line="59"/>
         <source>Group selected photos (%L1)</source>
         <translation>对所选照片分组（%L1 张）</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewClusteringControl.qml" line="68"/>
         <source>Group loaded photos in this view (%L1)</source>
         <translation>对当前视图已载入照片分组（%L1 张）</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewClusteringControl.qml" line="78"/>
         <source>Group current Manual Album: %1</source>
         <translation>对当前手动相册分组：%1</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewClusteringControl.qml" line="86"/>
         <source>Each run checks at most 240 photos. Pause resumes in this session; changing a source preview is rechecked on use.</source>
         <translation>每轮最多检查 240 张照片。暂停后可在本次会话中继续；使用时会重新核对源预览。</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewClusteringControl.qml" line="113"/>
         <source>Pause</source>
         <translation>暂停</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewClusteringControl.qml" line="113"/>
         <source>Resume</source>
         <translation>继续</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewClusteringControl.qml" line="126"/>
         <source>Clear groups</source>
         <translation>清除分组</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGalleryToolbar.qml" line="315"/>
         <source>Cancel similar photo review</source>
         <translation>取消相似照片审片</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewWorkspace.qml" line="516"/>
         <source>Load the rest of this album to compare its candidate group.</source>
         <translation>请先载入此相册的其余照片，再比较该候选组。</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="184"/>
         <source>Candidate stack %L1</source>
         <translation>候选堆栈 %L1</translation>
     </message>
     <message>
+        <location filename="../qml/ReviewGallerySurface.qml" line="185"/>
         <source>Suggested by reciprocal nearby similarity · compare to confirm</source>
         <translation>依据附近照片的双向相似关系建议 · 请对比确认</translation>
     </message>
@@ -14425,126 +14609,92 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>SemanticSearchController</name>
     <message>
-        <location filename="../src/semantic_search_controller.cpp" line="96"/>
+        <location filename="../src/semantic_search_controller.cpp" line="135"/>
         <source>Describe a photo to search the current Library preview.</source>
         <translation>输入照片描述，搜索当前图库预览。</translation>
     </message>
     <message>
-        <location filename="../src/semantic_search_controller.cpp" line="98"/>
+        <location filename="../src/semantic_search_controller.cpp" line="137"/>
         <source>Comparing your description with local photos…</source>
         <translation>正在将描述与本地照片进行比较…</translation>
     </message>
     <message>
-        <location filename="../src/semantic_search_controller.cpp" line="100"/>
+        <location filename="../src/semantic_search_controller.cpp" line="141"/>
         <source>Semantic search finished.</source>
         <translation>语义搜索已完成。</translation>
     </message>
     <message>
-        <location filename="../src/semantic_search_controller.cpp" line="102"/>
+        <location filename="../src/semantic_search_controller.cpp" line="143"/>
         <source>Semantic search could not finish.</source>
         <translation>语义搜索未能完成。</translation>
     </message>
     <message>
-        <location filename="../src/semantic_search_controller.cpp" line="111"/>
+        <location filename="../src/semantic_search_controller.cpp" line="152"/>
         <source>Make sure Infer Runtime is running and Shadow access is configured, then try again.</source>
         <translation>请确认 Infer Runtime 正在运行且已为 Shadow 配置访问权限，然后重试。</translation>
     </message>
     <message>
+        <location filename="../src/semantic_search_controller.cpp" line="121"/>
         <source>Select a photo to find similar review candidates.</source>
         <translation>选择一张照片以查找相似审片候选。</translation>
     </message>
     <message>
+        <location filename="../src/semantic_search_controller.cpp" line="123"/>
         <source>Comparing nearby photo previews…</source>
         <translation>正在比较附近照片的预览…</translation>
     </message>
     <message>
+        <location filename="../src/semantic_search_controller.cpp" line="127"/>
         <source>Similar review candidates are ready.</source>
         <translation>相似审片候选已就绪。</translation>
     </message>
     <message>
+        <location filename="../src/semantic_search_controller.cpp" line="128"/>
         <source>No comparable nearby photos were found.</source>
         <translation>未找到可比较的附近照片。</translation>
     </message>
     <message>
+        <location filename="../src/semantic_search_controller.cpp" line="130"/>
         <source>Similar photo review could not finish.</source>
         <translation>相似照片审片未能完成。</translation>
     </message>
     <message>
+        <location filename="../src/semantic_search_controller.cpp" line="125"/>
         <source>Cancelling similar photo review…</source>
         <translation>正在取消相似照片审片…</translation>
     </message>
     <message>
+        <location filename="../src/semantic_search_controller.cpp" line="139"/>
         <source>Cancelling semantic search…</source>
         <translation>正在取消语义搜索…</translation>
     </message>
 </context>
 <context>
-    <name>ReviewClusteringController</name>
-    <message>
-        <source>Choose photos or an album to group similar review candidates.</source>
-        <translation>选择照片或相册以生成相似审片候选组。</translation>
-    </message>
-    <message>
-        <source>Choose at least two local photos for candidate grouping.</source>
-        <translation>请至少选择两张本地照片以生成候选组。</translation>
-    </message>
-    <message>
-        <source>Collecting album photos…</source>
-        <translation>正在收集相册照片…</translation>
-    </message>
-    <message>
-        <source>Grouping candidates · %L1 of %L2 photos checked</source>
-        <translation>正在生成候选组 · 已检查 %L1 / %L2 张照片</translation>
-    </message>
-    <message>
-        <source>Pausing after the current photo…</source>
-        <translation>正在当前照片完成后暂停…</translation>
-    </message>
-    <message>
-        <source>Paused · %L1 of %L2 photos checked</source>
-        <translation>已暂停 · 已检查 %L1 / %L2 张照片</translation>
-    </message>
-    <message>
-        <source>Cancelling the current photo…</source>
-        <translation>正在取消当前照片的处理…</translation>
-    </message>
-    <message>
-        <source>%L1 candidate groups ready from the first %L2 photos.</source>
-        <translation>已从前 %L2 张照片生成 %L1 个候选组。</translation>
-    </message>
-    <message>
-        <source>%L1 candidate groups ready from %L2 photos.</source>
-        <translation>已从 %L2 张照片生成 %L1 个候选组。</translation>
-    </message>
-    <message>
-        <source>Candidate grouping was cancelled.</source>
-        <translation>已取消候选分组。</translation>
-    </message>
-    <message>
-        <source>Candidate grouping could not finish. Check Infer Runtime and try again.</source>
-        <translation>候选分组未能完成。请检查 Infer Runtime 后重试。</translation>
-    </message>
-</context>
-<context>
     <name>ServerManagerMain</name>
     <message>
-        <location filename="../qml/ServerManagerMain.qml" line="18"/>
-        <location filename="../qml/ServerManagerMain.qml" line="72"/>
+        <location filename="../qml/ServerManagerMain.qml" line="21"/>
+        <location filename="../qml/ServerManagerMain.qml" line="75"/>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <location filename="../qml/ServerManagerMain.qml" line="21"/>
+        <location filename="../qml/ServerManagerMain.qml" line="75"/>
         <source>Shadow Server</source>
         <translation>Shadow 服务器</translation>
     </message>
     <message>
-        <location filename="../qml/ServerManagerMain.qml" line="80"/>
+        <location filename="../qml/ServerManagerMain.qml" line="84"/>
         <source>Serving this Mac&apos;s photo library</source>
         <translation>正在共享这台 Mac 的照片图库</translation>
     </message>
     <message>
-        <location filename="../qml/ServerManagerMain.qml" line="80"/>
+        <location filename="../qml/ServerManagerMain.qml" line="84"/>
         <source>Local Library server controller</source>
         <translation>本地图库服务器控制器</translation>
     </message>
     <message>
-        <location filename="../qml/ServerManagerMain.qml" line="102"/>
+        <location filename="../qml/ServerManagerMain.qml" line="106"/>
         <source>Start when Shadow Server opens</source>
         <translation>打开 Shadow 服务器时自动启动</translation>
     </message>
@@ -14552,164 +14702,164 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>SettingsAiPane</name>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="157"/>
+        <location filename="../qml/SettingsAiPane.qml" line="156"/>
         <source>AI Completion sends the current photo crop and your painted selection only to Infer Runtime on this device. Turning this off blocks new generation; accepted photo nodes remain available.</source>
         <translation>AI 补全只会将当前照片裁剪区域和涂抹选区发送到本机 Infer Runtime。关闭后会阻止新的生成任务；已接受的照片节点仍可使用。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="149"/>
+        <location filename="../qml/SettingsAiPane.qml" line="148"/>
         <source>Allow local AI Completion</source>
         <translation>允许本机 AI 补全</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="59"/>
+        <location filename="../qml/SettingsAiPane.qml" line="58"/>
         <source>AI &amp; Models</source>
         <translation>AI 与模型</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="67"/>
+        <location filename="../qml/SettingsAiPane.qml" line="66"/>
         <source>Shadow uses locally managed Infer Runtime capabilities. These permissions control new model work; disabling one does not remove or invalidate a result already generated for a photo.</source>
         <translation>Shadow 使用本机管理的 Infer Runtime 能力。这些权限控制新的模型任务；关闭权限不会移除或使照片已有的生成结果失效。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="77"/>
+        <location filename="../qml/SettingsAiPane.qml" line="76"/>
         <source>Allow AI RAW Denoise processing</source>
         <translation>允许执行 AI RAW 降噪</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="84"/>
+        <location filename="../qml/SettingsAiPane.qml" line="83"/>
         <source>The node remains non-destructive. A cached full-strength foundation can still be shown, hidden, or blended when new execution is disabled.</source>
         <translation>该节点仍为非破坏性节点。禁止新的模型执行后，已缓存的完整强度基础影像仍可显示、隐藏或混合。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="93"/>
+        <location filename="../qml/SettingsAiPane.qml" line="92"/>
         <source>Default strength</source>
         <translation>默认强度</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="108"/>
+        <location filename="../qml/SettingsAiPane.qml" line="107"/>
         <source>This applies only when a new AI RAW Denoise node is added. Existing photos keep their authored strength.</source>
         <translation>此项仅在添加新的 AI RAW 降噪节点时生效。现有照片保留其已设定的强度。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="118"/>
+        <location filename="../qml/SettingsAiPane.qml" line="117"/>
         <source>Current photo: Infer Runtime RAW Denoise is ready.</source>
         <translation>当前照片：Infer Runtime RAW 降噪已就绪。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="131"/>
+        <location filename="../qml/SettingsAiPane.qml" line="130"/>
         <source>Allow AI subject selection</source>
         <translation>允许执行 AI 主体选择</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="138"/>
+        <location filename="../qml/SettingsAiPane.qml" line="137"/>
         <source>Subject selection uses Infer Runtime when its SAM capability is available. Photo pixels and prompts remain local to this device.</source>
         <translation>主体选择会在 Infer Runtime 的 SAM 能力可用时使用它。照片像素和提示内容始终留在本机。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="166"/>
+        <location filename="../qml/SettingsAiPane.qml" line="165"/>
         <source>People</source>
         <translation>人物</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="175"/>
+        <location filename="../qml/SettingsAiPane.qml" line="174"/>
         <source>Allow local people analysis and organization</source>
         <translation>允许本机人物分析与整理</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="187"/>
+        <location filename="../qml/SettingsAiPane.qml" line="186"/>
         <source>When enabled, Shadow may analyze faces across the Library and retain local people groups and your merge corrections. Photos and people data are not uploaded.</source>
         <translation>启用后，Shadow 可以分析图库中的人脸，并在本机保留人物分组以及你的合并修正。照片和人物数据不会上传。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/SettingsAiPane.qml" line="196"/>
+        <location filename="../qml/SettingsAiPane.qml" line="195"/>
         <source>%n local people groups are stored.</source>
         <translation>
             <numerusform>已存储 %n 个本地人物分组。</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="197"/>
+        <location filename="../qml/SettingsAiPane.qml" line="196"/>
         <source>No local people data is stored.</source>
         <translation>未存储本地人物数据。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="207"/>
+        <location filename="../qml/SettingsAiPane.qml" line="206"/>
         <source>Clear People Data…</source>
         <translation>清除人物数据…</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="215"/>
+        <location filename="../qml/SettingsAiPane.qml" line="214"/>
         <source>Photo understanding</source>
         <translation>照片理解</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="224"/>
+        <location filename="../qml/SettingsAiPane.qml" line="223"/>
         <source>Allow local descriptions, keywords, and category review</source>
         <translation>允许本地生成描述、关键词和分类复核建议</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="232"/>
+        <location filename="../qml/SettingsAiPane.qml" line="231"/>
         <source>A heavier local vision model is used only for explicit review or eligible background photos. Its output remains a suggestion until the configured acceptance policy applies.</source>
         <translation>较重的本地视觉模型只用于主动复核或符合后台范围的照片。在设定的采纳策略生效前，其输出始终只是建议。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="339"/>
+        <location filename="../qml/SettingsAiPane.qml" line="338"/>
         <source>Analyze eligible photos in the background</source>
         <translation>在后台分析符合条件的照片</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="352"/>
+        <location filename="../qml/SettingsAiPane.qml" line="351"/>
         <source>Background range</source>
         <translation>后台扫描范围</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="365"/>
+        <location filename="../qml/SettingsAiPane.qml" line="364"/>
         <source>Liked photos</source>
         <translation>喜欢的照片</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="366"/>
+        <location filename="../qml/SettingsAiPane.qml" line="365"/>
         <source>By star rating</source>
         <translation>按星级</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="369"/>
+        <location filename="../qml/SettingsAiPane.qml" line="368"/>
         <source>Liked or highly rated</source>
         <translation>喜欢或高星级</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="371"/>
+        <location filename="../qml/SettingsAiPane.qml" line="370"/>
         <source>All photos</source>
         <translation>全部照片</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="396"/>
+        <location filename="../qml/SettingsAiPane.qml" line="395"/>
         <source>Minimum rating</source>
         <translation>最低星级</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="413"/>
+        <location filename="../qml/SettingsAiPane.qml" line="412"/>
         <source>A full Library can take a long time. Shadow processes it in small resumable batches and yields to interactive work.</source>
         <translation>扫描整个图库可能需要较长时间。Shadow 会使用可恢复的小批次处理，并优先让出资源给交互任务。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="423"/>
+        <location filename="../qml/SettingsAiPane.qml" line="422"/>
         <source>Automatically apply AI keyword suggestions</source>
         <translation>自动应用 AI 关键词建议</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="441"/>
+        <location filename="../qml/SettingsAiPane.qml" line="440"/>
         <source>Models managed by Infer Runtime</source>
         <translation>模型由 Infer Runtime 管理</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="449"/>
+        <location filename="../qml/SettingsAiPane.qml" line="448"/>
         <source>Install and manage models in Infer Runtime. Shadow does not load models from its own folder. A listed capability still needs an available model and a successful request before it is ready for use.</source>
         <translation>请在 Infer Runtime 中安装和管理模型。Shadow 不从自己的文件夹加载模型。能力列表中的功能仍需有可用模型，并成功完成请求后才能确认可用。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="313"/>
+        <location filename="../qml/SettingsAiPane.qml" line="312"/>
         <source>Pause</source>
         <translation>暂停</translation>
     </message>
@@ -14719,22 +14869,22 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>清除人物数据？</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="30"/>
+        <location filename="../qml/SettingsAiPane.qml" line="29"/>
         <source>Stored face references, people groups, thumbnails, and your merges will be removed. Original photos and edits are not changed.</source>
         <translation>已存储的人脸引用、人物分组、缩略图以及你的合并结果将被移除。原始照片和编辑不会改变。</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="320"/>
+        <location filename="../qml/SettingsAiPane.qml" line="319"/>
         <source>Resume</source>
         <translation>继续</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="328"/>
+        <location filename="../qml/SettingsAiPane.qml" line="327"/>
         <source>Scan again</source>
         <translation>重新扫描</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsAiPane.qml" line="432"/>
+        <location filename="../qml/SettingsAiPane.qml" line="431"/>
         <source>AI-owned keyword assignments may be refreshed when the model or image changes. Manually created and imported assignments are never removed.</source>
         <translation>模型或照片变化时，可以刷新由 AI 管理的关键词关联；手动创建和导入的关联绝不会被移除。</translation>
     </message>
@@ -15352,6 +15502,24 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
     </message>
 </context>
 <context>
+    <name>ShadowDialog</name>
+    <message>
+        <location filename="../qml/ShadowDialog.qml" line="28"/>
+        <source>OK</source>
+        <translation>确定</translation>
+    </message>
+    <message>
+        <location filename="../qml/ShadowDialog.qml" line="31"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../qml/ShadowDialog.qml" line="34"/>
+        <source>Save</source>
+        <translation>保存</translation>
+    </message>
+</context>
+<context>
     <name>ShadowHueRange</name>
     <message>
         <location filename="../qml/ShadowHueRange.qml" line="64"/>
@@ -15565,124 +15733,618 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>SmartCategoryController</name>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="91"/>
+        <location filename="../src/smart_category_controller.cpp" line="119"/>
         <source>Portrait</source>
         <translation>人像</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="96"/>
+        <location filename="../src/smart_category_controller.cpp" line="124"/>
         <source>Landscape</source>
         <translation>风光</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="101"/>
+        <location filename="../src/smart_category_controller.cpp" line="129"/>
         <source>Street</source>
         <translation>街头</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="106"/>
+        <location filename="../src/smart_category_controller.cpp" line="134"/>
         <source>Architecture</source>
         <translation>建筑</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="111"/>
+        <location filename="../src/smart_category_controller.cpp" line="139"/>
         <source>Animals</source>
         <translation>动物</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="116"/>
+        <location filename="../src/smart_category_controller.cpp" line="144"/>
         <source>Travel</source>
         <translation>旅行</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="121"/>
+        <location filename="../src/smart_category_controller.cpp" line="149"/>
         <source>Food &amp; Still Life</source>
         <translation>美食与静物</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="126"/>
+        <location filename="../src/smart_category_controller.cpp" line="154"/>
         <source>Sports &amp; Action</source>
         <translation>运动与动作</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="131"/>
+        <location filename="../src/smart_category_controller.cpp" line="159"/>
         <source>Night &amp; Astro</source>
         <translation>夜景与星空</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="202"/>
+        <location filename="../src/smart_category_controller.cpp" line="246"/>
         <source>New photos are waiting for smart classification.</source>
         <translation>有新照片等待智能分类。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="201"/>
+        <location filename="../src/smart_category_controller.cpp" line="245"/>
         <source>Corrections are waiting to update similar photos.</source>
         <translation>纠错结果正在等待更新相似照片。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="203"/>
+        <location filename="../src/smart_category_controller.cpp" line="247"/>
         <source>Smart categories are ready to be built locally.</source>
         <translation>可以开始在本地建立智能分类。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="205"/>
+        <location filename="../src/smart_category_controller.cpp" line="249"/>
         <source>Pausing after the current batch…</source>
         <translation>将在当前批次完成后暂停…</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="206"/>
+        <location filename="../src/smart_category_controller.cpp" line="250"/>
         <source>Classifying photos locally… %1 of %2</source>
         <translation>正在本地分类照片… %1 / %2</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="210"/>
+        <location filename="../src/smart_category_controller.cpp" line="254"/>
         <source>Smart classification is paused at %1 of %2.</source>
         <translation>智能分类已暂停于 %1 / %2。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="214"/>
+        <location filename="../src/smart_category_controller.cpp" line="258"/>
         <source>Smart categories are up to date.</source>
         <translation>智能分类已是最新状态。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="215"/>
+        <location filename="../src/smart_category_controller.cpp" line="259"/>
         <source>Analysis finished, but no photos meet the current thresholds.</source>
         <translation>分析已完成，但当前阈值下没有匹配的照片。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="217"/>
+        <location filename="../src/smart_category_controller.cpp" line="261"/>
         <source>Smart classification was interrupted.</source>
         <translation>智能分类已中断。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="232"/>
+        <location filename="../src/smart_category_controller.cpp" line="276"/>
         <source>Infer Runtime is unavailable. Start it, then try again.</source>
         <translation>Infer Runtime 当前不可用。请启动后重试。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="236"/>
+        <location filename="../src/smart_category_controller.cpp" line="280"/>
         <source>Infer Runtime access is not configured. Complete the local AI setup, then try again.</source>
         <translation>尚未配置 Infer Runtime 访问。请完成本地 AI 设置后重试。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="242"/>
+        <location filename="../src/smart_category_controller.cpp" line="286"/>
         <source>The installed Infer Runtime does not support this smart-classification contract. Update Infer Runtime, then try again.</source>
         <translation>当前安装的 Infer Runtime 不支持此智能分类契约。请更新 Infer Runtime 后重试。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="249"/>
+        <location filename="../src/smart_category_controller.cpp" line="293"/>
         <source>The semantic classification model is unavailable. Complete the local AI setup, then try again.</source>
         <translation>语义分类模型当前不可用。请完成本地 AI 设置后重试。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="254"/>
+        <location filename="../src/smart_category_controller.cpp" line="298"/>
         <source>Smart classification could not finish. The previous results are still available; try again.</source>
         <translation>智能分类未能完成，之前的分类结果仍可使用。请重试。</translation>
     </message>
     <message>
-        <location filename="../src/smart_category_controller.cpp" line="617"/>
+        <location filename="../src/smart_category_controller.cpp" line="666"/>
         <source>Enable at least one smart category.</source>
         <translation>请至少启用一个智能分类。</translation>
+    </message>
+</context>
+<context>
+    <name>StorageProfile</name>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="153"/>
+        <location filename="../src/storage_profile.cpp" line="310"/>
+        <source>Could not initialize the profile directory: %1</source>
+        <translation>无法初始化资料库目录：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="207"/>
+        <source>Specify each storage profile option once, with a non-empty value.</source>
+        <translation>每个资料库选项只能指定一次，且值不能为空。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="220"/>
+        <source>Choose daily, debug, or one explicit profile directory.</source>
+        <translation>请选择日常资料库、调试资料库，或指定一个独立的资料库目录。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="225"/>
+        <source>The daily library directory is unavailable.</source>
+        <translation>日常资料库目录不可用。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="237"/>
+        <source>The profile directory must be an absolute path.</source>
+        <translation>资料库目录必须使用绝对路径。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="242"/>
+        <source>A separate profile must not overlap the daily library directory.</source>
+        <translation>独立资料库不能与日常资料库目录重叠。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="262"/>
+        <source>Could not create the profile directory: %1</source>
+        <translation>无法创建资料库目录：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="107"/>
+        <location filename="../src/storage_profile.cpp" line="147"/>
+        <location filename="../src/storage_profile.cpp" line="293"/>
+        <source>Profile storage must remain inside its directory: %1</source>
+        <translation>资料库数据必须保存在其目录内：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="303"/>
+        <source>This library is already open: %1</source>
+        <translation>此资料库已打开：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="304"/>
+        <source>Could not lock the profile directory: %1</source>
+        <translation>无法锁定资料库目录：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="159"/>
+        <location filename="../src/storage_profile.cpp" line="319"/>
+        <source>Could not read the storage profile: %1</source>
+        <translation>无法读取资料库信息：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="73"/>
+        <source>Daily Library</source>
+        <translation>日常资料库</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="75"/>
+        <source>Debug Library</source>
+        <translation>调试资料库</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="102"/>
+        <source>The library directory is unavailable: %1</source>
+        <translation>资料库目录不可用：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="112"/>
+        <source>Choose a Shadow library directory containing storage-profile.json.</source>
+        <translation>请选择包含 storage-profile.json 的 Shadow 资料库目录。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="129"/>
+        <location filename="../src/storage_profile.cpp" line="165"/>
+        <location filename="../src/storage_profile.cpp" line="329"/>
+        <source>The storage profile is incompatible with this selection: %1</source>
+        <translation>资料库信息与当前选择不兼容：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="142"/>
+        <source>Use a library name of 1–80 characters without control characters.</source>
+        <translation>资料库名称须为 1–80 个字符，且不能包含控制字符。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="170"/>
+        <location filename="../src/storage_profile.cpp" line="358"/>
+        <source>Could not save the storage profile: %1</source>
+        <translation>无法保存资料库信息：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="200"/>
+        <source>The library identity is invalid.</source>
+        <translation>资料库标识无效。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="246"/>
+        <source>Library directories must not contain one another.</source>
+        <translation>资料库目录不能互相嵌套。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="334"/>
+        <location filename="../src/storage_profile.cpp" line="345"/>
+        <source>The library at this location has changed. Open it again to confirm its identity.</source>
+        <translation>此位置的资料库已发生变化。请重新打开，以确认资料库标识。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="367"/>
+        <location filename="../src/storage_profile.cpp" line="392"/>
+        <location filename="../src/storage_profile.cpp" line="398"/>
+        <source>Could not preserve the daily library settings.</source>
+        <translation>无法保留日常资料库设置。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile.cpp" line="405"/>
+        <source>Could not preserve the daily library brush presets.</source>
+        <translation>无法保留日常资料库画笔预设。</translation>
+    </message>
+</context>
+<context>
+    <name>StorageProfileController</name>
+    <message>
+        <location filename="../src/main.cpp" line="793"/>
+        <source>Save the composed image before switching libraries.</source>
+        <translation>请先保存合成图像，再切换资料库。</translation>
+    </message>
+    <message>
+        <location filename="../src/main.cpp" line="950"/>
+        <location filename="../src/main.cpp" line="960"/>
+        <source>Could not load the target library window.</source>
+        <translation>无法加载目标资料库窗口。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="65"/>
+        <source>Pausing background work and waiting for current operations…</source>
+        <translation>正在暂停后台任务，并等待当前操作完成…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="67"/>
+        <source>Saving the current edits…</source>
+        <translation>正在保存当前编辑…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="70"/>
+        <source>Opening %1…</source>
+        <translation>正在打开 %1…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="244"/>
+        <source>Could not save the current edits. The library was not switched. %1</source>
+        <translation>无法保存当前编辑，资料库未切换。%1</translation>
+    </message>
+</context>
+<context>
+    <name>StorageProfileRegistry</name>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="73"/>
+        <location filename="../src/storage_profile_registry.cpp" line="304"/>
+        <source>The library launch context is invalid.</source>
+        <translation>资料库启动模式无效。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="85"/>
+        <source>The library registry must be outside the library directories.</source>
+        <translation>资料库登记文件必须存放在各资料库目录之外。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="90"/>
+        <location filename="../src/storage_profile_registry.cpp" line="316"/>
+        <location filename="../src/storage_profile_registry.cpp" line="363"/>
+        <location filename="../src/storage_profile_registry.cpp" line="368"/>
+        <source>The library registry location is unavailable.</source>
+        <translation>资料库登记位置不可用。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="99"/>
+        <source>Could not read recent libraries.</source>
+        <translation>无法读取最近使用的资料库。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="106"/>
+        <location filename="../src/storage_profile_registry.cpp" line="129"/>
+        <location filename="../src/storage_profile_registry.cpp" line="137"/>
+        <source>The library registry is incompatible or damaged.</source>
+        <translation>资料库登记文件不兼容或已损坏。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="164"/>
+        <source>The last library is unavailable or its identity has changed. Choose a library to continue.</source>
+        <translation>上次使用的资料库不可用或标识已改变。请选择资料库以继续。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="206"/>
+        <source>Choose a library directory outside the library registry.</source>
+        <translation>请选择资料库登记目录之外的位置。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="211"/>
+        <location filename="../src/storage_profile_registry.cpp" line="219"/>
+        <source>Library directories must not contain one another.</source>
+        <translation>资料库目录不能互相嵌套。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="242"/>
+        <location filename="../src/storage_profile_registry.cpp" line="249"/>
+        <location filename="../src/storage_profile_registry.cpp" line="329"/>
+        <source>The library at this location has changed. Open it again to confirm its identity.</source>
+        <translation>此位置的资料库已发生变化。请重新打开，以确认资料库标识。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="275"/>
+        <source>Use a library name of 1–80 characters without control characters.</source>
+        <translation>资料库名称须为 1–80 个字符，且不能包含控制字符。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="280"/>
+        <source>Choose an existing folder for the new library.</source>
+        <translation>请为新资料库选择一个现有文件夹。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="311"/>
+        <location filename="../src/storage_profile_registry.cpp" line="323"/>
+        <location filename="../src/storage_profile_registry.cpp" line="351"/>
+        <location filename="../src/storage_profile_registry.cpp" line="374"/>
+        <source>Could not save recent libraries.</source>
+        <translation>无法保存最近使用的资料库。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_registry.cpp" line="380"/>
+        <source>Could not preserve the previous library records.</source>
+        <translation>无法保留原有的资料库记录。</translation>
+    </message>
+</context>
+<context>
+    <name>StorageProfileRestart</name>
+    <message>
+        <location filename="../src/storage_profile_switch.cpp" line="19"/>
+        <source>The target library did not finish starting. The current library remains open.</source>
+        <translation>目标资料库未能完成启动，当前资料库仍保持打开。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_switch.cpp" line="32"/>
+        <source>The target library stopped before switching. The current library remains open.</source>
+        <translation>目标资料库在切换完成前已停止，当前资料库仍保持打开。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_switch.cpp" line="59"/>
+        <source>Could not prepare the library restart.</source>
+        <translation>无法准备资料库重启。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_switch.cpp" line="78"/>
+        <source>Could not start Shadow for the target library.</source>
+        <translation>无法为目标资料库启动 Shadow。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_switch.cpp" line="90"/>
+        <location filename="../src/storage_profile_switch.cpp" line="106"/>
+        <location filename="../src/storage_profile_switch.cpp" line="119"/>
+        <source>The target library returned an invalid startup response.</source>
+        <translation>目标资料库返回的启动响应无效。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_switch.cpp" line="100"/>
+        <source>Could not open the target library: %1</source>
+        <translation>无法打开目标资料库：%1</translation>
+    </message>
+</context>
+<context>
+    <name>StorageProfileStartup</name>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="26"/>
+        <source>Choose a Library</source>
+        <translation>选择资料库</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="35"/>
+        <source>Open Selected</source>
+        <translation>打开所选资料库</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="37"/>
+        <source>Open Library…</source>
+        <translation>打开资料库…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="39"/>
+        <source>New Library…</source>
+        <translation>新建资料库…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="40"/>
+        <location filename="../src/storage_profile_startup.cpp" line="96"/>
+        <location filename="../src/storage_profile_startup.cpp" line="130"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="45"/>
+        <source>Reset Recent Library Records…</source>
+        <translation>重置最近资料库记录…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="86"/>
+        <source>Open Library</source>
+        <translation>打开资料库</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="93"/>
+        <source>New Library</source>
+        <translation>新建资料库</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="94"/>
+        <source>Library Name</source>
+        <translation>资料库名称</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="95"/>
+        <source>Create and Open</source>
+        <translation>创建并打开</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="102"/>
+        <source>Choose a Location</source>
+        <translation>选择存储位置</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="116"/>
+        <source>Reset Recent Library Records</source>
+        <translation>重置最近资料库记录</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="117"/>
+        <source>This resets only recent locations and launch choices. Library data and names remain unchanged, and the previous records are preserved.</source>
+        <translation>这只会重置最近使用的位置和启动选择。资料库数据与名称保持不变，原有记录也会保留。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="126"/>
+        <source>Reset Records</source>
+        <translation>重置记录</translation>
+    </message>
+</context>
+<context>
+    <name>StorageProfileSwitchEndpoint</name>
+    <message>
+        <location filename="../src/storage_profile_switch.cpp" line="155"/>
+        <source>The library restart request is invalid.</source>
+        <translation>资料库重启请求无效。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_switch.cpp" line="164"/>
+        <source>The previous Shadow session is no longer available.</source>
+        <translation>之前的 Shadow 会话已不可用。</translation>
+    </message>
+</context>
+<context>
+    <name>StorageProfilesDialog</name>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="19"/>
+        <source>Libraries</source>
+        <translation>资料库</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="36"/>
+        <source>Open Library</source>
+        <translation>打开资料库</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="42"/>
+        <source>Choose a Location for the New Library</source>
+        <translation>选择新资料库的存储位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="51"/>
+        <source>Current Library</source>
+        <translation>当前资料库</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="64"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="205"/>
+        <source>Library Name</source>
+        <translation>资料库名称</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="68"/>
+        <source>Rename</source>
+        <translation>重命名</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="85"/>
+        <source>Library Location</source>
+        <translation>资料库存储位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="91"/>
+        <source>Show in Folder</source>
+        <translation>在文件夹中显示</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="96"/>
+        <source>Copy Location</source>
+        <translation>复制存储位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="105"/>
+        <source>Debug remembers its own independent library. Opening the daily library here does not change that startup choice.</source>
+        <translation>Debug 会单独记住开发资料库。在此打开日常资料库，不会改变 Debug 的启动选择。</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="122"/>
+        <source>New Library</source>
+        <translation>新建资料库</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="122"/>
+        <source>Recent Libraries</source>
+        <translation>最近使用的资料库</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="128"/>
+        <source>Back</source>
+        <translation>返回</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="128"/>
+        <source>New Library…</source>
+        <translation>新建资料库…</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="134"/>
+        <source>Open Library…</source>
+        <translation>打开资料库…</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="165"/>
+        <source>%1 · Current</source>
+        <translation>%1 · 当前资料库</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="167"/>
+        <source>%1 · Unavailable</source>
+        <translation>%1 · 不可用</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="212"/>
+        <source>Choose Location…</source>
+        <translation>选择存储位置…</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="219"/>
+        <source>No location selected</source>
+        <translation>尚未选择存储位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="227"/>
+        <source>A new empty library will be created in this folder. Photos and edits are kept separately in each library.</source>
+        <translation>将在此文件夹中创建一个空资料库。各资料库的照片和编辑数据独立保存。</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="248"/>
+        <source>Switching saves current edits, pauses resumable work and restarts Shadow in the selected library.</source>
+        <translation>切换时会先保存当前编辑、暂停可恢复的任务，再重启 Shadow 并打开所选资料库。</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="270"/>
+        <source>Cancel Switch</source>
+        <translation>取消切换</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="275"/>
+        <source>Done</source>
+        <translation>完成</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="281"/>
+        <source>Create and Open</source>
+        <translation>创建并打开</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="281"/>
+        <source>Open Selected</source>
+        <translation>打开所选资料库</translation>
     </message>
 </context>
 <context>
@@ -15804,64 +16466,6 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/XmpImportDialog.qml" line="301"/>
         <source>All files (*)</source>
         <translation>所有文件 (*)</translation>
-    </message>
-</context>
-<context>
-    <name>ShadowDialog</name>
-    <message>
-        <source>OK</source>
-        <translation>确定</translation>
-    </message>
-    <message>
-        <source>Cancel</source>
-        <translation>取消</translation>
-    </message>
-    <message>
-        <source>Save</source>
-        <translation>保存</translation>
-    </message>
-</context>
-<context>
-    <name>EditToolController</name>
-    <message>
-        <source>Rendering current edits…</source>
-        <translation>正在渲染当前编辑…</translation>
-    </message>
-    <message>
-        <source>Current edits preview cancelled.</source>
-        <translation>当前编辑预览已取消。</translation>
-    </message>
-    <message>
-        <source>Could not preview the current edits. Try again.</source>
-        <translation>无法预览当前编辑，请重试。</translation>
-    </message>
-    <message>
-        <source>Rendering proposed adjustments…</source>
-        <translation>正在渲染调整方案…</translation>
-    </message>
-    <message>
-        <source>Applying proposed adjustments…</source>
-        <translation>正在应用调整方案…</translation>
-    </message>
-    <message>
-        <source>Exporting the captured adjustments…</source>
-        <translation>正在导出已确认的调整…</translation>
-    </message>
-    <message>
-        <source>Proposed preview cancelled.</source>
-        <translation>调整方案预览已取消。</translation>
-    </message>
-    <message>
-        <source>Could not preview the proposed adjustments. Try again.</source>
-        <translation>调整方案预览失败，请重试。</translation>
-    </message>
-    <message>
-        <source>Could not apply the proposed adjustments. Review the current edits and try again.</source>
-        <translation>调整方案应用失败，请检查当前调整后重试。</translation>
-    </message>
-    <message>
-        <source>Could not export the captured adjustments. Try again.</source>
-        <translation>已确认的调整导出失败，请重试。</translation>
     </message>
 </context>
 </TS>

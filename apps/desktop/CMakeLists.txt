@@ -348,6 +348,8 @@ qt_add_executable(
     src/desktop_smoke/scenario_setup.hpp
     src/desktop_smoke/visual_capture.cpp
     src/desktop_smoke/visual_capture.hpp
+    src/desktop_smoke/storage_profiles.cpp
+    src/desktop_smoke/storage_profiles.hpp
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
@@ -521,6 +523,16 @@ qt_add_executable(
     src/image_understanding_controller.hpp
     src/catalog_startup_recovery.cpp
     src/catalog_startup_recovery.hpp
+    src/storage_profile.cpp
+    src/storage_profile.hpp
+    src/storage_profile_registry.cpp
+    src/storage_profile_registry.hpp
+    src/storage_profile_controller.cpp
+    src/storage_profile_controller.hpp
+    src/storage_profile_switch.cpp
+    src/storage_profile_switch.hpp
+    src/storage_profile_startup.cpp
+    src/storage_profile_startup.hpp
     src/main.cpp
     src/external_edit_contract.cpp
     src/external_edit_contract.hpp
@@ -801,6 +813,8 @@ qt_add_executable(
     shadow-server-manager
     MACOSX_BUNDLE
     src/server_manager/main.cpp
+    src/storage_profile.cpp
+    src/storage_profile.hpp
 )
 qt_add_qml_module(
     shadow-server-manager
@@ -908,6 +922,7 @@ qt_add_qml_module(
         qml/LutManagerWindow.qml
         qml/LutExportDialog.qml
         qml/ApplicationSettingsDialog.qml
+        qml/StorageProfilesDialog.qml
         qml/SettingsGeneralPane.qml
         qml/SettingsLibraryPane.qml
         qml/SettingsAiPane.qml

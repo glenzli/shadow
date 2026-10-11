@@ -1,12 +1,12 @@
 #include "library_server_controller.hpp"
 #include "library_server_host.hpp"
 #include "secure_secret_store.hpp"
+#include "storage_profile.hpp"
 
 #include <QApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <QLocale>
-#include <QLockFile>
 #include <QMessageBox>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
@@ -21,30 +21,6 @@
 #include <memory>
 
 namespace {
-
-[[nodiscard]] QString sharedApplicationDataRoot() {
-    QString override = qEnvironmentVariable("SHADOW_SERVER_MANAGER_DATA_ROOT").trimmed();
-    if (!override.isEmpty()) {
-        return override;
-    }
-    return QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
-        .filePath(QStringLiteral("Shadow/Shadow"));
-}
-
-[[nodiscard]] std::unique_ptr<QSettings> sharedServerSettings(const QString& data_root) {
-    if (qEnvironmentVariableIsSet("SHADOW_SERVER_MANAGER_DATA_ROOT")) {
-        return std::make_unique<QSettings>(
-            QDir(data_root).filePath(QStringLiteral("server-manager-smoke.ini")),
-            QSettings::IniFormat
-        );
-    }
-    return std::make_unique<QSettings>(
-        QSettings::NativeFormat,
-        QSettings::UserScope,
-        QStringLiteral("Shadow"),
-        QStringLiteral("Shadow")
-    );
-}
 
 [[nodiscard]] bool prefersDarkAppearance(const QApplication& application) {
     return application.styleHints()->colorScheme() != Qt::ColorScheme::Light;
@@ -69,6 +45,8 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName(QStringLiteral("Shadow"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow Server"));
+    QTranslator translator;
+    installSystemTranslation(application, translator);
 
     const QString decode_helper_path = QDir(QCoreApplication::applicationDirPath())
                                            .filePath(QStringLiteral("shadow-image-decode-helper"));
@@ -77,33 +55,38 @@ int main(int argc, char* argv[]) {
         qputenv("SHADOW_DECODE_HELPER_PATH", decode_helper_path.toUtf8());
     }
 
-    const QString data_root = sharedApplicationDataRoot();
-    QDir().mkpath(data_root);
-    QLockFile manager_lock(QDir(data_root).filePath(QStringLiteral("server-manager.lock")));
-    manager_lock.setStaleLockTime(0);
-    if (!manager_lock.tryLock(100)) {
+    StorageProfileLaunch launch;
+    launch.arguments = QCoreApplication::arguments();
+    launch.daily_root = QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
+                            .filePath(QStringLiteral("Shadow/Shadow"));
+    launch.override_root = qEnvironmentVariable("SHADOW_SERVER_MANAGER_DATA_ROOT");
+    launch.override_root_set = qEnvironmentVariableIsSet("SHADOW_SERVER_MANAGER_DATA_ROOT");
+    launch.process = StorageProfileProcess::LibraryServer;
+#ifndef NDEBUG
+    launch.debug_build = true;
+#endif
+    QString profile_error;
+    auto storage_profile = StorageProfile::open(launch, &profile_error);
+    if (!storage_profile) {
         if (!qEnvironmentVariableIsSet("SHADOW_SERVER_MANAGER_SMOKE_TEST")) {
-            QMessageBox::information(
-                nullptr,
-                QObject::tr("Shadow Server is already running"),
-                QObject::tr("Use the existing Shadow Server window to manage Library sharing.")
-            );
+            QMessageBox::information(nullptr, QObject::tr("Could not open library"), profile_error);
         }
+        qCritical().noquote() << "Cannot open server storage profile:" << profile_error;
         return EXIT_FAILURE;
     }
+    const QString data_root = storage_profile->root();
+    qInfo().noquote() << "Server storage profile:" << storage_profile->kind()
+                      << storage_profile->id() << data_root;
     LibraryServerHost host(QDir(data_root).filePath(QStringLiteral("library-server")));
     const bool smoke_test = qEnvironmentVariableIsSet("SHADOW_SERVER_MANAGER_SMOKE_TEST");
     LibraryServerController controller(
         host.operations(),
-        sharedServerSettings(data_root),
+        std::make_unique<QSettings>(storage_profile->settingsFile(), QSettings::IniFormat),
         smoke_test ? makeVolatileSecretStore()
                    : makeLocalSecretStore(
                          QDir(data_root).filePath(QStringLiteral("library-server-credentials.ini"))
                      )
     );
-
-    QTranslator translator;
-    installSystemTranslation(application, translator);
 
     QQmlApplicationEngine engine;
     engine.setInitialProperties({
@@ -115,6 +98,8 @@ int main(int argc, char* argv[]) {
             QStringLiteral("initialDarkAppearance"),
             prefersDarkAppearance(application),
         },
+        {QStringLiteral("storageProfileKind"), storage_profile->kind()},
+        {QStringLiteral("storageProfileName"), storage_profile->info().name()},
     });
     engine.loadFromModule("Shadow.ServerManager", "ServerManagerMain");
     if (engine.rootObjects().isEmpty()) {

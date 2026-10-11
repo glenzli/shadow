@@ -16,8 +16,7 @@ void require(const bool condition, const char* message) {
         throw std::runtime_error(message);
 }
 
-template <typename Predicate>
-void waitUntil(Predicate predicate, const char* message) {
+template <typename Predicate> void waitUntil(Predicate predicate, const char* message) {
     QElapsedTimer timer;
     timer.start();
     while (!predicate() && timer.elapsed() < 3000) {
@@ -33,10 +32,7 @@ int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     QTemporaryDir root;
     require(root.isValid(), "temporary settings root must exist");
-    AiPreferences preferences(
-        root.path(),
-        root.filePath(QStringLiteral("settings.ini"))
-    );
+    AiPreferences preferences(root.path(), root.filePath(QStringLiteral("settings.ini")));
 
     BackendImageUnderstandingSnapshot snapshot;
     int batch_calls = 0;
@@ -57,14 +53,12 @@ int main(int argc, char** argv) {
             batch.generation = start_new ? QStringLiteral("iu-generation") : generation;
             batch.processed_photos = static_cast<std::uint64_t>(batch_calls);
             batch.total_photos = 2;
-            batch.status = batch_calls == 1 ? QStringLiteral("running")
-                                            : QStringLiteral("complete");
+            batch.status =
+                batch_calls == 1 ? QStringLiteral("running") : QStringLiteral("complete");
             snapshot = {
                 .available = true,
                 .policy_revision =
-                    QStringLiteral(
-                        "shadow.image-understanding-scan:v1:liked:rating-none:batch-4"
-                    ),
+                    QStringLiteral("shadow.image-understanding-scan:v1:liked:rating-none:batch-4"),
                 .generation = batch.generation,
                 .status = batch.status,
                 .processed_photos = batch.processed_photos,
@@ -154,7 +148,7 @@ int main(int argc, char** argv) {
         [&]() { return batch_calls == 1 && controller.canPause(); },
         "queue must expose a checkpointable running boundary"
     );
-    controller.pause();
+    controller.setProfileSwitchPending(true);
     waitUntil(
         [&]() { return controller.canResume(); },
         "paused checkpoint must be resumable after the active batch"
@@ -164,23 +158,30 @@ int main(int argc, char** argv) {
         "pause must persist the current generation"
     );
     controller.resume();
+    controller.refresh();
+    controller.notifyLibraryChanged();
+    QElapsedTimer suspended_timer;
+    suspended_timer.start();
+    while (suspended_timer.elapsed() < 100) {
+        QCoreApplication::processEvents();
+        QThread::msleep(2);
+    }
+    require(
+        batch_calls == 1 && !controller.busy(),
+        "profile switch freezes admission despite background policy and library events"
+    );
+    controller.setProfileSwitchPending(false);
     waitUntil([&]() { return batch_calls == 2 && !controller.busy(); }, "queue must complete");
     require(controller.progressPercent() == 100, "progress is cumulative across batches");
-    controller.loadPhotoProposal(
-        QStringLiteral("photo-a"),
-        QStringLiteral("representation-a")
-    );
+    controller.loadPhotoProposal(QStringLiteral("photo-a"), QStringLiteral("representation-a"));
     require(controller.photoProposalAvailable(), "durable description proposal is projected");
     require(controller.photoKeywords().size() == 2, "bounded keyword suggestions cross Qt");
 
-    controller.requestAdvancedReview(
-        QStringLiteral("photo-a"),
-        QStringLiteral("representation-a")
-    );
+    controller.requestAdvancedReview(QStringLiteral("photo-a"), QStringLiteral("representation-a"));
     waitUntil(
         [&]() {
             return !controller.advancedReviewBusy()
-                && controller.advancedReviewDisposition() == QStringLiteral("matched");
+                   && controller.advancedReviewDisposition() == QStringLiteral("matched");
         },
         "advanced review must finish"
     );

@@ -30,6 +30,8 @@ ApplicationWindow {
     required property var cachePreferences
     required property var historyController
     required property var preferences
+    required property var storageProfileController
+    property bool profileRestartPending: false
     required property var personalProfile
     required property var personalLocationSearch
     required property var mapProviderPreferences
@@ -59,7 +61,7 @@ ApplicationWindow {
     // paint through the title-bar area. The ToolBar below consumes SafeArea
     // margins and delegates drags on its empty surface to the window manager.
     flags: Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
-    visible: true
+    visible: !profileRestartPending
     color: Theme.window
     // Propagate the same design tokens into any remaining Qt Quick Control
     // that has not yet been promoted to a Shadow semantic component.
@@ -79,7 +81,8 @@ ApplicationWindow {
     palette.disabled.text: Theme.textDisabled
     palette.disabled.buttonText: Theme.textDisabled
     palette.disabled.button: Theme.buttonDisabledSurface
-    readonly property string descriptiveTitle:
+    readonly property string storageProfileLabel: storageProfileController.currentName
+    readonly property string workspaceTitle:
         workspaceIndex === reviewWorkspacePage
         ? qsTr("Shadow · Review")
         : workspaceIndex === precisionWorkspacePage
@@ -89,6 +92,8 @@ ApplicationWindow {
                 : workspaceIndex === peopleWorkspacePage
                     ? qsTr("Shadow · People")
                     : qsTr("Shadow · Library")
+    readonly property string descriptiveTitle:
+        qsTr("%1 · %2").arg(workspaceTitle).arg(storageProfileLabel)
     // macOS would otherwise draw a second native title beside our integrated
     // navigation. Mission Control and the Dock still receive the app identity.
     title: Qt.platform.os === "osx" ? "" : descriptiveTitle
@@ -101,6 +106,7 @@ ApplicationWindow {
     readonly property color accent: Theme.accent
     readonly property bool modalSurfaceClear:
         !applicationSettingsDialog.opened
+        && !storageProfilesDialog.opened
         && !personalProfileDialog.opened
         && !exportDialog.opened
         && !compositionDialog.opened
@@ -170,6 +176,28 @@ ApplicationWindow {
         onOpenOpticsProfileLibraryRequested: {
             close()
             window.openOpticsProfileManager()
+        }
+        onManageLibrariesRequested: {
+            close()
+            storageProfilesDialog.open()
+        }
+    }
+
+    StorageProfilesDialog {
+        id: storageProfilesDialog
+        objectName: "storageProfilesDialog"
+        profileManager: window.storageProfileController
+        hostWidth: window.width
+        hostHeight: window.height
+    }
+
+    Connections {
+        target: window.storageProfileController
+        function onChanged() {
+            if (!window.storageProfileController.busy
+                && window.storageProfileController.errorText.length > 0
+                && !storageProfilesDialog.opened)
+                Qt.callLater(storageProfilesDialog.open)
         }
     }
 
@@ -356,6 +384,7 @@ ApplicationWindow {
         parent: Overlay.overlay
         editor: window.editor
         hostWindow: window
+        profileSwitchPending: window.storageProfileController.busy
     }
 
     Connections {
@@ -380,6 +409,8 @@ ApplicationWindow {
         mapWorkspaceIndex: window.mapWorkspacePage
         peopleWorkspaceIndex: window.peopleWorkspacePage
         descriptiveTitle: window.descriptiveTitle
+        storageProfileLabel: window.storageProfileLabel
+        onManageLibrariesRequested: storageProfilesDialog.open()
         canOpenSelectedPhoto: reviewWorkspace.canOpenSelectedPhoto
         historyOpen: historyDrawer.opened
         onReviewRequested: window.showReview()

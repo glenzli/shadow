@@ -56,6 +56,26 @@ resolved executable and managed model paths without launching the application.
 The launcher detaches by default and appends output to
 `.shadow-local-build/logs/shadow-debug.log`. Pass `--foreground` for process-attached debugging.
 
+Debug builds and the canonical debug launcher use their own remembered development library, with
+the independent Debug Library as the initial choice. Existing
+daily data stays in its original directory and is opened explicitly with `--profile daily`:
+
+```sh
+cargo xtask desktop-run-debug --profile daily
+cargo xtask desktop-run-debug --profile-root /absolute/path/to/test-library
+```
+
+The [desktop profile owner](../../apps/desktop/README.md#storage-profiles) defines settings migration,
+locking, and the Catalog/attachment/cache/job isolation boundary. No profile selection silently
+falls back to daily data. Keep validation on an explicit temporary root.
+
+The title-bar library button and Settings → Libraries provide creation, opening and recent-library
+selection without launch arguments. `SHADOW_PROFILE_REGISTRY_ROOT` isolates bootstrap records for
+tests. The opt-in `desktop_smoke/storage_profiles.*` harness accepts one named
+`SHADOW_DESKTOP_EDIT_SOURCE_PATH` and `SHADOW_DESKTOP_PROFILE_SWITCH_TARGET` to verify durable working
+edits across a real restart; `SHADOW_DESKTOP_PROFILE_VERIFY_EXPOSURE` verifies them after reopening.
+These smoke routes reject Daily and the restart removes inherited edit/import/smoke commands.
+
 ## Local build storage
 
 Shadow keeps build output outside the repository so concurrent work cannot pollute source, but those

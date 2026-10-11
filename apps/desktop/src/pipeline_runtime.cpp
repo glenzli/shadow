@@ -94,6 +94,11 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& laun
             QDir(runtime_root.path()).filePath(QStringLiteral("catalog.sqlite"));
         const QString cache_root = QDir(runtime_root.path()).filePath(QStringLiteral("cache"));
         const QString settings_path = QDir(runtime_root.path()).filePath(QStringLiteral("ui.ini"));
+        qputenv("SHADOW_DESKTOP_DATA_ROOT", runtime_root.path().toUtf8());
+        qputenv(
+            "SHADOW_PAINT_BRUSH_SETTINGS_FILE",
+            QDir(runtime_root.path()).filePath(QStringLiteral("paint-brushes.ini")).toUtf8()
+        );
 
         std::shared_ptr<DesktopBackend> backend;
         try {

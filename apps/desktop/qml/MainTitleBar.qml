@@ -20,6 +20,7 @@ ShadowTitleBar {
     required property int mapWorkspaceIndex
     required property int peopleWorkspaceIndex
     required property string descriptiveTitle
+    property string storageProfileLabel: ""
     required property bool canOpenSelectedPhoto
     required property bool historyOpen
 
@@ -29,6 +30,7 @@ ShadowTitleBar {
     signal peopleRequested()
     signal historyRequested()
     signal exportActivityRequested()
+    signal manageLibrariesRequested()
 
     Accessible.name: descriptiveTitle
 
@@ -46,6 +48,31 @@ ShadowTitleBar {
                 font.pixelSize: Theme.fontSubheading
                 font.weight: Font.DemiBold
                 font.letterSpacing: 2.5
+            }
+
+            ToolButton {
+                id: libraryButton
+                objectName: "storageProfileLabel"
+                anchors.verticalCenter: parent.verticalCenter
+                text: titleBar.storageProfileLabel
+                visible: text.length > 0
+                width: Math.min(180, implicitWidth)
+                contentItem: Label {
+                    text: libraryButton.text
+                    textFormat: Text.PlainText
+                    color: libraryButton.hovered ? Theme.textPrimary : Theme.textMuted
+                    font.pixelSize: Theme.fontCaption
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    color: libraryButton.hovered ? Theme.buttonHoverSurface : "transparent"
+                    radius: Theme.controlRadius
+                }
+                Accessible.name: text
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Manage Libraries")
+                onClicked: titleBar.manageLibrariesRequested()
             }
 
             Rectangle {

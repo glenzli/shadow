@@ -1,5 +1,47 @@
 # Shadow desktop
 
+## Storage profiles
+
+[`src/storage_profile.*`](src/storage_profile.hpp) owns startup selection, immutable profile identity,
+per-process-owner locking and one-time legacy preference preservation. The existing application-data
+directory is the Daily Library; Debug builds default to its separate `-debug` sibling. `--profile
+daily` opens existing daily data, `--profile debug` selects the debug library, and `--profile-root
+/absolute/path` opens a separate custom library. The existing `SHADOW_DESKTOP_DATA_ROOT` override
+remains supported, but ambiguous selections and overlapping daily/profile directories fail closed.
+
+Each process owns one profile until exit. Catalog, derived rasters, people, remote mirrors,
+cache, preferences, brush presets, and resumable jobs all use its resolved root. Daily enrollment
+preserves existing Catalog and attachment bytes in place and copies legacy preferences and brush
+presets without deleting their originals; existing profile-local settings win. Debug/custom profiles
+never import daily settings. Only the read-only Infer Runtime service identity is shared; all
+request state, checkpoints and generated artifacts remain local to the selected profile.
+
+The independent Shadow Server uses the same profile selection and defaults. Desktop and Server
+can coexist in one profile because they own separate Catalogs, preference files and lifetime locks;
+profile enrollment is serialized. Daily Server preferences are preserved once from their legacy
+native store into `server-manager.ini`, independently of desktop preference preservation.
+
+`storage_profile_registry.*` owns bounded recent locations and separate normal/Debug launch choices;
+the bootstrap registry lives outside the libraries and contains no Catalog, edit, settings or job data.
+`storage_profile_controller.*` projects names, locations and management actions into
+`StorageProfilesDialog.qml`, reachable from the title bar or Settings → Libraries. Display-name
+changes preserve the profile UUID and directory. New libraries start empty; opening an existing
+library checks its marker, identity and writer lock. A missing or replaced remembered library opens
+the explicit recovery chooser in `storage_profile_startup.*`, without recreating it or falling back.
+Debug remembers only independent libraries; an intentional Daily open does not replace that choice.
+
+`storage_profile_switch.*` owns the two-process restart handshake. The management controller freezes
+background admission, checkpoints resumable classification/export work, waits for other current
+operations and uses the existing editor close-save contract. The target must load its services and
+packaged window, then acknowledge activation before the old process releases its lock. Save or target
+startup failure retains the old session. Export pause stops between atomic photo publications and
+leaves queued items for that library's next recovery drain. Original bytes, Recipe meaning and render
+cache identities are unchanged; existing close-time preview cancellation is the only render boundary,
+with no new host/device transfers or recomputation path.
+
+Changing profiles requires a new process. Close older Shadow builds before first opening Daily
+with the profile-aware build, since older executables do not participate in the profile lock.
+
 The first macOS Review slice is a native Qt Quick application backed by the existing Rust and C++ core:
 
 ```text

@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QThread>
 
 #include <cmath>
@@ -291,6 +292,18 @@ int main(int argc, char** argv) {
         [](const QString&) {}
     );
     QElapsedTimer pending_timer;
+    pending_controller.setProfileSwitchPending(true);
+    pending_controller.refresh();
+    pending_timer.start();
+    while (pending_timer.elapsed() < 100) {
+        QCoreApplication::processEvents();
+        QThread::msleep(2);
+    }
+    require(
+        !pending_adaptation_resumed && !pending_controller.busy(),
+        "profile switch freezes queued feedback adaptation"
+    );
+    pending_controller.setProfileSwitchPending(false);
     pending_timer.start();
     while ((!pending_adaptation_resumed || pending_controller.busy())
            && pending_timer.elapsed() < 3000) {
@@ -408,6 +421,52 @@ int main(int argc, char** argv) {
     );
 
     QSettings().clear();
+    QTemporaryDir profiles;
+    const auto scoped_controller = [](const QString& file) {
+        return std::make_unique<SmartCategoryController>(
+            [](const QVector<BackendSmartCategoryDefinition>&,
+               const QString&,
+               const QString&,
+               bool,
+               bool) { return BackendSmartClassificationBatch{}; },
+            []() { return emptySnapshot(); },
+            [](const QString&) { return QStringList{}; },
+            []() { return QVector<BackendSmartCategoryReviewItem>{}; },
+            [](const QString&, const QString&, const QString&, std::int8_t) {},
+            [](const QString&,
+               const QString&,
+               const QVector<BackendSmartCategoryFeedbackDecision>&) {},
+            [](const QString&) {},
+            file
+        );
+    };
+    auto daily_categories = scoped_controller(profiles.path() + "/daily.ini");
+    auto debug_categories = scoped_controller(profiles.path() + "/debug.ini");
+    daily_categories->updateCategory("portrait", "Daily portraits", "daily definition", 0.07, true);
+    debug_categories->updateCategory("portrait", "Debug portraits", "debug definition", 0.08, true);
+    require(
+        daily_categories->categories().front().toMap().value("name").toString()
+            == "Daily portraits",
+        "Debug category edits do not alter the Daily controller"
+    );
+    daily_categories.reset();
+    debug_categories.reset();
+    daily_categories = scoped_controller(profiles.path() + "/daily.ini");
+    debug_categories = scoped_controller(profiles.path() + "/debug.ini");
+    require(
+        daily_categories->categories().front().toMap().value("name").toString()
+            == "Daily portraits",
+        "Daily category edits survive reopen"
+    );
+    require(
+        debug_categories->categories().front().toMap().value("name").toString()
+            == "Debug portraits",
+        "Debug category edits survive independently"
+    );
+    require(
+        !QSettings().contains("smartCategories/items/1/name"),
+        "scoped controllers do not write to global settings"
+    );
     std::cout << "smart category controller contract passed\n";
     return EXIT_SUCCESS;
 }

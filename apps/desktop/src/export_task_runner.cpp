@@ -57,7 +57,8 @@ ExportTaskResult ExportTaskRunner::runDurableExport(
     const QString& settings_json,
     const bool recover_existing,
     const std::shared_ptr<std::atomic_bool>& cancellation_token,
-    const ExportProgressReporter& report_progress
+    const ExportProgressReporter& report_progress,
+    const std::shared_ptr<std::atomic_bool>& pause_token
 ) {
     ExportTaskResult result;
     result.recovered_on_startup = recover_existing;
@@ -90,6 +91,13 @@ ExportTaskResult ExportTaskRunner::runDurableExport(
                     apply_durable_progress(result, progress);
                 }
                 result.cancelled = true;
+                break;
+            }
+            // A profile switch finishes the current atomic publication, then
+            // leaves all remaining immutable items queued for this profile's
+            // next recovery drain. An earlier explicit Cancel keeps priority.
+            if (pause_token && pause_token->load(std::memory_order_acquire)) {
+                result.paused = true;
                 break;
             }
 

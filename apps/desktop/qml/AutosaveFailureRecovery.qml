@@ -10,11 +10,14 @@ Popup {
 
     required property var editor
     required property var hostWindow
+    property bool profileSwitchPending: false
 
     property bool closeAfterAutosave: false
     property bool openingPendingPhoto: false
 
     function shouldAcceptClose() {
+        if (profileSwitchPending)
+            return false
         return closeAfterAutosave || editor.prepareToClose()
     }
 
@@ -57,11 +60,15 @@ Popup {
         target: recovery.editor
 
         function onCloseReady() {
+            if (recovery.profileSwitchPending)
+                return
             recovery.closeAfterAutosave = true
             Qt.callLater(recovery.hostWindow.close)
         }
 
         function onCloseSaveFailed() {
+            if (recovery.profileSwitchPending)
+                return
             // Keep the draft alive and make the consequence of bypassing the
             // durable save explicit. Never enter an automatic retry loop.
             recovery.closeAfterAutosave = false

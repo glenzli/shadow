@@ -35,7 +35,9 @@ class ImageUnderstandingController final : public QObject {
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
     Q_PROPERTY(QString errorText READ errorText NOTIFY stateChanged)
     Q_PROPERTY(bool advancedReviewBusy READ advancedReviewBusy NOTIFY advancedReviewChanged)
-    Q_PROPERTY(QString advancedReviewPhotoId READ advancedReviewPhotoId NOTIFY advancedReviewChanged)
+    Q_PROPERTY(
+        QString advancedReviewPhotoId READ advancedReviewPhotoId NOTIFY advancedReviewChanged
+    )
     Q_PROPERTY(
         QString advancedReviewRepresentationId READ advancedReviewRepresentationId NOTIFY
             advancedReviewChanged
@@ -60,16 +62,13 @@ class ImageUnderstandingController final : public QObject {
     )
     Q_PROPERTY(QString photoDescription READ photoDescription NOTIFY photoProposalChanged)
     Q_PROPERTY(QStringList photoKeywords READ photoKeywords NOTIFY photoProposalChanged)
-    Q_PROPERTY(QString photoProposalDisposition READ photoProposalDisposition NOTIFY photoProposalChanged)
+    Q_PROPERTY(
+        QString photoProposalDisposition READ photoProposalDisposition NOTIFY photoProposalChanged
+    )
 
   public:
-    using BatchRunner = std::function<BackendImageUnderstandingBatch(
-        const QString&,
-        int,
-        const QString&,
-        bool,
-        bool
-    )>;
+    using BatchRunner = std::function<
+        BackendImageUnderstandingBatch(const QString&, int, const QString&, bool, bool)>;
     using SnapshotLoader = std::function<BackendImageUnderstandingSnapshot()>;
     using PauseWriter = std::function<BackendImageUnderstandingSnapshot(const QString&)>;
     using ReviewRunner = std::function<BackendClassificationReviewProposal(
@@ -78,14 +77,11 @@ class ImageUnderstandingController final : public QObject {
         const QString&,
         const QVector<BackendClassificationReviewCategory>&
     )>;
-    using ReviewAccepter =
-        std::function<QString(const QString&, const QString&, const QString&)>;
-    using ReviewDismisser =
-        std::function<void(const QString&, const QString&, const QString&)>;
+    using ReviewAccepter = std::function<QString(const QString&, const QString&, const QString&)>;
+    using ReviewDismisser = std::function<void(const QString&, const QString&, const QString&)>;
     using ProposalLoader =
         std::function<BackendImageUnderstandingProposal(const QString&, const QString&)>;
-    using KeywordAccepter =
-        std::function<void(const QString&, const QString&, const QString&)>;
+    using KeywordAccepter = std::function<void(const QString&, const QString&, const QString&)>;
     using CategoryProvider = std::function<QVector<BackendClassificationReviewCategory>()>;
     using TaxonomyRevisionProvider = std::function<QString()>;
 
@@ -104,6 +100,7 @@ class ImageUnderstandingController final : public QObject {
         QObject* parent = nullptr
     );
     ~ImageUnderstandingController() override;
+    void setProfileSwitchPending(bool pending);
 
     [[nodiscard]] bool busy() const noexcept;
     [[nodiscard]] bool canPause() const noexcept;
@@ -131,17 +128,12 @@ class ImageUnderstandingController final : public QObject {
     Q_INVOKABLE void resume();
     Q_INVOKABLE void pause();
     Q_INVOKABLE void notifyLibraryChanged();
-    Q_INVOKABLE void requestAdvancedReview(
-        const QString& photo_id,
-        const QString& representation_id
-    );
+    Q_INVOKABLE void
+    requestAdvancedReview(const QString& photo_id, const QString& representation_id);
     Q_INVOKABLE void acceptAdvancedReview();
     Q_INVOKABLE void dismissAdvancedReview();
     Q_INVOKABLE void clearAdvancedReview();
-    Q_INVOKABLE void loadPhotoProposal(
-        const QString& photo_id,
-        const QString& representation_id
-    );
+    Q_INVOKABLE void loadPhotoProposal(const QString& photo_id, const QString& representation_id);
     Q_INVOKABLE void acceptPhotoKeywords();
     Q_INVOKABLE void retranslateUi();
 
@@ -195,6 +187,7 @@ class ImageUnderstandingController final : public QObject {
     State state_ = State::Idle;
     bool first_batch_ = false;
     bool pause_requested_ = false;
+    bool profile_switch_pending_ = false;
     bool policy_changed_ = false;
     bool shutting_down_ = false;
 };

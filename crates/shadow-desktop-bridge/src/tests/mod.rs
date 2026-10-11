@@ -19,3 +19,4 @@ mod raw_inspection;
 mod recipe_compiler;
 mod recipe_identity;
 mod review;
+mod storage_profile_contract;

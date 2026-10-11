@@ -9,13 +9,16 @@ ApplicationWindow {
 
     required property var libraryServerController
     required property bool initialDarkAppearance
+    required property string storageProfileKind
+    required property string storageProfileName
+    readonly property string storageProfileLabel: storageProfileName
 
     visible: true
     width: 780
     height: 760
     minimumWidth: 620
     minimumHeight: 560
-    title: qsTr("Shadow Server")
+    title: qsTr("%1 · %2").arg(qsTr("Shadow Server")).arg(storageProfileLabel)
     color: Theme.window
 
     Component.onCompleted: {
@@ -69,7 +72,8 @@ ApplicationWindow {
 
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("Shadow Server")
+                    text: qsTr("%1 · %2").arg(qsTr("Shadow Server")).arg(window.storageProfileLabel)
+                    textFormat: Text.PlainText
                     color: Theme.textPrimary
                     font.pixelSize: 17
                     font.weight: Font.DemiBold

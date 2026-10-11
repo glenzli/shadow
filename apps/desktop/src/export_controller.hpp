@@ -27,18 +27,21 @@ class ExportController final : public QObject {
     Q_PROPERTY(int failedCount READ failedCount NOTIFY progressChanged)
     Q_PROPERTY(int currentCount READ currentCount NOTIFY progressChanged)
     Q_PROPERTY(int totalCount READ totalCount NOTIFY progressChanged)
-    Q_PROPERTY(bool cancellationRequested READ cancellationRequested NOTIFY cancellationRequestedChanged)
+    Q_PROPERTY(
+        bool cancellationRequested READ cancellationRequested NOTIFY cancellationRequestedChanged
+    )
     Q_PROPERTY(QStringList errors READ errors NOTIFY errorsChanged)
     Q_PROPERTY(QVariantList presets READ presets NOTIFY presetsChanged)
     Q_PROPERTY(QVariantList watermarks READ watermarks NOTIFY watermarksChanged)
 
-public:
+  public:
     explicit ExportController(
         std::shared_ptr<DesktopBackend> backend,
         const QString& isolated_settings_file = {},
         QObject* parent = nullptr
     );
     ~ExportController() override;
+    void setProfileSwitchPending(bool pending);
 
     [[nodiscard]] bool busy() const noexcept;
     [[nodiscard]] QString statusText() const;
@@ -57,20 +60,11 @@ public:
         const QVariantMap& options
     );
     Q_INVOKABLE void cancelExport();
-    Q_INVOKABLE QString savePreset(
-        const QString& name,
-        const QVariantMap& options
-    );
-    Q_INVOKABLE QString updatePreset(
-        const QString& preset_id,
-        const QString& name,
-        const QVariantMap& options
-    );
+    Q_INVOKABLE QString savePreset(const QString& name, const QVariantMap& options);
+    Q_INVOKABLE QString
+    updatePreset(const QString& preset_id, const QString& name, const QVariantMap& options);
     Q_INVOKABLE void removePreset(const QString& preset_id);
-    Q_INVOKABLE QString saveWatermark(
-        const QString& name,
-        const QVariantMap& definition
-    );
+    Q_INVOKABLE QString saveWatermark(const QString& name, const QVariantMap& definition);
     Q_INVOKABLE QString updateWatermark(
         const QString& watermark_id,
         const QString& name,
@@ -78,7 +72,7 @@ public:
     );
     Q_INVOKABLE void removeWatermark(const QString& watermark_id);
 
-signals:
+  signals:
     void busyChanged();
     void statusTextChanged();
     void progressChanged();
@@ -94,10 +88,10 @@ signals:
         const QStringList& errors
     );
 
-protected:
+  protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
-private:
+  private:
     void startRecoveryDrain();
     void finishExport();
     void applyProgress(
@@ -112,6 +106,8 @@ private:
     void setRawStatusText(QString status);
 
     std::shared_ptr<ExportBackend> export_backend_;
+    bool profile_switch_pending_ = false;
+    std::shared_ptr<std::atomic_bool> pause_token_;
     std::unique_ptr<ExportPresetStore> preset_store_;
     std::unique_ptr<ExportWatermarkStore> watermark_store_;
     LocalizedUiMessage status_message_;

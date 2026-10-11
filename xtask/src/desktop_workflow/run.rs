@@ -1,5 +1,22 @@
 use std::{ffi::OsString, io};
 
+fn debug_arguments(mut arguments: Vec<OsString>) -> Vec<OsString> {
+    let selected = arguments.iter().any(|argument| {
+        let argument = argument.to_string_lossy();
+        argument == "--profile-launch-context" || argument.starts_with("--profile-launch-context=")
+    });
+    if !selected {
+        arguments.extend([
+            OsString::from("--profile-launch-context"),
+            OsString::from("debug"),
+        ]);
+    }
+    arguments
+}
+
+#[cfg(test)]
+mod tests;
+
 pub(super) fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<()> {
     #[cfg(target_os = "macos")]
     {
@@ -64,6 +81,9 @@ mod macos {
             .is_some_and(|argument| argument == "--foreground");
         if foreground {
             arguments.remove(0);
+        }
+        let arguments = super::debug_arguments(arguments);
+        if foreground {
             return process::run(
                 Command::new(&bundle.shadow_executable).args(arguments),
                 "run Shadow in the foreground",
@@ -121,7 +141,10 @@ mod macos {
         println!(
             "usage:\n  cargo xtask desktop-run-debug [Shadow options]\n  \
              cargo xtask desktop-run-debug --foreground [Shadow options]\n  \
-             cargo xtask desktop-run-debug --check"
+             cargo xtask desktop-run-debug --check\n\n\
+             Opens the last development library, or the independent Debug Library.\n\
+             Use --profile daily for an intentional daily open,\n\
+             or --profile-root /absolute/path for a separate library."
         );
     }
 }

@@ -17,6 +17,28 @@ namespace {
 constexpr float DEFAULT_MINIMUM_SIMILARITY = 0.05F;
 constexpr int SMART_CATEGORY_SETTINGS_VERSION = 3;
 
+const char* builtInNameSource(const QStringView id) {
+    if (id == u"portrait")
+        return "Portrait";
+    if (id == u"landscape")
+        return "Landscape";
+    if (id == u"street")
+        return "Street";
+    if (id == u"architecture")
+        return "Architecture";
+    if (id == u"animals")
+        return "Animals";
+    if (id == u"travel")
+        return "Travel";
+    if (id == u"food")
+        return "Food & Still Life";
+    if (id == u"sports")
+        return "Sports & Action";
+    if (id == u"night")
+        return "Night & Astro";
+    return nullptr;
+}
+
 std::optional<float> calibratedBuiltInMinimumSimilarity(const QStringView id) {
     if (id == u"portrait" || id == u"landscape" || id == u"travel" || id == u"night")
         return 0.07F;
@@ -50,13 +72,19 @@ SmartCategoryController::SmartCategoryController(
     FeedbackWriter feedback_writer,
     ReviewCompleter review_completer,
     PauseWriter pause_writer,
+    const QString& isolated_settings_file,
     QObject* const parent
 ) :
     QObject(parent), runner_(std::move(runner)), snapshot_loader_(std::move(snapshot_loader)),
     members_loader_(std::move(members_loader)),
     review_queue_loader_(std::move(review_queue_loader)),
     feedback_writer_(std::move(feedback_writer)), review_completer_(std::move(review_completer)),
-    pause_writer_(std::move(pause_writer)) {
+    pause_writer_(std::move(pause_writer)),
+    settings_(
+        isolated_settings_file.isEmpty()
+            ? std::make_unique<QSettings>()
+            : std::make_unique<QSettings>(isolated_settings_file, QSettings::IniFormat)
+    ) {
     loadSettings();
     connect(
         &watcher_,
@@ -86,7 +114,7 @@ SmartCategoryController::~SmartCategoryController() {
 }
 
 QVector<SmartCategoryController::Category> SmartCategoryController::defaultCategories() {
-    return {
+    QVector<Category> categories{
         {"portrait",
          tr("Portrait"),
          "a portrait photograph focused on one or more people",
@@ -133,6 +161,9 @@ QVector<SmartCategoryController::Category> SmartCategoryController::defaultCateg
          0.07F,
          true},
     };
+    for (Category& category : categories)
+        category.uses_default_name = true;
+    return categories;
 }
 
 QVariantList SmartCategoryController::categories() const {
@@ -142,7 +173,8 @@ QVariantList SmartCategoryController::categories() const {
         result.push_back(
             QVariantMap{
                 {"id", category.id},
-                {"name", category.name},
+                {"name",
+                 category.uses_default_name ? tr(builtInNameSource(category.id)) : category.name},
                 {"description", category.description},
                 {"minimumSimilarity", category.minimum_similarity},
                 {"enabled", category.enabled},
@@ -156,6 +188,18 @@ QVariantList SmartCategoryController::categories() const {
 
 bool SmartCategoryController::busy() const noexcept {
     return watcher_.isRunning() || state_ == State::Running;
+}
+
+void SmartCategoryController::setProfileSwitchPending(const bool pending) {
+    if (profile_switch_pending_ == pending)
+        return;
+    profile_switch_pending_ = pending;
+    if (pending) {
+        feedback_refresh_timer_.stop();
+        pause();
+    } else {
+        continuePendingAdaptation();
+    }
 }
 bool SmartCategoryController::canPause() const noexcept {
     return state_ == State::Running;
@@ -482,6 +526,9 @@ void SmartCategoryController::updateCategory(
         return;
     for (Category& category : categories_) {
         if (category.id == id) {
+            const QString displayed_name =
+                category.uses_default_name ? tr(builtInNameSource(category.id)) : category.name;
+            category.uses_default_name = category.uses_default_name && clean_name == displayed_name;
             category.name = clean_name;
             category.description = clean_description;
             category.minimum_similarity = static_cast<float>(std::clamp(threshold, -1.0, 1.0));
@@ -613,6 +660,8 @@ void SmartCategoryController::restoreSnapshot() {
 }
 
 void SmartCategoryController::startRun(const bool start_new, const bool clear_embeddings) {
+    if (profile_switch_pending_)
+        return;
     if (enabledDefinitions().isEmpty()) {
         diagnostic_ = tr("Enable at least one smart category.");
         state_ = State::Failed;
@@ -762,7 +811,7 @@ QString SmartCategoryController::representationKey(
 }
 
 void SmartCategoryController::loadSettings() {
-    QSettings settings;
+    QSettings& settings = *settings_;
     const int settings_version =
         settings.value(QStringLiteral("smartCategories/settingsVersion"), 1).toInt();
     const int count = settings.beginReadArray(QStringLiteral("smartCategories/items"));
@@ -771,6 +820,13 @@ void SmartCategoryController::loadSettings() {
         Category category;
         category.id = settings.value(QStringLiteral("id")).toString();
         category.name = settings.value(QStringLiteral("name")).toString();
+        const char* default_name = builtInNameSource(category.id);
+        const bool legacy_default_name = default_name != nullptr
+                                         && (category.name == QString::fromLatin1(default_name)
+                                             || category.name == tr(default_name));
+        category.uses_default_name =
+            default_name != nullptr
+            && settings.value(QStringLiteral("usesDefaultName"), legacy_default_name).toBool();
         category.description = settings.value(QStringLiteral("description")).toString();
         category.minimum_similarity =
             settings.value(QStringLiteral("minimumSimilarity"), 0.20).toFloat();
@@ -814,7 +870,7 @@ void SmartCategoryController::loadSettings() {
 }
 
 void SmartCategoryController::saveSettings() const {
-    QSettings settings;
+    QSettings& settings = *settings_;
     settings.beginWriteArray(
         QStringLiteral("smartCategories/items"),
         static_cast<int>(categories_.size())
@@ -823,10 +879,16 @@ void SmartCategoryController::saveSettings() const {
         settings.setArrayIndex(static_cast<int>(index));
         const Category& category = categories_.at(index);
         settings.setValue(QStringLiteral("id"), category.id);
-        settings.setValue(QStringLiteral("name"), category.name);
+        settings.setValue(
+            QStringLiteral("name"),
+            category.uses_default_name ? QString::fromLatin1(builtInNameSource(category.id))
+                                       : category.name
+        );
+        settings.setValue(QStringLiteral("usesDefaultName"), category.uses_default_name);
         settings.setValue(QStringLiteral("description"), category.description);
         settings.setValue(QStringLiteral("minimumSimilarity"), category.minimum_similarity);
         settings.setValue(QStringLiteral("enabled"), category.enabled);
     }
     settings.endArray();
+    settings.sync();
 }
