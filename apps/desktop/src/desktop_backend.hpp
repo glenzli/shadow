@@ -350,6 +350,8 @@ class DesktopBackend final {
         const QString& representation_id,
         std::uint64_t token
     ) const;
+    [[nodiscard]] std::uint64_t beginSmartClassification() const;
+    void cancelSmartClassification(std::uint64_t token) const;
     [[nodiscard]] BackendSmartClassificationBatch classifySmartCategoriesBatch(
         const QString& infer_base_url,
         const QString& credential_file,
@@ -357,7 +359,8 @@ class DesktopBackend final {
         const QString& config_revision,
         const QString& generation,
         bool start_new,
-        bool clear_embeddings
+        bool clear_embeddings,
+        std::uint64_t token
     ) const;
     [[nodiscard]] BackendSmartClassificationSnapshot smartClassificationSnapshot() const;
     [[nodiscard]] QStringList smartCategoryMembers(const QString& category_id) const;

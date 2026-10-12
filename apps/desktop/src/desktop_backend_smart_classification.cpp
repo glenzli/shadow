@@ -3,6 +3,14 @@
 
 #include <utility>
 
+std::uint64_t DesktopBackend::beginSmartClassification() const {
+    return impl_->session->begin_smart_classification();
+}
+
+void DesktopBackend::cancelSmartClassification(const std::uint64_t token) const {
+    impl_->session->cancel_smart_classification(token);
+}
+
 BackendSmartClassificationBatch DesktopBackend::classifySmartCategoriesBatch(
     const QString& infer_base_url,
     const QString& credential_file,
@@ -10,7 +18,8 @@ BackendSmartClassificationBatch DesktopBackend::classifySmartCategoriesBatch(
     const QString& config_revision,
     const QString& generation,
     const bool start_new,
-    const bool clear_embeddings
+    const bool clear_embeddings,
+    const std::uint64_t token
 ) const {
     rust::Vec<shadow::desktop::FfiSmartCategoryDefinition> ffi_definitions;
     ffi_definitions.reserve(static_cast<std::size_t>(definitions.size()));
@@ -28,7 +37,8 @@ BackendSmartClassificationBatch DesktopBackend::classifySmartCategoriesBatch(
         config_revision.toStdString(),
         generation.toStdString(),
         start_new,
-        clear_embeddings
+        clear_embeddings,
+        token
     );
     return {
         .config_revision = desktop_backend_projection::qstring(source.config_revision),

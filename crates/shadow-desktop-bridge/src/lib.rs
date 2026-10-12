@@ -2927,6 +2927,8 @@ mod ffi {
             representation_id: &str,
             token: u64,
         ) -> Result<FfiSemanticSearchReport>;
+        fn begin_smart_classification(self: &DesktopSession) -> Result<u64>;
+        fn cancel_smart_classification(self: &DesktopSession, token: u64);
         fn classify_smart_categories_batch(
             self: &DesktopSession,
             infer_base_url: &str,
@@ -2936,6 +2938,7 @@ mod ffi {
             generation: &str,
             start_new: bool,
             clear_embeddings: bool,
+            token: u64,
         ) -> Result<FfiSmartClassificationBatch>;
         fn smart_classification_snapshot(
             self: &DesktopSession,
@@ -3464,6 +3467,7 @@ struct DesktopSession {
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
     semantic_search_token: AtomicU64,
+    smart_classification_token: AtomicU64,
     similar_review_token: AtomicU64,
     people_analyses: people_analysis_service::PeopleAnalysisService,
     people_library: people_library_store::PeopleLibraryStore,
@@ -3584,6 +3588,7 @@ fn open_desktop_session_at(
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
         semantic_search_token: AtomicU64::new(0),
+        smart_classification_token: AtomicU64::new(0),
         similar_review_token: AtomicU64::new(0),
         people_analyses: people_analysis_service::PeopleAnalysisService::new(),
         people_library: people_library_store::PeopleLibraryStore::open(people_library_root)?,

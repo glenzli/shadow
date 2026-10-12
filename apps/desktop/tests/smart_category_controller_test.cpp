@@ -6,6 +6,7 @@
 #include <QTemporaryDir>
 #include <QThread>
 
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -40,7 +41,8 @@ QString presentedFailure(const QString& diagnostic) {
             const QString&,
             const QString&,
             const bool,
-            const bool
+            const bool,
+            const std::uint64_t
         ) -> BackendSmartClassificationBatch {
             throw std::runtime_error(diagnostic.toStdString());
         },
@@ -56,6 +58,84 @@ QString presentedFailure(const QString& diagnostic) {
     require(controller.failed(), "a runner failure must reach the failed presentation state");
     return controller.errorText();
 }
+
+void cancels_inflight_first_batch(const int action) {
+    std::atomic_bool entered{false};
+    std::atomic_bool cancelled{false};
+    int pauses = 0;
+    BackendSmartClassificationSnapshot snapshot = emptySnapshot();
+    auto controller = std::make_unique<SmartCategoryController>(
+        [&](const QVector<BackendSmartCategoryDefinition>&,
+            const QString& revision,
+            const QString&,
+            bool,
+            bool,
+            std::uint64_t token) {
+            require(token == 42, "the batch carries its independently allocated token");
+            entered.store(true);
+            QElapsedTimer timer;
+            timer.start();
+            while (!cancelled.load() && timer.elapsed() < 2000)
+                QThread::msleep(2);
+            snapshot.config_revision = revision;
+            snapshot.generation = "first-batch-generation";
+            snapshot.status = "paused";
+            return BackendSmartClassificationBatch{
+                .config_revision = revision,
+                .generation = snapshot.generation,
+                .status = "paused",
+            };
+        },
+        [&]() { return snapshot; },
+        [](const QString&) { return QStringList{}; },
+        []() { return QVector<BackendSmartCategoryReviewItem>{}; },
+        [](const QString&, const QString&, const QString&, std::int8_t) {},
+        [](const QString&, const QString&, const QVector<BackendSmartCategoryFeedbackDecision>&) {},
+        [&](const QString& generation) {
+            require(
+                generation == "first-batch-generation",
+                "late first-batch identity is checkpointed"
+            );
+            ++pauses;
+        },
+        QString{},
+        SmartCategoryController::Cancellation{
+            []() { return std::uint64_t{42}; },
+            [&](std::uint64_t token) {
+                require(token == 42, "cancellation targets the exact batch");
+                cancelled.store(true);
+            },
+        }
+    );
+    controller->refresh();
+    QElapsedTimer entered_timer;
+    entered_timer.start();
+    while (!entered.load() && entered_timer.elapsed() < 1000) {
+        QCoreApplication::processEvents();
+        QThread::msleep(2);
+    }
+    require(entered.load(), "a first batch is actually in flight");
+    QElapsedTimer timer;
+    timer.start();
+    if (action == 0)
+        controller->pause();
+    else if (action == 1)
+        controller->setProfileSwitchPending(true);
+    else
+        controller.reset();
+    if (controller) {
+        waitUntilReady(*controller);
+        require(
+            controller->canResume() && !controller->failed(),
+            "cancellation is resumable, not a failure"
+        );
+    }
+    require(
+        cancelled.load() && pauses == 1,
+        "pause, profile switch and shutdown cancel before waiting"
+    );
+    require(timer.elapsed() < 500, "shutdown must not wait for a stalled provider response");
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -63,6 +143,10 @@ int main(int argc, char** argv) {
     QCoreApplication::setOrganizationName(QStringLiteral("ShadowSmartCategoryTest"));
     QCoreApplication::setApplicationName(QStringLiteral("controller"));
     QSettings().clear();
+
+    cancels_inflight_first_batch(0);
+    cancels_inflight_first_batch(1);
+    cancels_inflight_first_batch(2);
 
     BackendSmartClassificationSnapshot snapshot = emptySnapshot();
     QHash<QString, QStringList> members;
@@ -77,7 +161,8 @@ int main(int argc, char** argv) {
             const QString& config_revision,
             const QString& generation,
             const bool start_new,
-            const bool clear_embeddings) {
+            const bool clear_embeddings,
+            const std::uint64_t) {
             require(!definitions.isEmpty(), "default category definitions cross the runner");
             require(!clear_embeddings, "ordinary update preserves embedding cache");
             ++calls;
@@ -266,7 +351,8 @@ int main(int argc, char** argv) {
             const QString& config_revision,
             const QString&,
             const bool start_new,
-            const bool clear_embeddings) {
+            const bool clear_embeddings,
+            const std::uint64_t) {
             require(start_new, "a complete published generation starts one adaptation catch-up");
             require(!clear_embeddings, "adaptation catch-up reuses the exact image vector cache");
             pending_adaptation_resumed = true;
@@ -328,7 +414,8 @@ int main(int argc, char** argv) {
             const QString& config_revision,
             const QString& generation,
             const bool start_new,
-            const bool) {
+            const bool,
+            const std::uint64_t) {
             require(!start_new, "resume must keep the persisted generation");
             require(
                 generation == QStringLiteral("generation-interrupted"),
@@ -383,7 +470,8 @@ int main(int argc, char** argv) {
            const QString&,
            const QString&,
            const bool,
-           const bool) { return BackendSmartClassificationBatch{}; },
+           const bool,
+           const std::uint64_t) { return BackendSmartClassificationBatch{}; },
         []() { return emptySnapshot(); },
         [](const QString&) { return QStringList{}; },
         []() { return QVector<BackendSmartCategoryReviewItem>{}; },
@@ -428,7 +516,8 @@ int main(int argc, char** argv) {
                const QString&,
                const QString&,
                bool,
-               bool) { return BackendSmartClassificationBatch{}; },
+               bool,
+               std::uint64_t) { return BackendSmartClassificationBatch{}; },
             []() { return emptySnapshot(); },
             [](const QString&) { return QStringList{}; },
             []() { return QVector<BackendSmartCategoryReviewItem>{}; },

@@ -56,7 +56,8 @@ class SmartCategoryController final : public QObject {
         const QString&,
         const QString&,
         bool,
-        bool
+        bool,
+        std::uint64_t
     )>;
     using SnapshotLoader = std::function<BackendSmartClassificationSnapshot()>;
     using MembersLoader = std::function<QStringList(const QString&)>;
@@ -66,6 +67,10 @@ class SmartCategoryController final : public QObject {
     using ReviewCompleter = std::function<
         void(const QString&, const QString&, const QVector<BackendSmartCategoryFeedbackDecision>&)>;
     using PauseWriter = std::function<void(const QString&)>;
+    struct Cancellation final {
+        std::function<std::uint64_t()> begin;
+        std::function<void(std::uint64_t)> cancel;
+    };
 
     explicit SmartCategoryController(
         Runner runner,
@@ -76,6 +81,7 @@ class SmartCategoryController final : public QObject {
         ReviewCompleter review_completer,
         PauseWriter pause_writer,
         const QString& isolated_settings_file = {},
+        Cancellation cancellation = {},
         QObject* parent = nullptr
     );
     ~SmartCategoryController() override;
@@ -175,6 +181,8 @@ class SmartCategoryController final : public QObject {
     FeedbackWriter feedback_writer_;
     ReviewCompleter review_completer_;
     PauseWriter pause_writer_;
+    Cancellation cancellation_;
+    std::uint64_t batch_token_ = 0;
     std::unique_ptr<QSettings> settings_;
     QFutureWatcher<SmartCategoryTaskResult> watcher_;
     QVector<Category> categories_;

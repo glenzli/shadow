@@ -101,8 +101,9 @@ pub use smart_classification::{
     SmartCategoryReviewDecision, SmartCategoryReviewItem, SmartClassificationBatch,
     SmartClassificationError, SmartClassificationPolicy, SmartClassificationRequest,
     SmartClassificationSnapshot, SmartClassificationStatus, classify_review_smart_categories,
-    complete_smart_category_review, pause_smart_classification, set_smart_category_feedback,
-    smart_category_members, smart_category_review_queue, smart_classification_snapshot,
+    classify_review_smart_categories_cancellable, complete_smart_category_review,
+    pause_smart_classification, set_smart_category_feedback, smart_category_members,
+    smart_category_review_queue, smart_classification_snapshot,
 };
 pub use technical_observation::{
     TECHNICAL_ANALYSIS_MAX_EDGE, TechnicalObservationActor, TechnicalObservationError,

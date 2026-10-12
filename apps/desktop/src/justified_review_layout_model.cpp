@@ -121,7 +121,10 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
     endResetModel();
 
     if (source_model_ != nullptr) {
-        const auto request_rebuild = [this]() { this->requestRebuild(); };
+        const auto request_rebuild = [this]() {
+            all_items_dirty_ = true;
+            this->requestRebuild();
+        };
         source_connections_.append(
             connect(source_model_, &QAbstractItemModel::modelReset, this, request_rebuild)
         );
@@ -835,9 +838,7 @@ void JustifiedReviewLayoutModel::updateSourceItems(
     const QModelIndex& last,
     const QList<int>& roles
 ) {
-    // A pending full rebuild supersedes updates. An append can still carry
-    // independent badge changes for rows already in the layout.
-    if (source_model_ == nullptr || full_rebuild_pending_) {
+    if (source_model_ == nullptr) {
         return;
     }
     const auto names = source_model_->roleNames();
@@ -845,16 +846,19 @@ void JustifiedReviewLayoutModel::updateSourceItems(
     const int representation_role = names.key("representationId", -1);
     if (roles.isEmpty() || !first.isValid() || !last.isValid() || first.parent().isValid()
         || last.parent().isValid() || photo_role < 0 || representation_role < 0) {
+        all_items_dirty_ = true;
         requestRebuild();
         return;
     }
+    bool dimensions_changed = false;
     for (const int role : roles) {
         const auto name = names.value(role);
-        if (name.isEmpty() || name == "photoId" || name == "representationId"
-            || name == "visualWidth" || name == "visualHeight") {
+        if (name.isEmpty() || name == "photoId" || name == "representationId") {
+            all_items_dirty_ = true;
             requestRebuild();
             return;
         }
+        dimensions_changed = dimensions_changed || name == "visualWidth" || name == "visualHeight";
     }
     QSet<int> changed_rows;
     for (int row = first.row(); row <= last.row(); ++row) {
@@ -863,12 +867,18 @@ void JustifiedReviewLayoutModel::updateSourceItems(
                             + source_model_->data(source_index, representation_role).toString();
         const auto position = item_positions_.constFind(key);
         if (position == item_positions_.cend()) {
+            all_items_dirty_ = true;
             requestRebuild();
             return;
         }
         // Photo roles are materialized only for visible rows. Their current
         // source values need no second resident copy in the layout.
         changed_rows.insert(absoluteRow(position.value()));
+    }
+    if (dimensions_changed || full_rebuild_pending_) {
+        pending_item_rows_.unite(changed_rows);
+        requestRebuild();
+        return;
     }
     for (const int row : changed_rows) {
         emit dataChanged(index(row, 0), index(row, 0), {ItemsRole});
@@ -946,8 +956,78 @@ void JustifiedReviewLayoutModel::rebuild() {
         }
     }
 
+    // A proxy upgrade can change its pixel dimensions without moving a single
+    // card. Retain those rows so QML does not destroy/recreate every delegate
+    // (and enqueue the same thumbnails) on each import refresh.
+    const bool stable_membership =
+        rows_.size() == next_rows.size()
+        && std::equal(
+            rows_.cbegin(),
+            rows_.cend(),
+            next_rows.cbegin(),
+            [](const Row& old, const Row& next) {
+                if (old.kind != next.kind || old.section_key != next.section_key
+                    || old.items.size() != next.items.size()) {
+                    return false;
+                }
+                return std::equal(
+                    old.items.cbegin(),
+                    old.items.cend(),
+                    next.items.cbegin(),
+                    [](const QVariant& left, const QVariant& right) {
+                        return representationKey(left.toMap()) == representationKey(right.toMap());
+                    }
+                );
+            }
+        );
+    if (stable_membership) {
+        projected_source_count_ = source_model_ ? source_model_->rowCount() : 0;
+        bool anchors_changed = false;
+        for (int row = 0; row < rows_.size(); ++row) {
+            const Row& old = rows_.at(row);
+            const Row& next = next_rows.at(row);
+            QList<int> changed_roles;
+            if (old.items != next.items
+                || (old.kind == QStringLiteral("photos")
+                    && (all_items_dirty_ || pending_item_rows_.contains(row))))
+                changed_roles.push_back(ItemsRole);
+            if (old.height != next.height)
+                changed_roles.push_back(RowHeightRole);
+            if (old.used_width != next.used_width)
+                changed_roles.push_back(UsedWidthRole);
+            if (old.section_title != next.section_title)
+                changed_roles.push_back(SectionTitleRole);
+            if (old.section_subtitle != next.section_subtitle)
+                changed_roles.push_back(SectionSubtitleRole);
+            if (old.section_item_count != next.section_item_count)
+                changed_roles.push_back(SectionItemCountRole);
+            anchors_changed = anchors_changed || old.section_title != next.section_title
+                              || old.navigation_label != next.navigation_label
+                              || old.navigation_short_label != next.navigation_short_label
+                              || old.navigation_major_label != next.navigation_major_label;
+            rows_[row] = std::move(next_rows[row]);
+            if (!changed_roles.isEmpty()) {
+                emit dataChanged(index(row, 0), index(row, 0), changed_roles);
+            }
+        }
+        pending_item_rows_.clear();
+        all_items_dirty_ = false;
+        if (anchors_changed)
+            emit sectionAnchorsChanged();
+        if (diagnostics.enabled()) {
+            diagnostics.record(
+                ReviewDiagnostics::Stage::LayoutRebuild,
+                diagnostic_clock.elapsed(),
+                projected_source_count_
+            );
+        }
+        return;
+    }
+
     beginResetModel();
     rows_ = std::move(next_rows);
+    pending_item_rows_.clear();
+    all_items_dirty_ = false;
     projected_source_count_ = source_model_ ? source_model_->rowCount() : 0;
     item_positions_.clear();
     section_header_rows_.clear();

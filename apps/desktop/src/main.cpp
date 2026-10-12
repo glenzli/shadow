@@ -499,7 +499,8 @@ int main(int argc, char* argv[]) {
             const QString& config_revision,
             const QString& generation,
             const bool start_new,
-            const bool clear_embeddings
+            const bool clear_embeddings,
+            const std::uint64_t token
         ) {
             return backend->classifySmartCategoriesBatch(
                 infer_base_url,
@@ -508,7 +509,8 @@ int main(int argc, char* argv[]) {
                 config_revision,
                 generation,
                 start_new,
-                clear_embeddings
+                clear_embeddings,
+                token
             );
         },
         [backend]() { return backend->smartClassificationSnapshot(); },
@@ -530,7 +532,11 @@ int main(int argc, char* argv[]) {
             const QVector<BackendSmartCategoryFeedbackDecision>& decisions
         ) { backend->completeSmartCategoryReview(photo_id, representation_id, decisions); },
         [backend](const QString& generation) { backend->pauseSmartClassification(generation); },
-        isolated_settings_file
+        isolated_settings_file,
+        {
+            [backend]() { return backend->beginSmartClassification(); },
+            [backend](const std::uint64_t token) { backend->cancelSmartClassification(token); },
+        }
     );
     ImageUnderstandingController image_understanding_controller(
         &ai_preferences,

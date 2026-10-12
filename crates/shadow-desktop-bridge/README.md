@@ -16,7 +16,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Versioned Recipe document projection and verified bundled LUT storage | [`src/recipe_interchange.rs`](src/recipe_interchange.rs), [`src/recipe_lut_resources.rs`](src/recipe_lut_resources.rs) |
 | Exact pre-curve recipe prefix, existing warm-source lookup and cancellable scalar input map | [`src/edit_preview/curve_input.rs`](src/edit_preview/curve_input.rs) |
 | Frozen color-only Grade Stack projection, explicit omissions, and cancellable LUT export | [`src/lut_export.rs`](src/lut_export.rs) |
-| Checkpointed smart-category classification projection | [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
+| Checkpointed smart-category classification projection and session-local batch cancellation | [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
 | Library service composition | [`src/library_service.rs`](src/library_service.rs) |
 | Ordered Library photo paging, facets, and signed visual presentation | [`src/library_service/browse.rs`](src/library_service/browse.rs) |
 | Provider-independent Library viewport aggregation | [`src/library_service/map_browse.rs`](src/library_service/map_browse.rs) |

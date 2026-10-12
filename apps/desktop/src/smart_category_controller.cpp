@@ -73,13 +73,14 @@ SmartCategoryController::SmartCategoryController(
     ReviewCompleter review_completer,
     PauseWriter pause_writer,
     const QString& isolated_settings_file,
+    Cancellation cancellation,
     QObject* const parent
 ) :
     QObject(parent), runner_(std::move(runner)), snapshot_loader_(std::move(snapshot_loader)),
     members_loader_(std::move(members_loader)),
     review_queue_loader_(std::move(review_queue_loader)),
     feedback_writer_(std::move(feedback_writer)), review_completer_(std::move(review_completer)),
-    pause_writer_(std::move(pause_writer)),
+    pause_writer_(std::move(pause_writer)), cancellation_(std::move(cancellation)),
     settings_(
         isolated_settings_file.isEmpty()
             ? std::make_unique<QSettings>()
@@ -102,8 +103,20 @@ SmartCategoryController::SmartCategoryController(
 }
 
 SmartCategoryController::~SmartCategoryController() {
+    feedback_refresh_timer_.stop();
+    if (batch_token_ != 0 && cancellation_.cancel)
+        cancellation_.cancel(batch_token_);
     watcher_.waitForFinished();
-    if (state_ == State::Running && !generation_.isEmpty()) {
+    // The first batch may allocate its generation after shutdown was requested.
+    // Read its checkpoint without running finishBatch(), which may schedule work.
+    bool completed = false;
+    if (state_ == State::Running && watcher_.future().isStarted()) {
+        const auto result = watcher_.result();
+        if (!result.batch.generation.isEmpty())
+            generation_ = result.batch.generation;
+        completed = result.batch.status == QStringLiteral("complete");
+    }
+    if (state_ == State::Running && !completed && !generation_.isEmpty()) {
         try {
             pause_writer_(generation_);
         } catch (const std::exception& error) {
@@ -361,6 +374,8 @@ void SmartCategoryController::pause() {
     if (state_ != State::Running)
         return;
     pause_requested_ = true;
+    if (batch_token_ != 0 && cancellation_.cancel)
+        cancellation_.cancel(batch_token_);
     emit stateChanged();
     if (!watcher_.isRunning() && !generation_.isEmpty()) {
         try {
@@ -684,11 +699,20 @@ void SmartCategoryController::startRun(const bool start_new, const bool clear_em
 }
 
 void SmartCategoryController::runNextBatch() {
+    try {
+        batch_token_ = cancellation_.begin ? cancellation_.begin() : 0;
+    } catch (const std::exception& error) {
+        diagnostic_ = QString::fromUtf8(error.what());
+        state_ = State::Failed;
+        emit stateChanged();
+        return;
+    }
     const QVector<BackendSmartCategoryDefinition> definitions = enabledDefinitions();
     const QString config_revision = config_revision_;
     const QString generation = generation_;
     const bool start_new = first_batch_;
     const bool clear_embeddings = clear_embeddings_;
+    const std::uint64_t token = batch_token_;
     first_batch_ = false;
     clear_embeddings_ = false;
     watcher_.setFuture(
@@ -697,11 +721,18 @@ void SmartCategoryController::runNextBatch() {
                            config_revision,
                            generation,
                            start_new,
-                           clear_embeddings]() {
+                           clear_embeddings,
+                           token]() {
             SmartCategoryTaskResult result;
             try {
-                result.batch =
-                    runner(definitions, config_revision, generation, start_new, clear_embeddings);
+                result.batch = runner(
+                    definitions,
+                    config_revision,
+                    generation,
+                    start_new,
+                    clear_embeddings,
+                    token
+                );
             } catch (const std::exception& error) {
                 result.diagnostic = QString::fromUtf8(error.what());
             }
@@ -711,6 +742,7 @@ void SmartCategoryController::runNextBatch() {
 }
 
 void SmartCategoryController::finishBatch() {
+    batch_token_ = 0;
     const SmartCategoryTaskResult result = watcher_.result();
     if (!result.diagnostic.isEmpty()) {
         qWarning().noquote() << "Smart category classification failed:" << result.diagnostic;

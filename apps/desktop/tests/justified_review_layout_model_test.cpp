@@ -710,10 +710,10 @@ void decisions_update_one_row_without_relayout_or_catalog_scan() {
               << " row update, " << resets << " resets, " << elapsed / 1000 << " us\n";
     source.notify({ReviewModel::VisualWidthRole});
     QCoreApplication::processEvents();
-    require(resets == 1, "dimensions still rebuild geometry");
+    require(resets == 0, "unchanged dimensions retain existing delegates");
     source.notify({});
     QCoreApplication::processEvents();
-    require(resets == 2, "unspecified source roles rebuild safely");
+    require(resets == 0, "unspecified roles refresh items without resetting stable membership");
 
     // A filter removes the rated item before the deferred layout publication.
     source.setFilterRole(ReviewModel::DecisionRatingRole);
@@ -725,6 +725,63 @@ void decisions_update_one_row_without_relayout_or_catalog_scan() {
         next.value("photoId") == "13",
         "filtered-out decisions leave no stale navigation entry"
     );
+}
+
+void preview_upgrades_retain_rows_and_match_fresh_geometry() {
+    ReviewModel photos;
+    QVector<ReviewItem> items;
+    for (int i = 0; i < 1000; ++i) {
+        auto item = photo("fixture", 6000, 4000);
+        item.photo_id = QString::number(i);
+        item.representation_id = "representation-" + item.photo_id;
+        items.append(item);
+    }
+    photos.replace(items, 1);
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&photos);
+    layout.setAvailableWidth(900);
+    int resets = 0;
+    int updates = 0;
+    QObject::connect(&layout, &QAbstractItemModel::modelReset, [&]() { ++resets; });
+    QObject::connect(&layout, &QAbstractItemModel::dataChanged, [&]() { ++updates; });
+    const auto before = layout.navigationTarget("501", "representation-501", 0, 0);
+    items[501].visual_width = 2048;
+    items[501].visual_height = 1365;
+    require(photos.reconcileSnapshot(items, 1), "preview upgrade reconciles");
+    // A badge changes after a dimensions signal but before deferred publication.
+    require(photos.updateDecision("502", 1, "picked", 4), "coalesced badge updated");
+    QCoreApplication::processEvents();
+    require(resets == 0 && updates < 5, "one proxy upgrade retains all stable gallery rows");
+    const auto after = layout.navigationTarget("501", "representation-501", 0, 0);
+    require(before.value("layoutRow") == after.value("layoutRow"), "viewport row remains stable");
+    require(after.value("visualWidth").toInt() == 2048, "current proxy dimensions are published");
+    require(
+        layout.navigationTarget("502", "representation-502", 0, 0).value("decisionRating").toInt()
+            == 4,
+        "pending metadata changes are retained"
+    );
+    JustifiedReviewLayoutModel fresh;
+    fresh.setSourceModel(&photos);
+    fresh.setAvailableWidth(900);
+    require(layout.rowCount() == fresh.rowCount(), "incremental and fresh row counts agree");
+    for (int row = 0; row < layout.rowCount(); ++row) {
+        for (const int role :
+             {JustifiedReviewLayoutModel::ItemsRole,
+              JustifiedReviewLayoutModel::RowHeightRole,
+              JustifiedReviewLayoutModel::UsedWidthRole}) {
+            require(
+                layout.data(layout.index(row, 0), role) == fresh.data(fresh.index(row, 0), role),
+                "retained rows exactly match fresh layout and metadata"
+            );
+        }
+    }
+    std::cout << "1000-photo proxy upgrade: " << updates << " row updates, " << resets
+              << " resets\n";
+    items[501].visual_width = 400;
+    items[501].visual_height = 6000;
+    require(photos.reconcileSnapshot(items, 1), "aspect-changing upgrade reconciles");
+    QCoreApplication::processEvents();
+    require(resets == 1, "a real membership change uses the safe full layout reset");
 }
 
 } // namespace
@@ -744,5 +801,6 @@ int main(int argc, char* argv[]) {
     section_anchors_follow_visible_header_rows();
     grouped_page_append_updates_section_tails_without_reset();
     decisions_update_one_row_without_relayout_or_catalog_scan();
+    preview_upgrades_retain_rows_and_match_fresh_geometry();
     return EXIT_SUCCESS;
 }

@@ -163,6 +163,8 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
     QVector<QMetaObject::Connection> source_connections_;
     QTimer rebuild_timer_;
     QVector<Row> rows_;
+    QSet<int> pending_item_rows_;
+    bool all_items_dirty_ = false;
     QHash<QString, ItemPosition> item_positions_;
     QVector<int> section_header_rows_;
     QVariantList section_variants_;
