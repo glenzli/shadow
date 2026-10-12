@@ -1,5 +1,6 @@
 #pragma once
 
+#include "storage_profile_archive.hpp"
 #include "storage_profile_registry.hpp"
 #include "storage_profile_switch.hpp"
 
@@ -21,6 +22,7 @@ class StorageProfileController final : public QObject {
     Q_PROPERTY(bool canCancel READ canCancel NOTIFY changed)
     Q_PROPERTY(QString statusText READ statusText NOTIFY changed)
     Q_PROPERTY(QString errorText READ errorText NOTIFY changed)
+    Q_PROPERTY(QString resultRoot READ resultRoot NOTIFY changed)
   public:
     struct SwitchHooks final {
         // Return a product explanation when temporary authored state needs a
@@ -30,6 +32,9 @@ class StorageProfileController final : public QObject {
         std::function<bool()> jobs_quiet;
         std::function<bool()> prepare_editor;
         std::function<void(const StorageProfileInfo&, const QStringList&)> restart;
+        std::function<QString()> archive_blocker;
+        std::function<void(const StorageProfileArchiveRequest&)> archive;
+        std::function<void()> cancel_archive;
     };
     StorageProfileController(
         StorageProfile& current,
@@ -47,6 +52,7 @@ class StorageProfileController final : public QObject {
     [[nodiscard]] bool canCancel() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QString errorText() const;
+    [[nodiscard]] QString resultRoot() const;
     Q_INVOKABLE void refresh();
     void rememberCurrent();
     Q_INVOKABLE void renameCurrent(const QString& name);
@@ -56,6 +62,14 @@ class StorageProfileController final : public QObject {
     Q_INVOKABLE void cancelSwitch();
     Q_INVOKABLE void revealCurrent();
     Q_INVOKABLE void copyCurrentLocation();
+    Q_INVOKABLE void backupLibrary(const QUrl& parent);
+    Q_INVOKABLE void restoreLibrary(const QUrl& backup, const QUrl& parent, const QString& name);
+    Q_INVOKABLE void createTestCopy(const QUrl& parent, const QString& name);
+    Q_INVOKABLE void verifyBackup(const QUrl& backup);
+    Q_INVOKABLE void revealResult();
+    void archiveCompleted(const QString& root);
+    void archiveFailed(const QString& diagnostic);
+    void archiveProgress(quint64 completed_files, quint64 total_files);
     void editorReady();
     void editorSaveFailed(const QString& error);
     void restartActivated();
@@ -68,7 +82,8 @@ class StorageProfileController final : public QObject {
     bool eventFilter(QObject* watched, QEvent* event) override;
 
   private:
-    enum class State { Idle, WaitingJobs, Saving, Starting, Leaving };
+    enum class State { Idle, WaitingJobs, Saving, Archiving, Starting, Leaving };
+    void beginArchive(StorageProfileArchiveRequest request);
     void begin(const StorageProfileInfo& target);
     void advance();
     void fail(const QString& error);
@@ -82,4 +97,10 @@ class StorageProfileController final : public QObject {
     QString error_;
     QTimer poll_;
     StorageProfileRestart restart_;
+    std::optional<StorageProfileArchiveRequest> archive_;
+    QString result_root_;
+    QString result_text_;
+    quint64 completed_files_ = 0;
+    quint64 total_files_ = 0;
+    bool archive_cancelled_ = false;
 };

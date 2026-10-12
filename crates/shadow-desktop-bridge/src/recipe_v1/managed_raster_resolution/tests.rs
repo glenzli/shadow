@@ -105,3 +105,53 @@ fn resolver_rehashes_the_object_and_fails_closed_after_tampering() {
 
     std::fs::remove_dir_all(root).expect("remove fixture");
 }
+
+#[test]
+fn restored_profile_resolves_lut_bytes_without_changing_the_immutable_recipe() {
+    use crate::recipe_lut_resources::{
+        collect_lut_resources, local_lut_path, read_verified_lut, relocate_draft_luts,
+    };
+    use crate::recipe_v1::compile_recipe_render_plan_with_managed_rasters;
+    use crate::recipe_v1::{GradeStackDraft, LutEditParameters, grade_stack_recipe_v1_snapshot};
+    use sha2::{Digest, Sha256};
+    use shadow_bridge::AdjustmentRenderOperation;
+    use std::fs;
+
+    let source = tempfile::tempdir().unwrap();
+    let restored = tempfile::tempdir().unwrap();
+    let text = "TITLE \"Portable LUT\"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n".to_owned();
+    let id = format!("{:x}", Sha256::digest(text.as_bytes()));
+    let old = local_lut_path(source.path(), &id);
+    let local = local_lut_path(restored.path(), &id);
+    fs::create_dir_all(old.parent().unwrap()).unwrap();
+    fs::create_dir_all(local.parent().unwrap()).unwrap();
+    fs::write(&old, &text).unwrap();
+    fs::write(&local, &text).unwrap();
+    let mut draft = GradeStackDraft::default();
+    draft.grade_nodes[0].fine.lut = LutEditParameters {
+        resource_id: id.clone(),
+        title: "Preserved LUT".into(),
+        managed_path: old.to_str().unwrap().into(),
+        intensity: 0.37,
+    };
+    let snapshot = grade_stack_recipe_v1_snapshot(&draft, None).unwrap();
+    let immutable = serde_json::to_vec(&snapshot).unwrap();
+    fs::remove_file(&old).unwrap();
+    let resolver =
+        FilesystemManagedRasterMaskResolver::open_for_runtime_cache(&restored.path().join("cache"))
+            .unwrap();
+    let plan = compile_recipe_render_plan_with_managed_rasters(&snapshot, &resolver).unwrap();
+    assert!(plan.nodes.iter().any(|node|matches!(&node.operation,AdjustmentRenderOperation::Lut3D{document,intensity} if document==text.as_bytes() && *intensity==0.37)));
+    assert_eq!(serde_json::to_vec(&snapshot).unwrap(), immutable);
+    relocate_draft_luts(&mut draft, restored.path()).unwrap();
+    assert_eq!(
+        draft.grade_nodes[0].fine.lut.managed_path,
+        local.to_str().unwrap()
+    );
+    assert_eq!(collect_lut_resources(&draft).unwrap()[0].document(), text);
+    fs::write(&local, b"wrong local bytes").unwrap();
+    assert!(compile_recipe_render_plan_with_managed_rasters(&snapshot, &resolver).is_err());
+    // A surviving old library cannot mask corruption in the new one.
+    fs::write(&old, &text).unwrap();
+    assert!(read_verified_lut(&old, &id, Some(restored.path())).is_err());
+}

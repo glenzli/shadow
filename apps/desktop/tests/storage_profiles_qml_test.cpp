@@ -16,6 +16,7 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTranslator>
 
 #include <cstdlib>
 #include <iostream>
@@ -91,6 +92,8 @@ void contracts() {
     require(target && registry.remember(*target, {}, &error), "target recent fixture");
     bool quiet = false;
     int starts = 0;
+    int archives = 0;
+    StorageProfileArchiveRequest archive_request;
     StorageProfileController* switch_owner = nullptr;
     StorageProfileController manager(
         *current,
@@ -106,6 +109,13 @@ void contracts() {
                     ++starts;
                     switch_owner->restartFailed("fixture immediate launch failure");
                 },
+            .archive_blocker = {},
+            .archive =
+                [&](const auto& request) {
+                    ++archives;
+                    archive_request = request;
+                },
+            .cancel_archive = [&] { manager.archiveFailed("fixture cancelled"); },
         }
     );
     switch_owner = &manager;
@@ -163,7 +173,7 @@ ApplicationWindow {
     require(window && dialog && QMetaObject::invokeMethod(dialog, "open"), "packaged dialog opens");
     window->requestActivate();
     QTest::qWait(100);
-    window->grabWindow().save("/private/tmp/shadow-profile-ui-dialog-initial.png");
+    window->grabWindow().save("/private/tmp/shadow-profile-protection-dialog-initial.png");
     auto* name = item(root.get(), "currentLibraryName");
     click(window, name);
     // The offscreen platform uses Qt's portable Control+A key binding.
@@ -211,7 +221,7 @@ ApplicationWindow {
     );
     const QImage image = window->grabWindow();
     require(!image.isNull(), "real dialog renders");
-    image.save("/private/tmp/shadow-profile-ui-dialog-contract.png");
+    image.save("/private/tmp/shadow-profile-protection-dialog-contract.png");
     auto* recovery = root->findChild<QObject*>("closeRecovery");
     require(
         recovery && !recovery->property("visible").toBool(),
@@ -254,6 +264,52 @@ ApplicationWindow {
         "cancelling creation switch retains current session"
     );
     require(!warnings, "packaged dialog has no QML warnings");
+    click(window, item(root.get(), "newLibraryButton"));
+    click(window, item(root.get(), "testCopyLibraryButton"));
+    require(
+        dialog->property("creationMode").toInt() == 1,
+        "pointer chooses independent test copy form"
+    );
+    dialog->setProperty("newParent", QUrl::fromLocalFile(base));
+    quiet = true;
+    click(window, item(root.get(), "openSelectedLibraryButton"));
+    require(manager.busy() && archives == 0, "pointer test copy waits for durable save");
+    emit close_editor.closeReady();
+    QTest::qWait(30);
+    require(
+        manager.busy() && archives == 1 && archive_request.action == 2 && window->isVisible(),
+        "actual closeReady starts test copy without closing the window"
+    );
+    click(window, item(root.get(), "cancelLibrarySwitchButton"));
+    require(
+        !manager.busy() && window->isVisible(),
+        "pointer cancellation preserves actual window after worker cleanup"
+    );
+    require(!warnings, "new data-protection form has no QML warnings");
+    QTranslator translator;
+    require(
+        translator.load(QString::fromUtf8(SHADOW_PROFILE_TRANSLATION)),
+        "load production Chinese catalog"
+    );
+    QCoreApplication::installTranslator(&translator);
+    engine.retranslate();
+    QTest::qWait(30);
+    require(
+        item(root.get(), "backupLibraryButton")->property("text").toString()
+                == QString::fromUtf8("备份…")
+            && item(root.get(), "testCopyLibraryButton")->property("text").toString()
+                   == QString::fromUtf8("测试副本…")
+            && dialog->property("title").toString() == QString::fromUtf8("资料库"),
+        "new actions retranslate to Chinese on the same live tree"
+    );
+    window->grabWindow().save("/private/tmp/shadow-profile-protection-dialog-chinese.png");
+    QCoreApplication::removeTranslator(&translator);
+    engine.retranslate();
+    QTest::qWait(30);
+    require(
+        item(root.get(), "backupLibraryButton")->property("text").toString() == "Back Up…",
+        "same live actions return to English"
+    );
     emit close_editor.closeReady();
     QTest::qWait(30);
     require(!window->isVisible(), "ordinary saved window close still works outside switching");

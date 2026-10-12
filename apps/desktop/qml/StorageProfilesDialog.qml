@@ -11,6 +11,10 @@ ShadowDialog {
     required property real hostWidth
     required property real hostHeight
     property bool creating: false
+    // 0 empty library; 1 independent test copy; 2 restore a verified backup.
+    property int creationMode: 0
+    property url backupSource
+    property bool verifyingBackup: false
     property url newParent
     property string selectedRoot: ""
     property string selectedId: ""
@@ -18,7 +22,7 @@ ShadowDialog {
 
     title: qsTr("Libraries")
     width: Math.min(700, hostWidth - 48)
-    height: Math.min(620, hostHeight - 48)
+    height: Math.min(730, hostHeight - 48)
     x: Math.round((hostWidth - width) / 2)
     y: Math.round((hostHeight - height) / 2)
     closePolicy: profileManager.busy ? Popup.NoAutoClose : Popup.CloseOnEscape
@@ -29,6 +33,7 @@ ShadowDialog {
         selectedId = ""
         selectedAvailable = true
         creating = false
+        creationMode = 0
     }
 
     FolderDialog {
@@ -39,8 +44,28 @@ ShadowDialog {
 
     FolderDialog {
         id: parentFolder
-        title: qsTr("Choose a Location for the New Library")
+        title: qsTr("Choose a Location for the Library")
         onAccepted: dialog.newParent = selectedFolder
+    }
+
+    FolderDialog {
+        id: backupFolder
+        title: qsTr("Choose a Location for the Backup")
+        onAccepted: dialog.profileManager.backupLibrary(selectedFolder)
+    }
+
+    FolderDialog {
+        id: restoreFolder
+        title: dialog.verifyingBackup ? qsTr("Verify Library Backup") : qsTr("Restore Library Backup")
+        onAccepted: {
+            if (dialog.verifyingBackup) dialog.profileManager.verifyBackup(selectedFolder)
+            else {
+                dialog.backupSource = selectedFolder
+                dialog.creating = true
+                dialog.creationMode = 2
+                newNameField.text = qsTr("Restored Library")
+            }
+        }
     }
 
     contentItem: ColumnLayout {
@@ -117,9 +142,52 @@ ShadowDialog {
         RowLayout {
             Layout.fillWidth: true
             enabled: !dialog.profileManager.busy
+            ShadowButton {
+                objectName: "backupLibraryButton"
+                text: qsTr("Back Up…")
+                compact: true
+                onClicked: backupFolder.open()
+            }
+            ShadowButton {
+                objectName: "restoreLibraryButton"
+                text: qsTr("Restore Backup…")
+                compact: true
+                onClicked: { dialog.verifyingBackup = false; restoreFolder.open() }
+            }
+            ShadowButton {
+                objectName: "testCopyLibraryButton"
+                text: qsTr("Test Copy…")
+                compact: true
+                onClicked: {
+                    dialog.creationMode = 1
+                    dialog.creating = true
+                    newNameField.text = qsTr("%1 · Test").arg(dialog.profileManager.currentName)
+                }
+            }
+            ShadowButton {
+                objectName: "verifyLibraryBackupButton"
+                text: qsTr("Verify Backup…")
+                compact: true
+                onClicked: { dialog.verifyingBackup = true; restoreFolder.open() }
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: qsTr("Backups include the catalog, edits, attachments and preferences. Original photos remain at their existing locations and need their own backup.")
+            color: Theme.textMuted
+            wrapMode: Text.WordWrap
+            font.pixelSize: Theme.fontCaption
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            enabled: !dialog.profileManager.busy
             Label {
                 Layout.fillWidth: true
-                text: dialog.creating ? qsTr("New Library") : qsTr("Recent Libraries")
+                text: !dialog.creating ? qsTr("Recent Libraries")
+                    : dialog.creationMode === 1 ? qsTr("Independent Test Copy")
+                    : dialog.creationMode === 2 ? qsTr("Restore into a New Library") : qsTr("New Library")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontSubheading
             }
@@ -127,7 +195,7 @@ ShadowDialog {
                 objectName: "newLibraryButton"
                 text: dialog.creating ? qsTr("Back") : qsTr("New Library…")
                 compact: true
-                onClicked: dialog.creating = !dialog.creating
+                onClicked: { dialog.creationMode = 0; dialog.creating = !dialog.creating }
             }
             ShadowButton {
                 objectName: "browseLibraryButton"
@@ -173,6 +241,7 @@ ShadowDialog {
                     Label {
                         width: parent.width
                         text: row.modelData.root
+                        textFormat: Text.PlainText
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontCaption
                         elide: Text.ElideMiddle
@@ -224,7 +293,9 @@ ShadowDialog {
             }
             Label {
                 Layout.fillWidth: true
-                text: qsTr("A new empty library will be created in this folder. Photos and edits are kept separately in each library.")
+                text: dialog.creationMode === 0
+                    ? qsTr("A new empty library will be created in this folder. Photos and edits are kept separately in each library.")
+                    : qsTr("A separate library will be created without replacing existing data. Edits and attachments are preserved. Pending exports and automatic background work will not restart in the new library.")
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
                 font.pixelSize: Theme.fontCaption
@@ -237,6 +308,7 @@ ShadowDialog {
             Layout.fillWidth: true
             visible: text.length > 0
             text: dialog.profileManager.errorText
+            textFormat: Text.PlainText
             color: Theme.errorText
             wrapMode: Text.WordWrap
             font.pixelSize: Theme.fontCaption
@@ -244,12 +316,20 @@ ShadowDialog {
 
         Label {
             Layout.fillWidth: true
-            text: dialog.profileManager.busy ? dialog.profileManager.statusText
+            text: dialog.profileManager.statusText.length > 0 ? dialog.profileManager.statusText
                 : qsTr("Switching saves current edits, pauses resumable work and restarts Shadow in the selected library.")
             textFormat: Text.PlainText
             color: Theme.textMuted
             font.pixelSize: Theme.fontCaption
             wrapMode: Text.WordWrap
+        }
+
+        ShadowButton {
+            objectName: "showLibraryResultButton"
+            visible: dialog.profileManager.resultRoot.length > 0 && !dialog.profileManager.busy
+            text: qsTr("Show Result in Folder")
+            compact: true
+            onClicked: dialog.profileManager.revealResult()
         }
     }
 
@@ -267,7 +347,7 @@ ShadowDialog {
             ShadowButton {
                 objectName: "cancelLibrarySwitchButton"
                 visible: dialog.profileManager.canCancel
-                text: qsTr("Cancel Switch")
+                text: qsTr("Cancel")
                 onClicked: dialog.profileManager.cancelSwitch()
             }
             ShadowButton {
@@ -278,14 +358,20 @@ ShadowDialog {
             }
             ShadowButton {
                 objectName: "openSelectedLibraryButton"
-                text: dialog.creating ? qsTr("Create and Open") : qsTr("Open Selected")
+                text: !dialog.creating ? qsTr("Open Selected")
+                    : dialog.creationMode === 1 ? qsTr("Create Test Copy")
+                    : dialog.creationMode === 2 ? qsTr("Restore") : qsTr("Create and Open")
                 variant: ShadowButton.Primary
                 enabled: !dialog.profileManager.busy
                     && (dialog.creating ? newNameField.text.trim().length > 0
                         && dialog.newParent.toString().length > 0
                         : dialog.selectedAvailable && dialog.selectedRoot !== dialog.profileManager.currentRoot)
                 onClicked: {
-                    if (dialog.creating)
+                    if (dialog.creating && dialog.creationMode === 1)
+                        dialog.profileManager.createTestCopy(dialog.newParent, newNameField.text)
+                    else if (dialog.creating && dialog.creationMode === 2)
+                        dialog.profileManager.restoreLibrary(dialog.backupSource, dialog.newParent, newNameField.text)
+                    else if (dialog.creating)
                         dialog.profileManager.createLibrary(newNameField.text, dialog.newParent)
                     else
                         dialog.profileManager.switchLibrary(dialog.selectedRoot, dialog.selectedId)

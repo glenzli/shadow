@@ -1,6 +1,8 @@
 #include "storage_profile_startup.hpp"
+#include "storage_profile_archive.hpp"
 
 #include <QDialog>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -8,8 +10,10 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace {
 QString text(const char* source) {
@@ -41,6 +45,9 @@ std::optional<StorageProfileInfo> chooseStorageProfileAtStartup(
     for (auto* button : {open, browse, create, cancel})
         controls->addWidget(button);
     layout->addLayout(controls);
+    auto* restore =
+        new QPushButton(text(QT_TRANSLATE_NOOP("StorageProfileStartup", "Restore Backup…")));
+    layout->addWidget(restore);
     auto* reset = new QPushButton(
         text(QT_TRANSLATE_NOOP("StorageProfileStartup", "Reset Recent Library Records…"))
     );
@@ -109,6 +116,99 @@ std::optional<StorageProfileInfo> chooseStorageProfileAtStartup(
             dialog.accept();
         else
             explanation->setText(selection_error);
+    });
+    QObject::connect(restore, &QPushButton::clicked, &dialog, [&] {
+        const auto backup = QFileDialog::getExistingDirectory(
+            &dialog,
+            text(QT_TRANSLATE_NOOP("StorageProfileStartup", "Choose a Library Backup"))
+        );
+        if (backup.isEmpty())
+            return;
+        const auto parent = QFileDialog::getExistingDirectory(
+            &dialog,
+            text(QT_TRANSLATE_NOOP("StorageProfileStartup", "Choose a Location"))
+        );
+        if (parent.isEmpty())
+            return;
+        if (StorageProfile::rootContains(registry.dailyRoot(), parent)
+            || std::any_of(profiles.cbegin(), profiles.cend(), [&](const auto& info) {
+                   return StorageProfile::rootContains(info.root, parent);
+               })) {
+            explanation->setText(text(QT_TRANSLATE_NOOP(
+                "StorageProfileStartup",
+                "Choose a destination outside existing libraries."
+            )));
+            return;
+        }
+        QInputDialog prompt(&dialog);
+        prompt.setWindowTitle(
+            text(QT_TRANSLATE_NOOP("StorageProfileStartup", "Restore into a New Library"))
+        );
+        prompt.setLabelText(text(QT_TRANSLATE_NOOP("StorageProfileStartup", "Library Name")));
+        prompt.setTextValue(text(QT_TRANSLATE_NOOP("StorageProfileStartup", "Restored Library")));
+        prompt.setOkButtonText(text(QT_TRANSLATE_NOOP("StorageProfileStartup", "Restore")));
+        prompt.setCancelButtonText(text(QT_TRANSLATE_NOOP("StorageProfileStartup", "Cancel")));
+        if (prompt.exec() != QDialog::Accepted)
+            return;
+        StorageProfileArchive worker;
+        QEventLoop loop;
+        QProgressDialog progress(
+            text(QT_TRANSLATE_NOOP(
+                "StorageProfileStartup",
+                "Verifying the backup and restoring into a new library…"
+            )),
+            text(QT_TRANSLATE_NOOP("StorageProfileStartup", "Cancel")),
+            0,
+            0,
+            &dialog
+        );
+        progress.setWindowModality(Qt::ApplicationModal);
+        progress.setMinimumDuration(0);
+        progress.setAutoClose(false);
+        QString result, diagnostic;
+        QObject::connect(
+            &progress,
+            &QProgressDialog::canceled,
+            &worker,
+            &StorageProfileArchive::cancel
+        );
+        QObject::connect(
+            &worker,
+            &StorageProfileArchive::progress,
+            &progress,
+            [&](quint64 done, quint64 total) {
+                if (total > 0) {
+                    progress.setRange(0, 100);
+                    progress.setValue(static_cast<int>(std::min<quint64>(100, done * 100 / total)));
+                }
+            }
+        );
+        QObject::connect(
+            &worker,
+            &StorageProfileArchive::completed,
+            &loop,
+            [&](const QString& root) {
+                result = root;
+                loop.quit();
+            }
+        );
+        QObject::connect(&worker, &StorageProfileArchive::failed, &loop, [&](const QString& error) {
+            diagnostic = error;
+            loop.quit();
+        });
+        worker.start({1, backup, parent, prompt.textValue(), {}});
+        loop.exec();
+        progress.close();
+        if (!result.isEmpty())
+            choose(result, {});
+        else if (!progress.wasCanceled())
+            explanation->setText(
+                text(QT_TRANSLATE_NOOP(
+                         "StorageProfileStartup",
+                         "Could not restore the backup. Existing libraries were preserved. %1"
+                     ))
+                    .arg(diagnostic)
+            );
     });
     QObject::connect(reset, &QPushButton::clicked, &dialog, [&] {
         QMessageBox confirmation(

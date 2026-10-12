@@ -693,9 +693,15 @@ impl DesktopSession {
         let selected_record = selected_commit_id
             .map(|commit_id| commit_record(&commits, commit_id))
             .transpose()?;
-        let grade_stack = selected_record.map_or_else(
+        let mut grade_stack = selected_record.map_or_else(
             || Ok(GradeStackDraft::default()),
             |record| decode_grade_stack_draft_from_recipe_v1_snapshot(record.commit.snapshot()),
+        )?;
+        crate::recipe_lut_resources::relocate_draft_luts(
+            &mut grade_stack,
+            self.cache_root
+                .parent()
+                .context("runtime cache has no library parent")?,
         )?;
         let selected_id = selected_record.map(|record| record.commit.id());
         let recipe_id = selected_record.map(|record| record.commit.recipe_id());

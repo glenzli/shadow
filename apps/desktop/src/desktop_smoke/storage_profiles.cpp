@@ -8,7 +8,10 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QFutureWatcher>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QQmlApplicationEngine>
+#include <QSaveFile>
 #include <QTimer>
 #include <QWindow>
 #include <QtConcurrent/QtConcurrentRun>
@@ -32,10 +35,15 @@ class ProfileSwitchSmoke final : public QObject {
         QString source,
         QString target,
         bool verify,
-        double exposure
+        double exposure,
+        QString archive_action,
+        QString archive_backup,
+        QString archive_result
     ) :
         app_(app), editor_(editor), profiles_(profiles), engine_(engine),
-        target_(std::move(target)), verify_(verify), exposure_(exposure) {
+        target_(std::move(target)), verify_(verify), exposure_(exposure),
+        archive_action_(std::move(archive_action)), archive_backup_(std::move(archive_backup)),
+        archive_result_(std::move(archive_result)) {
         lifetime_.start();
         connect(&admission_, &QFutureWatcher<Admission>::finished, this, [this] {
             const auto result = admission_.result();
@@ -95,6 +103,31 @@ class ProfileSwitchSmoke final : public QObject {
         if (stage_ == 2) {
             if (!profiles_.busy() && !profiles_.errorText().isEmpty())
                 fail(profiles_.errorText());
+            else if (
+                !archive_action_.isEmpty() && !profiles_.busy() && !profiles_.resultRoot().isEmpty()
+            ) {
+                if (editor_.dirty() || editor_.autosaveFailed()) {
+                    fail("archive completed before working snapshot was durable");
+                    return;
+                }
+                QSaveFile receipt(archive_result_);
+                const auto bytes = QJsonDocument(
+                                       QJsonObject{
+                                           {"action", archive_action_},
+                                           {"root", profiles_.resultRoot()},
+                                           {"saved", true},
+                                           {"exposure", editor_.exposureStops()}
+                                       }
+                ).toJson();
+                if (!receipt.open(QIODevice::WriteOnly) || receipt.write(bytes) != bytes.size()
+                    || !receipt.commit()) {
+                    fail("could not publish smoke receipt");
+                    return;
+                }
+                qInfo() << "Profile archive smoke: completed with saved working edits";
+                timer_.stop();
+                app_.quit();
+            }
             return;
         }
         if (stage_ != 1 || !editor_.active() || editor_.busy() || editor_.gradeNodes().isEmpty())
@@ -137,7 +170,20 @@ class ProfileSwitchSmoke final : public QObject {
             return;
         }
         stage_ = 2;
-        profiles_.switchLibrary(target_, {});
+        if (archive_action_ == "backup")
+            profiles_.backupLibrary(QUrl::fromLocalFile(target_));
+        else if (archive_action_ == "copy")
+            profiles_.createTestCopy(QUrl::fromLocalFile(target_), "Smoke Copy");
+        else if (archive_action_ == "restore")
+            profiles_.restoreLibrary(
+                QUrl::fromLocalFile(archive_backup_),
+                QUrl::fromLocalFile(target_),
+                "Smoke Restored"
+            );
+        else if (archive_action_ == "verify")
+            profiles_.verifyBackup(QUrl::fromLocalFile(archive_backup_));
+        else
+            profiles_.switchLibrary(target_, {});
     }
     QApplication& app_;
     EditController& editor_;
@@ -146,6 +192,9 @@ class ProfileSwitchSmoke final : public QObject {
     QString target_;
     bool verify_;
     double exposure_;
+    QString archive_action_;
+    QString archive_backup_;
+    QString archive_result_;
     int stage_ = 0;
     QElapsedTimer lifetime_;
     QTimer timer_;
@@ -160,12 +209,20 @@ std::unique_ptr<QObject> installStorageProfileSwitch(
     EditController& editor,
     StorageProfileController& profiles
 ) {
-    const QString target = qEnvironmentVariable("SHADOW_DESKTOP_PROFILE_SWITCH_TARGET");
+    const QString archive_action = qEnvironmentVariable("SHADOW_DESKTOP_PROFILE_ARCHIVE_ACTION");
+    const QString archive_backup = qEnvironmentVariable("SHADOW_DESKTOP_PROFILE_ARCHIVE_BACKUP");
+    const QString archive_result = qEnvironmentVariable("SHADOW_DESKTOP_PROFILE_ARCHIVE_RESULT");
+    const QString target = archive_action.isEmpty()
+                               ? qEnvironmentVariable("SHADOW_DESKTOP_PROFILE_SWITCH_TARGET")
+                               : qEnvironmentVariable("SHADOW_DESKTOP_PROFILE_ARCHIVE_PARENT");
     const bool verify = qEnvironmentVariableIsSet("SHADOW_DESKTOP_PROFILE_VERIFY_EXPOSURE");
-    if (target.isEmpty() && !verify)
+    if (target.isEmpty() && !verify && archive_action.isEmpty())
         return {};
     const QString source = qEnvironmentVariable("SHADOW_DESKTOP_EDIT_SOURCE_PATH");
-    if (profiles.currentKind() == "daily" || source.isEmpty()) {
+    if (profiles.currentKind() == "daily" || source.isEmpty()
+        || (!archive_action.isEmpty()
+            && (archive_result.isEmpty()
+                || !QStringList{"backup", "copy", "restore", "verify"}.contains(archive_action)))) {
         qCritical() << "Profile switch smoke requires an isolated library and one named source";
         QTimer::singleShot(0, &application, [&application] { application.exit(EXIT_FAILURE); });
         return {};
@@ -187,7 +244,10 @@ std::unique_ptr<QObject> installStorageProfileSwitch(
         source,
         target,
         verify,
-        exposure
+        exposure,
+        archive_action,
+        archive_backup,
+        archive_result
     );
 }
 } // namespace DesktopSmoke

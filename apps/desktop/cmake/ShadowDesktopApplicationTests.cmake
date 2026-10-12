@@ -1,6 +1,15 @@
 # Application-shell and Qt/backend boundary contracts: startup, history,
 # export, folder import, and production-linked backend projection.
 
+add_executable(shadow-storage-profile-archive-test
+    tests/storage_profile_archive_test.cpp src/storage_profile.cpp src/storage_profile_archive.cpp src/storage_profile_archive.hpp)
+target_compile_features(shadow-storage-profile-archive-test PRIVATE cxx_std_20)
+target_include_directories(shadow-storage-profile-archive-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}")
+target_link_libraries(shadow-storage-profile-archive-test PRIVATE Qt6::Core Qt6::Concurrent Qt6::Test shadow-desktop-rust Shadow::Image)
+add_dependencies(shadow-storage-profile-archive-test shadow-desktop-rust-build)
+add_test(NAME shadow-desktop-storage-profile-archive COMMAND shadow-storage-profile-archive-test)
+set_tests_properties(shadow-desktop-storage-profile-archive PROPERTIES LABELS "desktop;storage;profiles;backup" TIMEOUT 45)
+
 add_executable(shadow-export-task-runner-test tests/export_task_runner_test.cpp src/export_task_runner.cpp)
 target_compile_features(shadow-export-task-runner-test PRIVATE cxx_std_20)
 target_include_directories(shadow-export-task-runner-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}")
@@ -42,6 +51,8 @@ add_executable(shadow-storage-profiles-qml-test
     src/storage_profile.cpp src/storage_profile_registry.cpp src/storage_profile_controller.cpp
     src/storage_profile_controller.hpp src/storage_profile_switch.cpp src/storage_profile_switch.hpp)
 target_compile_features(shadow-storage-profiles-qml-test PRIVATE cxx_std_20)
+target_compile_definitions(shadow-storage-profiles-qml-test PRIVATE SHADOW_PROFILE_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+add_dependencies(shadow-storage-profiles-qml-test shadow-desktop)
 target_include_directories(shadow-storage-profiles-qml-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(shadow-storage-profiles-qml-test PRIVATE Qt6::Gui Qt6::Network Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
 qt_add_qml_module(shadow-storage-profiles-qml-test

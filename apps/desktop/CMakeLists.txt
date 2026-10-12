@@ -529,6 +529,8 @@ qt_add_executable(
     src/storage_profile_registry.hpp
     src/storage_profile_controller.cpp
     src/storage_profile_controller.hpp
+    src/storage_profile_archive.cpp
+    src/storage_profile_archive.hpp
     src/storage_profile_switch.cpp
     src/storage_profile_switch.hpp
     src/storage_profile_startup.cpp

@@ -84,6 +84,13 @@ bool StorageProfile::rootsOverlap(const QString& left, const QString& right) {
     return containsPath(left, right) || containsPath(right, left);
 }
 
+bool StorageProfile::rootContains(const QString& root, const QString& path) {
+    const auto canonical_root = canonicalRoot(root);
+    const auto canonical_path = canonicalRoot(path);
+    return !canonical_root.isEmpty() && !canonical_path.isEmpty()
+           && containsPath(canonical_root, canonical_path);
+}
+
 bool StorageProfile::validDisplayName(const QString& name) {
     return !name.trimmed().isEmpty() && name.size() <= 80
            && std::none_of(name.cbegin(), name.cend(), [](const QChar ch) {

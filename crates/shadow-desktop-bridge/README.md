@@ -12,6 +12,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Headless basic/geometry and five-channel curve authoring/read projection into the canonical desktop DTO, preserving complete Recipe state and existing CAS | [`src/headless_project/edit.rs`](src/headless_project/edit.rs), [`src/headless_project/protocol.rs`](src/headless_project/protocol.rs) |
 | Headless explicitly user-directed flags/ratings, exact existing decision-ledger CAS receipts, bounded history and honest provenance limits | [`src/headless_project/review.rs`](src/headless_project/review.rs), [`src/review_service/decisions.rs`](src/review_service/decisions.rs) |
 | Desktop CXX structs, methods, and session composition | [`src/lib.rs`](src/lib.rs) |
+| Whole-profile SQLite/attachment snapshots, verified immutable backup manifests, fresh-identity restores and runnable-work isolation | [`src/storage_profile_archive.rs`](src/storage_profile_archive.rs), [`src/storage_profile_archive/`](src/storage_profile_archive/) |
 | Versioned Recipe document projection and verified bundled LUT storage | [`src/recipe_interchange.rs`](src/recipe_interchange.rs), [`src/recipe_lut_resources.rs`](src/recipe_lut_resources.rs) |
 | Exact pre-curve recipe prefix, existing warm-source lookup and cancellable scalar input map | [`src/edit_preview/curve_input.rs`](src/edit_preview/curve_input.rs) |
 | Frozen color-only Grade Stack projection, explicit omissions, and cancellable LUT export | [`src/lut_export.rs`](src/lut_export.rs) |

@@ -34,6 +34,7 @@ mod session_review;
 mod session_scan;
 mod session_semantic_search;
 mod session_smart_classification;
+mod storage_profile_archive;
 mod wall_clock;
 
 // Photo source admission, preview delivery, and detail viewports.
@@ -122,9 +123,25 @@ use lut_export::{
 use photo_inspection_service::PhotoInspectionService;
 use preview_render_registry::PreviewRenderRegistry;
 use recipe_v1::new_basic_grade_node;
+use storage_profile_archive::{
+    ProfileArchiveControl, cancel_profile_archive, new_profile_archive_control,
+    profile_archive_progress, run_profile_archive,
+};
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
+    #[derive(Debug)]
+    struct FfiProfileArchiveResult {
+        root: FfiNativePath,
+        file_count: u64,
+        byte_count: u64,
+    }
+
+    #[derive(Debug)]
+    struct FfiProfileArchiveProgress {
+        completed_files: u64,
+        total_files: u64,
+    }
     /// Filesystem path supplied by the native desktop shell.
     ///
     /// Only the payload selected by `platform` may be populated. `display_path`
@@ -2527,6 +2544,19 @@ mod ffi {
         fn interactive_retained_bytes(self: &OwnedEditedPreview) -> usize;
 
         fn new_basic_grade_node(label: &str) -> Result<FfiGradeNode>;
+
+        type ProfileArchiveControl;
+        fn new_profile_archive_control() -> Box<ProfileArchiveControl>;
+        fn cancel_profile_archive(control: &ProfileArchiveControl);
+        fn profile_archive_progress(control: &ProfileArchiveControl) -> FfiProfileArchiveProgress;
+        fn run_profile_archive(
+            action: u8,
+            source: &FfiNativePath,
+            parent: &FfiNativePath,
+            name: &str,
+            expected_id: &str,
+            control: &ProfileArchiveControl,
+        ) -> Result<FfiProfileArchiveResult>;
 
         #[cxx_name = "open_desktop_session"]
         fn open_desktop_session_ffi(

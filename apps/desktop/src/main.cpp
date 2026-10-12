@@ -781,6 +781,7 @@ int main(int argc, char* argv[]) {
         &review_gallery_grouping,
         &ReviewGalleryGroupingController::retranslateUi
     );
+    StorageProfileArchive profile_archive;
     StorageProfileController profile_controller(
         *storage_profile,
         profile_registry,
@@ -825,7 +826,30 @@ int main(int argc, char* argv[]) {
                 },
             .prepare_editor = [&editor] { return editor.prepareToClose(); },
             .restart = {},
+            .archive_blocker = {},
+            .archive = [&profile_archive](
+                           const StorageProfileArchiveRequest& request
+                       ) { profile_archive.start(request); },
+            .cancel_archive = [&profile_archive] { profile_archive.cancel(); },
         }
+    );
+    QObject::connect(
+        &profile_archive,
+        &StorageProfileArchive::completed,
+        &profile_controller,
+        &StorageProfileController::archiveCompleted
+    );
+    QObject::connect(
+        &profile_archive,
+        &StorageProfileArchive::failed,
+        &profile_controller,
+        &StorageProfileController::archiveFailed
+    );
+    QObject::connect(
+        &profile_archive,
+        &StorageProfileArchive::progress,
+        &profile_controller,
+        &StorageProfileController::archiveProgress
     );
     QObject::connect(
         &editor,

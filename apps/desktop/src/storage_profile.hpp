@@ -41,6 +41,7 @@ class StorageProfile final {
     static std::unique_ptr<StorageProfile> open(const StorageProfileLaunch& launch, QString* error);
     static QString canonicalRoot(const QString& path);
     static bool rootsOverlap(const QString& left, const QString& right);
+    static bool rootContains(const QString& root, const QString& path);
     static std::optional<StorageProfileInfo>
     inspect(const QString& root, const QString& daily_root, QString* error);
     static bool validDisplayName(const QString& name);

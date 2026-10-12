@@ -13,7 +13,7 @@ use shadow_bridge::{
     COLOR_GRADING_IMPLEMENTATION_VERSION as COLOR_GRADING_IMPLEMENTATION_REVISION,
     ColorRangeParameters,
     FINISHING_EFFECTS_IMPLEMENTATION_VERSION as FINISHING_EFFECTS_IMPLEMENTATION_REVISION,
-    MAX_ADJUSTMENT_RENDER_NODES, MAX_LUT_DOCUMENT_BYTES,
+    MAX_ADJUSTMENT_RENDER_NODES,
     OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_VERSION as OKLAB_LIGHTNESS_TONE_CURVE_IMPLEMENTATION_REVISION,
     OklabLightnessToneCurve,
     PERCEPTUAL_COLOR_IMPLEMENTATION_VERSION as PERCEPTUAL_COLOR_IMPLEMENTATION_REVISION,
@@ -174,7 +174,7 @@ fn compile_recipe_render_plan_with_resolver(
                     node.id()
                 );
             }
-            compiled.push(compile_recipe_node(
+            compiled.push(compile_recipe_node_with_resources(
                 node,
                 layer.id(),
                 if use_layer_boundaries {
@@ -182,6 +182,7 @@ fn compile_recipe_render_plan_with_resolver(
                 } else {
                     layer.enabled()
                 },
+                mask_resolver.and_then(ManagedRasterMaskResolver::library_root),
             )?);
         }
         if use_layer_boundaries {
@@ -719,10 +720,11 @@ fn adjustment_local_mask_with_resolver(
 }
 
 #[allow(clippy::too_many_lines)] // Keep the exhaustive operation-contract mapping auditable.
-pub(crate) fn compile_recipe_node(
+fn compile_recipe_node_with_resources(
     node: &AdjustmentNode,
     layer_id: LayerInstanceId,
     grade_node_enabled: bool,
+    library_root: Option<&Path>,
 ) -> AnyResult<AdjustmentRenderNode> {
     let descriptor = node.operation();
     let rgb = PortType::Image(ImageDomain::WorkingRgb);
@@ -1014,16 +1016,12 @@ pub(crate) fn compile_recipe_node(
                 {
                     bail!("Recipe LUT does not reference a content-addressed managed resource");
                 }
-                let metadata = std::fs::metadata(path)
-                    .with_context(|| format!("inspect managed LUT {managed_path:?}"))?;
-                if metadata.len() == 0
-                    || metadata.len() > u64::try_from(MAX_LUT_DOCUMENT_BYTES).unwrap()
-                {
-                    bail!("managed LUT must contain 1 byte through 16 MiB");
-                }
                 AdjustmentRenderOperation::Lut3D {
-                    document: std::fs::read(path)
-                        .with_context(|| format!("read managed LUT {managed_path:?}"))?,
+                    document: crate::recipe_lut_resources::read_verified_lut(
+                        path,
+                        &resource_id,
+                        library_root,
+                    )?,
                     intensity: requested_intensity,
                 }
             }

@@ -10,7 +10,7 @@ class EditController;
 class StorageProfileController;
 
 namespace DesktopSmoke {
-// Opt-in real edit/save/restart acceptance. One explicitly named local source;
+// Opt-in real edit/save/restart and profile-archive acceptance. One explicitly named local source;
 // the lifetime owner waits for its worker before releasing the profile lock.
 std::unique_ptr<QObject> installStorageProfileSwitch(
     QApplication& application,

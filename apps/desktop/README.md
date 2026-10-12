@@ -42,6 +42,43 @@ with no new host/device transfers or recomputation path.
 Changing profiles requires a new process. Close older Shadow builds before first opening Daily
 with the profile-aware build, since older executables do not participate in the profile lock.
 
+`storage_profile_archive.*` owns the cancellable native worker for **Back Up**, **Verify Backup**,
+**Restore Backup**, and **Test Copy** in the Libraries dialog. Its Qt-free storage contract lives in
+[`storage_profile_archive`](../../crates/shadow-desktop-bridge/src/storage_profile_archive.rs).
+Backup first pauses background admission, waits for current operations, saves edits and flushes
+preferences. Library sharing must be stopped; the independent Server writer and enrollment are
+locked during the consistency cut. Each SQLite database is snapshotted including committed WAL,
+then checked for integrity; every retained file has a bounded streaming SHA-256 verification.
+File modification times are recorded and restored, preserving source fingerprints for owned
+materialized originals even if a backup's filesystem timestamps change. Nested directories are
+synchronized before the completion marker. An immutable `Shadow-Backup-*` directory contains
+`shadow-library-backup.json` and `payload/`.
+Existing destinations are never replaced, and incomplete private directories are removed on failure
+or cancellation. Interrupted processes may leave an incomplete directory, which has no valid
+completion marker and cannot be opened as a library or accepted as a backup.
+
+Backups retain Catalogs, immutable edit history, derived masks/rasters, LUTs, local people data,
+preferences and cache resources (including authored AI Foundation artifacts), excluding process
+locks and SQLite sidecars. They reference external original photos without copying them; those
+photos need a separate backup. Backups can contain saved local credentials and should be stored
+with the same access restrictions as the source library. No encryption or automatic schedule is
+implied. Symlinks and unsupported/newer archive or Catalog formats fail before restoration.
+
+Restore verifies the entire archive and creates a new custom library with a fresh UUID. Test Copy
+uses the same verified snapshot and restore path. Both preserve the old library, immutable Recipes
+and completed history, relocate profile-owned materialized-original locations, retire unfinished
+export/import work, turn off automatic AI and sharing admission, and omit inherited sharing/remote
+credentials. Cache and attachments are physically independent. Creating them adds a recent location
+without switching the current library or either launch choice; select the result to open it. The
+startup recovery chooser also offers Restore Backup when the remembered library is unavailable.
+The archive format currently restores on the original operating-system path platform.
+
+Managed LUT execution and editable projection resolve the active library's `lut-store/<SHA-256>.cube`
+and verify its bytes rather than reopening a historical profile path. Saved Recipe bytes and digests
+stay unchanged. This is resource-location persistence policy: existing warm CFA/Foundation/input,
+grade recomputation frontier, CPU/device transfers and revision cancellation remain unchanged, and
+preview/detail/export consume the same verified LUT document under their existing quality policies.
+
 The first macOS Review slice is a native Qt Quick application backed by the existing Rust and C++ core:
 
 ```text

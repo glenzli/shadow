@@ -1,5 +1,6 @@
 #include "storage_profile_controller.hpp"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QSettings>
@@ -14,6 +15,93 @@ namespace {
 void require(bool value, const char* message) {
     if (!value)
         throw std::runtime_error(message);
+}
+
+void archiveContracts() {
+    QTemporaryDir fixture;
+    const QString base = QFileInfo(fixture.path()).canonicalFilePath();
+    StorageProfileRegistry registry(base + "/daily", base + "/registry");
+    StorageProfileLaunch launch;
+    launch.daily_root = registry.dailyRoot();
+    launch.arguments = {"Shadow", "--profile-root", base + "/current"};
+    QString error;
+    auto current = StorageProfile::open(launch, &error);
+    require(current != nullptr, "open archive controller fixture");
+    bool quiet = false, saved = false, suspended = false;
+    int requests = 0, cancellations = 0;
+    StorageProfileArchiveRequest request;
+    StorageProfileController controller(
+        *current,
+        registry,
+        "debug",
+        {
+            .blocker = [] { return QString{}; },
+            .suspend_background = [&](bool value) { suspended = value; },
+            .jobs_quiet = [&] { return quiet; },
+            .prepare_editor = [&] { return saved; },
+            .restart = {},
+            .archive_blocker = [] { return QString{}; },
+            .archive =
+                [&](const StorageProfileArchiveRequest& value) {
+                    request = value;
+                    ++requests;
+                },
+            .cancel_archive = [&] { ++cancellations; },
+        }
+    );
+    controller.backupLibrary(QUrl::fromLocalFile(base));
+    require(
+        controller.busy() && suspended && requests == 0,
+        "backup waits for quiet jobs and durable edit save"
+    );
+    quiet = true;
+    QTest::qWait(120);
+    require(controller.busy() && requests == 0, "unsaved edit cannot enter snapshot");
+    controller.editorSaveFailed("disk full");
+    QCoreApplication::processEvents();
+    require(
+        !controller.busy() && !suspended && requests == 0,
+        "failed save preserves the current library and prevents backup"
+    );
+    saved = true;
+    controller.backupLibrary(QUrl::fromLocalFile(base));
+    require(
+        requests == 1 && request.action == 0 && request.source == current->root()
+            && request.expected_id == current->id(),
+        "archive owns exact current source identity"
+    );
+    controller.cancelSwitch();
+    require(
+        cancellations == 1 && controller.busy() && suspended,
+        "cancel waits for worker cleanup before resuming writes"
+    );
+    controller.archiveFailed("cancelled");
+    QCoreApplication::processEvents();
+    require(
+        !controller.busy() && !suspended && controller.errorText().isEmpty(),
+        "cancelled archive leaves the session usable"
+    );
+    controller.createTestCopy(QUrl::fromLocalFile(base), "Copy");
+    require(
+        request.action == 2 && controller.busy(),
+        "test copy uses the same save and pause boundary"
+    );
+    auto copy = registry.create("Copy", base, &error);
+    require(copy.has_value(), "fixture completed copy");
+    controller.archiveCompleted(copy->root);
+    require(
+        controller.busy(),
+        "synchronous completion remains owned throughout closeReady delivery"
+    );
+    QCoreApplication::processEvents();
+    require(
+        !controller.busy() && !suspended && controller.resultRoot() == copy->root,
+        "new copy returns to the old session with a reviewable result"
+    );
+    require(
+        registry.resolveLaunch(launch, "debug", &error)->arguments.contains(current->root()),
+        "creating a copy does not switch or rewrite launch history"
+    );
 }
 void contracts() {
     QTemporaryDir fixture;
@@ -133,6 +221,7 @@ int main(int argc, char** argv) {
     QGuiApplication app(argc, argv);
     try {
         contracts();
+        archiveContracts();
         std::cout << "profile controller contracts passed\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

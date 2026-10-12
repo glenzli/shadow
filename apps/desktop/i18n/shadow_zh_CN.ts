@@ -15856,61 +15856,61 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>StorageProfile</name>
     <message>
-        <location filename="../src/storage_profile.cpp" line="153"/>
-        <location filename="../src/storage_profile.cpp" line="310"/>
+        <location filename="../src/storage_profile.cpp" line="160"/>
+        <location filename="../src/storage_profile.cpp" line="317"/>
         <source>Could not initialize the profile directory: %1</source>
         <translation>无法初始化资料库目录：%1</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="207"/>
+        <location filename="../src/storage_profile.cpp" line="214"/>
         <source>Specify each storage profile option once, with a non-empty value.</source>
         <translation>每个资料库选项只能指定一次，且值不能为空。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="220"/>
+        <location filename="../src/storage_profile.cpp" line="227"/>
         <source>Choose daily, debug, or one explicit profile directory.</source>
         <translation>请选择日常资料库、调试资料库，或指定一个独立的资料库目录。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="225"/>
+        <location filename="../src/storage_profile.cpp" line="232"/>
         <source>The daily library directory is unavailable.</source>
         <translation>日常资料库目录不可用。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="237"/>
+        <location filename="../src/storage_profile.cpp" line="244"/>
         <source>The profile directory must be an absolute path.</source>
         <translation>资料库目录必须使用绝对路径。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="242"/>
+        <location filename="../src/storage_profile.cpp" line="249"/>
         <source>A separate profile must not overlap the daily library directory.</source>
         <translation>独立资料库不能与日常资料库目录重叠。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="262"/>
+        <location filename="../src/storage_profile.cpp" line="269"/>
         <source>Could not create the profile directory: %1</source>
         <translation>无法创建资料库目录：%1</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="107"/>
-        <location filename="../src/storage_profile.cpp" line="147"/>
-        <location filename="../src/storage_profile.cpp" line="293"/>
+        <location filename="../src/storage_profile.cpp" line="114"/>
+        <location filename="../src/storage_profile.cpp" line="154"/>
+        <location filename="../src/storage_profile.cpp" line="300"/>
         <source>Profile storage must remain inside its directory: %1</source>
         <translation>资料库数据必须保存在其目录内：%1</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="303"/>
+        <location filename="../src/storage_profile.cpp" line="310"/>
         <source>This library is already open: %1</source>
         <translation>此资料库已打开：%1</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="304"/>
+        <location filename="../src/storage_profile.cpp" line="311"/>
         <source>Could not lock the profile directory: %1</source>
         <translation>无法锁定资料库目录：%1</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="159"/>
-        <location filename="../src/storage_profile.cpp" line="319"/>
+        <location filename="../src/storage_profile.cpp" line="166"/>
+        <location filename="../src/storage_profile.cpp" line="326"/>
         <source>Could not read the storage profile: %1</source>
         <translation>无法读取资料库信息：%1</translation>
     </message>
@@ -15925,58 +15925,58 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <translation>调试资料库</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="102"/>
+        <location filename="../src/storage_profile.cpp" line="109"/>
         <source>The library directory is unavailable: %1</source>
         <translation>资料库目录不可用：%1</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="112"/>
+        <location filename="../src/storage_profile.cpp" line="119"/>
         <source>Choose a Shadow library directory containing storage-profile.json.</source>
         <translation>请选择包含 storage-profile.json 的 Shadow 资料库目录。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="129"/>
-        <location filename="../src/storage_profile.cpp" line="165"/>
-        <location filename="../src/storage_profile.cpp" line="329"/>
+        <location filename="../src/storage_profile.cpp" line="136"/>
+        <location filename="../src/storage_profile.cpp" line="172"/>
+        <location filename="../src/storage_profile.cpp" line="336"/>
         <source>The storage profile is incompatible with this selection: %1</source>
         <translation>资料库信息与当前选择不兼容：%1</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="142"/>
+        <location filename="../src/storage_profile.cpp" line="149"/>
         <source>Use a library name of 1–80 characters without control characters.</source>
         <translation>资料库名称须为 1–80 个字符，且不能包含控制字符。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="170"/>
-        <location filename="../src/storage_profile.cpp" line="358"/>
+        <location filename="../src/storage_profile.cpp" line="177"/>
+        <location filename="../src/storage_profile.cpp" line="365"/>
         <source>Could not save the storage profile: %1</source>
         <translation>无法保存资料库信息：%1</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="200"/>
+        <location filename="../src/storage_profile.cpp" line="207"/>
         <source>The library identity is invalid.</source>
         <translation>资料库标识无效。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="246"/>
+        <location filename="../src/storage_profile.cpp" line="253"/>
         <source>Library directories must not contain one another.</source>
         <translation>资料库目录不能互相嵌套。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="334"/>
-        <location filename="../src/storage_profile.cpp" line="345"/>
+        <location filename="../src/storage_profile.cpp" line="341"/>
+        <location filename="../src/storage_profile.cpp" line="352"/>
         <source>The library at this location has changed. Open it again to confirm its identity.</source>
         <translation>此位置的资料库已发生变化。请重新打开，以确认资料库标识。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="367"/>
-        <location filename="../src/storage_profile.cpp" line="392"/>
-        <location filename="../src/storage_profile.cpp" line="398"/>
+        <location filename="../src/storage_profile.cpp" line="374"/>
+        <location filename="../src/storage_profile.cpp" line="399"/>
+        <location filename="../src/storage_profile.cpp" line="405"/>
         <source>Could not preserve the daily library settings.</source>
         <translation>无法保留日常资料库设置。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile.cpp" line="405"/>
+        <location filename="../src/storage_profile.cpp" line="412"/>
         <source>Could not preserve the daily library brush presets.</source>
         <translation>无法保留日常资料库画笔预设。</translation>
     </message>
@@ -15984,35 +15984,120 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>StorageProfileController</name>
     <message>
-        <location filename="../src/main.cpp" line="793"/>
+        <location filename="../src/main.cpp" line="794"/>
         <source>Save the composed image before switching libraries.</source>
         <translation>请先保存合成图像，再切换资料库。</translation>
     </message>
     <message>
-        <location filename="../src/main.cpp" line="950"/>
-        <location filename="../src/main.cpp" line="960"/>
+        <location filename="../src/main.cpp" line="982"/>
+        <location filename="../src/main.cpp" line="992"/>
         <source>Could not load the target library window.</source>
         <translation>无法加载目标资料库窗口。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_controller.cpp" line="65"/>
+        <location filename="../src/storage_profile_controller.cpp" line="71"/>
         <source>Pausing background work and waiting for current operations…</source>
         <translation>正在暂停后台任务，并等待当前操作完成…</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_controller.cpp" line="67"/>
+        <location filename="../src/storage_profile_controller.cpp" line="73"/>
         <source>Saving the current edits…</source>
         <translation>正在保存当前编辑…</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_controller.cpp" line="70"/>
+        <location filename="../src/storage_profile_controller.cpp" line="76"/>
+        <source>Cancelling the library operation…</source>
+        <translation>正在取消资料库操作…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="78"/>
+        <source>Backing up the library…</source>
+        <translation>正在备份资料库…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="79"/>
+        <source>Restoring into a new library…</source>
+        <translation>正在恢复到新资料库…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="80"/>
+        <source>Creating an independent test copy…</source>
+        <translation>正在创建独立测试副本…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="81"/>
+        <source>Verifying the backup…</source>
+        <translation>正在校验备份…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="83"/>
+        <source>%1 (%2/%3 files)</source>
+        <translation>%1（%2/%3 个文件）</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="88"/>
         <source>Opening %1…</source>
         <translation>正在打开 %1…</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_controller.cpp" line="244"/>
+        <location filename="../src/storage_profile_controller.cpp" line="250"/>
+        <source>Could not save the library preferences.</source>
+        <translation>无法保存资料库设置。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="257"/>
+        <source>Library data protection is unavailable.</source>
+        <translation>资料库数据保护功能暂不可用。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="282"/>
+        <source>Could not save the current edits. The library operation was stopped. %1</source>
+        <translation>无法保存当前编辑，已停止资料库操作。%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="284"/>
         <source>Could not save the current edits. The library was not switched. %1</source>
         <translation>无法保存当前编辑，资料库未切换。%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="356"/>
+        <source>Use a library name of 1–80 characters without control characters.</source>
+        <translation>资料库名称需为 1–80 个字符，且不能包含控制字符。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="360"/>
+        <source>Choose an available source and destination directory.</source>
+        <translation>请选择可用的来源目录和目标目录。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="369"/>
+        <source>Choose a destination outside existing libraries.</source>
+        <translation>请选择现有资料库之外的保存位置。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="409"/>
+        <source>Backup created and verified: %1</source>
+        <translation>备份已创建并通过校验：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="410"/>
+        <source>Backup verified: %1</source>
+        <translation>备份已通过校验：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="411"/>
+        <source>Independent library created: %1</source>
+        <translation>独立资料库已创建：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_controller.cpp" line="426"/>
+        <source>Could not complete the library operation. The current library was preserved. %1</source>
+        <translation>无法完成资料库操作，当前资料库已保留。%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_archive.cpp" line="77"/>
+        <source>Close the library server and finish other library operations before backing up or copying this library.</source>
+        <translation>备份或复制此资料库前，请关闭资料库服务器，并等待其他资料库操作完成。</translation>
     </message>
 </context>
 <context>
@@ -16133,74 +16218,118 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>StorageProfileStartup</name>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="26"/>
+        <location filename="../src/storage_profile_startup.cpp" line="30"/>
         <source>Choose a Library</source>
         <translation>选择资料库</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="35"/>
+        <location filename="../src/storage_profile_startup.cpp" line="39"/>
         <source>Open Selected</source>
         <translation>打开所选资料库</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="37"/>
+        <location filename="../src/storage_profile_startup.cpp" line="41"/>
         <source>Open Library…</source>
         <translation>打开资料库…</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="39"/>
+        <location filename="../src/storage_profile_startup.cpp" line="43"/>
         <source>New Library…</source>
         <translation>新建资料库…</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="40"/>
-        <location filename="../src/storage_profile_startup.cpp" line="96"/>
-        <location filename="../src/storage_profile_startup.cpp" line="130"/>
+        <location filename="../src/storage_profile_startup.cpp" line="44"/>
+        <location filename="../src/storage_profile_startup.cpp" line="103"/>
+        <location filename="../src/storage_profile_startup.cpp" line="150"/>
+        <location filename="../src/storage_profile_startup.cpp" line="160"/>
+        <location filename="../src/storage_profile_startup.cpp" line="230"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="45"/>
+        <location filename="../src/storage_profile_startup.cpp" line="49"/>
+        <source>Restore Backup…</source>
+        <translation>恢复备份…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="52"/>
         <source>Reset Recent Library Records…</source>
         <translation>重置最近资料库记录…</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="86"/>
+        <location filename="../src/storage_profile_startup.cpp" line="93"/>
         <source>Open Library</source>
         <translation>打开资料库</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="93"/>
+        <location filename="../src/storage_profile_startup.cpp" line="100"/>
         <source>New Library</source>
         <translation>新建资料库</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="94"/>
+        <location filename="../src/storage_profile_startup.cpp" line="101"/>
+        <location filename="../src/storage_profile_startup.cpp" line="147"/>
         <source>Library Name</source>
         <translation>资料库名称</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="95"/>
+        <location filename="../src/storage_profile_startup.cpp" line="102"/>
         <source>Create and Open</source>
         <translation>创建并打开</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="102"/>
+        <location filename="../src/storage_profile_startup.cpp" line="109"/>
+        <location filename="../src/storage_profile_startup.cpp" line="129"/>
         <source>Choose a Location</source>
         <translation>选择存储位置</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="116"/>
+        <location filename="../src/storage_profile_startup.cpp" line="123"/>
+        <source>Choose a Library Backup</source>
+        <translation>选择资料库备份</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="137"/>
+        <source>Choose a destination outside existing libraries.</source>
+        <translation>请选择现有资料库之外的保存位置。</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="145"/>
+        <source>Restore into a New Library</source>
+        <translation>恢复到新资料库</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="148"/>
+        <source>Restored Library</source>
+        <translation>恢复的资料库</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="149"/>
+        <source>Restore</source>
+        <translation>恢复</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="156"/>
+        <source>Verifying the backup and restoring into a new library…</source>
+        <translation>正在校验备份并恢复到新资料库…</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="206"/>
+        <source>Could not restore the backup. Existing libraries were preserved. %1</source>
+        <translation>无法恢复备份，现有资料库已保留。%1</translation>
+    </message>
+    <message>
+        <location filename="../src/storage_profile_startup.cpp" line="216"/>
         <source>Reset Recent Library Records</source>
         <translation>重置最近资料库记录</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="117"/>
+        <location filename="../src/storage_profile_startup.cpp" line="217"/>
         <source>This resets only recent locations and launch choices. Library data and names remain unchanged, and the previous records are preserved.</source>
         <translation>这只会重置最近使用的位置和启动选择。资料库数据与名称保持不变，原有记录也会保留。</translation>
     </message>
     <message>
-        <location filename="../src/storage_profile_startup.cpp" line="126"/>
+        <location filename="../src/storage_profile_startup.cpp" line="226"/>
         <source>Reset Records</source>
         <translation>重置记录</translation>
     </message>
@@ -16221,128 +16350,208 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
 <context>
     <name>StorageProfilesDialog</name>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="19"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="23"/>
         <source>Libraries</source>
         <translation>资料库</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="36"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="41"/>
         <source>Open Library</source>
         <translation>打开资料库</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="42"/>
-        <source>Choose a Location for the New Library</source>
-        <translation>选择新资料库的存储位置</translation>
-    </message>
-    <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="51"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="76"/>
         <source>Current Library</source>
         <translation>当前资料库</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="64"/>
-        <location filename="../qml/StorageProfilesDialog.qml" line="205"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="89"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="273"/>
         <source>Library Name</source>
         <translation>资料库名称</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="68"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="93"/>
         <source>Rename</source>
         <translation>重命名</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="85"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="110"/>
         <source>Library Location</source>
         <translation>资料库存储位置</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="91"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="116"/>
         <source>Show in Folder</source>
         <translation>在文件夹中显示</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="96"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="121"/>
         <source>Copy Location</source>
         <translation>复制存储位置</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="105"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="130"/>
         <source>Debug remembers its own independent library. Opening the daily library here does not change that startup choice.</source>
         <translation>Debug 会单独记住开发资料库。在此打开日常资料库，不会改变 Debug 的启动选择。</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="122"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="190"/>
         <source>New Library</source>
         <translation>新建资料库</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="122"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="188"/>
         <source>Recent Libraries</source>
         <translation>最近使用的资料库</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="128"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="47"/>
+        <source>Choose a Location for the Library</source>
+        <translation>选择资料库保存位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="53"/>
+        <source>Choose a Location for the Backup</source>
+        <translation>选择备份保存位置</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="59"/>
+        <source>Verify Library Backup</source>
+        <translation>校验资料库备份</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="59"/>
+        <source>Restore Library Backup</source>
+        <translation>恢复资料库备份</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="66"/>
+        <source>Restored Library</source>
+        <translation>恢复的资料库</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="147"/>
+        <source>Back Up…</source>
+        <translation>备份…</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="153"/>
+        <source>Restore Backup…</source>
+        <translation>恢复备份…</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="159"/>
+        <source>Test Copy…</source>
+        <translation>测试副本…</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="164"/>
+        <source>%1 · Test</source>
+        <translation>%1 · 测试</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="169"/>
+        <source>Verify Backup…</source>
+        <translation>校验备份…</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="177"/>
+        <source>Backups include the catalog, edits, attachments and preferences. Original photos remain at their existing locations and need their own backup.</source>
+        <translation>备份包含图库、编辑记录、附件和设置。原始照片保留在现有位置，需要单独备份。</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="189"/>
+        <source>Independent Test Copy</source>
+        <translation>独立测试副本</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="190"/>
+        <source>Restore into a New Library</source>
+        <translation>恢复到新资料库</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="196"/>
         <source>Back</source>
         <translation>返回</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="128"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="196"/>
         <source>New Library…</source>
         <translation>新建资料库…</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="134"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="202"/>
         <source>Open Library…</source>
         <translation>打开资料库…</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="165"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="233"/>
         <source>%1 · Current</source>
         <translation>%1 · 当前资料库</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="167"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="235"/>
         <source>%1 · Unavailable</source>
         <translation>%1 · 不可用</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="212"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="280"/>
         <source>Choose Location…</source>
         <translation>选择存储位置…</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="219"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="287"/>
         <source>No location selected</source>
         <translation>尚未选择存储位置</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="227"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="296"/>
         <source>A new empty library will be created in this folder. Photos and edits are kept separately in each library.</source>
         <translation>将在此文件夹中创建一个空资料库。各资料库的照片和编辑数据独立保存。</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="248"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="297"/>
+        <source>A separate library will be created without replacing existing data. Edits and attachments are preserved. Pending exports and automatic background work will not restart in the new library.</source>
+        <translation>将创建独立资料库，保留现有数据、编辑记录与附件。新资料库不会自动继续待执行的导出或后台任务。</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="318"/>
         <source>Switching saves current edits, pauses resumable work and restarts Shadow in the selected library.</source>
         <translation>切换时会先保存当前编辑、暂停可恢复的任务，再重启 Shadow 并打开所选资料库。</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="270"/>
-        <source>Cancel Switch</source>
-        <translation>取消切换</translation>
+        <location filename="../qml/StorageProfilesDialog.qml" line="328"/>
+        <source>Show Result in Folder</source>
+        <translation>在文件夹中显示结果</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="275"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="348"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="361"/>
+        <source>Restore</source>
+        <translation>恢复</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="353"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="281"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="360"/>
+        <source>Create Test Copy</source>
+        <translation>创建测试副本</translation>
+    </message>
+    <message>
+        <location filename="../qml/StorageProfilesDialog.qml" line="361"/>
         <source>Create and Open</source>
         <translation>创建并打开</translation>
     </message>
     <message>
-        <location filename="../qml/StorageProfilesDialog.qml" line="281"/>
+        <location filename="../qml/StorageProfilesDialog.qml" line="359"/>
         <source>Open Selected</source>
         <translation>打开所选资料库</translation>
     </message>
