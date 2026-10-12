@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace {
 
@@ -111,6 +112,10 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
         return;
     }
     rebuild_timer_.stop();
+    pending_item_rows_.clear();
+    full_rebuild_pending_ = false;
+    append_pending_ = false;
+    all_items_dirty_ = false;
     beginResetModel();
     disconnectSourceModel();
     source_model_ = source_model;
@@ -160,6 +165,10 @@ void JustifiedReviewLayoutModel::setSourceModel(QAbstractItemModel* const source
         ));
         source_connections_.append(connect(source_model_, &QObject::destroyed, this, [this]() {
             rebuild_timer_.stop();
+            pending_item_rows_.clear();
+            full_rebuild_pending_ = false;
+            append_pending_ = false;
+            all_items_dirty_ = false;
             beginResetModel();
             source_model_ = nullptr;
             source_connections_.clear();
@@ -543,6 +552,16 @@ void JustifiedReviewLayoutModel::flushSourceUpdates() {
     } else if (append_pending_) {
         appendSourceRows();
     }
+    flushItemUpdates();
+}
+
+void JustifiedReviewLayoutModel::flushItemUpdates() {
+    const auto changed_rows = std::exchange(pending_item_rows_, {});
+    for (const auto& row : changed_rows) {
+        if (row.isValid()) {
+            emit dataChanged(row, row, {ItemsRole});
+        }
+    }
 }
 
 void JustifiedReviewLayoutModel::appendSourceRows() {
@@ -600,6 +619,7 @@ void JustifiedReviewLayoutModel::appendSourceRows() {
             );
         }
         const QModelIndex changed = index(first_changed_row, 0);
+        pending_item_rows_.remove(changed);
         emit dataChanged(changed, changed, {ItemsRole, RowHeightRole, UsedWidthRole});
     }
     if (!suffix_rows.isEmpty()) {
@@ -791,6 +811,7 @@ bool JustifiedReviewLayoutModel::appendGroupedSourceRows(const QVector<Section>&
                     {tail->tail_row - tail->header_row, column, tail->section_index}
                 );
             }
+            pending_item_rows_.remove(index(tail->tail_row, 0));
             emit dataChanged(
                 index(tail->tail_row, 0),
                 index(tail->tail_row, 0),
@@ -822,6 +843,9 @@ bool JustifiedReviewLayoutModel::appendGroupedSourceRows(const QVector<Section>&
         }
     }
     projected_source_count_ = source_count;
+    if (!pending_item_rows_.isEmpty() && !rebuild_timer_.isActive()) {
+        rebuild_timer_.start(0);
+    }
     emit sectionAnchorsChanged();
     if (diagnostics.enabled()) {
         diagnostics.record(
@@ -860,7 +884,7 @@ void JustifiedReviewLayoutModel::updateSourceItems(
         }
         dimensions_changed = dimensions_changed || name == "visualWidth" || name == "visualHeight";
     }
-    QSet<int> changed_rows;
+    QSet<QPersistentModelIndex> changed_rows;
     for (int row = first.row(); row <= last.row(); ++row) {
         const auto source_index = source_model_->index(row, 0);
         const QString key = source_model_->data(source_index, photo_role).toString() + QChar{0x001f}
@@ -873,15 +897,15 @@ void JustifiedReviewLayoutModel::updateSourceItems(
         }
         // Photo roles are materialized only for visible rows. Their current
         // source values need no second resident copy in the layout.
-        changed_rows.insert(absoluteRow(position.value()));
+        changed_rows.insert(index(absoluteRow(position.value()), 0));
     }
+    pending_item_rows_.unite(changed_rows);
     if (dimensions_changed || full_rebuild_pending_) {
-        pending_item_rows_.unite(changed_rows);
         requestRebuild();
         return;
     }
-    for (const int row : changed_rows) {
-        emit dataChanged(index(row, 0), index(row, 0), {ItemsRole});
+    if (!rebuild_timer_.isActive()) {
+        rebuild_timer_.start(0);
     }
 }
 
@@ -989,7 +1013,7 @@ void JustifiedReviewLayoutModel::rebuild() {
             QList<int> changed_roles;
             if (old.items != next.items
                 || (old.kind == QStringLiteral("photos")
-                    && (all_items_dirty_ || pending_item_rows_.contains(row))))
+                    && (all_items_dirty_ || pending_item_rows_.contains(index(row, 0)))))
                 changed_roles.push_back(ItemsRole);
             if (old.height != next.height)
                 changed_roles.push_back(RowHeightRole);

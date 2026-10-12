@@ -153,7 +153,8 @@ Item {
         anchors.bottom: filmstripPanel.top
         anchors.margins: 20
         anchors.bottomMargin: 16
-        source: root.review.selectedVisualSource
+        // This surface stays alive in grid mode; visibility alone does not stop image loading.
+        source: root.visible ? root.review.selectedVisualSource : ""
         autoTransform: root.review.selectedVisualAutoTransform
         selectionKey: root.review.selectedPhotoId.length > 0
             ? root.review.selectedPhotoId + "/" + root.review.selectedRepresentationId : ""
@@ -365,7 +366,7 @@ Item {
 
                 ShadowRoundedImage {
                     anchors.fill: parent
-                    source: filmCard.visualSource
+                    source: root.visible ? filmCard.visualSource : ""
                     autoTransform: filmCard.visualAutoTransform
                     radius: filmCard.radius
                     fillMode: Image.PreserveAspectCrop

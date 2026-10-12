@@ -147,6 +147,7 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
     void requestRebuild();
     void requestAppend(int first);
     void flushSourceUpdates();
+    void flushItemUpdates();
     void appendSourceRows();
     [[nodiscard]] bool appendGroupedSourceRows(const QVector<Section>& next_sections);
     void
@@ -163,7 +164,8 @@ class JustifiedReviewLayoutModel final : public QAbstractListModel {
     QVector<QMetaObject::Connection> source_connections_;
     QTimer rebuild_timer_;
     QVector<Row> rows_;
-    QSet<int> pending_item_rows_;
+    // Persistent row indices follow grouped tail insertions before publication.
+    QSet<QPersistentModelIndex> pending_item_rows_;
     bool all_items_dirty_ = false;
     QHash<QString, ItemPosition> item_positions_;
     QVector<int> section_header_rows_;

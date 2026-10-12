@@ -573,6 +573,17 @@ void grouped_page_append_updates_section_tails_without_reset() {
         &QAbstractItemModel::rowsInserted,
         [&](const QModelIndex&, int first, int last) { insertions += last - first + 1; }
     );
+    int metadata_row = -1;
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::dataChanged,
+        [&](const QModelIndex& first, const QModelIndex&, const QList<int>& roles) {
+            if (roles == QList<int>{JustifiedReviewLayoutModel::ItemsRole}) {
+                metadata_row = first.row();
+            }
+        }
+    );
+    require(photos.updateDecision("e", 1, "picked", 3), "queued grouped metadata updates");
     require(
         photos.appendSnapshot(
             {
@@ -600,6 +611,14 @@ void grouped_page_append_updates_section_tails_without_reset() {
     require(
         second_header_after > second_header_before,
         "later section anchors shift with inserted rows"
+    );
+    require(
+        metadata_row == second_header_after + 1
+            && layout.navigationTarget("e", "representation-e", 0, 0)
+                       .value("decisionRating")
+                       .toInt()
+                   == 3,
+        "queued metadata follows its persistent layout row through earlier section insertions"
     );
     require(
         layout.data(
@@ -645,6 +664,7 @@ void grouped_page_append_updates_section_tails_without_reset() {
         }
     );
     require(photos.updateDecision("l", 1, "picked", 4), "later section decision updates");
+    QCoreApplication::processEvents();
     require(
         resets == 0 && changed_row == later_row
             && layout.navigationTarget("l", "representation-l", 0, 0)
@@ -784,6 +804,128 @@ void preview_upgrades_retain_rows_and_match_fresh_geometry() {
     require(resets == 1, "a real membership change uses the safe full layout reset");
 }
 
+void require_fresh_projection(JustifiedReviewLayoutModel& layout, ReviewModel& photos) {
+    JustifiedReviewLayoutModel fresh;
+    fresh.setSourceModel(&photos);
+    fresh.setAvailableWidth(layout.availableWidth());
+    require(layout.rowCount() == fresh.rowCount(), "queued and fresh row counts agree");
+    for (int row = 0; row < layout.rowCount(); ++row) {
+        for (const int role :
+             {JustifiedReviewLayoutModel::ItemsRole,
+              JustifiedReviewLayoutModel::RowHeightRole,
+              JustifiedReviewLayoutModel::UsedWidthRole}) {
+            require(
+                layout.data(layout.index(row, 0), role) == fresh.data(fresh.index(row, 0), role),
+                "queued publication exactly matches fresh geometry and metadata"
+            );
+        }
+    }
+}
+
+void snapshot_metadata_coalesces_once_per_affected_row() {
+    ReviewModel photos;
+    QVector<ReviewItem> items;
+    for (int i = 0; i < 12; ++i) {
+        items.push_back(photo(qPrintable(QString::number(i)), 1200, 800));
+    }
+    photos.replace(items, 1);
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&photos);
+    layout.setAvailableWidth(900);
+    QHash<int, int> updates;
+    int resets = 0;
+    QObject::connect(&layout, &QAbstractItemModel::modelReset, [&]() { ++resets; });
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::dataChanged,
+        [&](const QModelIndex& first, const QModelIndex& last, const QList<int>& roles) {
+            require(
+                first == last && roles == QList<int>{JustifiedReviewLayoutModel::ItemsRole},
+                "metadata publishes only the affected row's items"
+            );
+            ++updates[first.row()];
+        }
+    );
+    for (const int item : {0, 1, 2, 5, 6}) {
+        items[item].title += " updated";
+    }
+    require(photos.reconcileSnapshot(items, 1), "metadata snapshot reconciles");
+    require(photos.updateDecision("1", 1, "picked", 4), "latest badge joins queued row");
+    require(updates.isEmpty(), "metadata notifications wait for the existing event-loop timer");
+    QCoreApplication::processEvents();
+    require(
+        resets == 0 && updates.size() == 2 && updates.value(0) == 1 && updates.value(1) == 1,
+        "six source changes publish each of the two affected layout rows once"
+    );
+    require_fresh_projection(layout, photos);
+}
+
+void metadata_queue_survives_append_and_dimension_rebuild() {
+    ReviewModel photos;
+    QVector<ReviewItem> items;
+    for (int i = 0; i < 6; ++i) {
+        items.push_back(photo(qPrintable(QString::number(i)), 1200, 800));
+    }
+    photos.replace(items, 1);
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&photos);
+    layout.setAvailableWidth(900);
+    QHash<int, int> updates;
+    QObject::connect(
+        &layout,
+        &QAbstractItemModel::dataChanged,
+        [&](const QModelIndex& first, const QModelIndex&, const QList<int>& roles) {
+            if (roles.contains(JustifiedReviewLayoutModel::ItemsRole)) {
+                ++updates[first.row()];
+            }
+        }
+    );
+    require(photos.updateDecision("0", 1, "picked", 4), "retained row queues metadata");
+    require(photos.updateDecision("4", 1, "picked", 3), "unfinished row queues metadata");
+    photos.append({photo("6", 1200, 800), photo("7", 1200, 800), photo("8", 1200, 800)});
+    QCoreApplication::processEvents();
+    require(
+        updates.size() == 2 && updates.value(0) == 1 && updates.value(1) == 1,
+        "append publishes its changed tail once and drains unrelated metadata once"
+    );
+    require_fresh_projection(layout, photos);
+
+    updates.clear();
+    require(photos.updateDecision("0", 2, "picked", 5), "metadata precedes dimensions");
+    auto upgraded = photo("5", 2048, 1365);
+    require(photos.appendSnapshot({upgraded}, 1, true), "existing preview dimensions update");
+    require(photos.updateDecision("4", 2, "picked", 2), "metadata follows dimensions");
+    QCoreApplication::processEvents();
+    require(
+        updates.size() == 2 && updates.value(0) == 1 && updates.value(1) == 1,
+        "dimension rebuild absorbs both preceding and following metadata notifications"
+    );
+    require_fresh_projection(layout, photos);
+}
+
+void source_replacement_discards_queued_metadata() {
+    ReviewModel photos;
+    photos.replace({photo("old", 1200, 800)}, 1);
+    JustifiedReviewLayoutModel layout;
+    layout.setSourceModel(&photos);
+    layout.setAvailableWidth(900);
+    int updates = 0;
+    QObject::connect(&layout, &QAbstractItemModel::dataChanged, [&]() { ++updates; });
+    require(photos.updateDecision("old", 1, "picked", 5), "old source queues metadata");
+    ReviewModel replacement;
+    replacement.replace({photo("new", 800, 1200)}, 1);
+    layout.setSourceModel(&replacement);
+    QCoreApplication::processEvents();
+    require(updates == 0, "a retired source cannot publish queued row notifications");
+    require_fresh_projection(layout, replacement);
+
+    require(replacement.updateDecision("new", 1, "picked", 4), "replacement queues metadata");
+    replacement.replace({photo("reset", 1200, 800)}, 2);
+    QCoreApplication::processEvents();
+    require(updates == 0, "model reset absorbs metadata queued for its previous membership");
+    require_fresh_projection(layout, replacement);
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -802,5 +944,8 @@ int main(int argc, char* argv[]) {
     grouped_page_append_updates_section_tails_without_reset();
     decisions_update_one_row_without_relayout_or_catalog_scan();
     preview_upgrades_retain_rows_and_match_fresh_geometry();
+    snapshot_metadata_coalesces_once_per_affected_row();
+    metadata_queue_survives_append_and_dimension_rebuild();
+    source_replacement_discards_queued_metadata();
     return EXIT_SUCCESS;
 }

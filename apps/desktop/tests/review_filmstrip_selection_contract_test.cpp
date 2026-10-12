@@ -4,6 +4,8 @@
 
 #include <QGuiApplication>
 #include <QImage>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -20,12 +22,30 @@
 class FilmstripPreviewProvider final : public QQuickImageProvider {
   public:
     FilmstripPreviewProvider() : QQuickImageProvider(Image) {}
-    QImage requestImage(const QString&, QSize* size, const QSize&) override {
+    QImage requestImage(const QString& id, QSize* size, const QSize&) override {
+        {
+            const QMutexLocker lock(&requests_mutex_);
+            requests_.push_back(id);
+        }
         QImage image(800, 600, QImage::Format_RGB32);
         image.fill(Qt::darkBlue);
         *size = image.size();
         return image;
     }
+
+    qsizetype requestCount() const {
+        const QMutexLocker lock(&requests_mutex_);
+        return requests_.size();
+    }
+
+    bool requested(const QString& id) const {
+        const QMutexLocker lock(&requests_mutex_);
+        return requests_.contains(id);
+    }
+
+  private:
+    mutable QMutex requests_mutex_;
+    QStringList requests_;
 };
 
 int main(int argc, char** argv) {
@@ -38,6 +58,9 @@ int main(int argc, char** argv) {
         photo.photo_id = QStringLiteral("photo-%1").arg(index);
         photo.representation_id = QStringLiteral("raw");
         photo.title = photo.photo_id;
+        photo.has_visual = true;
+        photo.visual_source_override =
+            QStringLiteral("image://filmstrip-selection/%1").arg(photo.photo_id);
         photo.decision_rating = index % 2;
         photos.push_back(photo);
     }
@@ -48,7 +71,8 @@ int main(int argc, char** argv) {
     navigation.setSourceModel(&filtered);
     navigation.setAvailableWidth(600);
     QQmlEngine engine;
-    engine.addImageProvider(QStringLiteral("filmstrip-selection"), new FilmstripPreviewProvider);
+    auto* preview_provider = new FilmstripPreviewProvider;
+    engine.addImageProvider(QStringLiteral("filmstrip-selection"), preview_provider);
     engine.rootContext()->setContextProperty(QStringLiteral("photoModel"), &filtered);
     engine.rootContext()->setContextProperty(QStringLiteral("navigationModel"), &navigation);
     bool warnings = false;
@@ -129,6 +153,14 @@ ReviewSinglePreview {
     };
     if (!ok)
         return EXIT_FAILURE;
+    QTest::qWait(150);
+    check(preview_provider->requestCount() == 0, "hidden initial preview requested images");
+    review->setProperty(
+        "selectedVisualSource",
+        QStringLiteral("image://filmstrip-selection/initial-current")
+    );
+    QTest::qWait(150);
+    check(preview_provider->requestCount() == 0, "hidden initial selection requested an image");
     auto selection_visible = [&] {
         return QTest::qWaitFor(
             [&] {
@@ -143,6 +175,13 @@ ReviewSinglePreview {
     };
     root_item->setVisible(true);
     check(selection_visible(), "entering filmstrip did not reveal an initially offscreen photo");
+    check(
+        QTest::qWaitFor([&] {
+            return preview_provider->requested(QStringLiteral("initial-current"))
+                   && preview_provider->requested(QStringLiteral("photo-1500"));
+        }),
+        "showing the preview did not load the current hero and filmstrip images"
+    );
     review->setProperty("selectedPhotoId", QStringLiteral("photo-20"));
     check(selection_visible(), "backward selection did not reveal the selected photo");
     review->setProperty("selectedPhotoId", QStringLiteral("photo-1700"));
@@ -162,10 +201,31 @@ ReviewSinglePreview {
     source.replace(photos, 2);
     check(selection_visible(), "same-count model reset did not reconcile the current row");
     root_item->setVisible(false);
+    // Let requests admitted before hiding finish, then change both hidden surfaces' sources.
+    QTest::qWait(150);
+    const auto hidden_request_count = preview_provider->requestCount();
     review->setProperty("selectedPhotoId", QStringLiteral("photo-800"));
-    QCoreApplication::processEvents();
+    review->setProperty(
+        "selectedVisualSource",
+        QStringLiteral("image://filmstrip-selection/hidden-current")
+    );
+    for (auto& photo : photos)
+        photo.visual_source_override += QStringLiteral("-hidden");
+    source.replace(photos, 3);
+    QTest::qWait(150);
+    check(
+        preview_provider->requestCount() == hidden_request_count,
+        "hidden selection or filmstrip refresh requested images"
+    );
     root_item->setVisible(true);
     check(selection_visible(), "selection changed in grid was not revealed on reentry");
+    check(
+        QTest::qWaitFor([&] {
+            return preview_provider->requested(QStringLiteral("hidden-current"))
+                   && preview_provider->requested(QStringLiteral("photo-800-hidden"));
+        }),
+        "reentering the preview did not load the latest hero and filmstrip images"
+    );
     check(QTest::qWaitFor([&] { return navigation.rowCount() > 0; }), "navigation layout missing");
     const auto next =
         navigation.navigationTarget(QStringLiteral("photo-800"), QStringLiteral("raw"), 1, 0);
@@ -250,7 +310,7 @@ ReviewSinglePreview {
             photo.title = photo.photo_id;
             page.push_back(photo);
         }
-        source.replace(page, 3);
+        source.replace(page, 4);
         review->setProperty("selectedPhotoId", QStringLiteral("page-1"));
         check(selection_visible(), "page-boundary selection was not visible");
         controller->setProperty("hasMore", true);
@@ -274,18 +334,15 @@ ReviewSinglePreview {
             return review->property("selectedPhotoId") == QStringLiteral("page-2");
         });
         if (!advanced) {
-            const auto target = navigation.navigationTarget(
-                QStringLiteral("page-1"), QStringLiteral("raw"), 1, 0);
+            const auto target =
+                navigation.navigationTarget(QStringLiteral("page-1"), QStringLiteral("raw"), 1, 0);
             std::cerr << "page boundary state: source=" << source.rowCount()
-                      << " filtered=" << filtered.rowCount()
-                      << " layout=" << navigation.rowCount()
+                      << " filtered=" << filtered.rowCount() << " layout=" << navigation.rowCount()
                       << " pending="
                       << root->property("pendingForwardPhotoId").toString().toStdString()
                       << " selected="
-                      << review->property("selectedPhotoId").toString().toStdString()
-                      << " next="
-                      << target.value(QStringLiteral("photoId")).toString().toStdString()
-                      << '\n';
+                      << review->property("selectedPhotoId").toString().toStdString() << " next="
+                      << target.value(QStringLiteral("photoId")).toString().toStdString() << '\n';
         }
         check(advanced, "pending right arrow did not advance after the next page arrived");
         check(selection_visible(), "next-page photo was not revealed in the filmstrip");
