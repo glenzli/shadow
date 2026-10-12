@@ -233,7 +233,8 @@ class ReviewModel final : public QAbstractListModel {
     void append(QVector<ReviewItem> items);
     // Appends only a current-generation page whose stable keys are unique both
     // within the page and across the already presented rows.
-    [[nodiscard]] bool appendSnapshot(QVector<ReviewItem> items, quint64 generation);
+    [[nodiscard]] bool
+    appendSnapshot(QVector<ReviewItem> items, quint64 generation, bool allow_existing = false);
     // Applies only a current-generation snapshot with unique, non-empty stable keys.
     [[nodiscard]] bool reconcileSnapshot(QVector<ReviewItem> items, quint64 generation);
     // Reconciles an ordered from-origin prefix while retaining every existing

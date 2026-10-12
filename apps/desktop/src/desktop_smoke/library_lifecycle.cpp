@@ -327,22 +327,26 @@ void startReopenLibraryLifecycle(
     ReviewController& controller
 ) {
     auto succeeded = std::make_shared<bool>(false);
+    auto* const poll = new QTimer(&application);
+    poll->setInterval(100);
     QObject::connect(
-        &controller,
-        &ReviewController::itemCountChanged,
-        &application,
-        [&application, &controller, &engine, succeeded]() {
-            QTimer::singleShot(0, &application, [&application, &controller, &engine, succeeded]() {
-                if (*succeeded || controller.scanning() || controller.refreshing()
-                    || controller.reviewModel()->rowCount() == 0 || reviewGridCount(engine) == 0) {
-                    return;
-                }
-                *succeeded = true;
-                qInfo() << "Reopen smoke loaded the persisted Library without scanning";
-                QTimer::singleShot(50, &application, &QCoreApplication::quit);
-            });
+        poll,
+        &QTimer::timeout,
+        poll,
+        [poll, &application, &controller, &engine, succeeded]() {
+            if (*succeeded || controller.scanning() || controller.refreshing()
+                || controller.itemCount() == 0 || controller.reviewModel()->rowCount() == 0
+                || reviewGridCount(engine) == 0) {
+                return;
+            }
+            *succeeded = true;
+            poll->stop();
+            qInfo() << "Reopen smoke loaded the persisted Library without scanning";
+            QTimer::singleShot(50, &application, &QCoreApplication::quit);
         }
     );
+    // The first page/count may already be available before this harness is installed.
+    poll->start();
     QTimer::singleShot(30'000, &application, [&application, succeeded]() {
         application.exit(*succeeded ? EXIT_SUCCESS : EXIT_FAILURE);
     });

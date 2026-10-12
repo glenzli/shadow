@@ -11,6 +11,50 @@ Rectangle {
     id: gallery
 
     required property var workspace
+    property string scrollAnchorPhotoId: ""
+    property string scrollAnchorRepresentationId: ""
+    property real scrollAnchorOffset: 0
+    property int scrollAnchorRevision: 0
+
+    function retainScrollAnchor() {
+        scrollAnchorPhotoId = ""
+        if (!justifiedGrid.visible || justifiedGrid.moving)
+            return
+        const first = justifiedGrid.indexAt(1, justifiedGrid.contentY + 1)
+        for (let row = Math.max(0, first); row < Math.max(0, first) + 4; ++row) {
+            const item = justifiedGrid.itemAtIndex(row)
+            if (!item || item.rowKind !== "photos" || item.items.length === 0)
+                continue
+            scrollAnchorPhotoId = String(item.items[0].photoId)
+            scrollAnchorRepresentationId = String(item.items[0].representationId)
+            scrollAnchorOffset = justifiedGrid.contentY - item.y
+            return
+        }
+    }
+
+    function restoreScrollAnchor(revision) {
+        if (revision !== scrollAnchorRevision || scrollAnchorPhotoId.length === 0
+                || justifiedGrid.moving)
+            return
+        const target = gallery.workspace.justifiedReviewLayout.navigationTarget(
+            scrollAnchorPhotoId, scrollAnchorRepresentationId, 0, 0)
+        if (!target || String(target.photoId) !== scrollAnchorPhotoId)
+            return
+        justifiedGrid.positionViewAtIndex(Number(target.layoutRow), ListView.Beginning)
+        justifiedGrid.contentY += scrollAnchorOffset
+    }
+
+    Connections {
+        target: gallery.workspace.justifiedReviewLayout
+        function onModelAboutToBeReset() {
+            ++gallery.scrollAnchorRevision
+            gallery.retainScrollAnchor()
+        }
+        function onModelReset() {
+            const revision = gallery.scrollAnchorRevision
+            Qt.callLater(() => gallery.restoreScrollAnchor(revision))
+        }
+    }
     property bool similarStackCollapsed: true
     property bool clusterHadResults: false
     signal openLibraryManagementRequested()
@@ -245,8 +289,7 @@ Rectangle {
         model: gallery.workspace.justifiedReviewLayout
 
         function maybeLoadMore() {
-            if (gallery.workspace.controller.hasMore
-                    && !gallery.workspace.controller.scanning
+            if (visible && gallery.workspace.controller.hasMore
                     && !gallery.workspace.controller.refreshing
                     && !gallery.workspace.controller.busy
                     && !gallery.workspace.controller.loadingMore
@@ -264,6 +307,17 @@ Rectangle {
         onContentYChanged: maybeLoadMore()
         onHeightChanged: Qt.callLater(maybeLoadMore)
         onCountChanged: Qt.callLater(maybeLoadMore)
+
+        Connections {
+            target: gallery.workspace.controller
+            function onHasMoreChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+            function onRefreshingChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+            function onBusyChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+            function onLoadingMoreChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+            function onComparisonStateChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+            function onDecisionStateChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+        }
+
         Keys.onPressed: event => {
             let horizontal = 0
             let vertical = 0

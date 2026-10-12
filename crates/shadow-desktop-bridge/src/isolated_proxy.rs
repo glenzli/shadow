@@ -5,10 +5,11 @@
 //! - persistent evidence records exact-route crash and timeout observations;
 //! - native admission derives the conservative in-process circuit breaker;
 //! - helper process owns bounded execution and descendant cleanup;
-//! - reference proxy, metadata, and decoder snapshot own their complete
+//! - embedded preview, reference proxy, metadata, and decoder snapshot own their complete
 //!   protocol, cache, and orchestration pipelines.
 
 mod decoder_snapshot;
+mod embedded_preview;
 mod helper_process;
 mod helper_wire_fields;
 mod metadata;
@@ -23,7 +24,9 @@ mod route_identity;
 // even where current callers rely on type inference.
 #[allow(unused_imports)]
 pub(crate) use decoder_snapshot::IsolatedPhotoDecoderSnapshot;
+pub(crate) use decoder_snapshot::inspect_isolated_photo_quick;
 pub(crate) use decoder_snapshot::snapshot_isolated_photo_decoder;
+pub(crate) use embedded_preview::extract_isolated_embedded_preview;
 #[allow(unused_imports)]
 pub(crate) use metadata::IsolatedPhotoMetadataSnapshot;
 pub(crate) use metadata::snapshot_isolated_photo_metadata;

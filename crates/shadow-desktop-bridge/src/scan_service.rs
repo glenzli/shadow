@@ -18,10 +18,9 @@ use std::{
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_catalog::CatalogHandle;
 use shadow_core::{
-    DecodeInspectionHandle, DecodeInspectionPool, DecodeInspectionProgress,
-    DecodeInspectionSummary, EmbeddedPreviewSink, ScanCancellation, ScanCompletion, ScanPhase,
-    ScanProgress, recommended_decode_inspection_worker_count,
-    scan_folder_with_inspection_controlled,
+    DecodeInspectionHandle, DecodeInspectionProgress, DecodeInspectionSummary, EmbeddedPreviewSink,
+    ScanCancellation, ScanCompletion, ScanPhase, ScanProgress,
+    recommended_decode_inspection_worker_count, scan_folder_with_inspection_controlled,
 };
 
 use crate::{ffi, photo_provider::PhotoInspector, session_preview_store::SessionPreviewStore};
@@ -233,8 +232,9 @@ impl ScanService {
         let mut catalog = self.catalog.clone();
         let worker_count = recommended_decode_inspection_worker_count();
         let embedded_preview_sink: Arc<dyn EmbeddedPreviewSink> = self.session_previews.clone();
-        let inspector = match DecodeInspectionPool::spawn_with_cache_and_embedded_preview_sink(
+        let inspector = match shadow_core::ProgressiveInspectionPool::spawn(
             catalog.clone(),
+            2,
             worker_count,
             |_| PhotoInspector::new_with_isolated_proxy_cache(Some(self.cache_root.clone())),
             &self.cache_root,

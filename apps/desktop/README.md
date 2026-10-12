@@ -89,6 +89,7 @@ startup Catalog page / Add Folder / QML Review grid
   → shadow-core controlled scan / cancellable decode workers
   → shadow-catalog single writer
   → embedded preview or generated proxy cache
+  → live keyset paging while import continues
   → bounded display-luma observation worker → dated Catalog summary
 
 two signed exact-artifact handles / explicit outcome
@@ -178,6 +179,12 @@ Shared confirmation surfaces use [`qml/ShadowDialog.qml`](qml/ShadowDialog.qml) 
 titles, spacing and standard action buttons; acceptance policy remains with each feature.
 
 ## Desktop source index
+
+Bulk import uses the core's separate quick-preview and refinement pool. Camera JPEGs remain
+session-local browsing visuals; deterministic generated proxies keep the existing render identity.
+The Library query coordinator refreshes the loaded window and retains its continuation during
+import, while gallery and filmstrip paging remain available. Gallery layout updates retain the
+visible photo anchor rather than restarting browsing at the first page.
 
 Application startup is split from environment-driven automation:
 

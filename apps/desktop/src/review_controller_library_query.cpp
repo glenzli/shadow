@@ -105,8 +105,7 @@ void ReviewController::cancelScan() {
 }
 
 void ReviewController::loadMore() {
-    const bool admitted =
-        !scanning() && !comparison_coordinator_.busy() && !decision_coordinator_.busy();
+    const bool admitted = !comparison_coordinator_.busy() && !decision_coordinator_.busy();
     static_cast<void>(query_coordinator_.loadMore(admitted));
 }
 

@@ -85,7 +85,7 @@ bool ReviewLibraryQueryCoordinator::refreshing() const noexcept {
 }
 
 bool ReviewLibraryQueryCoordinator::loadingMore() const noexcept {
-    return page_running_ && !page_reset_running_ && model_->rowCount() > 0;
+    return page_running_ && active_page_kind_ == PageKind::Append && model_->rowCount() > 0;
 }
 
 bool ReviewLibraryQueryCoordinator::pageRunning() const noexcept {
@@ -141,20 +141,36 @@ void ReviewLibraryQueryCoordinator::clearForImportStart() {
     debounce_timer_.stop();
     reset_pending_ = false;
     terminal_refresh_active_ = false;
+    append_pending_ = false;
+    retained_import_window_ = true;
     setHasMore(false);
     emit workStateChanged();
 }
 
+void ReviewLibraryQueryCoordinator::finishImport() {
+    requestReset(
+        requested_filter_,
+        requested_order_,
+        std::max<int>(REVIEW_PAGE_SIZE, model_->rowCount()),
+        true
+    );
+}
+
 void ReviewLibraryQueryCoordinator::requestReset(
     BackendLibraryPhotoFilter filter,
-    const BackendLibraryPhotoOrder order
+    const BackendLibraryPhotoOrder order,
+    const int target_rows,
+    const bool retain_import_window
 ) {
     request_clock_.start();
     debounce_timer_.stop();
     requested_filter_ = std::move(filter);
     requested_order_ = order;
-    terminal_refresh_active_ = true;
+    terminal_refresh_active_ = !scan_running_;
     reset_pending_ = true;
+    append_pending_ = false;
+    reset_target_rows_ = std::max<int>(REVIEW_PAGE_SIZE, target_rows);
+    retained_import_window_ = retain_import_window;
     emit workStateChanged();
     if (page_running_ || decision_busy_) {
         return;
@@ -170,12 +186,22 @@ void ReviewLibraryQueryCoordinator::scheduleReset(
     requested_filter_ = std::move(filter);
     requested_order_ = order;
     reset_pending_ = true;
+    append_pending_ = false;
+    reset_target_rows_ = REVIEW_PAGE_SIZE;
+    retained_import_window_ = false;
     debounce_timer_.start();
 }
 
 bool ReviewLibraryQueryCoordinator::loadMore(const bool admitted) {
-    if (!admitted || !has_more_ || refreshing() || page_running_ || decision_busy_) {
+    if (!admitted || !has_more_ || refreshing() || decision_busy_) {
         return false;
+    }
+    if (page_running_) {
+        if (active_page_kind_ != PageKind::StreamingPrefix) {
+            return false;
+        }
+        append_pending_ = true;
+        return true;
     }
     startPage(PageKind::Append);
     return true;
@@ -196,7 +222,9 @@ ReviewLibraryQueryCoordinator::PageTaskResult ReviewLibraryQueryCoordinator::run
     BackendLibraryPhotoCursor cursor,
     const quint64 generation,
     const quint64 request_id,
-    const PageKind kind
+    const PageKind kind,
+    const int target_rows,
+    QSet<QString> loaded_photo_ids
 ) {
     QElapsedTimer clock;
     clock.start();
@@ -205,7 +233,49 @@ ReviewLibraryQueryCoordinator::PageTaskResult ReviewLibraryQueryCoordinator::run
     result.request_id = request_id;
     result.kind = kind;
     try {
-        result.page = operations.page(filter, order, cursor, REVIEW_PAGE_SIZE);
+        const bool refresh_window =
+            kind == PageKind::StreamingPrefix
+            || (kind == PageKind::InitialReset && target_rows > static_cast<int>(REVIEW_PAGE_SIZE));
+        BackendLibraryPhotoCursor next = std::move(cursor);
+        QSet<QString> received;
+        const bool fill_new_rows = kind == PageKind::Append && !loaded_photo_ids.isEmpty();
+        int new_rows = 0;
+        do {
+            const auto remaining = std::max<qsizetype>(
+                1,
+                target_rows - (fill_new_rows ? new_rows : result.page.items.size())
+            );
+            const auto limit = refresh_window || fill_new_rows
+                                   ? std::min<std::uint32_t>(
+                                         REVIEW_PAGE_SIZE,
+                                         static_cast<std::uint32_t>(remaining)
+                                     )
+                                   : REVIEW_PAGE_SIZE;
+            auto page = operations.page(filter, order, next, limit);
+            if (page.has_more
+                && (page.items.isEmpty() || !valid_continuation_cursor(order, page.next_cursor)
+                    || page.next_cursor.photo_id == next.photo_id)) {
+                throw std::invalid_argument("the page exposed an invalid continuation cursor");
+            }
+            for (auto& item : page.items) {
+                if (received.contains(item.photo_id)) {
+                    if (!refresh_window && !fill_new_rows) {
+                        throw std::invalid_argument("the page contained duplicate photo ids");
+                    }
+                    continue;
+                }
+                received.insert(item.photo_id);
+                if (!loaded_photo_ids.contains(item.photo_id)) {
+                    ++new_rows;
+                }
+                result.page.items.push_back(std::move(item));
+            }
+            result.page.has_more = page.has_more;
+            result.page.next_cursor = std::move(page.next_cursor);
+            next = result.page.next_cursor;
+        } while (result.page.has_more
+                 && ((refresh_window && result.page.items.size() < target_rows)
+                     || (fill_new_rows && new_rows < static_cast<int>(REVIEW_PAGE_SIZE))));
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -326,11 +396,20 @@ void ReviewLibraryQueryCoordinator::startPage(const PageKind kind) {
         return;
     }
     const bool reset = kind != PageKind::Append;
+    QSet<QString> loaded_photo_ids;
+    if (kind == PageKind::Append && (scan_running_ || retained_import_window_)) {
+        for (int row = 0; row < model_->rowCount(); ++row) {
+            loaded_photo_ids.insert(
+                model_->data(model_->index(row, 0), ReviewModel::PhotoIdRole).toString()
+            );
+        }
+    }
+    active_page_kind_ = kind;
     page_running_ = true;
-    page_reset_running_ = reset;
+    page_reset_running_ = kind == PageKind::InitialReset;
     active_page_request_id_ = ++page_request_id_;
     emit workStateChanged();
-    if (reset) {
+    if (kind == PageKind::InitialReset) {
         emit resetPresentationStarted();
     } else {
         requestReadyStatus();
@@ -344,7 +423,11 @@ void ReviewLibraryQueryCoordinator::startPage(const PageKind kind) {
             reset ? BackendLibraryPhotoCursor{} : next_cursor_,
             generation_,
             active_page_request_id_,
-            kind
+            kind,
+            kind == PageKind::StreamingPrefix ? std::max<int>(REVIEW_PAGE_SIZE, model_->rowCount())
+            : kind == PageKind::Append        ? static_cast<int>(REVIEW_PAGE_SIZE)
+                                              : reset_target_rows_,
+            std::move(loaded_photo_ids)
         )
     );
 }
@@ -424,13 +507,19 @@ void ReviewLibraryQueryCoordinator::finishPage() {
         bool projected = false;
         switch (result.kind) {
         case PageKind::InitialReset:
-            projected = model_->reconcileSnapshot(std::move(items), generation_);
+            projected = retained_import_window_
+                            ? model_->reconcilePrefixSnapshot(std::move(items), generation_)
+                            : model_->reconcileSnapshot(std::move(items), generation_);
             break;
         case PageKind::StreamingPrefix:
             projected = model_->reconcilePrefixSnapshot(std::move(items), generation_);
             break;
         case PageKind::Append:
-            projected = model_->appendSnapshot(std::move(items), generation_);
+            projected = model_->appendSnapshot(
+                std::move(items),
+                generation_,
+                scan_running_ || retained_import_window_
+            );
             break;
         }
         if (!projected) {
@@ -447,12 +536,8 @@ void ReviewLibraryQueryCoordinator::finishPage() {
             decision_reconciler_(std::move(state));
         }
     }
-    if (result.kind == PageKind::StreamingPrefix) {
-        setHasMore(false);
-    } else {
-        next_cursor_ = std::move(result.page.next_cursor);
-        setHasMore(result.page.has_more);
-    }
+    next_cursor_ = std::move(result.page.next_cursor);
+    setHasMore(result.page.has_more);
     if (result.kind == PageKind::InitialReset && !scan_running_) {
         terminal_refresh_active_ = false;
     }
@@ -481,6 +566,12 @@ void ReviewLibraryQueryCoordinator::finishPage() {
     }
     requestReadyStatus();
     emit workStateChanged();
+    if (append_pending_) {
+        append_pending_ = false;
+        if (has_more_) {
+            startPage(PageKind::Append);
+        }
+    }
 }
 
 void ReviewLibraryQueryCoordinator::startCount() {

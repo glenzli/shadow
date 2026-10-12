@@ -1,6 +1,7 @@
 #include "desktop_smoke_harness.hpp"
 
 #include "desktop_smoke/application_lifecycle.hpp"
+#include "desktop_smoke/bulk_import.hpp"
 #include "desktop_smoke/edit_preview_session.hpp"
 #include "desktop_smoke/grade_stack_persistence.hpp"
 #include "desktop_smoke/library_lifecycle.hpp"
@@ -49,8 +50,8 @@ void installDesktopSmokeHarness(
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_UNDO_FIRST_DECISION");
     const bool before_composition =
         qEnvironmentVariableIsSet("SHADOW_DESKTOP_BEFORE_COMPOSITION_SMOKE");
-    const bool request_before = before_composition
-        || qEnvironmentVariableIsSet("SHADOW_DESKTOP_REQUEST_BEFORE");
+    const bool request_before =
+        before_composition || qEnvironmentVariableIsSet("SHADOW_DESKTOP_REQUEST_BEFORE");
     const bool grade_stack_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_GRADE_STACK_SMOKE");
     const bool full_detail_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_FULL_DETAIL_SMOKE");
     const bool metal_preview_smoke =
@@ -132,6 +133,8 @@ void installDesktopSmokeHarness(
         DesktopSmoke::startI18nLifecycle(application, engine, controller, preferences);
     } else if (cancel_scan_smoke) {
         DesktopSmoke::startCancelScanLifecycle(application, controller);
+    } else if (qEnvironmentVariableIsSet("SHADOW_DESKTOP_BULK_IMPORT_SMOKE")) {
+        DesktopSmoke::startBulkImportLifecycle(application, engine, controller);
     } else if (streaming_scan_smoke) {
         DesktopSmoke::startStreamingScanLifecycle(application, engine, controller, editor);
     } else if (reopen_library_smoke) {

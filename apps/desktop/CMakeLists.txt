@@ -342,6 +342,8 @@ qt_add_executable(
     src/desktop_smoke/grade_stack_persistence.hpp
     src/desktop_smoke/library_lifecycle.cpp
     src/desktop_smoke/library_lifecycle.hpp
+    src/desktop_smoke/bulk_import.cpp
+    src/desktop_smoke/bulk_import.hpp
     src/desktop_smoke/review_mutations.cpp
     src/desktop_smoke/review_mutations.hpp
     src/desktop_smoke/scenario_setup.cpp

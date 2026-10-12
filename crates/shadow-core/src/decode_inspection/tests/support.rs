@@ -51,7 +51,7 @@ impl Drop for Fixture {
     }
 }
 
-pub(super) fn sample_snapshot() -> DecoderSnapshot {
+pub(in crate::decode_inspection) fn sample_snapshot() -> DecoderSnapshot {
     DecoderSnapshot {
         provider: DecodeProviderSnapshot {
             id: "anonymous".into(),
@@ -107,7 +107,7 @@ pub(super) fn sample_snapshot() -> DecoderSnapshot {
     }
 }
 
-pub(super) fn preview_descriptor() -> PreviewDescriptorSnapshot {
+pub(in crate::decode_inspection) fn preview_descriptor() -> PreviewDescriptorSnapshot {
     PreviewDescriptorSnapshot {
         provider_id: 7,
         codec: PreviewCodec::Jpeg,

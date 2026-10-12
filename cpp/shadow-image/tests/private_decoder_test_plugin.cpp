@@ -1,7 +1,10 @@
 #include <shadow/image/private_decoder_plugin.hpp>
 
+#include <array>
 #include <memory>
 #include <span>
+#include <string>
+#include <vector>
 
 namespace shadow::image {
 
@@ -13,28 +16,23 @@ namespace {
     capabilities.available = true;
     capabilities.raw_frame = true;
     capabilities.dng_opcode_execution_receipt = true;
-    capabilities.supported_intents = raw_development_intent_mask(RawDevelopmentIntent::preview)
+    capabilities.supported_intents =
+        raw_development_intent_mask(RawDevelopmentIntent::preview)
         | raw_development_intent_mask(RawDevelopmentIntent::detail)
         | raw_development_intent_mask(RawDevelopmentIntent::export_image);
-    capabilities.supported_qualities = raw_development_quality_mask(
-        RawDevelopmentQuality::balanced
-    );
-    capabilities.supported_dng_opcode_policies = dng_opcode_policy_mask(
-        DngOpcodePolicy::provider_default
-    );
-    capabilities.supported_noise_reduction_intents = raw_noise_reduction_intent_mask(
-        RawNoiseReductionIntent::provider_default
-    );
-    capabilities.supported_highlight_recovery_intents = raw_highlight_recovery_intent_mask(
-        RawHighlightRecoveryIntent::provider_default
-    );
+    capabilities.supported_qualities =
+        raw_development_quality_mask(RawDevelopmentQuality::balanced);
+    capabilities.supported_dng_opcode_policies =
+        dng_opcode_policy_mask(DngOpcodePolicy::provider_default);
+    capabilities.supported_noise_reduction_intents =
+        raw_noise_reduction_intent_mask(RawNoiseReductionIntent::provider_default);
+    capabilities.supported_highlight_recovery_intents =
+        raw_highlight_recovery_intent_mask(RawHighlightRecoveryIntent::provider_default);
     return capabilities;
 }
 
-[[nodiscard]] RawDevelopmentReceipt fixture_receipt(
-    const RawDevelopmentPlan& plan,
-    const bool half_size = false
-) {
+[[nodiscard]] RawDevelopmentReceipt
+fixture_receipt(const RawDevelopmentPlan& plan, const bool half_size = false) {
     return RawDevelopmentReceipt{
         .schema_version = raw_development_receipt_schema_version,
         .provider_id = "spoofed-provider",
@@ -50,8 +48,12 @@ namespace {
 }
 
 class TestSession final : public DecodeSession {
-public:
-    TestSession() {
+  public:
+    TestSession(
+        const bool preview = false,
+        const bool portrait = false,
+        const bool sixteen_bit = false
+    ) : has_preview_(preview), sixteen_bit_(sixteen_bit) {
         metadata_.make = "Shadow";
         metadata_.model = "Private decoder test fixture";
         metadata_.image_dimensions = {2U, 1U};
@@ -59,6 +61,19 @@ public:
         capabilities_.metadata = true;
         capabilities_.reference_rgb = true;
         capabilities_.raw_development = fixture_raw_development_capabilities();
+        if (has_preview_) {
+            metadata_.orientation = portrait ? 6 : 0;
+            capabilities_.embedded_previews = true;
+            previews_[0] = PreviewDescriptor{
+                0U,
+                PreviewFormat::bitmap,
+                portrait ? Dimensions{1U, 2U} : Dimensions{2U, 1U},
+                static_cast<std::uint16_t>(sixteen_bit_ ? 16U : 8U),
+                3U,
+                sixteen_bit_ ? 12U : 6U,
+                true
+            };
+        }
     }
 
     [[nodiscard]] const AssetMetadata& metadata() const noexcept override {
@@ -70,11 +85,20 @@ public:
     }
 
     [[nodiscard]] std::span<const PreviewDescriptor> previews() const noexcept override {
-        return {};
+        return has_preview_ ? std::span<const PreviewDescriptor>(previews_)
+                            : std::span<const PreviewDescriptor>{};
     }
 
     [[nodiscard]] PreviewPayload decode_preview(std::size_t) override {
-        return {};
+        if (!has_preview_) {
+            return {};
+        }
+        return PreviewPayload{
+            previews_[0],
+            sixteen_bit_ ? ByteOrder::little_endian : ByteOrder::not_applicable,
+            sixteen_bit_ ? std::vector<std::uint8_t>{255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255}
+                         : std::vector<std::uint8_t>{255, 0, 0, 0, 0, 255}
+        };
     }
 
     [[nodiscard]] RawFrame decode_raw_frame() override {
@@ -97,9 +121,15 @@ public:
         frame.descriptor.white_levels = {4'095U, 4'095U, 4'095U, 4'095U};
         frame.descriptor.as_shot_neutral = {0.5, 1.0, 1.0, 0.25};
         frame.descriptor.camera_to_xyz_d50 = {
-            0.70, 0.20, 0.10,
-            0.10, 0.80, 0.10,
-            0.05, 0.15, 0.80,
+            0.70,
+            0.20,
+            0.10,
+            0.10,
+            0.80,
+            0.10,
+            0.05,
+            0.15,
+            0.80,
         };
         frame.descriptor.has_camera_to_xyz_d50 = true;
         frame.samples = {1'024U, 1'100U, 1'100U, 900U};
@@ -122,9 +152,8 @@ public:
         return result;
     }
 
-    [[nodiscard]] PixelBuffer render_reference_rgb_for_preview(
-        const std::uint32_t max_edge
-    ) const override {
+    [[nodiscard]] PixelBuffer
+    render_reference_rgb_for_preview(const std::uint32_t max_edge) const override {
         if (max_edge != 1U) {
             return render_reference_rgb();
         }
@@ -137,20 +166,20 @@ public:
         result.transfer_function = RgbTransferFunction::linear;
         result.reference = RgbBufferReference::processed_raw;
         result.samples = {9U, 8U, 7U};
-        result.raw_development_receipt = fixture_receipt(
-            preview_raw_development_plan(),
-            true
-        );
+        result.raw_development_receipt = fixture_receipt(preview_raw_development_plan(), true);
         return result;
     }
 
-private:
+  private:
     AssetMetadata metadata_;
     DecodeCapabilities capabilities_;
+    bool has_preview_ = false;
+    bool sixteen_bit_ = false;
+    std::array<PreviewDescriptor, 1> previews_{};
 };
 
 class TestProvider final : public DecoderProvider {
-public:
+  public:
     TestProvider() {
         info_.id = "fixture";
         info_.version = "1.0.0";
@@ -160,11 +189,17 @@ public:
         return info_;
     }
 
-    [[nodiscard]] std::unique_ptr<DecodeSession> open(const std::filesystem::path&) const override {
-        return std::make_unique<TestSession>();
+    [[nodiscard]] std::unique_ptr<DecodeSession>
+    open(const std::filesystem::path& path) const override {
+        const auto name = path.filename().string();
+        return std::make_unique<TestSession>(
+            name.starts_with("camera-preview"),
+            name.find("portrait") != std::string::npos,
+            name.find("16") != std::string::npos
+        );
     }
 
-private:
+  private:
     ProviderInfo info_;
 };
 

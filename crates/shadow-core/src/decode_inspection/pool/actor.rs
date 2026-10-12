@@ -37,12 +37,12 @@ pub struct DecodeInspectionActor {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-struct DecodeInspectorContract {
-    provider_id: Arc<str>,
-    provider_version: Arc<str>,
-    proxy_variant_key: Arc<str>,
-    supports_original_raw: bool,
-    supported_original_raster_extensions: Arc<[String]>,
+pub(in crate::decode_inspection) struct DecodeInspectorContract {
+    pub(in crate::decode_inspection) provider_id: Arc<str>,
+    pub(in crate::decode_inspection) provider_version: Arc<str>,
+    pub(in crate::decode_inspection) proxy_variant_key: Arc<str>,
+    pub(in crate::decode_inspection) supports_original_raw: bool,
+    pub(in crate::decode_inspection) supported_original_raster_extensions: Arc<[String]>,
 }
 
 type SpawnedInspectionThreads = (Arc<[SyncSender<Message>]>, Vec<JoinHandle<()>>);
@@ -58,7 +58,9 @@ struct InspectionThreadContext<'a> {
     queue_capacity: usize,
 }
 
-fn decode_inspector_contract(inspector: &impl DecodeInspector) -> DecodeInspectorContract {
+pub(in crate::decode_inspection) fn decode_inspector_contract(
+    inspector: &impl DecodeInspector,
+) -> DecodeInspectorContract {
     let mut supported_original_raster_extensions = inspector
         .supported_original_raster_extensions()
         .into_iter()

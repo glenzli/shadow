@@ -4,6 +4,25 @@ use super::{DecoderSafetyKey, isolated_helper_implementation_identity};
 use crate::isolated_proxy::route_fixture::safety_fixture;
 
 #[test]
+fn combined_metadata_stage_keeps_the_original_captured_source_identity() {
+    let (root, source, helper) = safety_fixture("combined-source-identity");
+    let combined = DecoderSafetyKey::quick_inspection(&source, &helper).unwrap();
+    let metadata = combined.decoder_snapshot_stage();
+    assert_eq!(
+        metadata,
+        DecoderSafetyKey::decoder_snapshot(&source, &helper).unwrap()
+    );
+    fs::write(&source, b"replaced source bytes with a different identity").unwrap();
+    assert!(!combined.is_current(&source, &helper));
+    assert!(!metadata.is_current(&source, &helper));
+    assert_ne!(
+        metadata,
+        DecoderSafetyKey::decoder_snapshot(&source, &helper).unwrap()
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn decoder_safety_key_samples_contents_beyond_size_and_timestamp() {
     let (root, source, helper) = safety_fixture("content-sample");
     fs::write(&source, b"aaaaaaaaaaaaaaaa").expect("write first same-size source");

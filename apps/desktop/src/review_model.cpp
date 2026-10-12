@@ -600,14 +600,38 @@ void ReviewModel::append(QVector<ReviewItem> items) {
     endInsertRows();
 }
 
-bool ReviewModel::appendSnapshot(QVector<ReviewItem> items, const quint64 generation) {
+bool ReviewModel::appendSnapshot(
+    QVector<ReviewItem> items,
+    const quint64 generation,
+    const bool allow_existing
+) {
     if (!isGenerationCurrent(generation) || !photo_index_valid_ || !has_unique_stable_keys(items)) {
         return false;
     }
     for (const auto& item : items) {
-        if (row_by_photo_id_.contains(item.photo_id)) {
+        if (!allow_existing && row_by_photo_id_.contains(item.photo_id)) {
             return false;
         }
+    }
+    if (allow_existing) {
+        // Source metadata can move a photo across a live keyset cursor. Update its existing
+        // row in place and append only new identities; a concurrent import cannot duplicate it.
+        QVector<ReviewItem> additions;
+        for (auto& item : items) {
+            const auto row = rowForPhoto(item.photo_id);
+            if (!row) {
+                additions.push_back(std::move(item));
+                continue;
+            }
+            const auto roles = changed_roles(items_.at(*row), item);
+            if (!roles.isEmpty()) {
+                items_[*row] = std::move(item);
+                const auto changed = index(static_cast<int>(*row), 0);
+                emit dataChanged(changed, changed, roles);
+            }
+        }
+        append(std::move(additions));
+        return true;
     }
     append(std::move(items));
     return true;

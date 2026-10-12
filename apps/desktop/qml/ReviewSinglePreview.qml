@@ -24,7 +24,7 @@ Item {
 
     function maybeLoadMore(force) {
         const controller = review.controller
-        if (!visible || !controller.hasMore || controller.scanning
+        if (!visible || !controller.hasMore
                 || controller.refreshing || controller.busy
                 || controller.loadingMore || controller.comparisonBusy
                 || controller.decisionBusy)

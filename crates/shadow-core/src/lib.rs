@@ -32,7 +32,7 @@ pub use decode_inspection::{
     DecodeInspectionHandle, DecodeInspectionOutcome, DecodeInspectionPool,
     DecodeInspectionProgress, DecodeInspectionRequest, DecodeInspectionSummary,
     DecodeInspectionTerminal, DecodeInspectionTicket, DecodeInspector, EmbeddedPreviewPublication,
-    EmbeddedPreviewSink, PreviewCacheOutcome, fingerprint_source,
+    EmbeddedPreviewSink, PreviewCacheOutcome, ProgressiveInspectionPool, fingerprint_source,
     recommended_decode_inspection_worker_count,
 };
 pub use derived_raster_store::{

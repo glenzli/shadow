@@ -173,7 +173,7 @@ endif()
 #The desktop starts this tiny executable for untrusted or proprietary RAW
 #decoder work.A native crash in LibRaw or a locally installed vendor module
 #then becomes one failed preview instead of a crashed photo application.
-add_executable(shadow-image-decode-helper tools/decode_helper.cpp)
+add_executable(shadow-image-decode-helper tools/decode_helper.cpp tools/embedded_preview.cpp)
 target_link_libraries(shadow-image-decode-helper PRIVATE Shadow::Image)
 shadow_image_enable_warnings(shadow-image-decode-helper)
 
@@ -210,6 +210,16 @@ if(BUILD_TESTING)
             LABELS "decoder-helper;private-provider;detail"
             TIMEOUT 30
     )
+    add_test(
+        NAME shadow-image-embedded-preview-helper-contract
+        COMMAND ${CMAKE_COMMAND}
+            "-DDECODE_HELPER=$<TARGET_FILE:shadow-image-decode-helper>"
+            "-DPRIVATE_PROVIDER=$<TARGET_FILE:shadow-image-private-decoder-test-plugin>"
+            "-DTEST_OUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}/contract-output"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/embedded_preview_helper_contract.cmake"
+    )
+    set_tests_properties(shadow-image-embedded-preview-helper-contract PROPERTIES
+        LABELS "decoder-helper;private-provider;embedded-preview" TIMEOUT 30)
 
 #Models an old v1 - only artifact that predates the exact interface seal.Its factory aborts;
 #the loader contract test must reject it before construction.
