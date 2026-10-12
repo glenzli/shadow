@@ -129,6 +129,62 @@ fn wait_until(predicate: impl Fn() -> bool) {
 }
 
 #[test]
+fn repeated_refinement_reuses_the_proxy_published_while_it_was_queued() {
+    let fixture = Fixture::new();
+    let actor = CatalogActor::spawn(&fixture.0.join("catalog.sqlite")).unwrap();
+    let catalog = actor.handle();
+    let request = fixture.request(&catalog, 0);
+    let gate = Arc::new(Gate::default());
+    let sink = Arc::new(Sink::default());
+    let pool = ProgressiveInspectionPool::spawn(
+        catalog,
+        1,
+        1,
+        |_| {
+            Ok::<_, String>(Inspector {
+                gate: Arc::clone(&gate),
+                has_preview: true,
+            })
+        },
+        &fixture.0.join("cache"),
+        sink.clone(),
+    )
+    .unwrap();
+    let first = pool.handle().submit(request.clone()).unwrap();
+    wait_until(|| gate.entered.load(Ordering::SeqCst) == 1);
+    let second = pool.handle().submit(request.clone()).unwrap();
+    wait_until(|| sink.0.load(Ordering::SeqCst) == 2);
+    gate.release();
+    assert!(matches!(
+        first.wait().unwrap(),
+        DecodeInspectionOutcome::Recorded {
+            preview: PreviewCacheOutcome::StoredGeneratedProxy { .. },
+            ..
+        }
+    ));
+    assert!(matches!(
+        second.wait().unwrap(),
+        DecodeInspectionOutcome::Recorded {
+            preview: PreviewCacheOutcome::ReusedGeneratedProxy { .. },
+            ..
+        }
+    ));
+    // A later request is handled by the quick worker without another placeholder
+    // or refinement job. Both routes must preserve exact terminal accounting.
+    assert!(matches!(
+        pool.handle().submit(request).unwrap().wait().unwrap(),
+        DecodeInspectionOutcome::Recorded {
+            preview: PreviewCacheOutcome::ReusedGeneratedProxy { .. },
+            ..
+        }
+    ));
+    assert_eq!(sink.0.load(Ordering::SeqCst), 2);
+    assert_eq!(gate.entered.load(Ordering::SeqCst), 1);
+    assert_eq!(pool.shutdown_with_summary().unwrap().completed, 3);
+    actor.shutdown().unwrap();
+}
+
+#[test]
 fn quick_previews_cross_the_old_queue_limit_while_refinement_is_blocked() {
     let fixture = Fixture::new();
     let actor = CatalogActor::spawn(&fixture.0.join("catalog.sqlite")).unwrap();

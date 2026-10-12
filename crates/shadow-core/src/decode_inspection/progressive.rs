@@ -5,15 +5,13 @@
 //! never wait in a queue. One accepted request reaches exactly one terminal result.
 
 use std::{
-    collections::VecDeque,
     path::Path,
     sync::{
-        Arc, Condvar, Mutex,
+        Arc, Mutex,
         atomic::AtomicUsize,
         mpsc::{self, SyncSender},
     },
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
 use shadow_cache::ContentAddressedStore;
@@ -37,85 +35,22 @@ use super::{
     submission::{DecodeInspectionHandle, InspectionMessage, Message},
     visual_cache::{
         VisualCacheContext, cache_embedded_preview, cache_generated_preview, cancelled_outcome,
+        reuse_generated_proxy,
     },
     worker::{WorkerContext, inspect_source_and_record},
 };
 
 const QUICK_QUEUE_CAPACITY: usize = 32;
-// At most this many small source descriptors can wait for refinement. Backpressure at this
-// high-water mark is intentional; an arbitrarily large import cannot grow memory indefinitely.
-const REFINEMENT_QUEUE_CAPACITY: usize = 16_384;
+// Scheduling policy has its own owner; workers retain source/publication semantics.
+mod refinement_queue;
+use refinement_queue::RefinementQueue;
+pub use refinement_queue::{MAX_VISIBLE_REFINEMENTS, RefinementPriority};
 
 struct RefinementJob {
     inspection: InspectionMessage,
     provider_id: String,
     provider_version: String,
     fallback: Option<PreviewCacheOutcome>,
-}
-
-#[derive(Default)]
-struct QueueState {
-    jobs: VecDeque<RefinementJob>,
-    closed: bool,
-}
-
-#[derive(Default)]
-struct RefinementQueue {
-    state: Mutex<QueueState>,
-    changed: Condvar,
-}
-
-impl RefinementQueue {
-    fn push(&self, job: RefinementJob) -> Result<(), RefinementJob> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        while state.jobs.len() >= REFINEMENT_QUEUE_CAPACITY
-            && !state.closed
-            && !job.inspection.cancellation.is_cancelled()
-        {
-            state = self
-                .changed
-                .wait_timeout(state, Duration::from_millis(10))
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .0;
-        }
-        if state.closed || job.inspection.cancellation.is_cancelled() {
-            return Err(job);
-        }
-        state.jobs.push_back(job);
-        self.changed.notify_one();
-        Ok(())
-    }
-
-    fn pop(&self) -> Option<RefinementJob> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        loop {
-            if let Some(job) = state.jobs.pop_front() {
-                self.changed.notify_all();
-                return Some(job);
-            }
-            if state.closed {
-                return None;
-            }
-            state = self
-                .changed
-                .wait(state)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-        }
-    }
-
-    fn close(&self) {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .closed = true;
-        self.changed.notify_all();
-    }
 }
 
 struct Services {
@@ -193,9 +128,39 @@ impl ProgressiveInspectionPool {
         catalog: CatalogHandle,
         quick_count: usize,
         refinement_count: usize,
+        factory: F,
+        cache_root: &Path,
+        sink: Arc<dyn EmbeddedPreviewSink>,
+    ) -> Result<Self, DecodeInspectionError>
+    where
+        I: DecodeInspector,
+        F: FnMut(usize) -> Result<I, E>,
+        E: std::fmt::Display,
+    {
+        Self::spawn_with_priority(
+            catalog,
+            quick_count,
+            refinement_count,
+            factory,
+            cache_root,
+            sink,
+            RefinementPriority::default(),
+        )
+    }
+
+    /// Starts the same pipeline with an import-owned viewport priority handle.
+    ///
+    /// # Errors
+    /// Returns the same provider, worker, or cache failures as [`Self::spawn`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_with_priority<I, F, E>(
+        catalog: CatalogHandle,
+        quick_count: usize,
+        refinement_count: usize,
         mut factory: F,
         cache_root: &Path,
         sink: Arc<dyn EmbeddedPreviewSink>,
+        priority: RefinementPriority,
     ) -> Result<Self, DecodeInspectionError>
     where
         I: DecodeInspector,
@@ -230,7 +195,7 @@ impl ProgressiveInspectionPool {
             observer: observer.handle(),
             sink,
         });
-        let queue = Arc::new(RefinementQueue::default());
+        let queue = Arc::new(RefinementQueue::new(priority));
         let mut pool = Self {
             handle: DecodeInspectionHandle {
                 senders: Arc::from([]),
@@ -401,6 +366,17 @@ fn run_quick(
         provider_version,
         fallback: None,
     };
+    if let Some(preview) =
+        reuse_generated_proxy(inspector, services.visual_context(&job), &mut performance)
+    {
+        let result = Ok(DecodeInspectionOutcome::Recorded {
+            provider_id: job.provider_id,
+            provider_version: job.provider_version,
+            preview,
+        });
+        services.finish(job.inspection, result);
+        return;
+    }
     job.fallback = cache_embedded_preview(
         inspector,
         services.visual_context(&job),

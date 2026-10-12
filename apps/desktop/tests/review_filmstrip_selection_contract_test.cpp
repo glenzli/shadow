@@ -1,6 +1,7 @@
 #include "justified_review_layout_model.hpp"
 #include "review_filter_model.hpp"
 #include "review_model.hpp"
+#include <QJSValue>
 
 #include <QGuiApplication>
 #include <QImage>
@@ -112,9 +113,15 @@ ReviewSinglePreview {
             property bool comparisonBusy: false
             property bool decisionBusy: false
             property int loadCount: 0
+            property var priorityIds: []
+            property string prioritySelected: ""
             signal comparisonStateChanged()
             signal decisionStateChanged()
             function loadMore() { ++loadCount; loadingMore = true }
+            function prioritizeVisibleRefinements(selected, ids) {
+                prioritySelected = selected
+                priorityIds = ids
+            }
         }
         property var comparison: ({compareMode: false})
         property var culling: ({arenaActive: false, containsCandidate: function() { return false }})
@@ -302,6 +309,15 @@ ReviewSinglePreview {
     auto* controller = review->property("controller").value<QObject*>();
     check(controller != nullptr, "filmstrip paging controller is unavailable");
     if (controller) {
+        QMetaObject::invokeMethod(root.get(), "publishVisibleRefinements");
+        const auto priority_ids =
+            controller->property("priorityIds").value<QJSValue>().toVariant().toList();
+        check(
+            controller->property("prioritySelected").toString()
+                    == review->property("selectedRepresentationId").toString()
+                && !priority_ids.isEmpty() && priority_ids.size() < 30,
+            "filmstrip priority must include the active photo and only the visible strip"
+        );
         QVector<ReviewItem> page;
         for (int index = 0; index < 2; ++index) {
             ReviewItem photo;

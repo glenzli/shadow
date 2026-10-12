@@ -1,5 +1,8 @@
 //! Embedded-preview publication and generated-proxy persistence.
 
+mod reuse;
+pub(super) use reuse::reuse_generated_proxy;
+
 use std::sync::Mutex;
 
 use shadow_cache::{ContentAddressedStore, StoredBlob};
@@ -48,6 +51,9 @@ pub(super) fn cache_preview(
     if source_changed_profiled(context.request, performance) {
         return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
     }
+    if let Some(outcome) = reuse_generated_proxy(inspector, context, performance) {
+        return outcome;
+    }
     let fallback = cache_embedded_preview(inspector, context, inspection_state, performance);
     if let Some(outcome @ PreviewCacheOutcome::Discarded(_)) = fallback {
         return outcome;
@@ -90,6 +96,11 @@ pub(super) fn cache_generated_preview(
     }
     if source_changed_profiled(context.request, performance) {
         return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    }
+    // A queued refinement may have been satisfied since admission. In particular,
+    // technical-analysis backfill must not pay for another full RAW development.
+    if let Some(outcome) = reuse_generated_proxy(inspector, context, performance) {
+        return outcome;
     }
     match prepare_generated_proxy(inspector, context, performance) {
         Ok(Some(prepared)) => {

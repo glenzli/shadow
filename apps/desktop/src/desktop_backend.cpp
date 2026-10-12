@@ -30,6 +30,14 @@ DesktopBackend::~DesktopBackend() = default;
 void DesktopBackend::beginFolderScan(const std::uint64_t scan_id) const {
     impl_->folder_scan_backend.beginFolderScan(scan_id);
 }
+void DesktopBackend::prioritizeVisibleRefinements(
+    const std::uint64_t scan_id,
+    const QString& selected,
+    const QStringList& visible
+) const {
+    impl_->folder_scan_backend.prioritizeVisibleRefinements(scan_id, selected, visible);
+}
+
 BackendScanReport DesktopBackend::scanFolder(
     const QString& folder_path,
     const std::uint64_t scan_id

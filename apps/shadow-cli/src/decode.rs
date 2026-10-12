@@ -168,6 +168,14 @@ fn print_inspection_outcome(outcome: &DecodeInspectionOutcome) {
                     "cached generated proxy: blake3={digest_hex} bytes={byte_len} dimensions={}x{}",
                     dimensions.width, dimensions.height
                 ),
+                PreviewCacheOutcome::ReusedGeneratedProxy {
+                    digest_hex,
+                    byte_len,
+                    dimensions,
+                } => println!(
+                    "reused generated proxy: blake3={digest_hex} bytes={byte_len} dimensions={}x{}",
+                    dimensions.width, dimensions.height
+                ),
                 PreviewCacheOutcome::NoVisualAvailable => {
                     println!(
                         "cached visual: neither embedded preview nor generated proxy available"

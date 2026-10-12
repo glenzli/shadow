@@ -70,7 +70,8 @@ pub trait DecodeInspector: Send + 'static {
         Ok(None)
     }
 
-    /// Renders a bounded display proxy when no embedded preview is available.
+    /// Renders the deterministic bounded display proxy after a camera placeholder.
+    /// A current, verified generated proxy is reused before calling this method.
     ///
     /// The variant key is stored in the Catalog so later renderer changes can
     /// invalidate only proxies produced by an older recipe.
@@ -138,6 +139,13 @@ pub enum PreviewCacheOutcome {
         byte_len: u64,
     },
     StoredGeneratedProxy {
+        digest_hex: String,
+        byte_len: u64,
+        dimensions: ImageDimensions,
+    },
+    /// An exact, verified proxy already existed; only analysis may need backfill.
+    /// This completes the request without publishing a new visual or decoding RAW.
+    ReusedGeneratedProxy {
         digest_hex: String,
         byte_len: u64,
         dimensions: ImageDimensions,

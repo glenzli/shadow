@@ -15,6 +15,7 @@
 #include "folder_scan_backend.hpp"
 
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVector>
 
@@ -43,6 +44,11 @@ class DesktopBackend final {
     DesktopBackend& operator=(const DesktopBackend&) = delete;
 
     void beginFolderScan(std::uint64_t scan_id) const;
+    void prioritizeVisibleRefinements(
+        std::uint64_t scan_id,
+        const QString& selected,
+        const QStringList& visible
+    ) const;
     [[nodiscard]] BackendScanReport
     scanFolder(const QString& folder_path, std::uint64_t scan_id) const;
     [[nodiscard]] BackendScanProgress scanProgress(std::uint64_t scan_id) const;

@@ -16,6 +16,47 @@ Rectangle {
     property real scrollAnchorOffset: 0
     property int scrollAnchorRevision: 0
 
+    function publishVisibleRefinements() {
+        if (!workspace || !workspace.controller || !workspace.controller.scanning)
+            return
+        const ids = []
+        let selected = ""
+        if (visible && justifiedGrid.visible) {
+            const children = justifiedGrid.contentItem.children
+            const top = justifiedGrid.contentY
+            const bottom = top + justifiedGrid.height
+            for (let i = 0; i < children.length && ids.length < 512; ++i) {
+                const row = children[i]
+                if (row.rowKind !== "photos" || !row.visible || row.height <= 0
+                        || row.y + row.height <= top || row.y >= bottom)
+                    continue
+                for (let j = 0; j < row.items.length && ids.length < 512; ++j) {
+                    const entry = row.items[j]
+                    if (entry.isRemote)
+                        continue
+                    const id = String(entry.representationId || "")
+                    if (id.length > 0)
+                        ids.push(id)
+                }
+            }
+            if (ids.indexOf(workspace.selectedRepresentationId) >= 0)
+                selected = workspace.selectedRepresentationId
+        } else if (visible && singlePhotoPreview.visible) {
+            singlePhotoPreview.publishVisibleRefinements()
+            return
+        }
+        workspace.controller.prioritizeVisibleRefinements(selected, ids)
+    }
+
+    // Sampling coalesces layout/scroll/selection changes and never walks the full library.
+    Timer {
+        interval: 75
+        repeat: true
+        running: gallery.visible && gallery.workspace.controller.scanning
+        onTriggered: gallery.publishVisibleRefinements()
+    }
+    onVisibleChanged: if (!visible) publishVisibleRefinements()
+
     function retainScrollAnchor() {
         scrollAnchorPhotoId = ""
         if (!justifiedGrid.visible || justifiedGrid.moving)
@@ -286,10 +327,21 @@ Rectangle {
         bottomMargin: galleryDecisionToolbar.visible
             ? galleryDecisionToolbar.height + 30 : 18
         cacheBuffer: 900
+        // The opt-in benchmark drives an exact number of pages itself.
+        property bool automaticPagingEnabled: true
         model: gallery.workspace.justifiedReviewLayout
 
+        function positionAtPhoto(photoId, representationId) {
+            const target = gallery.workspace.justifiedReviewLayout.navigationTarget(
+                photoId, representationId, 0, 0)
+            if (!target || String(target.photoId) !== photoId)
+                return false
+            positionViewAtIndex(Number(target.layoutRow), ListView.Beginning)
+            return true
+        }
+
         function maybeLoadMore() {
-            if (visible && gallery.workspace.controller.hasMore
+            if (automaticPagingEnabled && visible && gallery.workspace.controller.hasMore
                     && !gallery.workspace.controller.refreshing
                     && !gallery.workspace.controller.busy
                     && !gallery.workspace.controller.loadingMore

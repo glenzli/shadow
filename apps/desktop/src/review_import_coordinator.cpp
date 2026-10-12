@@ -69,6 +69,22 @@ ReviewImportCoordinator::~ReviewImportCoordinator() {
     watcher_.waitForFinished();
 }
 
+void ReviewImportCoordinator::prioritizeVisible(
+    const QString& selected,
+    const QStringList& visible
+) {
+    if (!running_ || !operations_.prioritize || visible.size() > 512
+        || (selected == priority_selected_ && visible == priority_visible_))
+        return;
+    try {
+        operations_.prioritize(generation_, selected, visible);
+        priority_selected_ = selected;
+        priority_visible_ = visible;
+    } catch (const std::exception&) {
+        // A hint cannot fail an import. Keep the last accepted scheduling policy.
+    }
+}
+
 bool ReviewImportCoordinator::scanning() const noexcept {
     return running_;
 }
@@ -438,6 +454,8 @@ void ReviewImportCoordinator::updateActiveStatus() {
 }
 
 void ReviewImportCoordinator::resetProgress() {
+    priority_selected_.clear();
+    priority_visible_.clear();
     update_sequence_ = 0;
     files_seen_ = 0;
     supported_files_ = 0;

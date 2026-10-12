@@ -32,8 +32,8 @@ pub use decode_inspection::{
     DecodeInspectionHandle, DecodeInspectionOutcome, DecodeInspectionPool,
     DecodeInspectionProgress, DecodeInspectionRequest, DecodeInspectionSummary,
     DecodeInspectionTerminal, DecodeInspectionTicket, DecodeInspector, EmbeddedPreviewPublication,
-    EmbeddedPreviewSink, PreviewCacheOutcome, ProgressiveInspectionPool, fingerprint_source,
-    recommended_decode_inspection_worker_count,
+    EmbeddedPreviewSink, MAX_VISIBLE_REFINEMENTS, PreviewCacheOutcome, ProgressiveInspectionPool,
+    RefinementPriority, fingerprint_source, recommended_decode_inspection_worker_count,
 };
 pub use derived_raster_store::{
     DerivedRasterStoreError, FilesystemDerivedRasterStore, SHADOW_LINEAR_RGBA_F32_MEDIA_TYPE,

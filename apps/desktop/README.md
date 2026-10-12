@@ -497,6 +497,9 @@ Application startup is split from environment-driven automation:
   verifies full-stack lossless round trips plus malformed vector rejection.
 - [`src/desktop_smoke_harness.cpp`](src/desktop_smoke_harness.cpp) owns documented
   `SHADOW_DESKTOP_*` flag selection and shared scenario dispatch.
+- [`src/desktop_smoke/bulk_import.cpp`](src/desktop_smoke/bulk_import.cpp) owns native import
+  observations and the fixed four-page/four-photo workload. The external-profile runner and
+  comparable-input checks live in [`benchmark_bulk_import.py`](../../scripts/benchmark_bulk_import.py).
 - [`src/desktop_smoke/scenario_setup.cpp`](src/desktop_smoke/scenario_setup.cpp) owns first-photo,
   first-comparison, and first-decision readiness wiring.
 - [`src/desktop_smoke/application_lifecycle.cpp`](src/desktop_smoke/application_lifecycle.cpp)
@@ -1144,7 +1147,8 @@ Review presentation keeps the workspace as the composition and compatibility sur
   complete coordinator signal, invalidation, and status-routing topology.
 - [`src/review_import_coordinator.cpp`](src/review_import_coordinator.cpp) owns one complete folder
   import after cross-workflow admission: scan identity, blocking worker lifetime, monotonic progress
-  polling, cooperative cancellation, live-Library refresh pacing, terminal outcome, localized
+  polling, coalesced gallery/filmstrip refinement hints fenced to that scan, cooperative
+  cancellation, live-Library refresh pacing, terminal outcome, localized
   status, and destruction wait. `ReviewController` decides only whether another workflow permits
   the import and performs the requested page/source-health refreshes. Its
   [`tests/review_import_coordinator/`](tests/review_import_coordinator/) contracts cover progress
@@ -1541,6 +1545,33 @@ slice does not yet copy the separate technical-observation payload into the
 feedback event.
 
 ## macOS development
+
+The fixed import benchmark uses a fresh profile and registry per run, a 1440 × 900 window, exactly
+384 loaded photos, and source rows 288, 192, 96, 0. Each step waits for the real QML thumbnail's
+generated proxy. It records this wait separately from total import time and GUI peak RSS. Pass
+`--seed-catalog` only for a prepared scratch catalog: its copied metadata/order are retained while
+decode snapshots and visual artifact references are cleared in the copy. Source photos stay read-only.
+
+```sh
+python3 scripts/benchmark_bulk_import.py run --app /absolute/Shadow.app \
+  --source /absolute/corpus --seed-catalog /absolute/scratch/catalog.sqlite \
+  --output /private/tmp/import-fifo --fifo
+python3 scripts/benchmark_bulk_import.py run --app /absolute/Shadow.app \
+  --source /absolute/corpus --seed-catalog /absolute/scratch/catalog.sqlite \
+  --output /private/tmp/import-visible
+python3 scripts/benchmark_bulk_import.py compare \
+  /private/tmp/import-fifo/result.json /private/tmp/import-visible/result.json
+```
+
+Use the same linked app for both policies. `--fifo` only disables viewport hints inside the opt-in
+fixed benchmark; ordinary imports prioritize visible photos. The complete bundle (including the RAW
+helper), corpus bytes/timestamps, seed identity, machine, page count, window size/display scale, and selected
+photo identities must match before comparison. Bundle and corpus must also stay unchanged within
+each run. Use an optimized build for timing; `--profile-launch-context debug` still isolates every
+run from the daily Library. These are measured
+observations rather than universal timing budgets; the event-loop p95 is a histogram upper bound.
+Run the two policies sequentially without concurrent builds. The legacy continuous-wheel smoke
+remains a functional stress test, not a comparable performance workload.
 
 The API baseline is Qt 6.11.1, matching the current stable development runtime.
 Shadow follows the latest stable Qt minor instead of preserving compatibility

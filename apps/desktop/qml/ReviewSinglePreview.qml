@@ -17,6 +17,23 @@ Item {
     property string pendingForwardPhotoId: ""
     property string pendingForwardRepresentationId: ""
 
+    function publishVisibleRefinements() {
+        if (!visible)
+            return
+        const ids = []
+        const children = filmstrip.contentItem.children
+        for (let i = 0; i < children.length && ids.length < 512; ++i) {
+            const card = children[i]
+            if (!card.visible || card.x + card.width <= filmstrip.contentX
+                    || card.x >= filmstrip.contentX + filmstrip.width)
+                continue
+            const id = String(card.representationId || "")
+            if (id.length > 0)
+                ids.push(id)
+        }
+        review.controller.prioritizeVisibleRefinements(review.selectedRepresentationId, ids)
+    }
+
     function clearPendingForward() {
         pendingForwardPhotoId = ""
         pendingForwardRepresentationId = ""

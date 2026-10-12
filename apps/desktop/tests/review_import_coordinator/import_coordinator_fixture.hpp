@@ -40,6 +40,9 @@ struct ImportBackendState final {
     std::condition_variable condition;
     QVector<quint64> begun_ids;
     QVector<quint64> cancelled_ids;
+    QVector<quint64> prioritized_ids;
+    QStringList visible_ids;
+    QString selected_id;
     BackendScanProgress progress;
     BackendScanReport report;
     bool scan_entered = false;
@@ -93,6 +96,13 @@ inline ReviewImportCoordinator::Operations operations(
                 }
                 state->cancelled_ids.push_back(scan_id);
                 return state->cancel_result;
+            },
+        .prioritize =
+            [state](quint64 scan_id, const QString& selected, const QStringList& visible) {
+                std::lock_guard lock(state->mutex);
+                state->prioritized_ids.push_back(scan_id);
+                state->visible_ids = visible;
+                state->selected_id = selected;
             },
     };
 }

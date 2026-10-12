@@ -31,6 +31,7 @@ public:
         )> scan;
         std::function<BackendScanProgress(quint64 scan_id)> progress;
         std::function<bool(quint64 scan_id)> cancel;
+        std::function<void(quint64, const QString&, const QStringList&)> prioritize;
     };
 
     explicit ReviewImportCoordinator(
@@ -63,6 +64,7 @@ public:
         bool page_running
     );
 
+    void prioritizeVisible(const QString& selected, const QStringList& visible);
     void retranslateUi();
 
 signals:
@@ -93,6 +95,8 @@ private:
     void applyProgress(const BackendScanProgress& progress);
 
     Operations operations_;
+    QString priority_selected_;
+    QStringList priority_visible_;
     QString folder_path_;
     LocalizedUiMessage status_message_;
     quint64 generation_ = 0;

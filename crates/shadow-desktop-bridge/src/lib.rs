@@ -2575,6 +2575,12 @@ mod ffi {
         fn stop(self: &LibraryServerHost) -> Result<FfiLibraryServerSnapshot>;
         fn reset_cache(self: &LibraryServerHost) -> Result<FfiLibraryServerSnapshot>;
         fn begin_folder_scan(self: &DesktopSession, scan_id: u64) -> Result<()>;
+        fn prioritize_visible_refinements(
+            self: &DesktopSession,
+            scan_id: u64,
+            selected: &str,
+            visible: &[String],
+        ) -> Result<bool>;
         #[cxx_name = "scan_folder"]
         fn scan_folder_ffi(
             self: &DesktopSession,

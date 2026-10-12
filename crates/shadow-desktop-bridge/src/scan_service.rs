@@ -19,8 +19,9 @@ use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_catalog::CatalogHandle;
 use shadow_core::{
     DecodeInspectionHandle, DecodeInspectionProgress, DecodeInspectionSummary, EmbeddedPreviewSink,
-    ScanCancellation, ScanCompletion, ScanPhase, ScanProgress,
-    recommended_decode_inspection_worker_count, scan_folder_with_inspection_controlled,
+    MAX_VISIBLE_REFINEMENTS, RefinementPriority, ScanCancellation, ScanCompletion, ScanPhase,
+    ScanProgress, recommended_decode_inspection_worker_count,
+    scan_folder_with_inspection_controlled,
 };
 
 use crate::{ffi, photo_provider::PhotoInspector, session_preview_store::SessionPreviewStore};
@@ -58,6 +59,7 @@ struct FolderScanState {
     skipped: u64,
     issue_count: u64,
     cancellation: ScanCancellation,
+    refinement_priority: RefinementPriority,
 }
 
 impl FolderScanState {
@@ -81,6 +83,7 @@ impl FolderScanState {
             skipped: 0,
             issue_count: 0,
             cancellation,
+            refinement_priority: RefinementPriority::default(),
         }
     }
 
@@ -232,13 +235,15 @@ impl ScanService {
         let mut catalog = self.catalog.clone();
         let worker_count = recommended_decode_inspection_worker_count();
         let embedded_preview_sink: Arc<dyn EmbeddedPreviewSink> = self.session_previews.clone();
-        let inspector = match shadow_core::ProgressiveInspectionPool::spawn(
+        let priority = self.refinement_priority(scan_id)?;
+        let inspector = match shadow_core::ProgressiveInspectionPool::spawn_with_priority(
             catalog.clone(),
             2,
             worker_count,
             |_| PhotoInspector::new_with_isolated_proxy_cache(Some(self.cache_root.clone())),
             &self.cache_root,
             embedded_preview_sink,
+            priority,
         ) {
             Ok(inspector) => inspector,
             Err(error) => {
@@ -317,6 +322,56 @@ impl ScanService {
             issue_count: u64::try_from(report.issues.len()).unwrap_or(u64::MAX),
             cancelled,
         })
+    }
+
+    fn refinement_priority(&self, scan_id: u64) -> AnyResult<RefinementPriority> {
+        let registry = self
+            .registry
+            .lock()
+            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
+        let state = registry
+            .current
+            .as_ref()
+            .filter(|state| state.scan_id == scan_id && state.is_active())
+            .ok_or_else(|| anyhow!("scan is no longer active"))?;
+        Ok(state.refinement_priority.clone())
+    }
+
+    /// Viewport hints are session-local and fenced to the current active scan.
+    pub(crate) fn prioritize_visible(
+        &self,
+        scan_id: u64,
+        selected: &str,
+        visible: &[String],
+    ) -> AnyResult<bool> {
+        if visible.len() > MAX_VISIBLE_REFINEMENTS {
+            bail!("too many visible refinement hints");
+        }
+        let registry = self
+            .registry
+            .lock()
+            .map_err(|_| anyhow!("folder scan registry lock is poisoned"))?;
+        let Some(state) = registry.current.as_ref().filter(|state| {
+            state.scan_id == scan_id && state.is_active() && !state.cancellation.is_cancelled()
+        }) else {
+            return Ok(false);
+        };
+        let selected = if selected.is_empty() {
+            None
+        } else {
+            Some(selected.parse()?)
+        };
+        let visible = visible
+            .iter()
+            .map(|id| id.parse())
+            .collect::<Result<Vec<_>, _>>()?;
+        // A/B diagnostics use the identical linked app and workload, with only queue policy changed.
+        if std::env::var_os("SHADOW_DESKTOP_BULK_FIXED_WORKLOAD").is_none()
+            || std::env::var_os("SHADOW_DESKTOP_BULK_FIFO_BASELINE").is_none()
+        {
+            state.refinement_priority.replace(selected, &visible);
+        }
+        Ok(true)
     }
 
     pub(crate) fn progress(&self, scan_id: u64) -> AnyResult<ffi::FfiScanProgress> {
@@ -568,3 +623,6 @@ pub(crate) fn validate_decode_inspection_summary(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

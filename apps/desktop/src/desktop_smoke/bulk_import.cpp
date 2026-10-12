@@ -4,7 +4,9 @@
 
 #include <QApplication>
 #include <QDebug>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQmlApplicationEngine>
@@ -25,6 +27,17 @@ namespace DesktopSmoke {
 namespace {
 
 struct ImportObservation {
+    bool fixed_workload = qEnvironmentVariableIsSet("SHADOW_DESKTOP_BULK_FIXED_WORKLOAD");
+    bool fixed_window = false;
+    int pages_requested = 0;
+    int step = 0;
+    qint64 step_started_ms = -1;
+    qint64 last_position_ms = -1;
+    QString target_photo;
+    QString target_representation;
+    QString target_title;
+    QString target_source;
+    QJsonArray steps;
     QElapsedTimer clock;
     qint64 previous_tick = 0;
     qint64 first_rows_ms = -1;
@@ -46,6 +59,130 @@ struct ImportObservation {
 };
 
 constexpr std::array<qint64, 8> gap_limits{20, 32, 64, 128, 256, 512, 1024, 2048};
+constexpr std::array<int, 4> fixed_target_rows{288, 192, 96, 0};
+
+QQuickItem* visible_grid(QQuickItem* root) {
+    if (!root || !root->isVisible())
+        return nullptr;
+    if (root->objectName() == QStringLiteral("reviewJustifiedGrid"))
+        return root;
+    for (auto* child : root->childItems())
+        if (auto* found = visible_grid(child))
+            return found;
+    return nullptr;
+}
+
+void disable_automatic_paging(QQuickItem* root) {
+    if (!root)
+        return;
+    if (root->objectName() == QStringLiteral("reviewJustifiedGrid"))
+        root->setProperty("automaticPagingEnabled", false);
+    for (auto* child : root->childItems())
+        disable_automatic_paging(child);
+}
+
+bool target_ready(QQuickItem* root, const ImportObservation& state) {
+    if (!root)
+        return false;
+    QVector<QQuickItem*> pending{root};
+    while (!pending.isEmpty()) {
+        auto* item = pending.takeLast();
+        pending.append(item->childItems());
+        if (item->objectName() != QStringLiteral("reviewPhotoThumbnail") || !item->isVisible()
+            || item->property("status").toInt() != 1)
+            continue;
+        auto* card = item->parentItem();
+        while (card && !card->property("visualRole").isValid())
+            card = card->parentItem();
+        if (card && card->property("photoId").toString() == state.target_photo
+            && card->property("representationId").toString() == state.target_representation
+            && card->property("visualRole").toString() == QStringLiteral("proxy")) {
+            const auto rect = item->mapRectToItem(root, item->boundingRect());
+            if (root->boundingRect().intersects(rect))
+                return true;
+        }
+    }
+    return false;
+}
+
+// Four pages, then the same four photo positions regardless of import duration.
+// A step completes only after its actual QML image has the developed proxy.
+void advance_fixed_workload(
+    ReviewController& controller,
+    QQuickItem* grid,
+    ImportObservation& state,
+    qint64 elapsed
+) {
+    grid->setProperty("automaticPagingEnabled", false);
+    if (controller.refreshing() || controller.loadingMore() || controller.busy())
+        return;
+    auto* model = controller.reviewModel();
+    // An append can be queued behind a streaming refresh without loadingMore
+    // becoming true yet. Wait for its rows before requesting the next page.
+    if (model->rowCount() < 96 * (state.pages_requested + 1))
+        return;
+    if (state.pages_requested < 3) {
+        if (controller.hasMore()) {
+            qInfo() << "Fixed bulk workload requests page" << state.pages_requested + 2;
+            controller.loadMore();
+            ++state.pages_requested;
+        }
+        return;
+    }
+    if (model->rowCount() != 384 || state.step == static_cast<int>(fixed_target_rows.size()))
+        return;
+    if (state.step_started_ms < 0) {
+        const auto index = model->index(fixed_target_rows[static_cast<std::size_t>(state.step)], 0);
+        state.target_photo = model->data(index, ReviewModel::PhotoIdRole).toString();
+        state.target_representation =
+            model->data(index, ReviewModel::RepresentationIdRole).toString();
+        state.target_title = model->data(index, ReviewModel::TitleRole).toString();
+        state.target_source =
+            QDir(qEnvironmentVariable("SHADOW_DESKTOP_SCAN_FOLDER"))
+                .relativeFilePath(model->data(index, ReviewModel::SourcePathRole).toString());
+        QVariant positioned;
+        QMetaObject::invokeMethod(
+            grid,
+            "positionAtPhoto",
+            Q_RETURN_ARG(QVariant, positioned),
+            Q_ARG(QVariant, state.target_photo),
+            Q_ARG(QVariant, state.target_representation)
+        );
+        if (!positioned.toBool())
+            return;
+        state.step_started_ms = elapsed;
+        state.last_position_ms = elapsed;
+        qInfo() << "Fixed bulk workload target row"
+                << fixed_target_rows[static_cast<std::size_t>(state.step)] << "at ms" << elapsed;
+        state.scrolled_during_import |= controller.scanning();
+        return;
+    }
+    if (elapsed - state.step_started_ms >= 100 && target_ready(grid, state)) {
+        qInfo() << "Fixed bulk workload proxy ready after ms" << elapsed - state.step_started_ms;
+        state.steps.append(
+            QJsonObject{
+                {QStringLiteral("source_row"),
+                 fixed_target_rows[static_cast<std::size_t>(state.step)]},
+                {QStringLiteral("title"), state.target_title},
+                {QStringLiteral("source"), state.target_source},
+                {QStringLiteral("proxy_ready_ms"), elapsed - state.step_started_ms},
+            }
+        );
+        ++state.step;
+        state.step_started_ms = -1;
+    } else if (elapsed - state.last_position_ms >= 100) {
+        // Cached dimensions can settle after the first accepted position call.
+        // Keep the same target through ListView's asynchronous layout/anchor
+        // updates; readiness still requires its real, visible QML image.
+        QMetaObject::invokeMethod(
+            grid,
+            "positionAtPhoto",
+            Q_ARG(QVariant, state.target_photo),
+            Q_ARG(QVariant, state.target_representation)
+        );
+        state.last_position_ms = elapsed;
+    }
+}
 
 qint64 p95_gap(const ImportObservation& state) {
     const auto rank = (state.gap_samples * 95 + 99) / 100;
@@ -69,7 +206,8 @@ void observe_thumbnails(QQuickItem* root, ImportObservation& state, const qint64
         auto* const item = pending.takeLast();
         pending.append(item->childItems());
         if (item->objectName() != QStringLiteral("reviewPhotoThumbnail") || !item->isVisible()
-            || item->property("status").toInt() != 1) {
+            || item->property("status").toInt() != 1
+            || !root->boundingRect().intersects(item->mapRectToItem(root, item->boundingRect()))) {
             continue;
         }
         if (state.first_thumbnail_ms < 0) {
@@ -100,6 +238,17 @@ void startBulkImportLifecycle(
 ) {
     auto state = std::make_shared<ImportObservation>();
     state->clock.start();
+    if (state->fixed_workload) {
+        for (auto* root : engine.rootObjects()) {
+            if (auto* window = qobject_cast<QQuickWindow*>(root)) {
+                // Disable at installation, before resize/layout and the first
+                // event-loop turn can admit an automatic page.
+                disable_automatic_paging(window->contentItem());
+                window->resize(1440, 900);
+            }
+        }
+        state->fixed_window = true;
+    }
     auto* const timer = new QTimer(&application);
     timer->setInterval(20);
     timer->setTimerType(Qt::PreciseTimer);
@@ -125,7 +274,12 @@ void startBulkImportLifecycle(
             }
             QObject* const root = engine.rootObjects().front();
             auto* const window = qobject_cast<QQuickWindow*>(root);
-            auto* const grid = root->findChild<QQuickItem*>(QStringLiteral("reviewJustifiedGrid"));
+            if (window && state->fixed_workload && !state->fixed_window) {
+                disable_automatic_paging(window->contentItem());
+                window->resize(1440, 900);
+                state->fixed_window = true;
+            }
+            auto* const grid = visible_grid(window ? window->contentItem() : nullptr);
             const auto elapsed = state->clock.elapsed();
             const auto gap = elapsed - state->previous_tick;
             state->previous_tick = elapsed;
@@ -137,6 +291,12 @@ void startBulkImportLifecycle(
             ++state->gap_samples;
             state->maximum_gap_ms = std::max(state->maximum_gap_ms, gap);
             const int rows = controller.reviewModel()->rowCount();
+            if (state->fixed_workload && rows > 384) {
+                qCritical() << "Fixed bulk workload exceeded four pages" << rows;
+                timer->stop();
+                application.exit(EXIT_FAILURE);
+                return;
+            }
             if (rows > 0 && state->first_rows_ms < 0) {
                 state->first_rows_ms = elapsed;
             }
@@ -145,11 +305,16 @@ void startBulkImportLifecycle(
                     std::max(state->maximum_rows_during_import, rows);
             }
             observe_thumbnails(
-                window != nullptr ? window->contentItem() : nullptr,
+                state->fixed_workload ? grid
+                : window != nullptr   ? window->contentItem()
+                                      : nullptr,
                 *state,
                 elapsed
             );
-            if (grid != nullptr) {
+            if (grid != nullptr && state->fixed_workload) {
+                advance_fixed_workload(controller, grid, *state, elapsed);
+            }
+            if (grid != nullptr && !state->fixed_workload) {
                 const auto y = grid->property("contentY").toReal();
                 if (controller.scanning() && rows > 16) {
                     state->maximum_scroll_y = std::max(state->maximum_scroll_y, y);
@@ -197,18 +362,28 @@ void startBulkImportLifecycle(
             const auto expected =
                 qEnvironmentVariableIntValue("SHADOW_DESKTOP_BULK_EXPECTED_PHOTOS");
             if (controller.scanning() || controller.refreshing() || controller.loadingMore()
-                || controller.itemCount() < std::max(1, expected)) {
+                || controller.itemCount() < std::max(1, expected)
+                || (state->fixed_workload && state->step < 4)) {
                 return;
             }
             const auto progress = controller.scanProgress();
             const bool success =
                 progress.value(QStringLiteral("phase")).toString() == QStringLiteral("completed")
-                && state->first_embedded_ms >= 0 && state->first_generated_ms >= 0
-                && state->paged_during_import && state->scrolled_during_import
-                && state->maximum_rows_during_import > 96
+                && (state->fixed_workload || state->first_embedded_ms >= 0)
+                && state->first_generated_ms >= 0 && state->paged_during_import
+                && state->scrolled_during_import && state->maximum_rows_during_import > 96
                 && progress.value(QStringLiteral("decodeHardFailures")).toULongLong() == 0
                 && progress.value(QStringLiteral("previewFailures")).toULongLong() == 0;
             const QJsonObject report{
+                {QStringLiteral("workload"),
+                 state->fixed_workload ? QStringLiteral("four-pages-four-targets-v1")
+                                       : QStringLiteral("continuous-wheel-v1")},
+                {QStringLiteral("pages_requested"), state->pages_requested},
+                {QStringLiteral("loaded_rows"), rows},
+                {QStringLiteral("steps"), state->steps},
+                {QStringLiteral("window_size"),
+                 QJsonArray{window ? window->width() : 0, window ? window->height() : 0}},
+                {QStringLiteral("device_pixel_ratio"), window ? window->devicePixelRatio() : 0},
                 {QStringLiteral("success"), success},
                 {QStringLiteral("first_rows_ms"), state->first_rows_ms},
                 {QStringLiteral("first_thumbnail_ready_ms"), state->first_thumbnail_ms},
