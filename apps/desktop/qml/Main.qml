@@ -14,6 +14,8 @@ ApplicationWindow {
     required property var editor
     required property var editNeighborPreheater
     required property var editInterchangeController
+    property var adjustmentTransferController: null
+    property var sharedGradeLinkController: null
     property var lutExportController: null
     required property var editPreviewPresentation
     required property var compositionController
@@ -437,6 +439,7 @@ ApplicationWindow {
 
         ReviewWorkspace {
             id: reviewWorkspace
+            adjustmentTransferController: window.adjustmentTransferController
             peopleController: window.peopleAnalysisController
             // Preserve the last person's view while browsing people. Opening
             // another person replaces it; All Photos explicitly leaves the scope.
@@ -478,6 +481,8 @@ ApplicationWindow {
 
         PrecisionWorkspace {
             id: precisionWorkspace
+            adjustmentTransferController: window.adjustmentTransferController
+            sharedGradeLinkController: window.sharedGradeLinkController
             objectName: "precisionWorkspace"
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -519,17 +524,33 @@ ApplicationWindow {
         }
     }
 
-    footer: MainStatusBar {
-        workspaceIndex: window.workspaceIndex
-        reviewWorkspaceIndex: window.reviewWorkspacePage
-        precisionWorkspaceIndex: window.precisionWorkspacePage
-        mapWorkspaceIndex: window.mapWorkspacePage
-        peopleWorkspaceIndex: window.peopleWorkspacePage
-        controller: window.controller
-        editor: window.editor
-        peopleAnalysisController: window.peopleAnalysisController
-        semanticSearchController: window.semanticSearchController
-        reviewWorkspace: reviewWorkspace
-        precisionWorkspace: precisionWorkspace
+    footer: Column {
+        width: window.width
+        AdjustmentTransferBar {
+            width: parent.width
+            transferController: window.adjustmentTransferController
+            editor: window.editor
+            targets: reviewWorkspace.batchSelectionTargets()
+        }
+        SharedGradeLinkPanel {
+            width: parent.width
+            linkController: window.sharedGradeLinkController
+            editor: window.editor
+            targets: reviewWorkspace.batchSelectionTargets()
+        }
+        MainStatusBar {
+            width: parent.width
+            workspaceIndex: window.workspaceIndex
+            reviewWorkspaceIndex: window.reviewWorkspacePage
+            precisionWorkspaceIndex: window.precisionWorkspacePage
+            mapWorkspaceIndex: window.mapWorkspacePage
+            peopleWorkspaceIndex: window.peopleWorkspacePage
+            controller: window.controller
+            editor: window.editor
+            peopleAnalysisController: window.peopleAnalysisController
+            semanticSearchController: window.semanticSearchController
+            reviewWorkspace: reviewWorkspace
+            precisionWorkspace: precisionWorkspace
+        }
     }
 }

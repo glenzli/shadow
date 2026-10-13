@@ -1,3 +1,4 @@
+#include "adjustment_transfer_controller.hpp"
 #include "ai_preferences.hpp"
 #include "amap_place_search_service.hpp"
 #include "cache_maintenance_controller.hpp"
@@ -37,6 +38,7 @@
 #include "review_focus_detail_provider.hpp"
 #include "review_gallery_grouping_controller.hpp"
 #include "semantic_search_controller.hpp"
+#include "shared_grade_link_controller.hpp"
 #include "smart_category_controller.hpp"
 #include "storage_profile.hpp"
 #include "storage_profile_controller.hpp"
@@ -703,6 +705,65 @@ int main(int argc, char* argv[]) {
         editor(backend, edit_preview_store, edit_preview_presentation_context, &ai_preferences);
     EditNeighborPreheater edit_neighbor_preheater(backend, editor, justified_review_layout);
     EditInterchangeController edit_interchange_controller(*backend, editor);
+    AdjustmentTransferController adjustment_transfer_controller(
+        adjustmentTransferOperations(*backend),
+        adjustmentTransferEditor(editor)
+    );
+    SharedGradeLinkController shared_grade_link_controller(
+        sharedGradeLinkOperations(*backend),
+        sharedGradeLinkEditor(editor)
+    );
+    QObject::connect(
+        &preferences,
+        &UiPreferences::effectiveLanguageChanged,
+        &shared_grade_link_controller,
+        &SharedGradeLinkController::retranslateUi
+    );
+    QObject::connect(
+        &editor,
+        &EditController::busyChanged,
+        &shared_grade_link_controller,
+        &SharedGradeLinkController::foregroundWorkChanged
+    );
+    QObject::connect(
+        &shared_grade_link_controller,
+        &SharedGradeLinkController::sharedNodesChanged,
+        &editor,
+        &EditController::refreshSharedGradeNodes
+    );
+    QObject::connect(
+        &shared_grade_link_controller,
+        &SharedGradeLinkController::sharedNodesChanged,
+        &controller,
+        &ReviewController::refreshSharedGradeNodes
+    );
+    QObject::connect(
+        &editor,
+        &EditController::busyChanged,
+        &adjustment_transfer_controller,
+        &AdjustmentTransferController::foregroundWorkChanged
+    );
+    QTimer adjustment_transfer_refresh;
+    adjustment_transfer_refresh.setSingleShot(true);
+    adjustment_transfer_refresh.setInterval(250);
+    QObject::connect(
+        &adjustment_transfer_controller,
+        &AdjustmentTransferController::photosChanged,
+        &adjustment_transfer_refresh,
+        qOverload<>(&QTimer::start)
+    );
+    QObject::connect(
+        &shared_grade_link_controller,
+        &SharedGradeLinkController::photosChanged,
+        &adjustment_transfer_refresh,
+        qOverload<>(&QTimer::start)
+    );
+    QObject::connect(
+        &adjustment_transfer_refresh,
+        &QTimer::timeout,
+        &controller,
+        &ReviewController::refreshVisibleLibrary
+    );
     LutExportController lut_export_controller([&](bool selected_only) {
         if (!editor.active() || editor.stateBusy()
             || (selected_only && editor.selectedRecipeNodeKind() != QStringLiteral("grade"))) {
@@ -808,6 +869,8 @@ int main(int argc, char* argv[]) {
                     export_controller.setProfileSwitchPending(pending);
                     image_understanding_controller.setProfileSwitchPending(pending);
                     smart_category_controller.setProfileSwitchPending(pending);
+                    adjustment_transfer_controller.setProfileSwitchPending(pending);
+                    shared_grade_link_controller.setProfileSwitchPending(pending);
                 },
             .jobs_quiet =
                 [&] {
@@ -828,7 +891,9 @@ int main(int argc, char* argv[]) {
                            && !lut_export_controller.busy()
                            && !edit_interchange_controller.recipeReading()
                            && !edit_interchange_controller.recipeExportBusy()
-                           && !edit_interchange_controller.recipeAdaptationRunning();
+                           && !edit_interchange_controller.recipeAdaptationRunning()
+                           && !adjustment_transfer_controller.busy()
+                           && !shared_grade_link_controller.busy();
                 },
             .prepare_editor = [&editor] { return editor.prepareToClose(); },
             .restart = {},
@@ -892,6 +957,10 @@ int main(int argc, char* argv[]) {
         )
     );
     engine.setInitialProperties({
+        {QStringLiteral("adjustmentTransferController"),
+         QVariant::fromValue(&adjustment_transfer_controller)},
+        {QStringLiteral("sharedGradeLinkController"),
+         QVariant::fromValue(&shared_grade_link_controller)},
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
         {QStringLiteral("lutExportController"), QVariant::fromValue(&lut_export_controller)},
         {QStringLiteral("compositionController"), QVariant::fromValue(&composition_controller)},

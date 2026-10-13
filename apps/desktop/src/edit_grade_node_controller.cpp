@@ -1,6 +1,7 @@
 #include "edit_controller.hpp"
 
 #include "edit_stack.hpp"
+#include "shared_grade_link_operations.hpp"
 
 #include <QCoreApplication>
 #include <QUuid>
@@ -87,18 +88,9 @@ QVariantList EditController::gradeNodes() const {
             QStringLiteral("shared"),
             !grade_node.shared_layer_id.isEmpty() && !grade_node.shared_revision_id.isEmpty()
         );
-        const auto shared = std::find_if(
-            shared_grade_nodes_.cbegin(),
-            shared_grade_nodes_.cend(),
-            [&grade_node](const BackendSharedGradeNode& candidate) {
-                return candidate.layer_id == grade_node.shared_layer_id
-                       && candidate.revision_id == grade_node.shared_revision_id;
-            }
-        );
-        item.insert(
-            QStringLiteral("sharedRevisionNumber"),
-            shared == shared_grade_nodes_.cend() ? 0 : static_cast<int>(shared->revision_number)
-        );
+        const auto shared_state = sharedGradeNodeState(grade_node);
+        for (auto iterator = shared_state.cbegin(); iterator != shared_state.cend(); ++iterator)
+            item.insert(iterator.key(), iterator.value());
         item.insert(QStringLiteral("label"), display_grade_node_label(grade_node.label));
         item.insert(QStringLiteral("rawLabel"), grade_node.label);
         item.insert(QStringLiteral("strengthPercent"), qRound(grade_node.opacity * 100.0));
@@ -445,6 +437,7 @@ void EditController::duplicateSelectedGradeNode() {
     duplicate.basic = source->basic;
     duplicate.fine = source->fine;
     duplicate.enabled = source->enabled;
+    duplicate.opacity = source->opacity;
     duplicate.local_mask_components = source->local_mask_components;
     for (auto& component : duplicate.local_mask_components) {
         component.component_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -480,6 +473,7 @@ void EditController::refreshSharedGradeNodes() {
             shared_grade_nodes_ = refreshed;
             emit sharedGradeNodesChanged();
             emit gradeNodesChanged();
+            notifyParametersChanged();
         }
     } catch (const std::exception& error) {
         setStatusMessage(grade_node_message(
@@ -515,8 +509,9 @@ void EditController::publishSelectedGradeNode(const QString& label) {
         return;
     }
     published.grade_node.enabled = enabled;
+    published.grade_node.opacity = selected->opacity;
     // Sharing publishes only the adjustment graph. The current photo keeps
-    // its own spatial placement for that Grade Node.
+    // its own strength and spatial placement for that Grade Node.
     published.grade_node.local_mask_components = selected->local_mask_components;
     published.grade_node.local_mask_invert = selected->local_mask_invert;
     BackendGradeStack updated = grade_stack_;
@@ -556,11 +551,26 @@ void EditController::insertSharedGradeNode(const QString& layer_id) {
         }
     );
     BackendGradeNode inserted = iterator->grade_node;
+    inserted.shared_follow_head = true;
+    inserted.shared_revision_number = iterator->revision_number;
     if (existing != updated.grade_nodes.end()) {
-        inserted.enabled = existing->enabled;
-        inserted.local_mask_components = existing->local_mask_components;
-        inserted.local_mask_invert = existing->local_mask_invert;
-        *existing = inserted;
+        // Adding a shared node again must never silently replace a local
+        // override or an older materialized graph. The explicit update owner
+        // validates the old revision graph and the current photo CAS.
+        if (existing->shared_revision_id != iterator->revision_id
+            || sharedGradeParametersDiffer(*existing, iterator->grade_node)) {
+            setStatusMessage(grade_node_message(QT_TRANSLATE_NOOP(
+                "EditController",
+                "Select this linked node and update it explicitly; local changes are kept"
+            )));
+            return;
+        }
+        selectGradeNode(static_cast<int>(std::distance(updated.grade_nodes.begin(), existing)));
+        setStatusMessage(grade_node_message(QT_TRANSLATE_NOOP(
+            "EditController",
+            "This shared node is already present · current adjustments kept"
+        )));
+        return;
     } else {
         if (!canAddGradeNode()) {
             setStatusMessage(grade_node_message(

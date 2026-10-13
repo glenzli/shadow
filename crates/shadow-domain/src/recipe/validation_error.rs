@@ -251,6 +251,8 @@ pub enum RecipeValidationError {
     DuplicateLayerInstance(LayerInstanceId),
     #[error("layer {0} follows a mutable shared head and must be pinned before commit")]
     UnresolvedSharedLayer(LayerInstanceId),
+    #[error("shared following policy requires a materialized pinned layer: {0}")]
+    SharedFollowPolicyRequiresPinnedLayer(LayerInstanceId),
     #[error("recipe commit has {0} parents; at most two are supported")]
     TooManyCommitParents(usize),
     #[error("recipe commit {0} cannot parent itself")]

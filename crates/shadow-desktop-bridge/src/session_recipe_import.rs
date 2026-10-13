@@ -3,7 +3,11 @@
 use crate::recipe_lut_resources::install_lut_resources;
 use anyhow::{Context, Result as AnyResult, anyhow, bail};
 use shadow_ai::{RasterExtent, SoftMaskEncoding};
-use shadow_domain::ShadowRecipeDocument;
+use shadow_catalog::{
+    CommitSharedGradeLinkUpdate, RepresentationFingerprint, SharedGradeLinkWriteResult,
+    SharedGradeSourceGuard,
+};
+use shadow_domain::{LayerId, LayerRevisionId, RepresentationId, ShadowRecipeDocument};
 
 use crate::{
     DesktopSession, ffi,
@@ -12,13 +16,16 @@ use crate::{
         RecipeImportExecutionContext, RecipeImportItemSnapshot, RecipeImportItemTerminal,
         RecipeImportPlanSnapshot, RecipeImportProposalPreview, RecipeImportTargetIdentity,
     },
-    recipe_v1::{decode_grade_stack_draft_recipe_v1, encode_grade_stack_draft_recipe_v1},
+    recipe_v1::{
+        MAX_GRADE_NODES, decode_grade_stack_draft_recipe_v1, encode_grade_stack_draft_recipe_v1,
+    },
     subject_mask_runtime::{
         SemanticMaskInvocation, SemanticMaskStageOutcome, geometry::project_gray8_mask_to_output,
     },
     subject_mask_service::SubjectMaskRefinement,
     subject_mask_service::{
         SubjectMaskCompletion, SubjectMaskInputAdmission, SubjectMaskRenderInputIdentity,
+        SubjectMaskService,
     },
 };
 
@@ -36,18 +43,17 @@ impl DesktopSession {
         settings: &ffi::FfiEditSettings,
         document_bytes: &[u8],
     ) -> AnyResult<ffi::FfiRecipeImportPlan> {
-        self.validated_photo_source(photo_id, source_path)?;
-        let document = ShadowRecipeDocument::from_json(document_bytes)
-            .context("decode semantic Shadow Recipe import document")?;
-        let installed = install_lut_resources(&document, &self.recipe_lut_store()?)?;
-        let plan = RecipeImportPlan::from_document_with_luts(&document, &installed)?;
-        let target = recipe_import_target(
+        let target = self.recipe_import_target(
             photo_id,
             source_path,
             base_commit_id,
             expected_working_commit_id,
             settings,
         )?;
+        let document = ShadowRecipeDocument::from_json(document_bytes)
+            .context("decode semantic Shadow Recipe import document")?;
+        let installed = install_lut_resources(&document, &self.recipe_lut_store()?)?;
+        let plan = RecipeImportPlan::from_document_with_luts(&document, &installed)?;
         let input_session_token = self.subject_masks.begin_input_session()?;
         match self
             .recipe_imports
@@ -123,6 +129,10 @@ impl DesktopSession {
                 (RecipeImportItemTerminal::Failed, detail, None, None)
             }
         };
+        // The execution result owns its proposal until the plan has recorded
+        // staging. Errors and stale publication both revoke that authority.
+        let proposal =
+            proposal_token.map(|token| SemanticRecipeProposal::new(&self.subject_masks, token));
         if !self.recipe_imports.complete_item(
             &context,
             terminal,
@@ -130,10 +140,10 @@ impl DesktopSession {
             proposal_token,
             preview,
         )? {
-            if let Some(token) = proposal_token {
-                let _ = self.subject_masks.discard_proposal(token);
-            }
             bail!("semantic Recipe import result became stale before publication");
+        }
+        if let Some(proposal) = proposal {
+            let _ = proposal.into_token();
         }
         recipe_import_item_ffi(
             self.recipe_imports
@@ -167,6 +177,7 @@ impl DesktopSession {
             self.subject_masks.finish_job(context.job_token)?;
             return Ok(SemanticRecipeExecution::Cancelled);
         }
+        self.require_recipe_import_source(&context.target)?;
         let input_identity = SubjectMaskRenderInputIdentity {
             photo_id: context.target.photo_id.clone(),
             source_path: context.target.source_path.clone(),
@@ -284,21 +295,30 @@ impl DesktopSession {
         let completion = self
             .subject_masks
             .complete_job(context.job_token, receipt)?;
+        self.project_semantic_recipe_completion(context, &request_id, completion)
+    }
+
+    fn project_semantic_recipe_completion(
+        &self,
+        context: &RecipeImportExecutionContext,
+        request_id: &str,
+        completion: SubjectMaskCompletion,
+    ) -> AnyResult<SemanticRecipeExecution> {
         match completion {
             SubjectMaskCompletion::Staged {
                 request_id: actual_request_id,
                 generation,
                 proposal_token,
             } => {
+                let proposal = SemanticRecipeProposal::new(&self.subject_masks, proposal_token);
                 if actual_request_id != request_id || generation != context.generation {
-                    let _ = self.subject_masks.discard_proposal(proposal_token);
                     bail!("semantic Recipe import runtime returned a stale identity");
                 }
+                self.require_recipe_import_source(&context.target)?;
                 let preview = self.subject_masks.proposal_preview(proposal_token)?;
                 if preview.generation != generation
                     || preview.encoding != SoftMaskEncoding::Gray8Unorm
                 {
-                    let _ = self.subject_masks.discard_proposal(proposal_token);
                     bail!("semantic Recipe import proposal preview is incompatible");
                 }
                 let output_extent =
@@ -312,7 +332,7 @@ impl DesktopSession {
                 )
                 .context("semantic Recipe import proposal projection is invalid")?;
                 Ok(SemanticRecipeExecution::Staged {
-                    proposal_token,
+                    proposal_token: proposal.into_token(),
                     preview: RecipeImportProposalPreview {
                         width: output_extent.width,
                         height: output_extent.height,
@@ -336,7 +356,7 @@ impl DesktopSession {
         item_id: &str,
         job_token: u64,
     ) -> AnyResult<ffi::FfiRecipeImportItem> {
-        self.subject_masks.cancel_job(job_token)?;
+        self.cancel_subject_mask_job(job_token)?;
         let snapshot = self
             .recipe_imports
             .cancel_item(plan_token, item_id, job_token)?;
@@ -406,8 +426,7 @@ impl DesktopSession {
         expected_working_commit_id: &str,
         settings: &ffi::FfiEditSettings,
     ) -> AnyResult<ffi::FfiEditSettings> {
-        self.validated_photo_source(photo_id, source_path)?;
-        let target = recipe_import_target(
+        let target = self.recipe_import_target(
             photo_id,
             source_path,
             base_commit_id,
@@ -415,6 +434,195 @@ impl DesktopSession {
             settings,
         )?;
         encode_grade_stack_draft_recipe_v1(self.recipe_imports.finalize(plan_token, &target)?)
+    }
+
+    /// Keeps newly resolved managed rasters concrete until their immutable
+    /// destination Recipe exists. The Qt DTO returned after publication can
+    /// then safely recover opaque masks from that content anchor.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_semantic_recipe_append(
+        &self,
+        plan_token: u64,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        expected_variant_id: &str,
+        settings: &ffi::FfiEditSettings,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
+        let (destination_id, _) = self.validated_photo_source(photo_id, source_path)?;
+        self.require_active_photo_variant(destination_id, expected_variant_id)?;
+        let target = self.recipe_import_target(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            settings,
+        )?;
+        let imported = self.recipe_imports.finalize(plan_token, &target)?;
+        let mut combined = target.settings.clone();
+        if combined.grade_nodes.len() + imported.grade_nodes.len() > MAX_GRADE_NODES {
+            bail!("appending this Recipe exceeds the maximum of {MAX_GRADE_NODES} Grade Nodes");
+        }
+        // Only destination Grade Nodes change. All source development,
+        // repairs, paint, completion, deformation and canvas state stay local.
+        combined.grade_nodes.extend(imported.grade_nodes);
+        let created_at_ms = crate::wall_clock::current_time_ms()?;
+        let representation_id = target.representation_id.to_string();
+        let (request, _, variant_id) = self.prepare_grade_stack_working_for_variant_at(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            &combined,
+            created_at_ms,
+            Some(expected_variant_id),
+            Some(&representation_id),
+        )?;
+        let acknowledged =
+            self.photo_edit_state_for_prepared_working(&request, variant_id, source_path)?;
+        // The plan's representation and resolved filesystem fingerprint must
+        // still match after every fallible projection and before the head CAS.
+        self.require_recipe_import_source(&target)?;
+        self.catalog
+            .commit_recipe_for_variant(&request, variant_id)?;
+        Ok(acknowledged)
+    }
+
+    /// Links one finalized import while its photo-specific managed mask is
+    /// still concrete. The public DTO is only the destination BEFORE state.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_shared_grade_node_link(
+        &self,
+        plan_token: u64,
+        layer_id: &str,
+        revision_id: &str,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        expected_variant_id: &str,
+        settings: &ffi::FfiEditSettings,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
+        let layer_id = layer_id.parse::<LayerId>()?;
+        let revision_id = revision_id.parse::<LayerRevisionId>()?;
+        let (library_commit_id, revision) =
+            crate::shared_grade_library::shared_grade_revision_head(&self.catalog, layer_id)?;
+        if revision.id() != revision_id {
+            bail!("shared Grade Node Library head changed before link");
+        }
+        let (destination_id, _) = self.validated_photo_source(photo_id, source_path)?;
+        self.require_active_photo_variant(destination_id, expected_variant_id)?;
+        let target = self.recipe_import_target(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            settings,
+        )?;
+        let mut imported = self.recipe_imports.finalize(plan_token, &target)?;
+        if imported.grade_nodes.len() != 1 {
+            bail!("a shared Grade Node link requires exactly one imported instance");
+        }
+        let baseline = crate::recipe_v1::grade_node_draft_from_shared_revision(&revision)?;
+        let instance = &mut imported.grade_nodes[0];
+        if !crate::shared_grade_application::shared_grade_parameters_match(instance, &baseline) {
+            bail!("imported Grade Node adjustments differ from the shared revision");
+        }
+        instance.shared = Some(crate::recipe_v1::SharedGradeNodeReference {
+            layer_id,
+            revision_id,
+            shared_follow_head: true,
+        });
+        let mut combined = target.settings.clone();
+        if combined.grade_nodes.len() == MAX_GRADE_NODES {
+            bail!("linking this Grade Node exceeds the maximum of {MAX_GRADE_NODES} Grade Nodes");
+        }
+        combined.grade_nodes.extend(imported.grade_nodes);
+        let (request, _, variant_id) = self.prepare_grade_stack_working_for_variant_at(
+            photo_id,
+            source_path,
+            base_commit_id,
+            expected_working_commit_id,
+            &combined,
+            crate::wall_clock::current_time_ms()?,
+            Some(expected_variant_id),
+            Some(&target.representation_id.to_string()),
+        )?;
+        let acknowledged =
+            self.photo_edit_state_for_prepared_working(&request, variant_id, source_path)?;
+        self.require_recipe_import_source(&target)?;
+        let source = SharedGradeSourceGuard {
+            representation_id: target.representation_id,
+            source_path: target.source_path,
+            fingerprint: target.source_fingerprint,
+        };
+        match self
+            .catalog
+            .commit_shared_grade_link_update(&CommitSharedGradeLinkUpdate {
+                recipe: request,
+                expected_variant_id: variant_id,
+                expected_library_commit_id: library_commit_id,
+                library_ref_name: crate::session_edit_history::LIBRARY_EDIT_MAIN_REF.into(),
+                source,
+            })? {
+            SharedGradeLinkWriteResult::Committed(_) => Ok(acknowledged),
+            SharedGradeLinkWriteResult::HeadChanged => {
+                bail!("shared Grade Node target or Library head changed before link")
+            }
+            SharedGradeLinkWriteResult::SourceChanged => {
+                bail!("shared Grade Node source changed before link")
+            }
+        }
+    }
+
+    fn recipe_import_target(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        settings: &ffi::FfiEditSettings,
+    ) -> AnyResult<RecipeImportTargetIdentity> {
+        if photo_id.is_empty() || source_path.is_empty() {
+            bail!("semantic Recipe import destination is incomplete");
+        }
+        let (representation_id, source_fingerprint) =
+            self.validated_recipe_import_source(photo_id, source_path)?;
+        Ok(RecipeImportTargetIdentity {
+            photo_id: photo_id.to_owned(),
+            source_path: source_path.to_owned(),
+            representation_id,
+            source_fingerprint,
+            base_commit_id: base_commit_id.to_owned(),
+            expected_working_commit_id: expected_working_commit_id.to_owned(),
+            settings: decode_grade_stack_draft_recipe_v1(settings)?,
+        })
+    }
+
+    fn validated_recipe_import_source(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+    ) -> AnyResult<(RepresentationId, RepresentationFingerprint)> {
+        let (_, source) = self.validated_photo_source(photo_id, source_path)?;
+        let native_path = shadow_core::native_path_from_location(&source.location)?;
+        let fingerprint = shadow_core::fingerprint_source(&native_path)
+            .context("read semantic Recipe import source metadata")?;
+        if fingerprint != source.source {
+            bail!("semantic Recipe import source changed since Catalog registration");
+        }
+        Ok((source.representation_id, fingerprint))
+    }
+
+    fn require_recipe_import_source(&self, target: &RecipeImportTargetIdentity) -> AnyResult<()> {
+        let (representation_id, fingerprint) =
+            self.validated_recipe_import_source(&target.photo_id, &target.source_path)?;
+        if representation_id != target.representation_id || fingerprint != target.source_fingerprint
+        {
+            bail!("semantic Recipe import destination source changed");
+        }
+        Ok(())
     }
 
     pub(crate) fn close_semantic_recipe_import(&self, plan_token: u64) -> AnyResult<()> {
@@ -433,23 +641,33 @@ impl DesktopSession {
     }
 }
 
-fn recipe_import_target(
-    photo_id: &str,
-    source_path: &str,
-    base_commit_id: &str,
-    expected_working_commit_id: &str,
-    settings: &ffi::FfiEditSettings,
-) -> AnyResult<RecipeImportTargetIdentity> {
-    if photo_id.is_empty() || source_path.is_empty() {
-        bail!("semantic Recipe import destination is incomplete");
+/// Retains move-only proposal authority across every fallible presentation or
+/// staging step. Only a successful transfer to the next owner disarms cleanup.
+#[derive(Debug)]
+struct SemanticRecipeProposal<'a> {
+    service: &'a SubjectMaskService,
+    token: Option<u64>,
+}
+
+impl<'a> SemanticRecipeProposal<'a> {
+    fn new(service: &'a SubjectMaskService, token: u64) -> Self {
+        Self {
+            service,
+            token: Some(token),
+        }
     }
-    Ok(RecipeImportTargetIdentity {
-        photo_id: photo_id.to_owned(),
-        source_path: source_path.to_owned(),
-        base_commit_id: base_commit_id.to_owned(),
-        expected_working_commit_id: expected_working_commit_id.to_owned(),
-        settings: decode_grade_stack_draft_recipe_v1(settings)?,
-    })
+
+    fn into_token(mut self) -> u64 {
+        self.token.take().expect("owned semantic proposal token")
+    }
+}
+
+impl Drop for SemanticRecipeProposal<'_> {
+    fn drop(&mut self) {
+        if let Some(token) = self.token {
+            let _ = self.service.discard_proposal(token);
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -109,6 +109,52 @@ remote Mac manifest / client-local proxy cache
 
 QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. During import, each live refresh covers the loaded window: matching rows move or update, new rows insert, and already loaded identities remain available. Paging retains a continuation and coalesces overlapping keyset results while source metadata changes. The terminal refresh reconciles the same loaded window before accepting its final continuation. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests use a stable URL across Library generations, allowing Qt to reuse decoded images and textures when the ticket is unchanged; comparison requests retain their generation identity. Grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
 
+## Copying adjustments between photos
+
+[`adjustment_transfer_controller.*`](src/adjustment_transfer_controller.hpp) owns the profile-local
+clipboard, frozen destination queue, visible-photo priority, cancellation, failed-photo retry and
+one-batch undo receipts. [`adjustment_transfer_operations.*`](src/adjustment_transfer_operations.hpp)
+validates the complete copied nodes and prepares each target on a worker. Semantic masks use the
+existing Recipe import inference lifecycle; each target is committed only after every mask succeeds.
+Spatial masks require explicit normalized-position copying. Cropping, RAW development and Foundation
+remain specific to the target. Repeated application of the same clipboard uses acknowledged heads
+to avoid duplicates, and changed targets retain their newer edits.
+
+[`edit_adjustment_transfer.cpp`](src/edit_adjustment_transfer.cpp) reserves the editor only during
+the final metadata transaction, then accepts the committed stack through the existing grade-history
+and preview path. Warm RAW/Foundation input remains reusable; copied grades invalidate from the
+first appended node. Unopened destinations publish a 1024-pixel Gallery preview through the existing
+warm renderer and durable cache boundary after the metadata reservation is released. Only one
+background preview runs at a time; foreground rendering preempts it, and cancellation preserves
+acknowledged edits. Existing inference and rendering own their bounded input/output transfers; this
+controller introduces no separate pixel pipeline. Preview, detail and export consume the same
+persisted nodes and target-specific masks through their existing quality policies.
+
+`AdjustmentTransferBar.qml` provides direct Copy/Paste and Apply to selected photos;
+`AdjustmentTransferDialog.qml` owns remembered copy choices and the nonmodal result list.
+
+## Shared node links
+
+[`shared_grade_link_controller.*`](src/shared_grade_link_controller.hpp) and
+[`shared_grade_link_operations.*`](src/shared_grade_link_operations.hpp) own explicit shared
+publication, bounded destination updates, cancellation and recovery. The Rust
+[`shared_grade_linking`](../../crates/shadow-desktop-bridge/src/shared_grade_linking.rs) owner
+publishes the source link and shared revision together and checks each destination's working
+head, active Variant, source and exact node instances before updating it.
+
+Following is persistent scheduling intent. Each Recipe still pins and materializes its exact
+shared graph, so history and export reproduce that snapshot. Strength, enabled state, masks and
+unrelated edits remain specific to each photo. A locally changed shared graph needs explicit
+publication or unlinking; background propagation preserves it. Inactive Variants retain their
+snapshot and link intent until they are active and explicitly synchronized. Unlinking keeps the
+current graph as an independent node. Ordinary adjustment copying remains independent.
+The local-change hint compares the node with its own pinned revision, including after the shared
+head advances. It is read-only presentation data and does not invalidate the edit or render identity.
+
+Linked grade updates reuse the existing warm source and recompute from the affected grade onwards.
+The existing renderer owns side-resource transfers and the final Gallery preview publication;
+the link queue adds no pixel transport or alternate preview/detail/export algorithm.
+
 ## Single-photo external edit tools
 
 [`edit_tool_protocol.*`](src/edit_tool_protocol.hpp), [`edit_tool_stdio.*`](src/edit_tool_stdio.hpp),

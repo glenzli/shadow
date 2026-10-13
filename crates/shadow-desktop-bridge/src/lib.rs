@@ -76,6 +76,7 @@ mod session_subject_emphasis;
 mod session_subject_mask;
 mod shared_grade_application;
 mod shared_grade_library;
+mod shared_grade_linking;
 mod subject_mask_people;
 mod subject_mask_runtime;
 mod subject_mask_service;
@@ -1468,6 +1469,12 @@ mod ffi {
         shared_layer_id: String,
         /// Empty for a photo-local node; shared nodes always pin one revision.
         shared_revision_id: String,
+        /// Scheduling policy only; the graph and revision remain immutable.
+        shared_follow_head: bool,
+        /// Derived presentation of this exact immutable shared revision.
+        shared_revision_number: u32,
+        /// Read-only hint against this node's pinned revision, never persisted.
+        shared_locally_modified: bool,
         local_mask_components: Vec<FfiMaskComponent>,
         /// Applied after the complete ordered component composition.
         local_mask_invert: bool,
@@ -1495,6 +1502,57 @@ mod ffi {
         revision_number: u32,
         label: String,
         grade_node: FfiGradeNode,
+    }
+
+    #[derive(Debug)]
+    struct FfiSharedGradePublishReceipt {
+        shared_node: FfiSharedGradeNode,
+        state: FfiPhotoEditState,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FfiSharedGradeLinkedInstance {
+        grade_node_id: String,
+        shared_revision_id: String,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FfiSharedGradeLinkedTarget {
+        photo_id: String,
+        source_path: String,
+        representation_id: String,
+        source_byte_len: u64,
+        has_source_modified_at_ms: bool,
+        source_modified_at_ms: i64,
+        variant_id: String,
+        working_commit_id: String,
+        instances: Vec<FfiSharedGradeLinkedInstance>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FfiSharedGradeTargetPage {
+        targets: Vec<FfiSharedGradeLinkedTarget>,
+        has_more: bool,
+        next_photo_id: String,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiSharedGradeUpdateStatus {
+        Unchanged = 0,
+        Updated = 1,
+        LocalChanged = 2,
+        HeadChanged = 3,
+        Unavailable = 4,
+    }
+
+    #[derive(Debug)]
+    struct FfiSharedGradeLinkUpdateReceipt {
+        status: FfiSharedGradeUpdateStatus,
+        diagnostic: String,
+        has_state: bool,
+        /// Prepare returns the durable before state; commit returns the exact
+        /// acknowledged state projected before its atomic publication.
+        state: FfiPhotoEditState,
     }
 
     /// One small, deterministic repair target. Coordinates are normalized to
@@ -3125,6 +3183,55 @@ mod ffi {
             source_path: &str,
         ) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn shared_grade_nodes(self: &DesktopSession) -> Result<Vec<FfiSharedGradeNode>>;
+        fn publish_shared_grade_node_from_photo(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            expected_variant_id: &str,
+            expected_representation_id: &str,
+            settings: &FfiEditSettings,
+            grade_node_id: &str,
+            label: &str,
+        ) -> Result<FfiSharedGradePublishReceipt>;
+        fn shared_grade_linked_targets(
+            self: &DesktopSession,
+            layer_id: &str,
+            revision_id: &str,
+            after_photo_id: &str,
+            limit: u32,
+        ) -> Result<FfiSharedGradeTargetPage>;
+        fn shared_grade_linked_target(
+            self: &DesktopSession,
+            layer_id: &str,
+            photo_id: &str,
+            source_path: &str,
+        ) -> Result<FfiSharedGradeLinkedTarget>;
+        fn prepare_shared_grade_link_update(
+            self: &DesktopSession,
+            layer_id: &str,
+            revision_id: &str,
+            target: &FfiSharedGradeLinkedTarget,
+        ) -> Result<FfiSharedGradeLinkUpdateReceipt>;
+        fn commit_shared_grade_link_update(
+            self: &DesktopSession,
+            layer_id: &str,
+            revision_id: &str,
+            target: &FfiSharedGradeLinkedTarget,
+        ) -> Result<FfiSharedGradeLinkUpdateReceipt>;
+        fn commit_shared_grade_node_link(
+            self: &DesktopSession,
+            plan_token: u64,
+            layer_id: &str,
+            revision_id: &str,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            expected_variant_id: &str,
+            settings: &FfiEditSettings,
+        ) -> Result<FfiPhotoEditState>;
         fn publish_shared_grade_node(
             self: &DesktopSession,
             label: &str,
@@ -3282,6 +3389,18 @@ mod ffi {
             expected_working_commit_id: &str,
             settings: &FfiEditSettings,
         ) -> Result<FfiEditSettings>;
+        /// Appends the finalized destination plan before projecting managed
+        /// masks back into opaque Qt controls, with working-head + Variant CAS.
+        fn commit_semantic_recipe_append(
+            self: &DesktopSession,
+            plan_token: u64,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            expected_variant_id: &str,
+            settings: &FfiEditSettings,
+        ) -> Result<FfiPhotoEditState>;
         fn close_semantic_recipe_import(self: &DesktopSession, plan_token: u64) -> Result<()>;
         /// Allocates one cancellable completion job before Qt submits its
         /// input render and Infer Runtime work.

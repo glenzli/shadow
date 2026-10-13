@@ -299,6 +299,7 @@ qt_add_executable(
     src/desktop_backend_raw_foundation.cpp
     src/desktop_backend_cache.cpp
     src/desktop_backend_edit.cpp
+    src/desktop_backend_shared_grade_link.cpp
     src/desktop_backend_lut_export.cpp
     src/backend/lut_export_types.hpp
     src/lut_export_controller.cpp
@@ -360,6 +361,16 @@ qt_add_executable(
     src/edit_interchange_controller.cpp
     src/edit_interchange_controller.hpp
     src/edit_interchange_application.cpp
+    src/adjustment_transfer_controller.cpp
+    src/adjustment_transfer_controller.hpp
+    src/adjustment_transfer_operations.cpp
+    src/adjustment_transfer_operations.hpp
+    src/edit_adjustment_transfer.cpp
+    src/shared_grade_link_controller.cpp
+    src/shared_grade_link_controller.hpp
+    src/shared_grade_link_operations.cpp
+    src/shared_grade_link_operations.hpp
+    src/edit_shared_grade_link.cpp
     src/xmp_develop_import.cpp
     src/xmp_develop_import.hpp
     src/edit_variant_controller.cpp
@@ -1044,6 +1055,10 @@ qt_add_qml_module(
         qml/ReviewDailyCollection.qml
         qml/ReviewTravelCollections.qml
         qml/ReviewSharedGradePicker.qml
+        qml/AdjustmentTransferBar.qml
+        qml/AdjustmentTransferDialog.qml
+        qml/SharedGradeLinkPanel.qml
+        qml/SharedGradeLinkDialog.qml
         qml/ReviewPhotoCard.qml
         qml/LibraryMissingPhotoDialogs.qml
         qml/ReviewPhotoContextMenu.qml

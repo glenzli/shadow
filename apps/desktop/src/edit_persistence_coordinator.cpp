@@ -44,6 +44,12 @@ bool EditController::openPhoto(
         )));
         return false;
     }
+    if (adjustment_transfer_reserved_) {
+        persistence_state_.queuePhotoOpen(
+            {photo_id, representation_id, source_path, title, provisional_preview_source}
+        );
+        return true;
+    }
     if (!editSourceIsAvailable(source_path)) {
         setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
             "EditController",
@@ -210,6 +216,11 @@ bool EditController::openPhoto(
 }
 
 void EditController::closePhoto() {
+    if (adjustment_transfer_reserved_) {
+        persistence_state_.clearPendingPhotoOpen();
+        persistence_state_.requestPhotoClose();
+        return;
+    }
     if (tool_commit_reserved_)
         return;
     if (presentation_commit_requested_
@@ -362,6 +373,8 @@ void EditController::resetIncompatibleRecipe() {
 }
 
 void EditController::saveVersion(const QString& version_name) {
+    if (adjustment_transfer_affects_editor_)
+        return;
     const QString name = version_name.trimmed();
     if (!active_) {
         return;
@@ -413,6 +426,8 @@ void EditController::saveVersion(const QString& version_name) {
 }
 
 void EditController::loadVersionDraft(const QString& commit_id) {
+    if (adjustment_transfer_affects_editor_)
+        return;
     const QString normalized_commit_id = commit_id.trimmed();
     if (!active_ || normalized_commit_id.isEmpty() || persistence_state_.hasPendingVersionSave()) {
         return;
@@ -490,6 +505,11 @@ bool EditController::discardFailedAutosaveAndOpenPendingPhoto() {
 }
 
 bool EditController::prepareToClose() {
+    if (adjustment_transfer_reserved_) {
+        persistence_state_.clearPendingPhotoOpen();
+        persistence_state_.requestApplicationClose();
+        return false;
+    }
     if (tool_commit_reserved_)
         return false;
     persistence_state_.stopAutosaveDebounce();
@@ -754,8 +774,8 @@ bool EditController::openPendingPhoto() {
 }
 
 void EditController::maybeFinishDeferredApplicationClose() {
-    if (!persistence_state_.closeAfterAutosave() || stateTaskRunning() || current_rendering_
-        || before_rendering_ || detail_rendering_) {
+    if (!persistence_state_.closeAfterAutosave() || adjustment_transfer_reserved_
+        || stateTaskRunning() || current_rendering_ || before_rendering_ || detail_rendering_) {
         return;
     }
     persistence_state_.cancelApplicationClose();
@@ -824,7 +844,8 @@ void EditController::clearAutosaveFailure() {
 }
 
 void EditController::scheduleAutosave() {
-    if (!active_ || !dirty_ || !persistence_state_.autosaveRequested() || stateTaskRunning()
+    if (adjustment_transfer_reserved_ || !active_ || !dirty_
+        || !persistence_state_.autosaveRequested() || stateTaskRunning()
         || (paint_controller_ && paint_controller_->strokeActive())) {
         return;
     }
@@ -834,7 +855,8 @@ void EditController::scheduleAutosave() {
 
 void EditController::startAutosave() {
     persistence_state_.stopAutosaveDebounce();
-    if (!active_ || !dirty_ || !persistence_state_.autosaveRequested() || stateTaskRunning()
+    if (adjustment_transfer_reserved_ || !active_ || !dirty_
+        || !persistence_state_.autosaveRequested() || stateTaskRunning()
         || (paint_controller_ && paint_controller_->strokeActive())) {
         return;
     }
@@ -873,11 +895,24 @@ bool EditController::applyAutosavedState(BackendPhotoEditState state) {
     const bool changed_after_snapshot =
         working_revision_ != persistence_state_.autosaveSnapshotRevision();
     const BackendGradeStack saved_stack = std::move(state.grade_stack);
+    bool shared_hints_changed = false;
     if (!changed_after_snapshot && grade_stack_ != saved_stack) {
         // The visible stack is the one that was persisted. A mismatch means
         // the Catalog had to canonicalize or recover it, so accept that
         // authoritative representation only when no newer local edit exists.
         setGradeStack(saved_stack);
+        shared_hints_changed = true;
+    } else if (!changed_after_snapshot) {
+        // Read-only hints are excluded from content equality. Refresh them
+        // after this exact save without invalidating pixels or a newer draft.
+        for (qsizetype index = 0; index < grade_stack_.grade_nodes.size(); ++index) {
+            auto& node = grade_stack_.grade_nodes[index];
+            const bool hint = saved_stack.grade_nodes[index].shared_locally_modified;
+            if (node.shared_locally_modified != hint) {
+                node.shared_locally_modified = hint;
+                shared_hints_changed = true;
+            }
+        }
     }
     setVersionDraft(false);
     clearAutosaveFailure();
@@ -888,6 +923,10 @@ bool EditController::applyAutosavedState(BackendPhotoEditState state) {
     }
     durable_working_commit_id_ = state.base_commit_id;
     committed_grade_stack_ = saved_stack;
+    // The presentation also compares the draft with its last saved parameters.
+    // Notify only after both the hint and that baseline describe this receipt.
+    if (shared_hints_changed)
+        emit gradeNodesChanged();
     setPhotoVariants(std::move(state.active_variant_id), std::move(state.variants));
     versions_.replace(std::move(state.versions));
     if (changed_after_snapshot) {

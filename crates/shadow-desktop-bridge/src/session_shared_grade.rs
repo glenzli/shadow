@@ -7,8 +7,8 @@ use super::{
     DesktopSession, ffi,
     recipe_v1::{
         decode_grade_node_draft_recipe_v1, decode_grade_stack_draft_recipe_v1,
-        encode_grade_node_as_recipe_v1_layer, encode_grade_stack_draft_recipe_v1,
-        ffi_shared_grade_node, grade_node_draft_from_shared_revision,
+        encode_grade_stack_draft_recipe_v1, ffi_shared_grade_node,
+        grade_node_draft_from_shared_revision,
     },
     shared_grade_application, shared_grade_library,
     wall_clock::current_time_ms,
@@ -28,16 +28,15 @@ impl DesktopSession {
         grade_node: &ffi::FfiGradeNode,
     ) -> AnyResult<ffi::FfiSharedGradeNode> {
         let draft = decode_grade_node_draft_recipe_v1(grade_node, 0)?;
-        let layer = encode_grade_node_as_recipe_v1_layer(&draft)?;
-        let layer_id = draft.shared.map_or_else(
-            || LayerId::from_uuid(draft.recipe_v1_identity.grade_node_id.as_uuid()),
-            |shared| shared.layer_id,
-        );
+        let layer_id = draft
+            .shared
+            .map_or_else(LayerId::new_v7, |shared| shared.layer_id);
         let revision = shared_grade_library::publish_shared_grade_revision(
             &self.catalog,
             layer_id,
             label,
-            layer.content().graph().clone(),
+            shared_grade_library::canonical_shared_graph(&draft, layer_id)?,
+            draft.shared.map(|reference| reference.revision_id),
             current_time_ms()?,
         )?;
         ffi_shared_grade_node(&revision)

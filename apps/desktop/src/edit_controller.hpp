@@ -44,6 +44,9 @@ class EditAutoGeometryController;
 class EditPersistenceTaskCoordinator;
 class EditRawFoundationController;
 class AiPreferences;
+struct AdjustmentTransferSource;
+enum class AdjustmentTransferAdmission;
+struct SharedGradeLinkSource;
 
 class EditController final : public QObject {
     Q_OBJECT
@@ -410,6 +413,10 @@ class EditController final : public QObject {
     Q_PROPERTY(QVariantList gradeNodes READ gradeNodes NOTIFY gradeNodesChanged)
     Q_PROPERTY(QVariantList sharedGradeNodes READ sharedGradeNodes NOTIFY sharedGradeNodesChanged)
     Q_PROPERTY(
+        QVariantMap selectedSharedGradeNodeState READ selectedSharedGradeNodeState NOTIFY
+            sharedGradeNodeStateChanged
+    )
+    Q_PROPERTY(
         int selectedGradeNodeIndex READ selectedGradeNodeIndex NOTIFY selectedGradeNodeChanged
     )
     Q_PROPERTY(QString selectedGradeNodeId READ selectedGradeNodeId NOTIFY selectedGradeNodeChanged)
@@ -569,6 +576,23 @@ class EditController final : public QObject {
     /// Read-only interchange projection. Format controllers may serialize the
     /// current stack but remain unable to mutate edit authority directly.
     [[nodiscard]] const BackendGradeStack& gradeStackForInterchange() const noexcept;
+    [[nodiscard]] AdjustmentTransferSource captureAdjustmentTransfer(bool selected_only);
+    [[nodiscard]] AdjustmentTransferAdmission
+    reserveAdjustmentTransfer(const BackendPhotoEditState& before);
+    void acceptAdjustmentTransfer(
+        const BackendPhotoEditState& saved,
+        const BackendPhotoEditState& before
+    );
+    void releaseAdjustmentTransfer();
+    [[nodiscard]] SharedGradeLinkSource captureSharedGradePublication();
+    [[nodiscard]] AdjustmentTransferAdmission
+    reserveSharedGradePublication(const SharedGradeLinkSource& source);
+    void acceptSharedGradeLink(
+        const BackendPhotoEditState& saved,
+        const BackendPhotoEditState& before,
+        const QString& target_grade_node_id,
+        const QString& transaction_key
+    );
     [[nodiscard]] bool
     applyShadowRecipeGradeNodes(const BackendGradeStack& portable_grade_stack, QString* error_text);
     void reportShadowRecipeExported(const QString& file_name);
@@ -688,6 +712,7 @@ class EditController final : public QObject {
     [[nodiscard]] bool cropToolActive() const noexcept;
     [[nodiscard]] QVariantList gradeNodes() const;
     [[nodiscard]] QVariantList sharedGradeNodes() const;
+    [[nodiscard]] QVariantMap selectedSharedGradeNodeState() const;
     [[nodiscard]] int selectedGradeNodeIndex() const noexcept;
     [[nodiscard]] QString selectedGradeNodeId() const;
     [[nodiscard]] bool hasSelectedGradeNode() const noexcept;
@@ -780,6 +805,8 @@ class EditController final : public QObject {
     Q_INVOKABLE void refreshSharedGradeNodes();
     Q_INVOKABLE void publishSelectedGradeNode(const QString& label);
     Q_INVOKABLE void insertSharedGradeNode(const QString& layer_id);
+    Q_INVOKABLE void unlinkSelectedGradeNode();
+    Q_INVOKABLE void setSelectedGradeNodeSharedFollowHead(bool follow);
     Q_INVOKABLE void deleteSelectedGradeNode();
     Q_INVOKABLE void moveSelectedGradeNode(int destination_index);
     // destination: 0 = selected Grade Node, 1 = one newly inserted Grade Node.
@@ -1074,6 +1101,7 @@ class EditController final : public QObject {
     void opticsReceiptChanged();
     void gradeNodesChanged();
     void sharedGradeNodesChanged();
+    void sharedGradeNodeStateChanged();
     void selectedGradeNodeChanged();
     void gradeNodeActionsChanged();
     void gradeNodeEnabledChanged();
@@ -1130,6 +1158,7 @@ class EditController final : public QObject {
     void applyImageCompletionState(BackendPhotoEditState state, const BackendGradeStack& before);
     void setGradeStack(BackendGradeStack grade_stack, const QString& preferred_grade_node_id = {});
     [[nodiscard]] const BackendGradeNode* selectedGradeNode() const noexcept;
+    [[nodiscard]] QVariantMap sharedGradeNodeState(const BackendGradeNode& node) const;
     [[nodiscard]] QString gradeNodeHistoryKey(const QString& key) const;
     [[nodiscard]] QString uniqueGradeNodeLabel(const QString& base) const;
     static void
@@ -1237,6 +1266,8 @@ class EditController final : public QObject {
     AiPreferences* ai_preferences_ = nullptr;
     EditPersistenceState persistence_state_;
     bool tool_commit_reserved_ = false;
+    bool adjustment_transfer_reserved_ = false;
+    bool adjustment_transfer_affects_editor_ = false;
     bool tool_operation_running_ = false;
     LocalizedUiMessage tool_activity_message_;
     std::unique_ptr<EditAiCompletionController> image_completion_controller_;

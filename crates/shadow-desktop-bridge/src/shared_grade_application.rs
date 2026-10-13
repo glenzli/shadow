@@ -27,10 +27,14 @@ pub(crate) fn merge_shared_grade_node(
         .find(|candidate| same_shared_identity(candidate.shared, shared_reference))
     {
         let mut replacement = shared.clone();
+        replacement
+            .recipe_v1_identity
+            .clone_from(&existing.recipe_v1_identity);
         replacement.enabled = existing.enabled;
-        // The library revision owns only the complete adjustment graph. A
-        // mask is photo-instance placement and must survive an update to the
-        // shared look itself.
+        replacement.opacity = existing.opacity;
+        // The library revision owns only the complete adjustment graph.
+        // Strength and mask placement belong to the photo instance and must
+        // survive an update to the shared look itself.
         replacement.local_mask.clone_from(&existing.local_mask);
         replacement
             .composite_mask
@@ -49,6 +53,29 @@ pub(crate) fn merge_shared_grade_node(
     }
     grade_stack.grade_nodes.push(shared.clone());
     Ok(SharedGradeMerge::Updated)
+}
+
+/// Only executable adjustment meaning belongs to a shared look. Resource
+/// installation paths, labels and all photo-instance state are excluded.
+pub(crate) fn shared_grade_parameters_match(left: &GradeNodeDraft, right: &GradeNodeDraft) -> bool {
+    let mut left_fine = left.fine.clone();
+    let mut right_fine = right.fine.clone();
+    left_fine.lut.managed_path.clear();
+    right_fine.lut.managed_path.clear();
+    left_fine.lut.title.clear();
+    right_fine.lut.title.clear();
+    left.basic == right.basic && left_fine == right_fine
+}
+
+/// Update one exact instance while retaining every photo-owned control and
+/// every internal compiler identity. The caller already checked its baseline.
+pub(crate) fn replace_shared_grade_parameters(
+    existing: &mut GradeNodeDraft,
+    shared: &GradeNodeDraft,
+) {
+    existing.basic = shared.basic;
+    existing.fine.clone_from(&shared.fine);
+    existing.shared = shared.shared;
 }
 
 fn same_shared_identity(

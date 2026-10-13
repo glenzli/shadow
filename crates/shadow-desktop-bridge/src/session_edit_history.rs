@@ -449,7 +449,7 @@ impl DesktopSession {
         created_at_ms: i64,
         expected_variant_id: Option<&str>,
     ) -> AnyResult<ffi::FfiPhotoEditState> {
-        let (record, _, _) = self.commit_grade_stack_working_for_variant_at(
+        let (request, _, variant_id) = self.prepare_grade_stack_working_for_variant_at(
             photo_id,
             source_path,
             base_commit_id,
@@ -459,7 +459,67 @@ impl DesktopSession {
             expected_variant_id,
             None,
         )?;
-        self.photo_edit_state_for(record.photo_id, source_path)
+        let acknowledged =
+            self.photo_edit_state_for_prepared_working(&request, variant_id, source_path)?;
+        self.catalog
+            .commit_recipe_for_variant(&request, variant_id)?;
+        Ok(acknowledged)
+    }
+
+    /// Projects this immutable write while every Catalog read and fallible DTO
+    /// conversion can still reject it before publication. A successful CAS may
+    /// then return this state without rereading a movable working head.
+    pub(crate) fn photo_edit_state_for_prepared_working(
+        &self,
+        request: &CommitRecipe,
+        variant_id: PhotoVariantId,
+        source_path: &str,
+    ) -> AnyResult<ffi::FfiPhotoEditState> {
+        let mut acknowledged = self.photo_edit_state_for(request.photo_id, source_path)?;
+        let mut canonical_draft =
+            decode_grade_stack_draft_from_recipe_v1_snapshot(request.commit.snapshot())?;
+        crate::recipe_lut_resources::relocate_draft_luts(
+            &mut canonical_draft,
+            self.cache_root
+                .parent()
+                .context("runtime cache has no library parent")?,
+        )?;
+        let mut canonical = encode_grade_stack_draft_recipe_v1(canonical_draft)?;
+        self.project_shared_grade_revision_numbers(&mut canonical)?;
+        canonical.foundation.as_shot_white_balance_available = acknowledged
+            .settings
+            .foundation
+            .as_shot_white_balance_available;
+        canonical.foundation.as_shot_temperature_kelvin =
+            acknowledged.settings.foundation.as_shot_temperature_kelvin;
+        canonical.foundation.as_shot_tint = acknowledged.settings.foundation.as_shot_tint;
+        if canonical.foundation.raw_white_balance_mode == 0
+            && canonical.foundation.as_shot_white_balance_available
+        {
+            canonical.foundation.temperature_kelvin =
+                canonical.foundation.as_shot_temperature_kelvin;
+            canonical.foundation.tint = canonical.foundation.as_shot_tint;
+        }
+        acknowledged.has_working_version = true;
+        acknowledged.is_version_draft = false;
+        acknowledged.working_commit_id = request.commit.id().to_string();
+        acknowledged.recipe_id = request.commit.recipe_id().to_string();
+        acknowledged.active_variant_id = variant_id.to_string();
+        acknowledged.settings = canonical;
+        for variant in &mut acknowledged.variants {
+            variant.is_active = variant.variant_id == acknowledged.active_variant_id;
+            if variant.is_active {
+                variant.has_head = true;
+                variant
+                    .head_commit_id
+                    .clone_from(&acknowledged.working_commit_id);
+                variant.updated_at_ms = request.commit.created_at_ms();
+            }
+        }
+        for version in &mut acknowledged.versions {
+            version.is_working = false;
+        }
+        Ok(acknowledged)
     }
 
     /// The tool owner holds the in-memory draft reservation; Catalog still
@@ -515,6 +575,37 @@ impl DesktopSession {
         expected_variant_id: Option<&str>,
         expected_representation_id: Option<&str>,
     ) -> AnyResult<(RecipeCommitRecord, RepresentationId, PhotoVariantId)> {
+        let (request, representation_id, variant_id) = self
+            .prepare_grade_stack_working_for_variant_at(
+                photo_id,
+                source_path,
+                base_commit_id,
+                expected_working_commit_id,
+                grade_stack,
+                created_at_ms,
+                expected_variant_id,
+                expected_representation_id,
+            )?;
+        let record = self
+            .catalog
+            .commit_recipe_for_variant(&request, variant_id)?;
+        Ok((record, representation_id, variant_id))
+    }
+
+    /// Prepares the exact immutable write before a tool projects its success
+    /// receipt. Callers still publish through Catalog's head + Variant CAS.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub(crate) fn prepare_grade_stack_working_for_variant_at(
+        &self,
+        photo_id: &str,
+        source_path: &str,
+        base_commit_id: &str,
+        expected_working_commit_id: &str,
+        grade_stack: &GradeStackDraft,
+        created_at_ms: i64,
+        expected_variant_id: Option<&str>,
+        expected_representation_id: Option<&str>,
+    ) -> AnyResult<(CommitRecipe, RepresentationId, PhotoVariantId)> {
         let (photo_id, source) = self.validated_photo_source(photo_id, source_path)?;
         if expected_representation_id
             .is_some_and(|expected| expected != source.representation_id.to_string())
@@ -603,10 +694,7 @@ impl DesktopSession {
         // or AI edits with stale values. The controller serializes its own
         // saves and carries their acknowledged heads. A conflict must return
         // to that caller, which retains the draft for explicit reconciliation.
-        let record = self
-            .catalog
-            .commit_recipe_for_variant(&request, expected_variant_id)?;
-        Ok((record, source.representation_id, expected_variant_id))
+        Ok((request, source.representation_id, expected_variant_id))
     }
 
     pub(crate) fn checkout_basic_edit_version(
@@ -728,6 +816,12 @@ impl DesktopSession {
             if settings.foundation.raw_white_balance_mode == 0 {
                 settings.foundation.temperature_kelvin = presentation.temperature_kelvin;
                 settings.foundation.tint = presentation.tint;
+            }
+        }
+        self.project_shared_grade_revision_numbers(&mut settings)?;
+        if is_version_draft {
+            for node in &mut settings.grade_nodes {
+                node.shared_follow_head = false;
             }
         }
         let (active_variant_id, variants) = self.ffi_photo_variants(photo_id)?;

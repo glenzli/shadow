@@ -11,6 +11,7 @@
 #include "backend/remote_library_types.hpp"
 #include "backend/review_types.hpp"
 #include "backend/semantic_search_types.hpp"
+#include "backend/shared_grade_link_types.hpp"
 #include "backend/smart_category_types.hpp"
 #include "folder_scan_backend.hpp"
 
@@ -24,6 +25,7 @@
 #include <optional>
 
 class ExportBackend;
+struct AdjustmentTransferPrepared;
 
 class DesktopBackend final {
   public:
@@ -289,12 +291,60 @@ class DesktopBackend final {
         const QString& expected_working_commit_id,
         const BackendGradeStack& grade_stack
     ) const;
+    // Keeps newly resolved raster identities on the Rust side until the
+    // complete append is published under the captured working-head/Variant CAS.
+    [[nodiscard]] BackendPhotoEditState commitSemanticRecipeAppend(
+        std::uint64_t plan_token,
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const QString& expected_working_commit_id,
+        const QString& expected_variant_id,
+        const BackendGradeStack& grade_stack
+    ) const;
     void closeSemanticRecipeImport(std::uint64_t plan_token) const;
     [[nodiscard]] BackendPhotoEditState
     resetIncompatiblePhotoEditHistory(const QString& photo_id, const QString& source_path) const;
     [[nodiscard]] QVariantList
     opticsProfileCandidates(const QString& photo_id, const QString& source_path) const;
     [[nodiscard]] QVector<BackendSharedGradeNode> sharedGradeNodes() const;
+    [[nodiscard]] BackendSharedGradePublicationReceipt publishSharedGradeNodeFromPhoto(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const QString& expected_working_commit_id,
+        const QString& expected_variant_id,
+        const QString& expected_representation_id,
+        const BackendGradeStack& settings,
+        const QString& grade_node_id,
+        const QString& label
+    ) const;
+    [[nodiscard]] BackendSharedGradeLinkedTargetsPage sharedGradeLinkedTargets(
+        const QString& layer_id,
+        const QString& revision_id,
+        const QString& after_photo_id,
+        std::uint32_t limit
+    ) const;
+    [[nodiscard]] BackendSharedGradeLinkedTarget sharedGradeLinkedTarget(
+        const QString& layer_id,
+        const QString& photo_id,
+        const QString& source_path
+    ) const;
+    [[nodiscard]] BackendSharedGradeLinkUpdateResult prepareSharedGradeLinkUpdate(
+        const QString& layer_id,
+        const QString& revision_id,
+        const BackendSharedGradeLinkedTarget& target
+    ) const;
+    [[nodiscard]] BackendSharedGradeLinkUpdateResult commitSharedGradeLinkUpdate(
+        const QString& layer_id,
+        const QString& revision_id,
+        const BackendSharedGradeLinkedTarget& target
+    ) const;
+    [[nodiscard]] BackendPhotoEditState commitSharedGradeNodeLink(
+        const AdjustmentTransferPrepared& prepared,
+        const QString& layer_id,
+        const QString& revision_id
+    ) const;
     [[nodiscard]] BackendSharedGradeNode
     publishSharedGradeNode(const QString& label, const BackendGradeNode& grade_node) const;
     [[nodiscard]] BackendBatchGradeReceipt applySharedGradeNodeToPhotos(

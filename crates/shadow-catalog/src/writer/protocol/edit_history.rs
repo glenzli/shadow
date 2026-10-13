@@ -2,18 +2,44 @@
 
 use std::sync::mpsc::SyncSender;
 
-use shadow_domain::{EditCommitId, EditObjectId, PhotoId, PhotoVariantId, RecipeCommitId};
+use shadow_domain::{
+    EditCommitId, EditObjectId, LayerId, LayerRevision, LayerRevisionId, PhotoId, PhotoVariantId,
+    RecipeCommitId,
+};
 
 use crate::{
     ActivatePhotoVariant, CatalogError, CommitEditRepository, CommitRecipe,
-    CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult, CreatePhotoVariant,
-    EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord, EditRepositoryHistoryCursor,
-    EditRepositoryHistoryPage, EditRepositoryRefPage, EditRepositoryRefRecord, PhotoVariantRecord,
-    RecipeCommitRecord, RecipeHistoryCursor, RecipeHistoryPage, RecipeRefRecord,
-    RemovePhotoVariant, RenamePhotoVariant, SetRecipeRef, StoreEditObjectPackResult,
+    CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult,
+    CommitSharedGradeLinkUpdate, CreatePhotoVariant, EditObjectPackWrite, EditObjectRecord,
+    EditRepositoryCommitRecord, EditRepositoryHistoryCursor, EditRepositoryHistoryPage,
+    EditRepositoryRefPage, EditRepositoryRefRecord, PhotoVariantRecord, RecipeCommitRecord,
+    RecipeHistoryCursor, RecipeHistoryPage, RecipeRefRecord, RemovePhotoVariant,
+    RenamePhotoVariant, SetRecipeRef, SharedGradeLinkWriteResult, SharedGradeLinkedWorkingPage,
+    SharedGradeSourceGuard, StoreEditObjectPackResult,
 };
 
 pub(in crate::writer) enum EditHistoryMessage {
+    SharedGradeLinkedWorkingPage(
+        LayerId,
+        LayerRevisionId,
+        Option<PhotoId>,
+        usize,
+        SyncSender<Result<SharedGradeLinkedWorkingPage, CatalogError>>,
+    ),
+    SharedGradeRevisionById(
+        LayerId,
+        LayerRevisionId,
+        SyncSender<Result<Option<LayerRevision>, CatalogError>>,
+    ),
+    CommitSharedGradeLinkUpdate(
+        Box<CommitSharedGradeLinkUpdate>,
+        SyncSender<Result<SharedGradeLinkWriteResult, CatalogError>>,
+    ),
+    CommitSharedGradePublication(
+        Box<CommitRecipeAndEditRepository>,
+        SharedGradeSourceGuard,
+        SyncSender<Result<Option<CommitRecipeAndEditRepositoryResult>, CatalogError>>,
+    ),
     CommitRecipe(
         Box<CommitRecipe>,
         SyncSender<Result<RecipeCommitRecord, CatalogError>>,

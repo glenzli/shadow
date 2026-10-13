@@ -79,6 +79,22 @@ void list_projection_detects_mask_type_changes() {
     );
 }
 
+void readonly_shared_hint_updates_rows_without_changing_the_draft() {
+    BackendGradeStack before{.grade_nodes = {grade_node(QStringLiteral("node"))}};
+    BackendGradeStack after = before;
+    after.grade_nodes[0].shared_locally_modified = true;
+    require(before == after, "a readonly shared hint must not change the captured draft identity");
+    require(
+        EditHistoryRestoreProjection::gradeNodeListChanged(before, after),
+        "a readonly shared hint must refresh its node-row presentation"
+    );
+    after.grade_nodes[0].opacity = 0.4;
+    require(before != after, "editable node strength must still change the draft identity");
+    after = before;
+    after.grade_nodes[0].shared_follow_head = true;
+    require(before != after, "following policy must still change the persisted draft identity");
+}
+
 void parameter_projection_detects_every_mask_field() {
     const BackendGradeNode before = grade_node(QStringLiteral("node"));
     BackendGradeNode after = before;
@@ -153,6 +169,7 @@ void parameter_projection_detects_every_mask_field() {
 int main() {
     inserted_node_undo_restores_its_predecessor();
     list_projection_detects_mask_type_changes();
+    readonly_shared_hint_updates_rows_without_changing_the_draft();
     parameter_projection_detects_every_mask_field();
     return EXIT_SUCCESS;
 }

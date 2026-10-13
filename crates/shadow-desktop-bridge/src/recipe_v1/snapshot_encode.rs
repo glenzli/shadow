@@ -490,6 +490,13 @@ pub(crate) fn encode_grade_node_as_recipe_v1_layer(
         BlendMode::Normal,
         local_mask.as_ref().map(MaskRevision::reference),
     )
+    .and_then(|layer| {
+        layer.with_shared_follow_head(
+            grade_node
+                .shared
+                .is_some_and(|shared| shared.shared_follow_head),
+        )
+    })
     .map_err(Into::into)
 }
 

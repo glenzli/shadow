@@ -9,9 +9,15 @@ use crate::{Catalog, CatalogError, cache_artifact::digest, row_codec::read_id};
 
 pub(crate) mod decoded_cache;
 mod history_browse;
+mod shared_grade_links;
 mod variants;
 pub use history_browse::{
     MAX_RECIPE_HISTORY_PAGE_SIZE, RecipeHistoryCursor, RecipeHistoryEntry, RecipeHistoryPage,
+};
+pub use shared_grade_links::{
+    CommitSharedGradeLinkUpdate, MAX_SHARED_GRADE_LINK_PAGE_SIZE, SharedGradeLinkWriteResult,
+    SharedGradeLinkedInstanceRecord, SharedGradeLinkedWorkingPage, SharedGradeLinkedWorkingRecord,
+    SharedGradeSourceGuard,
 };
 pub(crate) use variants::ensure_active_variant;
 pub use variants::{

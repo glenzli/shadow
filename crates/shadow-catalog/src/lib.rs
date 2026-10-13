@@ -91,10 +91,12 @@ pub use library::{
     library_equipment_key,
 };
 pub use recipe::{
-    ActivatePhotoVariant, CommitRecipe, CreatePhotoVariant, MAX_RECIPE_HISTORY_PAGE_SIZE,
-    PhotoVariantRecord, RecipeCommitRecord, RecipeHistoryCursor, RecipeHistoryEntry,
-    RecipeHistoryPage, RecipeRefExpectation, RecipeRefKind, RecipeRefRecord, RecipeRefTarget,
-    RemovePhotoVariant, RenamePhotoVariant, SetRecipeRef,
+    ActivatePhotoVariant, CommitRecipe, CommitSharedGradeLinkUpdate, CreatePhotoVariant,
+    MAX_RECIPE_HISTORY_PAGE_SIZE, MAX_SHARED_GRADE_LINK_PAGE_SIZE, PhotoVariantRecord,
+    RecipeCommitRecord, RecipeHistoryCursor, RecipeHistoryEntry, RecipeHistoryPage,
+    RecipeRefExpectation, RecipeRefKind, RecipeRefRecord, RecipeRefTarget, RemovePhotoVariant,
+    RenamePhotoVariant, SetRecipeRef, SharedGradeLinkWriteResult, SharedGradeLinkedInstanceRecord,
+    SharedGradeLinkedWorkingPage, SharedGradeLinkedWorkingRecord, SharedGradeSourceGuard,
 };
 pub use review::{
     PhotoInspectionRecord, PhotoRepresentationRecord, ReviewCursor, ReviewItemRecord,

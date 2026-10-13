@@ -6,6 +6,30 @@ use super::super::protocol::EditHistoryMessage;
 
 pub(super) fn run_edit_history_message(catalog: &mut Catalog, message: EditHistoryMessage) {
     match message {
+        EditHistoryMessage::SharedGradeLinkedWorkingPage(
+            layer_id,
+            revision_id,
+            after,
+            limit,
+            response,
+        ) => {
+            let _ = response.send(catalog.shared_grade_linked_working_page(
+                layer_id,
+                revision_id,
+                after,
+                limit,
+            ));
+        }
+        EditHistoryMessage::SharedGradeRevisionById(layer_id, revision_id, response) => {
+            let _ = response.send(catalog.shared_grade_revision_by_id(layer_id, revision_id));
+        }
+        EditHistoryMessage::CommitSharedGradeLinkUpdate(request, response) => {
+            let _ = response.send(catalog.commit_shared_grade_link_update(request.as_ref()));
+        }
+        EditHistoryMessage::CommitSharedGradePublication(request, source, response) => {
+            let _ =
+                response.send(catalog.commit_shared_grade_publication(request.as_ref(), &source));
+        }
         EditHistoryMessage::CommitRecipe(request, response) => {
             let _ = response.send(catalog.commit_recipe(request.as_ref()));
         }

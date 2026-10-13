@@ -66,6 +66,24 @@ EditController::EditController(
     histogram_ = empty_histogram();
     before_histogram_ = empty_histogram();
     connect(this, &EditController::activeChanged, this, &EditController::variantActionsChanged);
+    connect(
+        this,
+        &EditController::gradeNodesChanged,
+        this,
+        &EditController::sharedGradeNodeStateChanged
+    );
+    connect(
+        this,
+        &EditController::selectedGradeNodeChanged,
+        this,
+        &EditController::sharedGradeNodeStateChanged
+    );
+    connect(
+        this,
+        &EditController::parametersChanged,
+        this,
+        &EditController::sharedGradeNodeStateChanged
+    );
     connect(this, &EditController::stateBusyChanged, this, &EditController::variantActionsChanged);
     connect(
         this,
@@ -235,8 +253,8 @@ bool EditController::active() const noexcept {
 }
 
 bool EditController::busy() const noexcept {
-    return tool_operation_running_ || tool_commit_reserved_ || stateTaskRunning()
-           || current_rendering_ || before_rendering_ || detail_rendering_
+    return tool_operation_running_ || tool_commit_reserved_ || adjustment_transfer_reserved_
+           || stateTaskRunning() || current_rendering_ || before_rendering_ || detail_rendering_
            || (auto_start_controller_ && auto_start_controller_->busy())
            || (subject_emphasis_controller_ && subject_emphasis_controller_->busy())
            || (ai_mask_controller_ && ai_mask_controller_->busy())
@@ -254,7 +272,8 @@ bool EditController::interactionLocked() const noexcept {
     // head when the transaction returns. Opening a photo, creating a named
     // Version, and loading a Version still replace controller state, so they
     // remain interaction-locking operations.
-    return tool_commit_reserved_ || persistence_state_.hasPendingVersionSave()
+    return tool_commit_reserved_ || adjustment_transfer_affects_editor_
+           || persistence_state_.hasPendingVersionSave()
            || persistence_state_.hasPendingVersionLoad()
            || (stateTaskRunning() && stateTaskKind() != EditStateTaskKind::Autosave)
            || (auto_start_controller_ && auto_start_controller_->applying())

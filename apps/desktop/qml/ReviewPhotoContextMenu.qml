@@ -24,6 +24,8 @@ Popup {
     property string photoDecisionFlag: "unflagged"
     property bool photoIsRemote: false
     property var photoSnapshot: null
+    property var adjustmentTransferTargets: []
+    property bool adjustmentTransferContainsRemote: false
     property bool albumsExpanded: false
     property bool ratingsExpanded: false
     property bool nodesExpanded: false
@@ -52,6 +54,21 @@ Popup {
         photoDecisionFlag = String(decisionFlagValue)
         photoIsRemote = Boolean(isRemoteValue)
         photoSnapshot = snapshotValue || null
+        // Capture scalar selection values at menu admission. A later selection
+        // change or recycled gallery delegate must not redirect the command.
+        const transferSelection = workspaceValue
+            && typeof workspaceValue.batchSelectionTargets === "function"
+            ? workspaceValue.batchSelectionTargets() : []
+        adjustmentTransferContainsRemote = workspaceValue
+            && typeof workspaceValue.selectionContainsRemote === "function"
+            ? workspaceValue.selectionContainsRemote() : false
+        adjustmentTransferTargets = transferSelection.map(function(target) {
+            return {
+                "photoId": String(target.photoId || ""),
+                "sourcePath": String(target.sourcePath || ""),
+                "title": String(target.title || "")
+            }
+        })
         albumsExpanded = false
         nodesExpanded = false
         parent = Overlay.overlay
@@ -75,6 +92,8 @@ Popup {
         photoDecisionFlag = "unflagged"
         photoIsRemote = false
         photoSnapshot = null
+        adjustmentTransferTargets = []
+        adjustmentTransferContainsRemote = false
     }
 
     background: Rectangle {
@@ -417,6 +436,31 @@ Popup {
                         root.close()
                     }
                 }
+            }
+        }
+
+        MenuRow {
+            objectName: "pasteAdjustmentsToSelectionAction"
+            visible: root.hasWorkspace
+                && root.workspace.adjustmentTransferController !== undefined
+                && root.workspace.adjustmentTransferController !== null
+            text: qsTr("Paste adjustments")
+            iconSource: "qrc:/icons/grade-node-paste.svg"
+            actionEnabled: visible
+                && root.workspace.adjustmentTransferController.hasClipboard
+                && !root.workspace.adjustmentTransferController.busy
+                && !root.workspace.adjustmentTransferController.copying
+                && !root.adjustmentTransferContainsRemote
+                && root.adjustmentTransferTargets.some(function(target) {
+                    return target.photoId.length > 0
+                        && target.photoId !== root.workspace.adjustmentTransferController.sourcePhotoId
+                })
+            onActivated: {
+                if (!root.hasWorkspace || !actionEnabled)
+                    return
+                root.workspace.adjustmentTransferController.applyToPhotos(
+                    root.adjustmentTransferTargets)
+                root.close()
             }
         }
 
