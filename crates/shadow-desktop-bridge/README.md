@@ -125,6 +125,8 @@ detail uses a complete-render, edge-clamped `(2r + 1)²` Oklab-lightness box, fi
 normalization, and rational full-render scale with round-half-up radius conversion; tile dimensions
 do not alter its footprint.
 
+The independent editor's self-contained `.shdw` envelope, verified ZIP publication/reopen, source relocation, and durable semantic history belong to [`src/editable_document.rs`](src/editable_document.rs). The public [document contract](../../docs/development/editable-document.md) covers consumers and version boundaries.
+
 ## Test layout
 
 Small private-invariant tests remain in their production service. The crate-local `src/tests/`

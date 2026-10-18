@@ -272,7 +272,7 @@ bool EditController::interactionLocked() const noexcept {
     // head when the transaction returns. Opening a photo, creating a named
     // Version, and loading a Version still replace controller state, so they
     // remain interaction-locking operations.
-    return tool_commit_reserved_ || adjustment_transfer_affects_editor_
+    return document_history_loading_ || tool_commit_reserved_ || adjustment_transfer_affects_editor_
            || persistence_state_.hasPendingVersionSave()
            || persistence_state_.hasPendingVersionLoad()
            || (stateTaskRunning() && stateTaskKind() != EditStateTaskKind::Autosave)

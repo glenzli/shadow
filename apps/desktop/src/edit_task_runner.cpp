@@ -12,12 +12,10 @@ namespace {
 
 constexpr std::uint32_t EDIT_DETAIL_TILE_SIDE = 512;
 constexpr std::uint32_t EDIT_LARGE_DETAIL_TILE_SIDE = 1'024;
-constexpr std::uint64_t EDIT_DETAIL_MAX_PRESENTATION_BYTES =
-    96U * 1'024U * 1'024U;
+constexpr std::uint64_t EDIT_DETAIL_MAX_PRESENTATION_BYTES = 96U * 1'024U * 1'024U;
 
-[[nodiscard]] BackendEditedDetailViewport compose_detail_viewport(
-    BackendEditedDetailViewport viewport
-) {
+[[nodiscard]] BackendEditedDetailViewport
+compose_detail_viewport(BackendEditedDetailViewport viewport) {
     if (viewport.full_width == 0 || viewport.full_height == 0 || viewport.tiles.isEmpty()) {
         throw std::runtime_error("full detail returned no RGB8 tiles");
     }
@@ -39,9 +37,9 @@ constexpr std::uint64_t EDIT_DETAIL_MAX_PRESENTATION_BYTES =
         }
         for (qsizetype prior_index = 0; prior_index < index; ++prior_index) {
             const auto& prior = viewport.tiles.at(prior_index);
-            const bool overlaps = tile.x < prior.x + prior.width
-                && prior.x < tile.x + tile.width && tile.y < prior.y + prior.height
-                && prior.y < tile.y + tile.height;
+            const bool overlaps = tile.x < prior.x + prior.width && prior.x < tile.x + tile.width
+                                  && tile.y < prior.y + prior.height
+                                  && prior.y < tile.y + tile.height;
             if (overlaps) {
                 throw std::runtime_error("full detail returned overlapping RGB8 tiles");
             }
@@ -58,10 +56,8 @@ constexpr std::uint64_t EDIT_DETAIL_MAX_PRESENTATION_BYTES =
     const std::uint64_t presentation_pixels =
         static_cast<std::uint64_t>(presentation_width) * presentation_height;
     const std::uint64_t presentation_bytes = presentation_pixels * 3U;
-    if (presentation_width == 0 || presentation_height == 0
-        || tile_pixels != presentation_pixels
-        || presentation_bytes
-            > static_cast<std::uint64_t>(std::numeric_limits<qsizetype>::max())) {
+    if (presentation_width == 0 || presentation_height == 0 || tile_pixels != presentation_pixels
+        || presentation_bytes > static_cast<std::uint64_t>(std::numeric_limits<qsizetype>::max())) {
         throw std::runtime_error("full detail tiles do not cover one complete viewport");
     }
     if (presentation_bytes > EDIT_DETAIL_MAX_PRESENTATION_BYTES) {
@@ -77,8 +73,7 @@ constexpr std::uint64_t EDIT_DETAIL_MAX_PRESENTATION_BYTES =
                 (static_cast<std::size_t>(tile.y - top + row) * presentation_width
                  + (tile.x - left))
                 * 3U;
-            const std::size_t source_offset =
-                static_cast<std::size_t>(row) * tile.row_stride_bytes;
+            const std::size_t source_offset = static_cast<std::size_t>(row) * tile.row_stride_bytes;
             std::memcpy(
                 composite.data() + destination_offset,
                 tile.bytes.constData() + source_offset,
@@ -112,7 +107,9 @@ EditStateTaskResult loadState(
     result.kind = EditStateTaskKind::Open;
     log_edit_performance_checkpoint("edit-state-worker-start", generation, 0);
     try {
+        backend->flushDocumentHistory();
         result.state = backend->photoEditState(photo_id, source_path);
+        result.document_undo = backend->documentUndo(photo_id);
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -206,11 +203,7 @@ EditStateTaskResult loadVersionDraftState(
     result.photo_generation = generation;
     result.kind = EditStateTaskKind::LoadDraft;
     try {
-        result.state = backend->loadEditVersionDraft(
-            photo_id,
-            source_path,
-            commit_id
-        );
+        result.state = backend->loadEditVersionDraft(photo_id, source_path, commit_id);
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -274,25 +267,23 @@ EditDetailTaskResult renderDetail(
         // the bridge for one exact region instead of expanding a small view to
         // as many as four 512px cache-grid tiles. Large presentation surfaces
         // retain the established adaptive grid and its bounded tile count.
-        const std::uint32_t tile_side = longest_side <= EDIT_LARGE_DETAIL_TILE_SIDE
-                || longest_side > 4'096U
-            ? EDIT_LARGE_DETAIL_TILE_SIDE
-            : EDIT_DETAIL_TILE_SIDE;
-        result.viewport = compose_detail_viewport(
-            backend->renderEditDetailViewport(
-                photo_id,
-                source_path,
-                base_commit_id,
-                grade_stack,
-                render_token,
-                center_x,
-                center_y,
-                viewport_width,
-                viewport_height,
-                tile_side,
-                true
-            )
-        );
+        const std::uint32_t tile_side =
+            longest_side <= EDIT_LARGE_DETAIL_TILE_SIDE || longest_side > 4'096U
+                ? EDIT_LARGE_DETAIL_TILE_SIDE
+                : EDIT_DETAIL_TILE_SIDE;
+        result.viewport = compose_detail_viewport(backend->renderEditDetailViewport(
+            photo_id,
+            source_path,
+            base_commit_id,
+            grade_stack,
+            render_token,
+            center_x,
+            center_y,
+            viewport_width,
+            viewport_height,
+            tile_side,
+            true
+        ));
     } catch (const std::exception& error) {
         result.error = QString::fromUtf8(error.what());
     }
@@ -317,8 +308,7 @@ EditDetailWarmupTaskResult warmDetailSource(
         // full-resolution source preparation and prime the center of the
         // bounded Recipe-tile cache. Do not compose or publish it: this is an
         // idle optimisation only, never a hidden viewport change.
-        const BackendEditedDetailViewport viewport =
-            backend->renderEditDetailViewport(
+        const BackendEditedDetailViewport viewport = backend->renderEditDetailViewport(
             photo_id,
             source_path,
             base_commit_id,

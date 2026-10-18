@@ -7,6 +7,7 @@
 
 // Library lifecycle and durable application services.
 mod digest_hex;
+mod editable_document;
 pub mod headless_project;
 mod history_service;
 mod library_server_host;
@@ -35,6 +36,7 @@ mod session_scan;
 mod session_semantic_search;
 mod session_smart_classification;
 mod storage_profile_archive;
+use editable_document::{pack_editable_document, unpack_editable_document};
 mod wall_clock;
 
 // Photo source admission, preview delivery, and detail viewports.
@@ -552,6 +554,19 @@ mod ffi {
         representation_id: String,
         source_path: String,
         title: String,
+    }
+
+    struct FfiDocumentHistoryEntry {
+        key: String,
+        before_base: String,
+        before: FfiEditSettings,
+        after_base: String,
+        after: FfiEditSettings,
+    }
+
+    struct FfiDocumentUndo {
+        undo: Vec<FfiDocumentHistoryEntry>,
+        redo: Vec<FfiDocumentHistoryEntry>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2651,6 +2666,33 @@ mod ffi {
             self: &DesktopSession,
             source_path: &FfiNativePath,
         ) -> Result<FfiPipelineInput>;
+        fn unpack_editable_document(
+            source: &FfiNativePath,
+            root: &FfiNativePath,
+        ) -> Result<Vec<FfiPipelineInput>>;
+        fn pack_editable_document(
+            root: &FfiNativePath,
+            output: &FfiNativePath,
+            replace_sha256: &str,
+        ) -> Result<String>;
+        fn record_document_history(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            action: u8,
+            entry: &FfiDocumentHistoryEntry,
+        ) -> Result<()>;
+        fn document_undo(self: &DesktopSession, photo_id: &str) -> Result<FfiDocumentUndo>;
+        fn document_history_page(
+            self: &DesktopSession,
+            photo_id: &str,
+            before: i64,
+        ) -> Result<String>;
+        fn checkout_document_history(
+            self: &DesktopSession,
+            photo_id: &str,
+            step: i64,
+        ) -> Result<FfiDocumentHistoryEntry>;
         fn review_page(
             self: &DesktopSession,
             cursor_path: &str,

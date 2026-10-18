@@ -20,6 +20,7 @@ enum class EditStateTaskKind : std::uint8_t {
 
 struct EditStateTaskResult final {
     BackendPhotoEditState state;
+    DocumentUndo document_undo;
     QString error;
     quint64 photo_generation = 0;
     EditStateTaskKind kind = EditStateTaskKind::Open;

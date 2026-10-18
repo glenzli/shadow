@@ -14,6 +14,7 @@
 #include "edit_tool_controller.hpp"
 #include "edit_tool_stdio.hpp"
 #include "edit_tool_ui_smoke.hpp"
+#include "editable_document_history.hpp"
 #include "export_task_runner.hpp"
 #include "lut_library.hpp"
 #include "lut_preview_provider.hpp"
@@ -26,8 +27,10 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -38,12 +41,15 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QTemporaryFile>
 #include <QThreadPool>
 #include <QTimer>
+#include <QUuid>
 #include <QtConcurrent>
 
 #include <cstdlib>
 #include <exception>
+#include <stdexcept>
 #include <utility>
 
 namespace {
@@ -89,6 +95,57 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& laun
             QDir(runtime_root.path()).filePath(QStringLiteral("source.png"));
         request.photos.front().input_path = request.external->private_source_path;
     }
+    QVector<DesktopBackend::PipelineInput> restored;
+    try {
+        const QString input =
+            request.document_input.isEmpty()
+                ? (request.photos.isEmpty() ? QString{} : request.photos.front().input_path)
+                : request.document_input;
+        if (!request.document_input.isEmpty() || request.document_protocol) {
+            QFile file(input);
+            if (!file.open(QIODevice::ReadOnly))
+                throw std::runtime_error("Cannot read document input");
+            QTemporaryFile snapshot;
+            if (!snapshot.open())
+                throw std::runtime_error("Cannot stage document input");
+            QCryptographicHash hash(QCryptographicHash::Sha256);
+            while (!file.atEnd()) {
+                const auto bytes = file.read(256 * 1024);
+                if (bytes.isEmpty() || snapshot.write(bytes) != bytes.size())
+                    throw std::runtime_error("Cannot snapshot document input");
+                hash.addData(bytes);
+            }
+            if (!snapshot.flush())
+                throw std::runtime_error("Cannot flush document input");
+            const QString digest = QString::fromLatin1(hash.result().toHex());
+            if (request.document_protocol && digest != request.input_sha256)
+                throw std::runtime_error("Document input SHA-256 changed");
+            if (!request.document_input.isEmpty()) {
+                request.document_digest = digest;
+                restored = DesktopBackend::unpackDocument(snapshot.fileName(), runtime_root.path());
+                request.photos.clear();
+                for (const auto& value : restored)
+                    request.photos.push_back({value.source_path, {}});
+            }
+        }
+        if (!request.agent_stdio && !request.external) {
+            QFile snapshot_marker(
+                QDir(runtime_root.path()).filePath(".shadow-document-snapshot-originals")
+            );
+            if (!snapshot_marker.open(QIODevice::WriteOnly) || snapshot_marker.write("1") != 1)
+                throw std::runtime_error("Cannot prepare original snapshot policy");
+        }
+        QFile marker(QDir(runtime_root.path()).filePath(".shadow-document-session"));
+        if (!marker.exists()) {
+            const auto id = QUuid::createUuid().toString(QUuid::WithoutBraces).toUtf8();
+            if (!marker.open(QIODevice::WriteOnly) || marker.write(id) != id.size())
+                throw std::runtime_error("Cannot prepare document session");
+        }
+    } catch (const std::exception& error) {
+        (void)writePipelineResult(request, "failed", {QString::fromUtf8(error.what())});
+        qCritical().noquote() << "Cannot open editable document:" << error.what();
+        return EXIT_FAILURE;
+    }
     const int exit_code = [&]() -> int {
         const QString catalog_path =
             QDir(runtime_root.path()).filePath(QStringLiteral("catalog.sqlite"));
@@ -125,8 +182,10 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& laun
         auto preview_context = std::make_shared<EditPreviewPresentationContext>();
         EditPreviewPresentationRegistry preview_presentation(preview_store, preview_context);
         EditController editor(backend, preview_store, preview_context, &ai_preferences);
+        editor.enableDocumentHistory();
+        EditableDocumentHistory document_history(backend, editor);
         EditInterchangeController interchange(*backend, editor);
-        PipelineRunController pipeline(backend, editor, request);
+        PipelineRunController pipeline(backend, editor, request, runtime_root.path(), restored);
         std::unique_ptr<EditToolStdio> tool_stdio;
         std::unique_ptr<EditToolController> tools;
         int terminal_exit_code = EXIT_SUCCESS;
@@ -239,6 +298,7 @@ int runPipelineEdit(QApplication& application, const PipelineLaunchRequest& laun
             {QStringLiteral("lutLibrary"), QVariant::fromValue(&lut_library)},
             {QStringLiteral("opticsProfileLibrary"), QVariant::fromValue(&optics_profile_library)},
             {QStringLiteral("pipeline"), QVariant::fromValue(&pipeline)},
+            {QStringLiteral("documentHistory"), QVariant::fromValue(&document_history)},
         });
         engine.loadFromModule("Shadow.App", "PipelineEditor");
         if (engine.rootObjects().isEmpty()) {

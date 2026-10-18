@@ -660,6 +660,7 @@ void EditController::finishStateTask() {
         maybeStartDetailRender();
         return;
     }
+    const EditHistorySnapshot previous_document_state{grade_stack_, base_commit_id_};
     bool autosave_needs_follow_up = false;
     if (result.kind == EditStateTaskKind::Autosave) {
         autosave_needs_follow_up = applyAutosavedState(std::move(result.state));
@@ -677,7 +678,23 @@ void EditController::finishStateTask() {
     } else {
         applyState(std::move(result.state));
     }
+    if (result.kind == EditStateTaskKind::LoadDraft && document_history_enabled_) {
+        history_
+            .record("version/checkout", previous_document_state, {grade_stack_, base_commit_id_});
+        emit historyChanged();
+        emit documentEdited();
+    }
+    if (document_history_enabled_
+        && (result.kind == EditStateTaskKind::Save
+            || result.kind == EditStateTaskKind::ResetIncompatibleRecipe))
+        emit documentEdited();
     if (result.kind == EditStateTaskKind::Open) {
+        if (!result.document_undo.undo.empty())
+            result.document_undo.undo.back().after = {grade_stack_, base_commit_id_};
+        if (!result.document_undo.redo.empty())
+            result.document_undo.redo.back().before = {grade_stack_, base_commit_id_};
+        history_.restore(std::move(result.document_undo));
+        emit historyChanged();
         log_edit_performance_checkpoint("edit-state-applied", photo_generation_, render_revision_);
     }
     if (result.kind == EditStateTaskKind::ResetIncompatibleRecipe) {

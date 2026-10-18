@@ -1,6 +1,7 @@
 #pragma once
 
 #include "backend/cache_types.hpp"
+#include "backend/document_types.hpp"
 #include "backend/edit_types.hpp"
 #include "backend/history_types.hpp"
 #include "backend/image_understanding_types.hpp"
@@ -56,6 +57,19 @@ class DesktopBackend final {
     [[nodiscard]] BackendScanProgress scanProgress(std::uint64_t scan_id) const;
     [[nodiscard]] bool cancelFolderScan(std::uint64_t scan_id) const;
     [[nodiscard]] PipelineInput admitPipelineInput(const QString& source_path) const;
+    static QVector<PipelineInput> unpackDocument(const QString& path, const QString& root);
+    static QString
+    packDocument(const QString& root, const QString& path, const QString& expected_digest);
+    void recordDocumentHistory(
+        const QString& photo,
+        const QString& source,
+        unsigned action,
+        DocumentHistoryEntry entry
+    ) const;
+    void flushDocumentHistory() const;
+    [[nodiscard]] DocumentUndo documentUndo(const QString& photo) const;
+    [[nodiscard]] QString documentHistoryPage(const QString& photo, qint64 before = 0) const;
+    [[nodiscard]] DocumentHistoryEntry documentHistoryStep(const QString& photo, qint64 step) const;
     [[nodiscard]] BackendPhotoInspection
     photoInspection(const QString& photo_id, const QString& representation_id) const;
     [[nodiscard]] BackendRemoteLibrarySnapshot

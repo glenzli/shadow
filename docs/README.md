@@ -12,6 +12,7 @@ tests.
 | Build, test, format, or launch Shadow | [Development guide](development/README.md) |
 | Change an interactive adjustment or preview/render path | [Interactive editing pipeline contract](development/interactive-editing-pipeline.md) |
 | Change a persistent or wire contract | [Contract versioning](contracts/versioning.md) |
+| Save or exchange an independent editing document | [Editable Shadow documents](development/editable-document.md) |
 | Run the local Library Server | [Library Server operations](operations/library-server.md) |
 | Inspect repository-wide engineering constraints | [Project Skeleton](../SKELETON.md) |
 | Review a change | [Review Skeleton](../REVIEW_SKELETON.md) |

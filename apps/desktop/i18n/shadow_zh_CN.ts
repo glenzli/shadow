@@ -7565,11 +7565,6 @@ R %2 · G %3 · B %4</translation>
         <translation>打开一张或多张照片</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="295"/>
-        <source>Drop photos here or choose files. Originals stay unchanged; adjustments are kept for this session.</source>
-        <translation>将照片拖到这里，或选择文件。原图保持不变；调整会在本次编辑中保留。</translation>
-    </message>
-    <message>
         <location filename="../qml/PipelineEditor.qml" line="325"/>
         <source>Stop export</source>
         <translation>停止导出</translation>
@@ -7585,19 +7580,9 @@ R %2 · G %3 · B %4</translation>
         <translation>所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../qml/PipelineEditor.qml" line="335"/>
-        <source>Photos (*.nef *.nrw *.cr2 *.cr3 *.arw *.raf *.orf *.rw2 *.pef *.srw *.dng *.jpg *.jpeg *.tif *.tiff *.heic *.heif)</source>
-        <translation>照片 (*.nef *.nrw *.cr2 *.cr3 *.arw *.raf *.orf *.rw2 *.pef *.srw *.dng *.jpg *.jpeg *.tif *.tiff *.heic *.heif)</translation>
-    </message>
-    <message>
         <location filename="../qml/PipelineEditor.qml" line="349"/>
         <source>Close this editing session?</source>
         <translation>关闭本次编辑？</translation>
-    </message>
-    <message>
-        <location filename="../qml/PipelineEditor.qml" line="351"/>
-        <source>Unexported adjustments will be discarded. Originals and files already exported will be kept.</source>
-        <translation>尚未导出的调整将被丢弃。原图和已经导出的文件都会保留。</translation>
     </message>
     <message>
         <location filename="../qml/PipelineEditor.qml" line="361"/>
@@ -7608,6 +7593,46 @@ R %2 · G %3 · B %4</translation>
         <location filename="../qml/PipelineEditor.qml" line="362"/>
         <source>Close session</source>
         <translation>关闭本次编辑</translation>
+    </message>
+    <message>
+        <source>Drop photos or a Shadow document here. Save a document to keep the originals, edits and history together.</source>
+        <translation>将照片或 Shadow 工程拖到这里。保存工程可将原片、编辑内容与历史一并保留。</translation>
+    </message>
+    <message>
+        <source>History</source>
+        <translation>历史</translation>
+    </message>
+    <message>
+        <source>Photos and Shadow documents (*.shdw *.nef *.nrw *.cr2 *.cr3 *.arw *.raf *.orf *.rw2 *.pef *.srw *.dng *.jpg *.jpeg *.png *.tif *.tiff *.heic *.heif)</source>
+        <translation>照片与 Shadow 工程 (*.shdw *.nef *.nrw *.cr2 *.cr3 *.arw *.raf *.orf *.rw2 *.pef *.srw *.dng *.jpg *.jpeg *.png *.tif *.tiff *.heic *.heif)</translation>
+    </message>
+    <message>
+        <source>Save a Shadow document to keep the edits and history. Changes since the last document save will be discarded when closing.</source>
+        <translation>保存 Shadow 工程可保留编辑内容与历史。关闭时将丢弃上次保存工程之后的修改。</translation>
+    </message>
+    <message>
+        <source>Save and close</source>
+        <translation>保存并关闭</translation>
+    </message>
+    <message>
+        <source>Save as…</source>
+        <translation>另存为…</translation>
+    </message>
+    <message>
+        <source>Save document…</source>
+        <translation>保存工程…</translation>
+    </message>
+    <message>
+        <source>Save editable Shadow document</source>
+        <translation>保存可编辑的 Shadow 工程</translation>
+    </message>
+    <message>
+        <source>Shadow documents (*.shdw)</source>
+        <translation>Shadow 工程 (*.shdw)</translation>
+    </message>
+    <message>
+        <source>Return editable document</source>
+        <translation>返回可编辑工程</translation>
     </message>
 </context>
 <context>
@@ -7731,6 +7756,22 @@ R %2 · G %3 · B %4</translation>
         <location filename="../src/pipeline_run_controller.cpp" line="428"/>
         <source>Export did not complete. Check the output folder and retry.</source>
         <translation>导出未完成，请检查输出文件夹后重试。</translation>
+    </message>
+    <message>
+        <source>Choose a Shadow document (.shdw) file.</source>
+        <translation>请选择 Shadow 工程（.shdw）文件。</translation>
+    </message>
+    <message>
+        <source>Could not save the editable document · %1</source>
+        <translation>无法保存可编辑工程 · %1</translation>
+    </message>
+    <message>
+        <source>Open one Shadow document in a separate editor window.</source>
+        <translation>请在单独的编辑器窗口中打开一个 Shadow 工程。</translation>
+    </message>
+    <message>
+        <source>Saving editable document…</source>
+        <translation>正在保存可编辑工程…</translation>
     </message>
 </context>
 <context>
@@ -17536,6 +17577,47 @@ Shadow 会立即显示内嵌预览，随后以本地生成的代理替换。</tr
         <location filename="../qml/XmpImportDialog.qml" line="301"/>
         <source>All files (*)</source>
         <translation>所有文件 (*)</translation>
+    </message>
+</context>
+<context>
+    <name>DocumentHistoryDialog</name>
+    <message>
+        <source> · Current</source>
+        <translation> · 当前</translation>
+    </message>
+    <message>
+        <source>Document history</source>
+        <translation>工程历史</translation>
+    </message>
+    <message>
+        <source>No completed edits yet.</source>
+        <translation>还没有已完成的编辑步骤。</translation>
+    </message>
+    <message>
+        <source>Restore an earlier edit to continue from it. Later edits remain in the document.</source>
+        <translation>恢复到先前的编辑步骤并继续修改。之后的编辑仍保留在工程中。</translation>
+    </message>
+    <message>
+        <source>Load earlier edits</source>
+        <translation>加载更早的编辑步骤</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+</context>
+<context>
+    <name>EditableDocumentHistory</name>
+    <message>
+        <source>Edit %1</source>
+        <translation>编辑步骤 %1</translation>
+    </message>
+</context>
+<context>
+    <name>DocumentHistoryWriter</name>
+    <message>
+        <source>Document history could not keep up with the edits.</source>
+        <translation>工程历史未能及时保存这些编辑。</translation>
     </message>
 </context>
 </TS>

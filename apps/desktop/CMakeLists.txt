@@ -299,6 +299,10 @@ qt_add_executable(
     src/desktop_backend_raw_foundation.cpp
     src/desktop_backend_cache.cpp
     src/desktop_backend_edit.cpp
+    src/desktop_backend_document.cpp
+    src/backend/document_types.hpp
+    src/editable_document_history.cpp
+    src/editable_document_history.hpp
     src/desktop_backend_shared_grade_link.cpp
     src/desktop_backend_lut_export.cpp
     src/backend/lut_export_types.hpp
@@ -564,8 +568,11 @@ qt_add_executable(
     src/rgb_curve_smoke_harness.cpp
     src/rgb_curve_smoke_harness.hpp
     src/pipeline_smoke_harness.cpp
+    src/document_smoke_harness.cpp
+    src/document_smoke_harness.hpp
     src/pipeline_smoke_harness.hpp
     src/pipeline_runtime.cpp
+    src/pipeline_document.cpp
     src/pipeline_run_controller.cpp
     src/pipeline_run_controller.hpp
     src/ai_preferences.cpp
@@ -944,6 +951,7 @@ qt_add_qml_module(
         qml/SettingsStoragePane.qml
         qml/Main.qml
         qml/PipelineEditor.qml
+        qml/DocumentHistoryDialog.qml
         qml/PipelineExportDialog.qml
         qml/MainTitleBar.qml
         qml/ShadowTitleBar.qml

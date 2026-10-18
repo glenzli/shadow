@@ -24,6 +24,45 @@ impl DesktopSession {
         source_path: &ffi::FfiNativePath,
     ) -> AnyResult<ffi::FfiPipelineInput> {
         let source_path = native_path_ffi::path_from_ffi(source_path)?;
+        if representation_kind(&source_path).is_none() || !fs::metadata(&source_path)?.is_file() {
+            bail!(
+                "unsupported pipeline input format: {}",
+                source_path.display()
+            );
+        }
+        let source_path = if self
+            .cache_root
+            .parent()
+            .is_some_and(|root| root.join(".shadow-document-snapshot-originals").is_file())
+        {
+            let root = self.cache_root.parent().expect("checked document root");
+            let directory = root.join("sources").join(uuid::Uuid::now_v7().to_string());
+            fs::create_dir_all(&directory)?;
+            let target = directory.join(source_path.file_name().context("input filename missing")?);
+            let metadata = fs::metadata(&source_path)?;
+            anyhow::ensure!(
+                metadata.len() <= 64 * 1024 * 1024 * 1024,
+                "document source exceeds 64 GiB"
+            );
+            let mut copied = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)?;
+            std::io::copy(&mut fs::File::open(&source_path)?, &mut copied)?;
+            copied.set_times(std::fs::FileTimes::new().set_modified(metadata.modified()?))?;
+            copied.sync_all()?;
+            drop(copied);
+            anyhow::ensure!(
+                shadow_cache::sha256_file(&source_path)? == shadow_cache::sha256_file(&target)?,
+                "original changed while creating its private snapshot"
+            );
+            let mut permissions = fs::metadata(&target)?.permissions();
+            permissions.set_readonly(true);
+            fs::set_permissions(&target, permissions)?;
+            target
+        } else {
+            source_path
+        };
         let metadata = fs::metadata(&source_path)
             .with_context(|| format!("read pipeline input {}", source_path.display()))?;
         if !metadata.is_file() {

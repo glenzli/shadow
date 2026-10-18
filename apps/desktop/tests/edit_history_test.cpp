@@ -184,6 +184,34 @@ void clear_starts_a_new_session() {
 } // namespace
 
 int main() {
+    {
+        SessionEditHistory<State, 2> history;
+        unsigned recorded = 0, undone = 0, redone = 0;
+        history.setObserver([&](unsigned action, const auto&) {
+            if (action == 0)
+                ++recorded;
+            if (action == 1)
+                ++undone;
+            if (action == 2)
+                ++redone;
+        });
+        State state;
+        for (int n = 0; n < 5; ++n) {
+            auto next = state;
+            next.exposure = n + 1;
+            history.record("exposure", state, next);
+            state = next;
+        }
+        require(recorded == 5, "document observer lost evicted semantic steps");
+        auto restored = history.undo(state);
+        require(restored.has_value(), "document undo disappeared");
+        state = *restored;
+        auto repeated = history.redo(state);
+        require(
+            repeated.has_value() && recorded == 5 && undone == 1 && redone == 1,
+            "redo duplicated document steps"
+        );
+    }
     continuous_gesture_is_one_step();
     switching_parameters_splits_steps();
     tone_curve_drag_is_one_atomic_recipe_step();

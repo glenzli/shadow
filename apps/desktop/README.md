@@ -1901,13 +1901,20 @@ identities before entering a group-scoped comparison.
 
 ## Independent photo editor
 
+The independent editor saves self-contained **`.shdw` documents**. **Save document**,
+**Save as**, **Save and close**, and the paged **History** dialog preserve originals,
+complete editable state, named versions, semantic steps and their resources. Open an
+existing document through `--isolate`, a lone `.shdw` argument, the picker, or drop.
+Each opened document gets its own private process. See the [document contract](../../docs/development/editable-document.md)
+for the ZIP envelope, source relocation, publication rules and `shadow.document-edit/1`.
+
 Run `Shadow --isolate /absolute/photo.nef /absolute/another.jpg`, or `Shadow --isolate` to
 choose/drop files in the window. Input decoding uses the installed RAW, JPEG, HEIF and supported
-TIFF providers; PNG input is currently unsupported (PNG output is available). This opens an independent process with a private temporary
+TIFF and PNG providers. This opens an independent process with a private temporary
 Catalog/cache/settings root; the regular Library can remain open. Add up to 256 local photos,
 switch with the photo selector or previous/next buttons, then export the set. Switching saves
-each photo's working Recipe in this session. Closing without export requires confirmation and
-removes the temporary session; this is not a persistent project format.
+each photo's working Recipe in this session. Closing with unsaved document edits offers saving or discarding them, then
+removes the temporary session. Only an explicit document save retains its state for reopening.
 
 Interactive export chooses an existing output folder, JPEG/PNG/TIFF, sRGB/Display P3 and format
 quality/bit depth. Outputs retain full resolution, use `-edited` filenames with numeric collision

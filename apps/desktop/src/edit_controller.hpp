@@ -49,6 +49,7 @@ enum class AdjustmentTransferAdmission;
 struct SharedGradeLinkSource;
 
 class EditController final : public QObject {
+    friend class EditableDocumentHistory;
     Q_OBJECT
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
@@ -538,6 +539,8 @@ class EditController final : public QObject {
         return tool_operation_running_;
     }
     [[nodiscard]] bool stateBusy() const noexcept;
+    void enableDocumentHistory();
+    void finishDocumentGesture();
     [[nodiscard]] bool rendering() const noexcept;
     [[nodiscard]] bool beforeRendering() const noexcept;
     [[nodiscard]] bool detailMode() const noexcept;
@@ -1077,6 +1080,7 @@ class EditController final : public QObject {
     void photoVariantsChanged();
     void variantActionsChanged();
     void historyChanged();
+    void documentEdited();
     void closeReady();
     void closeSaveFailed();
     void photoSwitchSaveFailed();
@@ -1292,6 +1296,8 @@ class EditController final : public QObject {
     QTimer detail_warmup_debounce_;
     bool neighbor_preview_preparation_pending_ = false;
     SessionEditHistory<EditHistorySnapshot> history_;
+    bool document_history_loading_ = false;
+    bool document_history_enabled_ = false;
     // Slider/curve gestures render a deliberately smaller proxy so the first
     // useful frame wins over pixel-perfect fidelity. Once every gesture ends,
     // the controller queues the normal edit preview for the settled recipe.

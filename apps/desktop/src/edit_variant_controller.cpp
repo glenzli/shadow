@@ -26,16 +26,18 @@ void EditController::setPhotoVariants(
     QVariantList projected;
     projected.reserve(variants.size());
     for (BackendPhotoVariant& variant : variants) {
-        projected.push_back(QVariantMap{
-            {QStringLiteral("variantId"), std::move(variant.variant_id)},
-            {QStringLiteral("name"), std::move(variant.name)},
-            {QStringLiteral("headCommitId"), std::move(variant.head_commit_id)},
-            {QStringLiteral("hasHead"), variant.has_head},
-            {QStringLiteral("isDefault"), variant.is_default},
-            {QStringLiteral("isActive"), variant.is_active},
-            {QStringLiteral("createdAtMs"), variant.created_at_ms},
-            {QStringLiteral("updatedAtMs"), variant.updated_at_ms},
-        });
+        projected.push_back(
+            QVariantMap{
+                {QStringLiteral("variantId"), std::move(variant.variant_id)},
+                {QStringLiteral("name"), std::move(variant.name)},
+                {QStringLiteral("headCommitId"), std::move(variant.head_commit_id)},
+                {QStringLiteral("hasHead"), variant.has_head},
+                {QStringLiteral("isDefault"), variant.is_default},
+                {QStringLiteral("isActive"), variant.is_active},
+                {QStringLiteral("createdAtMs"), variant.created_at_ms},
+                {QStringLiteral("updatedAtMs"), variant.updated_at_ms},
+            }
+        );
     }
     if (active_variant_id_ == active_variant_id && photo_variants_ == projected) {
         return;
@@ -52,8 +54,11 @@ void EditController::createVariant(const QString& name) {
     }
     try {
         applyState(backend_->createPhotoVariant(photo_id_, source_path_, normalized));
+        if (document_history_enabled_)
+            emit documentEdited();
         setStatusMessage(variant_message(
-            QT_TRANSLATE_NOOP("EditController", "Variant “%1” created"), {normalized}
+            QT_TRANSLATE_NOOP("EditController", "Variant “%1” created"),
+            {normalized}
         ));
         schedulePreview(0);
     } catch (const std::exception& error) {
@@ -71,11 +76,14 @@ void EditController::renameVariant(const QString& variant_id, const QString& nam
         return;
     }
     try {
-        applyState(backend_->renamePhotoVariant(
-            photo_id_, source_path_, normalized_id, normalized_name
-        ));
+        applyState(
+            backend_->renamePhotoVariant(photo_id_, source_path_, normalized_id, normalized_name)
+        );
+        if (document_history_enabled_)
+            emit documentEdited();
         setStatusMessage(variant_message(
-            QT_TRANSLATE_NOOP("EditController", "Variant renamed to “%1”"), {normalized_name}
+            QT_TRANSLATE_NOOP("EditController", "Variant renamed to “%1”"),
+            {normalized_name}
         ));
     } catch (const std::exception& error) {
         setStatusMessage(variant_message(
@@ -93,6 +101,8 @@ void EditController::activateVariant(const QString& variant_id) {
     }
     try {
         applyState(backend_->activatePhotoVariant(photo_id_, source_path_, normalized_id));
+        if (document_history_enabled_)
+            emit documentEdited();
         setStatusMessage(variant_message(
             QT_TRANSLATE_NOOP("EditController", "Variant selected · rendering preview")
         ));
@@ -113,9 +123,9 @@ void EditController::removeVariant(const QString& variant_id) {
     }
     try {
         applyState(backend_->removePhotoVariant(photo_id_, source_path_, normalized_id));
-        setStatusMessage(
-            variant_message(QT_TRANSLATE_NOOP("EditController", "Variant removed"))
-        );
+        if (document_history_enabled_)
+            emit documentEdited();
+        setStatusMessage(variant_message(QT_TRANSLATE_NOOP("EditController", "Variant removed")));
     } catch (const std::exception& error) {
         setStatusMessage(variant_message(
             QT_TRANSLATE_NOOP("EditController", "Could not remove Variant · %1"),
