@@ -511,7 +511,12 @@ fn harden_directory(path: &Path) -> Result<()> {
     })
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn harden_directory(path: &Path) -> Result<()> {
+    crate::private_staging::directory(path).context("protect Windows RAW staging directory")
+}
+
+#[cfg(not(any(unix, windows)))]
 fn harden_directory(_path: &Path) -> Result<()> {
     Ok(())
 }
@@ -533,7 +538,12 @@ fn harden_file(path: &Path) -> Result<()> {
     })
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn harden_file(path: &Path) -> Result<()> {
+    crate::private_staging::file(path).context("protect Windows RAW staging file")
+}
+
+#[cfg(not(any(unix, windows)))]
 fn harden_file(path: &Path) -> Result<()> {
     let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("inspect isolated RAW frame staging file {}", path.display()))?;

@@ -15,6 +15,11 @@
 
 namespace {
 
+bool samePath(const QString& left, const QString& right) {
+    return QDir::cleanPath(QDir::fromNativeSeparators(left))
+           == QDir::cleanPath(QDir::fromNativeSeparators(right));
+}
+
 void require(const bool condition, const std::string& contract) {
     if (!condition) {
         std::cerr << "source-health backend contract changed: " << contract << '\n';
@@ -74,7 +79,7 @@ void completed_scans_expose_missing_evidence_and_reject_a_wrong_relink() {
     QString selected_location_id;
     QString selected_photo_id;
     for (const BackendReviewItem& item : unavailable_page.items) {
-        if (item.source_path == original) {
+        if (samePath(item.source_path, original)) {
             selected_location_id = item.location_id;
             selected_photo_id = item.photo_id;
             require(!item.source_available, "selected original is unavailable");
@@ -103,7 +108,7 @@ void completed_scans_expose_missing_evidence_and_reject_a_wrong_relink() {
     require(!page.has_more, "two-item missing page is terminal");
     QString scan_selected_location_id;
     for (const BackendMissingSourceLocation& item : page.items) {
-        if (item.source_display_path == original) {
+        if (samePath(item.source_display_path, original)) {
             scan_selected_location_id = item.location_id;
         }
     }
@@ -136,18 +141,18 @@ void completed_scans_expose_missing_evidence_and_reject_a_wrong_relink() {
         backend.relinkLibrarySourceLocation(scan_selected_location_id, moved_path);
     require(receipt.photo_id == selected_photo_id, "folder recovery preserved photo identity");
     require(
-        receipt.display_path == QFileInfo(recovered_original).canonicalFilePath(),
+        samePath(receipt.display_path, QFileInfo(recovered_original).canonicalFilePath()),
         "folder recovery found the same-name original in the selected folder"
     );
     require(
-        receipt.library_root_path == QFileInfo(moved_path).canonicalFilePath(),
+        samePath(receipt.library_root_path, QFileInfo(moved_path).canonicalFilePath()),
         "selected folder became the recovery Library root"
     );
 
     bool replacement_source_adopted = false;
     const QVector<BackendLibrarySourceHealth> recovered_health = backend.librarySourceHealth();
     for (const BackendLibrarySourceHealth& source : recovered_health) {
-        if (source.source_display_path == receipt.library_root_path) {
+        if (samePath(source.source_display_path, receipt.library_root_path)) {
             replacement_source_adopted = true;
             break;
         }
@@ -180,9 +185,9 @@ void completed_scans_expose_missing_evidence_and_reject_a_wrong_relink() {
     for (const BackendReviewItem& item : recovered_page.items) {
         if (item.photo_id == receipt.photo_id) {
             original_is_available =
-                item.source_available && item.source_path == receipt.display_path;
+                item.source_available && samePath(item.source_path, receipt.display_path);
         }
-        if (item.source_path == QFileInfo(recovered_sibling).canonicalFilePath()) {
+        if (samePath(item.source_path, QFileInfo(recovered_sibling).canonicalFilePath())) {
             sibling_is_available = item.source_available;
         }
     }
@@ -235,7 +240,7 @@ void source_level_recovery_retires_an_unavailable_folder_without_duplicates() {
     require(receipt.unresolved_photo_count == 0, "source-level unresolved count");
     require(receipt.retired_unavailable_source, "unavailable old source retired");
     require(
-        receipt.library_root_path == QFileInfo(replacement_path).canonicalFilePath(),
+        samePath(receipt.library_root_path, QFileInfo(replacement_path).canonicalFilePath()),
         "source-level replacement root"
     );
 
@@ -248,7 +253,7 @@ void source_level_recovery_retires_an_unavailable_folder_without_duplicates() {
     const QVector<BackendLibrarySourceHealth> final_health = backend.librarySourceHealth();
     require(final_health.size() == 1, "obsolete unavailable source removed from management");
     require(
-        final_health.constFirst().source_display_path == receipt.library_root_path,
+        samePath(final_health.constFirst().source_display_path, receipt.library_root_path),
         "replacement source remains managed"
     );
 }

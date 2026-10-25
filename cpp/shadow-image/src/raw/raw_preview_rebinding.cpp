@@ -387,11 +387,9 @@ bool RawPreviewRebindingSource::supports_raw_white_balance_picker() const noexce
 
 std::optional<RawWhiteBalancePresentation>
 RawPreviewRebindingSource::as_shot_white_balance() const noexcept {
-    const auto* ordinary = std::get_if<SensorCfaSourceReconstructionBasis>(&impl_->basis);
-    if (ordinary == nullptr) {
-        return std::nullopt;
-    }
-    const auto& descriptor = ordinary->denoised_frame.descriptor;
+    // Camera-authored calibration survives both CFA and AI camera-RGB
+    // reconstruction. Only measured/automatic pickers require retained CFA.
+    const auto& descriptor = impl_->development_template.descriptor();
     const auto neutral = raw_as_shot_camera_neutral(descriptor);
     if (!neutral) {
         return std::nullopt;
@@ -898,7 +896,7 @@ DevelopedSourceReference RawPreviewRebindingSource::bind_impl(
     );
     pipeline = finalize_raw_foundation_pipeline_receipt(
         std::move(pipeline),
-        effective_plan.highlight_recovery,
+        requested_plan.highlight_recovery,
         developed.cache_identity
     );
     return DevelopedSourceReference{

@@ -399,11 +399,18 @@ std::optional<CudaRenderOutput> CudaImageSession::render(
         ));
         if (retain_linear) {
             output.linear = input;
-            output.linear->samples.resize(impl_->source.capacity / sizeof(float));
-            checked(cudaMemcpyAsync(
+            const auto packed_row_bytes = std::size_t(input.dimensions.width) * 3U * sizeof(float);
+            output.linear->row_stride_bytes = packed_row_bytes;
+            output.linear->samples.resize(
+                packed_row_bytes / sizeof(float) * input.dimensions.height
+            );
+            checked(cudaMemcpy2DAsync(
                 output.linear->samples.data(),
+                packed_row_bytes,
                 slot.pixels.data,
-                impl_->source.capacity,
+                input.row_stride_bytes,
+                packed_row_bytes,
+                input.dimensions.height,
                 cudaMemcpyDeviceToHost,
                 slot.stream.value
             ));

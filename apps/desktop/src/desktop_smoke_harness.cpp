@@ -1,4 +1,5 @@
 #include "desktop_smoke_harness.hpp"
+#include "desktop_smoke/ai_library.hpp"
 
 #include "desktop_smoke/application_lifecycle.hpp"
 #include "desktop_smoke/bulk_import.hpp"
@@ -30,6 +31,11 @@ void installDesktopSmokeHarness(
     UiPreferences& preferences,
     const QString& initial_folder
 ) {
+    if (DesktopSmoke::installAiLibrarySmoke(engine, controller)) {
+        if (!initial_folder.isEmpty())
+            controller.scanFolder(QUrl::fromLocalFile(initial_folder));
+        return;
+    }
     DesktopSmoke::installVisualCapture(application, engine);
 
     if (qEnvironmentVariableIsSet("SHADOW_DESKTOP_OPEN_LUT_LIBRARY")) {

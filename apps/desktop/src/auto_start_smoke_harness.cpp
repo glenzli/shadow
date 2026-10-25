@@ -20,6 +20,7 @@ struct State {
     bool undo = false, fast = false, automatic = false;
     QString candidate, source;
     bool variant_checked = false, seed_requested = false, ui_reviewed = false;
+    bool dark_baseline_prepared = false;
     qint64 variant_switched_at = 0;
     QElapsedTimer elapsed;
 };
@@ -101,6 +102,14 @@ void installAutoStartSmokeHarness(
             return;
         switch (state->stage) {
         case 0:
+            if (qEnvironmentVariableIsSet("SHADOW_AUTO_START_SMOKE_DARK_BASELINE")
+                && !state->dark_baseline_prepared) {
+                // Establish a correctable edit through the product controller;
+                // the public portrait itself remains an untouched source.
+                state->dark_baseline_prepared = true;
+                editor.setExposureStops(-2.0);
+                return;
+            }
             if (qEnvironmentVariableIsSet("SHADOW_AUTO_START_SMOKE_VARIANT")
                 && editor.durableWorkingCommitId().isEmpty()) {
                 if (!state->seed_requested) {

@@ -18,12 +18,11 @@ use std::{
 };
 
 use shadow_ai::{
-    AI_JOB_REQUEST_CONTRACT_VERSION, AdmittedExecution, AdmittedModelIdentity, AiCapability,
-    AiGeneratedPayload, AiJobRequest, AiTaskKind, AiTaskParameters, ArtifactHashAlgorithm,
-    ArtifactReference, BackendKind, CancellationToken, ExecutionLease, ExecutionPlanIdentity,
-    ExecutionRouteIdentity, FallbackDisclosure, GeneratedArtifactReference,
-    ImageCompletionParameters, ImageCompletionPatchArtifact, InferRuntimeClient, InputRole,
-    NumericPrecision, ObservationTarget, PrivacyClass, ProviderExecutionClass, ProviderIdentity,
+    AI_JOB_REQUEST_CONTRACT_VERSION, AdmittedExecution, AiCapability, AiGeneratedPayload,
+    AiJobRequest, AiTaskKind, AiTaskParameters, ArtifactHashAlgorithm, ArtifactReference,
+    CancellationToken, ExecutionLease, ExecutionPlanIdentity, ExecutionRouteIdentity,
+    FallbackDisclosure, GeneratedArtifactReference, ImageCompletionParameters,
+    ImageCompletionPatchArtifact, InferRuntimeClient, InputRole, ObservationTarget, PrivacyClass,
     ProviderTerminal, RasterExtent, ResourceEstimate, RunPlan, RuntimeProgressReporter,
     RuntimeProvider, RuntimeUsage, TaskPriority, VisionProvenance, bind_local_service_execution,
 };
@@ -370,48 +369,15 @@ impl RuntimeProvider for PreverifiedInferImageCompletionProvider {
 fn infer_route_and_plan(
     provenance: &VisionProvenance,
 ) -> Result<(ExecutionRouteIdentity, RunPlan), ImageCompletionRuntimeError> {
-    if provenance.execution_provider_fallback_reason.is_some() {
-        return Err(ImageCompletionRuntimeError::RuntimeFallbackDisclosed);
-    }
-    let backend_kind = match provenance
-        .actual_execution_provider
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        value if value.contains("coreml") => BackendKind::CoreMl,
-        value if value.contains("cpu") => BackendKind::Cpu,
-        _ => return Err(ImageCompletionRuntimeError::RuntimeProvenanceMalformed),
-    };
-    let precision = match provenance.precision.to_ascii_lowercase().as_str() {
-        "float16" | "fp16" | "f16" => NumericPrecision::Float16,
-        "float32" | "fp32" | "f32" => NumericPrecision::Float32,
-        _ => return Err(ImageCompletionRuntimeError::RuntimeProvenanceMalformed),
-    };
-    let route = ExecutionRouteIdentity {
-        contract_version: shadow_ai::EXECUTION_ROUTE_IDENTITY_CONTRACT_VERSION,
-        provider: ProviderIdentity {
-            provider_id: provenance.provider.clone(),
-            adapter_revision: provenance.postprocessing_identity.clone(),
-            execution_class: ProviderExecutionClass::LocalService,
-        },
-        model: AdmittedModelIdentity::RemoteService {
-            service_revision: provenance.runtime.clone(),
-            model_id: provenance.model_build.clone(),
-            model_revision: provenance.artifact_sha256.clone(),
-            api_contract_revision: shadow_ai::INFER_IMAGE_COMPLETION_CAPABILITY.into(),
-        },
-    };
-    Ok((
-        route,
-        RunPlan {
-            backend_id: format!("infer-runtime/{}", provenance.deployment),
-            backend_kind,
-            precision,
-            cpu_threads: 1,
-            reserved_system_ram_bytes: 0,
-            reserved_device_memory_bytes: 0,
-        },
-    ))
+    crate::infer_execution_plan::admit(provenance, shadow_ai::INFER_IMAGE_COMPLETION_CAPABILITY)
+        .map_err(|error| match error {
+            crate::infer_execution_plan::AdmissionError::FallbackDisclosed => {
+                ImageCompletionRuntimeError::RuntimeFallbackDisclosed
+            }
+            crate::infer_execution_plan::AdmissionError::MalformedProvenance => {
+                ImageCompletionRuntimeError::RuntimeProvenanceMalformed
+            }
+        })
 }
 
 #[derive(Debug, Error)]

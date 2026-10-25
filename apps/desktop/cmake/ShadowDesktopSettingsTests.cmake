@@ -480,7 +480,7 @@
     add_executable(
         shadow-secure-secret-store-test
         tests/secure_secret_store_test.cpp
-        src/secure_secret_store.cpp
+        ${SHADOW_SECURE_SECRET_STORE_SOURCES}
         src/secure_secret_store.hpp
     )
     target_compile_features(

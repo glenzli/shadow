@@ -181,6 +181,7 @@ Rectangle {
                 }
 
                 ShadowIconButton {
+                    objectName: "imageCompletionToolButton"
                     buttonSize: 32
                     iconSize: 19
                     source: "qrc:/icons/candidate.svg"

@@ -9,6 +9,10 @@
 #include <cstdlib>
 #include <iostream>
 
+#ifdef Q_OS_WIN
+#include "secure_secret_store_windows_access.hpp"
+#endif
+
 namespace {
 
 [[nodiscard]] bool require(const bool condition, const char* const message) {
@@ -71,6 +75,14 @@ int main() {
         )) {
         return EXIT_FAILURE;
     }
+#ifdef Q_OS_WIN
+    return require(
+               hasPrivateWindowsCredentialAccess(local_path),
+               "the native ACL grants access only to the current user and SYSTEM"
+           )
+               ? EXIT_SUCCESS
+               : EXIT_FAILURE;
+#else
     const QFileDevice::Permissions permissions = QFileInfo(local_path).permissions();
     return require(
                permissions.testFlag(QFileDevice::ReadOwner)
@@ -81,4 +93,5 @@ int main() {
            )
                ? EXIT_SUCCESS
                : EXIT_FAILURE;
+#endif
 }

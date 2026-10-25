@@ -331,7 +331,7 @@
         src/review_model.hpp
         src/review_visual_request.cpp
         src/review_visual_request.hpp
-        src/secure_secret_store.cpp
+        ${SHADOW_SECURE_SECRET_STORE_SOURCES}
         src/secure_secret_store.hpp
     )
     target_compile_features(

@@ -13,6 +13,7 @@ The immutable scene-linear source is uploaded once per warm session. A parameter
 the current node plan and reruns its adjustment/display suffix without reopening the source or
 repeating RAW development. Device intermediates stay resident. Packed RGB8 crosses to the host
 at the portable Qt presentation/JPEG boundary; only settled analysis also reads linear floats.
+That analysis readback packs visible RGB rows and excludes retained source-row padding.
 Unsupported neighborhood, mask or geometry plans replay the complete stage from the immutable
 CPU source. This is an explicit performance limitation, with identical Recipe meaning.
 

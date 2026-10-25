@@ -38,7 +38,7 @@ pub(super) struct InferCacheAliasExpectation<'value> {
     pub(super) source_pixel_contract_sha256: &'value str,
     pub(super) model_package_sha256: &'value str,
     pub(super) model_graph_sha256: &'value str,
-    pub(super) implementation_revision: &'value str,
+    pub(super) implementation_revisions: &'value [&'value str],
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -111,7 +111,7 @@ impl InferCacheAliasStore {
             source_pixel_contract_sha256: expected.source_pixel_contract_sha256.into(),
             model_package_sha256: expected.model_package_sha256.into(),
             model_graph_sha256: expected.model_graph_sha256.into(),
-            implementation_revision: expected.implementation_revision.into(),
+            implementation_revision: verification.implementation_revision.clone(),
             cache_key_sha256: verification.cache_key_sha256.clone(),
             artifact_identity_sha256: verification.artifact_identity_sha256.clone(),
             artifact_file_sha256: verification.file_sha256.clone(),
@@ -158,7 +158,9 @@ impl CacheAlias {
             && self.source_pixel_contract_sha256 == expected.source_pixel_contract_sha256
             && self.model_package_sha256 == expected.model_package_sha256
             && self.model_graph_sha256 == expected.model_graph_sha256
-            && self.implementation_revision == expected.implementation_revision
+            && expected
+                .implementation_revisions
+                .contains(&self.implementation_revision.as_str())
             && is_sha256(&self.cache_key_sha256)
             && is_sha256(&self.artifact_identity_sha256)
             && is_sha256(&self.artifact_file_sha256)
@@ -170,6 +172,7 @@ impl CacheAlias {
             && self.artifact_identity_sha256 == verification.artifact_identity_sha256
             && self.artifact_file_sha256 == verification.file_sha256
             && self.artifact_file_bytes == verification.file_bytes
+            && self.implementation_revision == verification.implementation_revision
     }
 }
 
@@ -182,7 +185,9 @@ fn verification_matches(
         && verification.source_pixel_contract_sha256 == expected.source_pixel_contract_sha256
         && verification.model_package_sha256 == expected.model_package_sha256
         && verification.model_graph_sha256 == expected.model_graph_sha256
-        && verification.implementation_revision == expected.implementation_revision
+        && expected
+            .implementation_revisions
+            .contains(&verification.implementation_revision.as_str())
 }
 
 fn is_sha256(value: &str) -> bool {

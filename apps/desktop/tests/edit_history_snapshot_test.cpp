@@ -45,5 +45,36 @@ int main() {
     current.base_commit_id = QStringLiteral("another-autosave");
     history.endGesture("strength", current);
     require(history.undoDepth() == 1, "autosave alone does not add an undo step");
+
+    SessionEditHistory<EditHistorySnapshot> raw_history;
+    EditHistorySnapshot raw_before{{}, QStringLiteral("before-raw")};
+    raw_before.stack.raw_ai_denoise.present = true;
+    auto raw_enabled = raw_before;
+    raw_enabled.stack.raw_ai_denoise.enabled = true;
+    raw_history.record("raw_ai_denoise/enabled", raw_before, raw_enabled);
+    auto presented = raw_enabled;
+    auto& foundation = presented.stack.foundation;
+    foundation.as_shot_white_balance_available = true;
+    foundation.as_shot_temperature_kelvin = foundation.temperature_kelvin = 5'972;
+    foundation.as_shot_tint = foundation.tint = 52;
+    auto raw_undo = raw_history.undo(presented);
+    require(
+        raw_undo && !raw_undo->stack.raw_ai_denoise.enabled && raw_history.canRedo(),
+        "late camera calibration does not clear or consume the real RAW undo"
+    );
+    auto raw_redo = raw_history.redo(*raw_undo);
+    require(raw_redo && raw_redo->stack == raw_enabled.stack, "RAW redo retains its authored edit");
+
+    auto manual = raw_before;
+    manual.stack.foundation.raw_white_balance_mode = 1;
+    manual.stack.foundation.temperature_kelvin = 6'500;
+    raw_history.clear();
+    raw_history.record("foundation/temperature", raw_before, manual);
+    auto unrelated = manual;
+    unrelated.stack.foundation.tint = 17;
+    require(
+        !raw_history.undo(unrelated) && !raw_history.canUndo(),
+        "an unrelated authored manual white point still invalidates stale history"
+    );
     return EXIT_SUCCESS;
 }

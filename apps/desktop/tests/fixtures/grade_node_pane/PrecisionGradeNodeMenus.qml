@@ -4,6 +4,8 @@ Item {
     property var editor
     property var interchangeController
     property var lutExportController
+    property var adjustmentTransferController
+    property var sharedGradeLinkController
 
     signal cropGeometryRequested
     signal repairRequested

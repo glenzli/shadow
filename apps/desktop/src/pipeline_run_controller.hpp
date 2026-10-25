@@ -117,6 +117,7 @@ class PipelineRunController final : public QObject {
     void documentSaved();
 
   private:
+    bool sessionInteractionAvailable() const noexcept;
     struct AdmissionResult {
         QVector<DesktopBackend::PipelineInput> inputs;
         QStringList errors;

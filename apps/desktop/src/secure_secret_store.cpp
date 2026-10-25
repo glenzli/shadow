@@ -9,7 +9,27 @@
 
 #include <utility>
 
+#ifdef Q_OS_WIN
+#include "secure_secret_store_windows.hpp"
+#endif
+
 namespace {
+
+[[nodiscard]] bool restrictCredentialFile(const QString& path) {
+#ifdef Q_OS_WIN
+    return restrictWindowsCredentialFile(path);
+#else
+    return QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+#endif
+}
+
+[[nodiscard]] SecretStoreResult privateFileFailure() {
+    return {
+        .status = SecretStoreStatus::Failure,
+        .diagnostic =
+            QStringLiteral("Shadow could not restrict its local credential file to this user."),
+    };
+}
 
 [[nodiscard]] QString secretIdentity(const QString& service, const QString& account) {
     return service + QChar::Null + account;
@@ -67,23 +87,29 @@ class LocalSecretStore final : public SecretStore {
         if (!available_) {
             return {.status = SecretStoreStatus::Unavailable};
         }
+        if (!QFileInfo::exists(storage_file_)) {
+            QFile created(storage_file_);
+            if (!created.open(
+                    QIODevice::ReadWrite | QIODevice::NewOnly,
+                    QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                ))
+                return privateFileFailure();
+        }
+        if (!restrictCredentialFile(storage_file_))
+            return privateFileFailure();
+#ifdef Q_OS_WIN
+        // QSettings' atomic replacement must observe the actual private ACL
+        // rather than QFileInfo's default Windows permission approximation.
+        const QNtfsPermissionCheckGuard permission_checks;
+#endif
         QSettings settings(storage_file_, QSettings::IniFormat);
         settings.setValue(persistentSecretKey(service, account), value);
         settings.sync();
         if (settings.status() != QSettings::NoError) {
             return settingsFailure(settings);
         }
-        if (!QFile::setPermissions(
-                storage_file_,
-                QFileDevice::ReadOwner | QFileDevice::WriteOwner
-            )) {
-            return {
-                .status = SecretStoreStatus::Failure,
-                .diagnostic = QStringLiteral(
-                    "Shadow could not restrict its local credential file to this user."
-                ),
-            };
-        }
+        if (!restrictCredentialFile(storage_file_))
+            return privateFileFailure();
         return {.status = SecretStoreStatus::Success};
     }
 
@@ -99,6 +125,8 @@ class LocalSecretStore final : public SecretStore {
         }
         settings.remove(key);
         settings.sync();
+        if (settings.status() == QSettings::NoError && !restrictCredentialFile(storage_file_))
+            return privateFileFailure();
         return settings.status() == QSettings::NoError
                    ? SecretStoreResult{.status = SecretStoreStatus::Success}
                    : settingsFailure(settings);

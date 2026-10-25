@@ -38,8 +38,8 @@ class SecretStore {
     remove(const QString& service, const QString& account) = 0;
 };
 
-/// Returns a persistent Shadow-local credential store. The containing
-/// directory and resulting file are restricted to the current user.
+/// Returns a persistent Shadow-local credential store whose resulting file
+/// is restricted to the current user (and the Windows system account).
 [[nodiscard]] std::unique_ptr<SecretStore> makeLocalSecretStore(const QString& storage_file);
 
 /// Process-local store for isolated smoke tests and other explicitly

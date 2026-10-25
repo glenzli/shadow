@@ -51,6 +51,13 @@ void compare(
         "GPU result must identify CUDA"
     );
     require(actual.output->analyzed_linear.has_value(), "Settled output must retain linear pixels");
+    require(
+        actual.output->analyzed_linear->row_stride_bytes
+                == std::size_t(expected.dimensions.width) * 3U * sizeof(float)
+            && actual.output->analyzed_linear->samples.size()
+                   == std::size_t(expected.dimensions.pixel_count()) * 3U,
+        "CUDA settled analysis must pack visible rows without source padding"
+    );
     double error = 0;
     const bool linear_matches =
         fixture::linear_close(*actual.output->analyzed_linear, expected, error);

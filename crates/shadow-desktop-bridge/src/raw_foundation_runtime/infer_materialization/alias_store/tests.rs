@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use shadow_cache::FoundationArtifactVerification;
 
-use super::{InferCacheAliasExpectation, InferCacheAliasStore};
+use super::{CacheAlias, InferCacheAliasExpectation, InferCacheAliasStore};
 
 struct FixtureRoot(std::path::PathBuf);
 
@@ -64,6 +64,30 @@ fn records_one_owner_only_alias_only_for_matching_verified_provenance() {
     }
 }
 
+#[test]
+fn aliases_preserve_the_verified_cpu_or_cuda_revision_and_reject_unknown_replacements() {
+    let root = FixtureRoot::new();
+    let store = shadow_cache::FoundationArtifactStore::open(root.0.join("store")).unwrap();
+    let aliases = InferCacheAliasStore::new(store.root());
+    let mut expected = expectation();
+    expected.implementation_revisions =
+        crate::raw_foundation_runtime::SUPPORTED_INFER_RAW_FOUNDATION_IMPLEMENTATIONS;
+    for &revision in expected.implementation_revisions {
+        let mut verified = verification(&expected);
+        verified.implementation_revision = revision.to_owned();
+        aliases.record(&expected, &verified).unwrap();
+        let path = aliases.alias_path(expected.source_revision);
+        let recorded = fs::read(&path).unwrap();
+        let alias: CacheAlias = serde_json::from_slice(&recorded).unwrap();
+        assert_eq!(alias.implementation_revision, revision);
+        assert!(alias.matches(&expected) && alias.matches_verification(&verified));
+        verified.implementation_revision = "unknown-next-runtime".to_owned();
+        assert!(!alias.matches_verification(&verified));
+        assert!(aliases.record(&expected, &verified).is_err());
+        assert_eq!(fs::read(&path).unwrap(), recorded);
+    }
+}
+
 fn expectation() -> InferCacheAliasExpectation<'static> {
     InferCacheAliasExpectation {
         source_revision: "shadow:raw-foundation/source:abc/staging:def",
@@ -73,7 +97,7 @@ fn expectation() -> InferCacheAliasExpectation<'static> {
         source_pixel_contract_sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         model_package_sha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
         model_graph_sha256: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-        implementation_revision: "rawnind-public-bayer-foundation-ort127-exp1",
+        implementation_revisions: &["rawnind-public-bayer-foundation-ort127-exp1"],
     }
 }
 
@@ -88,7 +112,7 @@ fn verification(expected: &InferCacheAliasExpectation<'_>) -> FoundationArtifact
         source_pixel_contract_sha256: expected.source_pixel_contract_sha256.into(),
         model_package_sha256: expected.model_package_sha256.into(),
         model_graph_sha256: expected.model_graph_sha256.into(),
-        implementation_revision: expected.implementation_revision.into(),
+        implementation_revision: expected.implementation_revisions[0].into(),
         cache_key_sha256: "1111111111111111111111111111111111111111111111111111111111111111".into(),
         artifact_identity_sha256:
             "2222222222222222222222222222222222222222222222222222222222222222".into(),

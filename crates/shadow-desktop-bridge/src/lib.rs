@@ -57,8 +57,11 @@ mod image_completion_runtime;
 mod image_completion_service;
 mod image_completion_source;
 use image_completion_source::image_completion_source_states;
+mod infer_execution_plan;
 mod infer_runtime_credentials;
 mod lut_export;
+#[cfg(windows)]
+mod private_staging;
 mod raw_foundation_noise_assessment;
 mod raw_foundation_render_source;
 mod raw_foundation_runtime;

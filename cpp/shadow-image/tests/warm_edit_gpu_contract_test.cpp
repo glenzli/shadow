@@ -1,9 +1,16 @@
 #include "warm_edit_gpu_contract/warm_edit_gpu_contract_cases.hpp"
+#include "scoped_environment.hpp"
 
 #include <cstdlib>
 
 int main() {
     namespace contract = shadow::image::warm_edit_gpu_contract;
+    // Neighborhoods and native presentation in this suite are Metal contracts.
+    // CUDA's supported stages and complete CPU replay have their own runnable
+    // cuda_image_execution_contract_test; another GPU must not impersonate Metal.
+    const shadow::image::test_support::ScopedEnvironment metal(
+        "SHADOW_IMAGE_ACCELERATION", "metal"
+    );
 
     if (
         std::getenv(

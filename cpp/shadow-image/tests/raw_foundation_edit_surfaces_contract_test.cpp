@@ -21,13 +21,15 @@ foundation(const std::vector<float>& pixels, const image::Dimensions dimensions 
     return image::RawFoundationCameraRgbView{
         .dimensions = dimensions,
         .samples = pixels,
-        .provenance = {
-            .source_sha256 = std::string(source_digest),
-            .artifact_file_sha256 = std::string(artifact_digest),
-            .cache_key_sha256 = std::string(cache_key_digest),
-            .model_identity = std::string(image::raw_foundation_model_identity),
-            .implementation_revision = std::string(image::raw_foundation_implementation_revision),
-        },
+        .provenance =
+            {
+                .source_sha256 = std::string(source_digest),
+                .artifact_file_sha256 = std::string(artifact_digest),
+                .cache_key_sha256 = std::string(cache_key_digest),
+                .model_identity = std::string(image::raw_foundation_model_identity),
+                .implementation_revision =
+                    std::string(image::raw_foundation_implementation_revision),
+            },
     };
 }
 
@@ -156,11 +158,52 @@ void edit_surfaces_reject_mismatched_artifacts_without_fallback() {
     }
 }
 
+void manual_white_balance_keeps_the_completed_highlight_contract_on_every_surface() {
+    const auto pixels = foundation_pixels();
+    auto plan = image::preview_raw_development_plan();
+    plan.white_balance = {
+        .mode = image::RawWhiteBalanceMode::temperature_tint,
+        .temperature_kelvin = 8'250U,
+        .tint = 52,
+    };
+    plan.highlight_recovery = image::RawHighlightRecoveryIntent::provider_default;
+    SyntheticRawSession preview_decoder(synthetic_bayer_frame());
+    const auto preview =
+        image::prepare_warm_edit_preview(preview_decoder, 2U, plan, foundation(pixels));
+    const auto accepts_completed_source = [&plan](const auto& surface) {
+        return surface.raw_pipeline_receipt().path == image::RawPipelinePath::shadow_raw_frame
+               && surface.raw_pipeline_receipt().requested_plan == plan
+               && surface.raw_pipeline_receipt().effective_plan.white_balance == plan.white_balance
+               && surface.raw_pipeline_receipt().effective_plan.highlight_recovery
+                      == plan.highlight_recovery
+               && surface.raw_development_receipt().effective_plan.highlight_recovery
+                      == plan.highlight_recovery;
+    };
+    expect(
+        accepts_completed_source(preview),
+        "AI preview records completed RAW white balance and highlight continuity"
+    );
+    plan.white_balance.temperature_kelvin = 6'800U;
+    const auto rebound = preview.rebind_raw_development_plan(plan);
+    expect(
+        accepts_completed_source(rebound),
+        "warm AI white-balance rebind keeps its completed source contract"
+    );
+    plan.intent = image::RawDevelopmentIntent::export_image;
+    SyntheticRawSession export_decoder(synthetic_bayer_frame());
+    const auto exported = image::prepare_full_edit_detail(export_decoder, plan, foundation(pixels));
+    expect(
+        accepts_completed_source(exported),
+        "full-resolution AI export preserves the same completed source contract"
+    );
+}
+
 } // namespace
 
 int main() {
     warm_preview_retains_foundation_identity_and_renders();
     full_detail_materializes_foundation_and_renders_tiles();
     edit_surfaces_reject_mismatched_artifacts_without_fallback();
+    manual_white_balance_keeps_the_completed_highlight_contract_on_every_surface();
     return failures == 0 ? 0 : 1;
 }

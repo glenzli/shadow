@@ -1,4 +1,5 @@
 #include "pipeline_smoke_harness.hpp"
+#include "ai_runtime_smoke/session.hpp"
 #include "auto_start_smoke_harness.hpp"
 #include "color_warper_smoke_harness.hpp"
 #include "direct_edit_smoke_harness.hpp"
@@ -31,6 +32,8 @@ void installPipelineSmokeHarness(
     EditController& editor,
     AiPreferences& ai_preferences
 ) {
+    if (AiRuntimeSmoke::install(engine, pipeline, editor, ai_preferences))
+        return;
     const QString action = qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_ACTION");
     if (action == QStringLiteral("raw-white-balance")) {
         installRawWhiteBalanceSmokeHarness(engine, pipeline, editor);

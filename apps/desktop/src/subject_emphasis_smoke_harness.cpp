@@ -72,6 +72,10 @@ void installSubjectEmphasisSmokeHarness(
             state->before = editor.gradeStackForInterchange();
             state->had_undo = editor.canUndo();
             feature->analyze();
+            if (feature->active() && (!pipeline.currentPhotoEditable() || pipeline.navigationEnabled())) {
+                fail(QStringLiteral("subject authoring disabled its workspace or allowed photo navigation"));
+                return;
+            }
             feature->cancel();
             state->stage = 1;
             return;

@@ -253,6 +253,74 @@ fn implementation_and_runtime_profiles_cannot_be_cross_paired() {
     ));
 }
 
+fn cuda_contract() -> FoundationContract {
+    let mut contract = contract();
+    contract.algorithm.implementation_revision =
+        execution_profile::CUDA_ORT127_IMPLEMENTATION_REVISION.to_owned();
+    contract.execution.runtime_version = "onnxruntime-1.27.0".to_owned();
+    contract.execution.requested_provider = "cuda".to_owned();
+    contract.execution.active_providers = vec!["CUDAExecutionProvider".to_owned()];
+    contract
+}
+
+#[test]
+fn cuda_foundation_keeps_its_implementation_and_cache_identity_separate_from_cpu() {
+    let cuda_path = fixture_path("cuda-ort127");
+    write_fixture_contract(&cuda_path, cuda_contract());
+    let cuda = verify_foundation_artifact(&cuda_path).unwrap();
+    assert_eq!(
+        cuda.implementation_revision,
+        execution_profile::CUDA_ORT127_IMPLEMENTATION_REVISION
+    );
+
+    let cpu_path = fixture_path("cpu-ort127-cache-identity");
+    let mut cpu = contract();
+    cpu.algorithm.implementation_revision =
+        execution_profile::EXPERIMENTAL_ORT127_IMPLEMENTATION_REVISION.to_owned();
+    cpu.execution.runtime_version = "onnxruntime-1.27.0".to_owned();
+    write_fixture_contract(&cpu_path, cpu);
+    let cpu = verify_foundation_artifact(&cpu_path).unwrap();
+    assert_ne!(cuda.cache_key_sha256, cpu.cache_key_sha256);
+    assert_ne!(cuda.artifact_identity_sha256, cpu.artifact_identity_sha256);
+}
+
+#[test]
+fn cuda_artifacts_reject_cpu_substitution_and_unverified_runtime_profiles() {
+    let mut wrong_requested = cuda_contract();
+    wrong_requested.execution.requested_provider = "cpu".to_owned();
+    let mut wrong_active = cuda_contract();
+    wrong_active.execution.active_providers = vec!["CPUExecutionProvider".to_owned()];
+    let mut mixed_active = cuda_contract();
+    mixed_active
+        .execution
+        .active_providers
+        .push("CPUExecutionProvider".to_owned());
+    let mut wrong_runtime = cuda_contract();
+    wrong_runtime.execution.runtime_version = "onnxruntime-1.28.0".to_owned();
+    let mut wrong_implementation = cuda_contract();
+    wrong_implementation.algorithm.implementation_revision =
+        execution_profile::EXPERIMENTAL_ORT127_IMPLEMENTATION_REVISION.to_owned();
+    for (name, contract) in [
+        ("requested-cpu", wrong_requested),
+        ("active-cpu", wrong_active),
+        ("mixed-providers", mixed_active),
+        ("new-runtime", wrong_runtime),
+        ("cpu-implementation", wrong_implementation),
+    ] {
+        let path = fixture_path(name);
+        write_fixture_contract(&path, contract);
+        assert!(
+            matches!(
+                verify_foundation_artifact(&path),
+                Err(FoundationArtifactError::Invalid(
+                    "foundation algorithm identity is unsupported"
+                ))
+            ),
+            "unverified CUDA execution profile was admitted: {name}"
+        );
+    }
+}
+
 #[test]
 fn execution_provider_identity_is_exact() {
     let path = fixture_path("wrong-provider");

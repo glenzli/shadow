@@ -7,6 +7,10 @@ if(SHADOW_BUILD_DESKTOP)
 endif()
 find_package(PkgConfig REQUIRED)
 find_package(JPEG REQUIRED)
+set(SHADOW_SECURE_SECRET_STORE_SOURCES src/secure_secret_store.cpp)
+if(WIN32)
+    list(APPEND SHADOW_SECURE_SECRET_STORE_SOURCES src/secure_secret_store_windows.cpp)
+endif()
 set(
     SHADOW_VCPKG_ICONV_PREFIX
     ""
@@ -143,22 +147,38 @@ if(APPLE AND SHADOW_ENABLE_METAL)
 else()
     list(APPEND SHADOW_CARGO_ENV SHADOW_ENABLE_METAL=0)
 endif()
+if(WIN32)
+    set(SHADOW_CXXBRIDGE_OUT_DIR_RECORD "${SHADOW_CARGO_TARGET_DIRECTORY}/desktop-cxxbridge-out-dir.txt")
+    set(SHADOW_RUST_BRIDGE_BUILD_COMMAND
+        "${CMAKE_COMMAND}"
+        "-DSHADOW_CARGO_EXECUTABLE=${SHADOW_CARGO_EXECUTABLE}"
+        "-DSHADOW_CARGO_TARGET_DIRECTORY=${SHADOW_CARGO_TARGET_DIRECTORY}"
+        "-DSHADOW_CARGO_PROFILE=${SHADOW_CARGO_PROFILE}"
+        "-DSHADOW_CARGO_WORKSPACE_DIRECTORY=${PROJECT_SOURCE_DIR}"
+        "-DSHADOW_CXXBRIDGE_OUT_DIR_RECORD=${SHADOW_CXXBRIDGE_OUT_DIR_RECORD}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_windows_rust_bridge.cmake")
+else()
+    set(SHADOW_RUST_BRIDGE_BUILD_COMMAND
+        ${SHADOW_CARGO_ENV} "${SHADOW_CARGO_EXECUTABLE}" build
+        --package shadow-desktop-bridge ${SHADOW_CARGO_PROFILE_ARGUMENT}
+        --target-dir "${SHADOW_CARGO_TARGET_DIRECTORY}")
+endif()
 add_custom_command(
     OUTPUT "${SHADOW_DESKTOP_RUST_LIBRARY}"
     BYPRODUCTS
         "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}/shadow-desktop-bridge/src/lib.rs.h"
     COMMAND
-        ${SHADOW_CARGO_ENV} "${SHADOW_CARGO_EXECUTABLE}" build
-        --package shadow-desktop-bridge
-        ${SHADOW_CARGO_PROFILE_ARGUMENT}
-        --target-dir "${SHADOW_CARGO_TARGET_DIRECTORY}"
+        ${SHADOW_RUST_BRIDGE_BUILD_COMMAND}
     COMMAND
         "${CMAKE_COMMAND}"
         "-DSHADOW_CARGO_TARGET_DIRECTORY=${SHADOW_CARGO_TARGET_DIRECTORY}"
         "-DSHADOW_CARGO_PROFILE=${SHADOW_CARGO_PROFILE}"
         "-DSHADOW_CXXBRIDGE_INCLUDE_DIRECTORY=${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}"
+        "-DSHADOW_CXXBRIDGE_OUT_DIR_RECORD=${SHADOW_CXXBRIDGE_OUT_DIR_RECORD}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/sync_cxxbridge_headers.cmake"
     DEPENDS ${SHADOW_RUST_BRIDGE_INPUTS}
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_windows_rust_bridge.cmake"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/sync_cxxbridge_headers.cmake"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     COMMENT "Building the Rust desktop snapshot bridge"
     JOB_SERVER_AWARE TRUE
@@ -268,7 +288,7 @@ add_library(
     src/library_server_controller.hpp
     src/library_server_host.cpp
     src/library_server_host.hpp
-    src/secure_secret_store.cpp
+    ${SHADOW_SECURE_SECRET_STORE_SOURCES}
     src/secure_secret_store.hpp
 )
 target_compile_features(shadow-library-server-control PUBLIC cxx_std_20)
@@ -359,6 +379,13 @@ qt_add_executable(
     src/folder_scan_backend.hpp
     src/desktop_smoke_harness.cpp
     src/desktop_smoke_harness.hpp
+    src/desktop_smoke/ai_library.cpp
+    src/desktop_smoke/ai_library.hpp
+    src/ai_runtime_smoke/session.cpp
+    src/ai_runtime_smoke/session.hpp
+    src/ai_runtime_smoke/subject_mask.cpp
+    src/ai_runtime_smoke/completion.cpp
+    src/ai_runtime_smoke/raw_foundation.cpp
     src/desktop_smoke/application_lifecycle.cpp
     src/desktop_smoke/application_lifecycle.hpp
     src/desktop_smoke/edit_preview_session.cpp

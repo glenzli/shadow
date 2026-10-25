@@ -461,7 +461,17 @@ struct BackendGradeStack final {
         std::uint32_t as_shot_temperature_kelvin = 5'500;
         std::int16_t as_shot_tint = 0;
 
-        bool operator==(const Foundation&) const = default;
+        bool operator==(const Foundation& other) const {
+            // Camera white-point presentation is source evidence, not authored
+            // Recipe content. Its asynchronous arrival must not invalidate
+            // undo or make autosave replace a valid presentation with defaults.
+            return enabled == other.enabled
+                   && raw_highlight_repair_enabled == other.raw_highlight_repair_enabled
+                   && optics == other.optics
+                   && raw_white_balance_mode == other.raw_white_balance_mode
+                   && (raw_white_balance_mode == 0
+                       || (temperature_kelvin == other.temperature_kelvin && tint == other.tint));
+        }
     } foundation;
     QVector<BackendGradeNode> grade_nodes;
     QVector<BackendRetouchSpot> retouch_spots;

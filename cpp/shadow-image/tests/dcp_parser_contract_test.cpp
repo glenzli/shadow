@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <limits>
 #include <span>
@@ -83,7 +84,8 @@ public:
             bytes.push_back(static_cast<std::byte>(character));
         }
         bytes.push_back(std::byte{0});
-        add_raw(tag, type, static_cast<std::uint32_t>(bytes.size()), std::move(bytes));
+        const auto count = static_cast<std::uint32_t>(bytes.size());
+        add_raw(tag, type, count, std::move(bytes));
     }
 
     void add_short(const std::uint16_t tag, const std::uint16_t value) {
@@ -626,11 +628,16 @@ void unsupported_rendering_features_fail_loudly() {
 } // namespace
 
 int main() {
-    complete_little_endian_profile_is_preserved();
-    big_endian_and_defaulted_fields_are_explicit();
-    second_illuminant_can_inherit_color_matrix1();
-    malformed_tiff_structure_fails_closed();
-    malformed_curves_and_tables_fail_closed();
-    unsupported_rendering_features_fail_loudly();
-    std::cout << "shadow image DCP parser contract tests passed\n";
+    try {
+        complete_little_endian_profile_is_preserved();
+        big_endian_and_defaulted_fields_are_explicit();
+        second_illuminant_can_inherit_color_matrix1();
+        malformed_tiff_structure_fails_closed();
+        malformed_curves_and_tables_fail_closed();
+        unsupported_rendering_features_fail_loudly();
+        std::cout << "shadow image DCP parser contract tests passed\n";
+    } catch (const std::exception& error) {
+        std::cerr << "DCP parser contract exception: " << error.what() << '\n';
+        return EXIT_FAILURE;
+    }
 }

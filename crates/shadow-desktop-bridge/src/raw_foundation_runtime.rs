@@ -12,6 +12,12 @@ mod infer_materialization;
 /// Keep its provenance distinct from the native reference implementation.
 pub(crate) const INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION: &str =
     "rawnind-public-bayer-foundation-ort127-exp1";
+pub(crate) const INFER_CUDA_RAW_FOUNDATION_IMPLEMENTATION_REVISION: &str =
+    "rawnind-public-bayer-foundation-ort127-cuda-exp1";
+pub(crate) const SUPPORTED_INFER_RAW_FOUNDATION_IMPLEMENTATIONS: &[&str] = &[
+    INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION,
+    INFER_CUDA_RAW_FOUNDATION_IMPLEMENTATION_REVISION,
+];
 
 use std::{
     path::{Path, PathBuf},

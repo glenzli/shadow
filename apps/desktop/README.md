@@ -1,5 +1,24 @@
 # Shadow desktop
 
+`src/secure_secret_store.*` owns local credential persistence;
+`src/secure_secret_store_windows.*` applies exact Windows file ownership and protected ACLs.
+
+`src/desktop_smoke/ai_library.*` owns opt-in real Runtime acceptance through the packaged People,
+semantic-search, classification and image-understanding controllers. Its portrait input, private
+profile and CTest registration are owned by `tests/ai_library_runtime_integration.py` and
+`cmake/ShadowDesktopAiRuntimeTests.cmake`; models and credentials remain externally managed.
+`src/ai_runtime_smoke/` owns the corresponding real-model editor acceptance: subject/refined,
+semantic and face masks, Completion, and RAW Foundation. Its shared session boundary verifies
+real-window input, exact undo/redo, and export; model workflows stay in their named sources.
+`tests/ai_editor_runtime_integration.py` owns isolated inputs, source digests and export receipts.
+The Windows Cargo boundary in `cmake/build_windows_rust_bridge.cmake` records the current
+build-script artifact for `cmake/sync_cxxbridge_headers.cmake`, preserving the exact ABI headers
+when several SDK or feature configurations coexist in the task's private build directory.
+`src/pipeline_run_controller.*` keeps independent-editor photo navigation locked during AI
+authoring while the current canvas and inspector remain interactive for points, Apply and Cancel.
+This admission distinction reuses the current preview and proposal; it adds no render invalidation,
+host/device transfer, cache identity, or export behavior.
+
 ## Storage profiles
 
 [`src/storage_profile.*`](src/storage_profile.hpp) owns startup selection, immutable profile identity,

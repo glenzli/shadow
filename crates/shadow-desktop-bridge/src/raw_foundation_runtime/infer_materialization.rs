@@ -36,8 +36,9 @@ use thiserror::Error;
 use self::alias_store::{InferCacheAliasError, InferCacheAliasExpectation, InferCacheAliasStore};
 use crate::isolated_proxy::IsolatedRawFrameStaging;
 
-const IMPLEMENTATION_REVISION: &str = super::INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION;
+use super::SUPPORTED_INFER_RAW_FOUNDATION_IMPLEMENTATIONS;
 const EXECUTION_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const MODEL_DEADLINE_MS: u64 = 15 * 60 * 1_000;
 const PLANNING_PROGRESS: u16 = 1_000;
 const RUNNING_PROGRESS: u16 = 4_000;
 const PUBLISHING_PROGRESS: u16 = 9_700;
@@ -229,7 +230,7 @@ fn request(
     )?;
     let request = InferRawFoundationRequest::new(
         InferRawFoundationPriority::Interactive,
-        None,
+        Some(MODEL_DEADLINE_MS),
         source_revision,
         InferRawFoundationSource::new(source_sha256, source_size_bytes),
         staging,
@@ -259,7 +260,7 @@ fn alias_expectation<'value>(
         source_pixel_contract_sha256: RAWNIND_FOUNDATION_SOURCE_PIXEL_CONTRACT_SHA256,
         model_package_sha256: RAWNIND_FOUNDATION_PACKAGE_SHA256,
         model_graph_sha256: RAWNIND_FOUNDATION_BAYER_GRAPH_SHA256,
-        implementation_revision: IMPLEMENTATION_REVISION,
+        implementation_revisions: SUPPORTED_INFER_RAW_FOUNDATION_IMPLEMENTATIONS,
     }
 }
 
@@ -309,7 +310,9 @@ fn validate_result(
         || verification.source_pixel_contract_sha256 != expected.source_pixel_contract_sha256
         || verification.model_package_sha256 != expected.model_package_sha256
         || verification.model_graph_sha256 != expected.model_graph_sha256
-        || verification.implementation_revision != expected.implementation_revision
+        || !expected
+            .implementation_revisions
+            .contains(&verification.implementation_revision.as_str())
     {
         return Err(InferMaterializationError::ReceiptMismatch);
     }
@@ -357,11 +360,14 @@ fn create_owner_output(path: &Path) -> Result<File, InferMaterializationError> {
 
 #[cfg(not(unix))]
 fn create_owner_output(path: &Path) -> Result<File, InferMaterializationError> {
-    OpenOptions::new()
+    let file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
-        .map_err(InferMaterializationError::Io)
+        .map_err(InferMaterializationError::Io)?;
+    #[cfg(windows)]
+    crate::private_staging::file(path).map_err(InferMaterializationError::Io)?;
+    Ok(file)
 }
 
 struct OwnedPartial {

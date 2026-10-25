@@ -19,7 +19,7 @@ using shadow::image::test_support::reference_rgb;
 using shadow::image::test_support::ScopedEnvironment;
 using shadow::image::test_support::SyntheticDecodeSession;
 
-void public_preview_geometry_stays_fused_on_metal() {
+void public_preview_geometry_preserves_pixels_and_reports_its_backend() {
     constexpr image::Dimensions dimensions{160U, 112U};
     SyntheticDecodeSession decoder(metadata(dimensions), reference_rgb(dimensions));
     const auto warm = image::prepare_warm_edit_preview(decoder, dimensions.width);
@@ -49,7 +49,7 @@ void public_preview_geometry_stays_fused_on_metal() {
     }
     image::EncodedProxy gpu;
     {
-        const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION", "metal");
+        const ScopedEnvironment automatic_backend("SHADOW_IMAGE_ACCELERATION", "auto");
         gpu = warm.render_rgb8(nodes, geometry);
     }
     std::uint8_t maximum_difference = 0U;
@@ -73,28 +73,44 @@ void public_preview_geometry_stays_fused_on_metal() {
             && maximum_difference <= 1U,
         "public warm Metal geometry remains within one RGB8 level of the CPU route"
     );
-    expect(
-        warm.gpu_stats().completed_render_count >= 1U,
-        "the public geometry request completes through the resident Metal session"
-    );
+    const bool metal_resident =
+        warm.gpu_stats().resident
+        && image::adjustment_backend_available(image::AdjustmentBackend::metal);
+    if (metal_resident) {
+        expect(
+            warm.gpu_stats().completed_render_count >= 1U,
+            "the public geometry request completes through the resident Metal session"
+        );
+    }
     image::AnalyzedEditPreview analyzed;
     {
-        const ScopedEnvironment forced_metal("SHADOW_IMAGE_ACCELERATION", "metal");
+        const ScopedEnvironment automatic_backend("SHADOW_IMAGE_ACCELERATION", "auto");
         analyzed = warm.render_jpeg_with_analysis(nodes, 90U, geometry);
     }
-    expect(
-        analyzed.proxy.dimensions == expected && analyzed.execution.valid()
-            && analyzed.execution.adjustment_backend == image::EditPreviewBackend::metal
-            && analyzed.execution.display_backend == image::EditPreviewBackend::metal
-            && analyzed.execution.fused_pipeline && !analyzed.execution.adjustment_fell_back
-            && !analyzed.execution.display_fell_back && analyzed.execution.diagnostic.empty(),
-        "public analyzed geometry reports one complete fused Metal route"
-    );
+    if (metal_resident) {
+        expect(
+            analyzed.proxy.dimensions == expected && analyzed.execution.valid()
+                && analyzed.execution.adjustment_backend == image::EditPreviewBackend::metal
+                && analyzed.execution.display_backend == image::EditPreviewBackend::metal
+                && analyzed.execution.fused_pipeline && !analyzed.execution.adjustment_fell_back
+                && !analyzed.execution.display_fell_back && analyzed.execution.diagnostic.empty(),
+            "public analyzed geometry reports one complete fused Metal route"
+        );
+    } else {
+        expect(
+            analyzed.proxy.dimensions == expected && analyzed.execution.valid()
+                && analyzed.execution.adjustment_backend == image::EditPreviewBackend::cpu
+                && analyzed.execution.display_backend == image::EditPreviewBackend::cpu
+                && analyzed.execution.adjustment_fell_back && analyzed.execution.display_fell_back
+                && !analyzed.execution.diagnostic.empty(),
+            "unsupported or unavailable GPU geometry reports its complete CPU replay"
+        );
+    }
 }
 
 } // namespace
 
 int main() {
-    public_preview_geometry_stays_fused_on_metal();
+    public_preview_geometry_preserves_pixels_and_reports_its_backend();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

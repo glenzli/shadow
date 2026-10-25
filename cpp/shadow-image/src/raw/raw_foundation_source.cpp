@@ -32,7 +32,10 @@ RawDevelopmentReceipt finalize_raw_foundation_receipt(
     const DcpColorExecutionBackend dcp_execution_backend
 ) {
     const RawFrameDescriptor& descriptor = prepared.descriptor();
-    const RawDevelopmentPlan& effective_plan = prepared.development_plan();
+    RawDevelopmentPlan effective_plan = prepared.development_plan();
+    // Bayer-only preparation is bypassed for AI camera RGB, but the completed
+    // camera-space surface still executes the requested highlight continuity.
+    effective_plan.highlight_recovery = requested_plan.highlight_recovery;
     const DcpColorTransform* camera_profile = prepared.camera_profile();
 
     RawDevelopmentReceipt receipt;
@@ -43,8 +46,12 @@ RawDevelopmentReceipt finalize_raw_foundation_receipt(
         descriptor.provider_version.empty() ? "unrecorded" : descriptor.provider_version;
     receipt.development_settings_signature =
         "shadow-raw-foundation-v1;reconstruction=rawnind-public-bayer;"
-        "backend=cpu;highlight=disabled;conventional-raw-denoise=disabled;";
+        "backend=cpu;bayer-highlight=disabled;conventional-raw-denoise=disabled;";
     receipt.development_settings_signature += foundation_cache_identity;
+    if (uses_clipped_highlight_surface_reconstruction(requested_plan.highlight_recovery)) {
+        receipt.development_settings_signature +=
+            ";" + std::string(clipped_highlight_surface_reconstruction_identity);
+    }
     if (camera_profile != nullptr) {
         receipt.development_settings_signature +=
             ";color=dcp;" + dcp_color_receipt_identity(camera_profile->receipt);
@@ -96,6 +103,7 @@ RawPipelineReceipt finalize_raw_foundation_pipeline_receipt(
     const RawHighlightRecoveryIntent highlight_recovery,
     const std::string_view foundation_cache_identity
 ) {
+    prepared.effective_plan.highlight_recovery = highlight_recovery;
     return finalize_raw_frame_pipeline_receipt(
         std::move(prepared),
         RawDevelopmentBackend::cpu,
@@ -161,7 +169,7 @@ DevelopedSourceReference materialize_prepared_raw_foundation_source(
     );
     pipeline = finalize_raw_foundation_pipeline_receipt(
         std::move(pipeline),
-        effective_plan.highlight_recovery,
+        requested_plan.highlight_recovery,
         developed.cache_identity
     );
     return DevelopedSourceReference{

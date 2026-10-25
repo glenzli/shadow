@@ -24,6 +24,7 @@ bool run(const QString& executable, const QString& scenario) {
     const bool unsupported = scenario == "unsupported";
     const bool auto_ui = scenario == "auto-start-ui";
     const bool auto_identity = scenario == "auto-start-identity" || auto_ui;
+    const bool ai_unavailable = scenario == "ai-subject-unavailable";
     const QString first = root.filePath(unsupported ? "first.png" : "first.jpg");
     const QString second = root.filePath("second.jpg");
     QImage image(96, 64, QImage::Format_RGB32);
@@ -46,7 +47,7 @@ bool run(const QString& executable, const QString& scenario) {
     const bool retry = scenario == "retry";
     const bool direct =
         scenario == "interactive" || paint || paint_interaction || retry || auto_identity;
-    const bool single = scenario == "legacy";
+    const bool single = scenario == "legacy" || ai_unavailable;
     const bool cancel = scenario == "cancel";
     const QString output1 = root.filePath("output1.png");
     const QString output2 = root.filePath("output2.png");
@@ -86,6 +87,7 @@ bool run(const QString& executable, const QString& scenario) {
     env.insert(
         "SHADOW_PIPELINE_SMOKE_ACTION",
         auto_identity       ? "auto-start"
+        : ai_unavailable    ? "ai-subject-unavailable"
         : cancel            ? "cancel"
         : paint_interaction ? "paint-interaction"
         : paint             ? "paint"
@@ -93,6 +95,10 @@ bool run(const QString& executable, const QString& scenario) {
                             : "complete"
     );
     env.insert("SHADOW_PIPELINE_SMOKE_OUTPUT", root.path());
+    if (ai_unavailable) {
+        env.insert("SHADOW_INFER_BASE_URL", "http://127.0.0.1:1");
+        env.insert("SHADOW_INFER_CREDENTIAL_FILE", root.filePath("missing-infer.token"));
+    }
     if (auto_identity) {
         env.insert("SHADOW_AUTO_START_SMOKE_MEASURED_ONLY", "1");
         env.insert("SHADOW_AUTO_START_SMOKE_VARIANT", "1");
@@ -227,7 +233,9 @@ bool run(const QString& executable, const QString& scenario) {
                     || photos[1].toObject()["outcome"] != "completed")
                     return false;
             }
-            if (!diagnostics.contains("edit/switch checks passed"))
+            if (!diagnostics.contains(ai_unavailable
+                    ? "AI editor ai-subject-unavailable unavailable/cancel passed"
+                    : "edit/switch checks passed"))
                 return false;
         }
     }

@@ -88,10 +88,18 @@ void verified_foundation_is_the_only_reconstruction_source() {
             && developed.raw_development_receipt.effective_plan.noise_reduction
                    == image::RawNoiseReductionIntent::disabled
             && developed.raw_development_receipt.effective_plan.highlight_recovery
-                   == image::RawHighlightRecoveryIntent::disabled
+                   == requested.highlight_recovery
+            && developed.pipeline_receipt.effective_plan.highlight_recovery
+                   == requested.highlight_recovery
+            && developed.raw_development_receipt.development_settings_signature.find(
+                   "bayer-highlight=disabled"
+               ) != std::string::npos
+            && developed.raw_development_receipt.development_settings_signature.find(
+                   "clipped-highlight="
+               ) != std::string::npos
             && developed.raw_development_receipt.plan_negotiation_status
                    == image::RawDevelopmentPlanNegotiationStatus::adjusted,
-        "AI execution preserves requested intent and audits the disabled overlapping RAW stages"
+        "AI execution records completed highlight continuity while bypassing overlapping Bayer stages"
     );
     expect(
         developed.sensor_clipping_mask.has_value() && developed.sensor_clipping_mask->valid()

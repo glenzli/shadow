@@ -21,15 +21,14 @@ use std::{
 };
 
 use shadow_ai::{
-    AI_JOB_REQUEST_CONTRACT_VERSION, AdmittedExecution, AdmittedModelIdentity, AiCapability,
-    AiGeneratedPayload, AiJobRequest, AiTaskKind, AiTaskParameters, ArtifactHashAlgorithm,
-    ArtifactReference, BackendKind, CancellationToken, DetectedFace, ExecutionLease,
-    ExecutionPlanIdentity, ExecutionRouteIdentity, FaceAnalysisProvider, FallbackDisclosure,
-    InferRuntimeClient, InputRole, MaskPointPolarity, MaskPrompt, MaskPromptPoint, MaskSemantic,
-    NumericPrecision, ObservationTarget, PrivacyClass, ProviderExecutionClass, ProviderIdentity,
-    ProviderTerminal, RasterExtent, ResourceEstimate, RunPlan, RuntimeProgressReporter,
-    RuntimeProvider, RuntimeUsage, SoftMaskArtifact, SoftMaskEncoding, SubjectMaskParameters,
-    TaskPriority, UnitInterval, bind_local_service_execution,
+    AI_JOB_REQUEST_CONTRACT_VERSION, AdmittedExecution, AiCapability, AiGeneratedPayload,
+    AiJobRequest, AiTaskKind, AiTaskParameters, ArtifactHashAlgorithm, ArtifactReference,
+    CancellationToken, DetectedFace, ExecutionLease, ExecutionPlanIdentity, ExecutionRouteIdentity,
+    FaceAnalysisProvider, FallbackDisclosure, InferRuntimeClient, InputRole, MaskPointPolarity,
+    MaskPrompt, MaskPromptPoint, MaskSemantic, ObservationTarget, PrivacyClass, ProviderTerminal,
+    RasterExtent, ResourceEstimate, RunPlan, RuntimeProgressReporter, RuntimeProvider,
+    RuntimeUsage, SoftMaskArtifact, SoftMaskEncoding, SubjectMaskParameters, TaskPriority,
+    UnitInterval, bind_local_service_execution,
 };
 use shadow_core::{
     DerivedRasterStageError, DerivedRasterStageReceipt, FilesystemDerivedRasterStore,
@@ -598,48 +597,16 @@ fn infer_route_and_plan(
     provenance: &shadow_ai::VisionProvenance,
     api_contract_revision: &str,
 ) -> Result<(ExecutionRouteIdentity, RunPlan), SubjectMaskRuntimeError> {
-    if provenance.execution_provider_fallback_reason.is_some() {
-        return Err(SubjectMaskRuntimeError::RuntimeFallbackDisclosed);
-    }
-    let backend_kind = match provenance
-        .actual_execution_provider
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        value if value.contains("coreml") => BackendKind::CoreMl,
-        value if value.contains("cpu") => BackendKind::Cpu,
-        _ => return Err(SubjectMaskRuntimeError::RuntimeProvenanceMalformed),
-    };
-    let precision = match provenance.precision.to_ascii_lowercase().as_str() {
-        "float16" | "fp16" | "f16" => NumericPrecision::Float16,
-        "float32" | "fp32" | "f32" => NumericPrecision::Float32,
-        _ => return Err(SubjectMaskRuntimeError::RuntimeProvenanceMalformed),
-    };
-    let route = ExecutionRouteIdentity {
-        contract_version: shadow_ai::EXECUTION_ROUTE_IDENTITY_CONTRACT_VERSION,
-        provider: ProviderIdentity {
-            provider_id: provenance.provider.clone(),
-            adapter_revision: provenance.postprocessing_identity.clone(),
-            execution_class: ProviderExecutionClass::LocalService,
-        },
-        model: AdmittedModelIdentity::RemoteService {
-            service_revision: provenance.runtime.clone(),
-            model_id: provenance.model_build.clone(),
-            model_revision: provenance.artifact_sha256.clone(),
-            api_contract_revision: api_contract_revision.into(),
-        },
-    };
-    Ok((
-        route,
-        RunPlan {
-            backend_id: format!("infer-runtime/{}", provenance.deployment),
-            backend_kind,
-            precision,
-            cpu_threads: 1,
-            reserved_system_ram_bytes: 0,
-            reserved_device_memory_bytes: 0,
-        },
-    ))
+    crate::infer_execution_plan::admit(provenance, api_contract_revision).map_err(|error| {
+        match error {
+            crate::infer_execution_plan::AdmissionError::FallbackDisclosed => {
+                SubjectMaskRuntimeError::RuntimeFallbackDisclosed
+            }
+            crate::infer_execution_plan::AdmissionError::MalformedProvenance => {
+                SubjectMaskRuntimeError::RuntimeProvenanceMalformed
+            }
+        }
+    })
 }
 
 #[derive(Debug, Error)]

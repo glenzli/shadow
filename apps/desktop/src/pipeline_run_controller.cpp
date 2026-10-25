@@ -1,6 +1,7 @@
 #include "pipeline_run_controller.hpp"
 #include "backend/export_settings_codec.hpp"
 #include "edit_controller.hpp"
+#include "edit_subject_emphasis_controller.hpp"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -110,14 +111,23 @@ bool PipelineRunController::busy() const noexcept {
            || completion_requested_ || (editor_.stateBusy() || editor_.toolOperationRunning());
 }
 
-bool PipelineRunController::navigationEnabled() const noexcept {
+bool PipelineRunController::sessionInteractionAvailable() const noexcept {
     return !terminal_ && !finished_ && !completion_requested_ && !exporting() && !savingDocument()
-           && !editor_.stateBusy() && !admission_watcher_.isRunning()
-           && (editor_.active() || !editor_.stateBusy());
+           && !admission_watcher_.isRunning();
+}
+
+bool PipelineRunController::navigationEnabled() const noexcept {
+    return sessionInteractionAvailable() && !editor_.stateBusy();
 }
 
 bool PipelineRunController::currentPhotoEditable() const noexcept {
-    return navigationEnabled() && current_index_ >= 0 && current_index_ < request_.photos.size()
+    // A transient AI tool owns photo navigation until Apply/Cancel, while its
+    // canvas and inspector must keep receiving the tool's own interaction.
+    const auto* emphasis = qobject_cast<EditSubjectEmphasisController*>(editor_.subjectEmphasis());
+    const bool authoring = editor_.aiMaskPromptActive() || editor_.imageCompletionActive()
+                           || (emphasis && emphasis->active());
+    return sessionInteractionAvailable() && (!editor_.stateBusy() || authoring)
+           && current_index_ >= 0 && current_index_ < request_.photos.size()
            && !completed_paths_.contains(request_.photos[current_index_].output_path);
 }
 

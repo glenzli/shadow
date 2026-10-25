@@ -140,10 +140,13 @@ Item {
         standardButtons: Dialog.Cancel | Dialog.Ok
         onAccepted: people.controller.clearPeopleData()
 
-        contentItem: Label {
-            text: qsTr("Stored face references, people groups, thumbnails, and your merges will be removed. Original photos and edits are not changed.")
-            color: Theme.textPrimary
-            wrapMode: Text.WordWrap
+        contentItem: ColumnLayout {
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Stored face references, people groups, thumbnails, and your merges will be removed. Original photos and edits are not changed.")
+                color: Theme.textPrimary
+                wrapMode: Text.WordWrap
+            }
         }
     }
 

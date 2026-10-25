@@ -80,7 +80,8 @@ void public_preview_liquify_uses_metal_when_resident_and_cpu_otherwise() {
             && maximum_difference <= 1U,
         "automatic Liquify remains within one RGB8 level of the CPU structural oracle"
     );
-    if (warm.gpu_stats().resident) {
+    if (warm.gpu_stats().resident
+        && image::adjustment_backend_available(image::AdjustmentBackend::metal)) {
         expect(
             analyzed.execution.valid()
                 && analyzed.execution.adjustment_backend == image::EditPreviewBackend::metal
@@ -99,7 +100,7 @@ void public_preview_liquify_uses_metal_when_resident_and_cpu_otherwise() {
                 && analyzed.execution.adjustment_fell_back
                 && analyzed.execution.display_fell_back
                 && !analyzed.execution.diagnostic.empty(),
-            "unavailable Metal replays the complete Liquify request through CPU"
+            "unsupported resident structure or unavailable Metal replays the complete request on CPU"
         );
     }
 }

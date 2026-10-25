@@ -1,5 +1,8 @@
 use std::path::PathBuf;
 
+use crate::raw_foundation_runtime::{
+    INFER_CUDA_RAW_FOUNDATION_IMPLEMENTATION_REVISION, INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION,
+};
 use shadow_ai::{
     ArtifactHashAlgorithm, GeneratedArtifactReference, RAW_FOUNDATION_ENCODING_VERSION,
     RAW_FOUNDATION_MEDIA_TYPE, RasterExtent, RawFoundationArtifact, RawFoundationProvenance,
@@ -48,6 +51,7 @@ fn descriptor_with_implementation(implementation: &str) -> RawFoundationArtifact
 fn configured_infer_implementation_keeps_its_identity_and_unknown_implementations_fail() {
     for revision in [
         INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION,
+        INFER_CUDA_RAW_FOUNDATION_IMPLEMENTATION_REVISION,
         "unverified-model-runtime",
     ] {
         let ready = RawFoundationReady {
@@ -66,7 +70,7 @@ fn configured_infer_implementation_keeps_its_identity_and_unknown_implementation
             &ready,
             RawFoundationDenoiseModel::RawNindPublicBayerRelease5_6_0,
         );
-        if revision == INFER_RAW_FOUNDATION_IMPLEMENTATION_REVISION {
+        if SUPPORTED_INFER_RAW_FOUNDATION_IMPLEMENTATIONS.contains(&revision) {
             assert_eq!(identity.unwrap().implementation_revision, revision);
         } else {
             assert!(

@@ -369,6 +369,26 @@ void ai_foundation_rebinds_its_bounded_camera_rgb_without_a_second_decode() {
     const auto rebound = initial.rebind_raw_development_plan(manual_white_balance_plan());
     const auto amount_rebound =
         initial.rebind_raw_foundation_amount(image::preview_raw_development_plan(), 25U);
+    const auto camera_white_balance = initial.as_shot_white_balance();
+    const auto rebound_camera_white_balance = rebound.as_shot_white_balance();
+    const auto amount_camera_white_balance = amount_rebound.as_shot_white_balance();
+    expect(
+        camera_white_balance.has_value() && camera_white_balance->valid(),
+        "AI RAW retains camera white balance presentation from the original calibration"
+    );
+    const auto same_camera_white_point = [&camera_white_balance](const auto& presentation) {
+        return camera_white_balance && presentation
+               && presentation->temperature_kelvin == camera_white_balance->temperature_kelvin
+               && presentation->tint == camera_white_balance->tint
+               && presentation->white_x == camera_white_balance->white_x
+               && presentation->white_y == camera_white_balance->white_y;
+    };
+    expect(
+        same_camera_white_point(rebound_camera_white_balance)
+            && same_camera_white_point(amount_camera_white_balance)
+            && decoder.raw_frame_count() == 1U,
+        "manual WB and AI strength reuse the camera-authored white point without another decode"
+    );
     const auto telemetry = amount_rebound.raw_rebinding_telemetry();
     expect(
         initial.supports_raw_development_rebinding() && decoder.raw_frame_count() == 1U

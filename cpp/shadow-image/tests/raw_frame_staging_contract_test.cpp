@@ -92,6 +92,7 @@ void active_plane_and_shifted_cfa_are_published_atomically() {
         std::istreambuf_iterator<char>(manifest_stream),
         std::istreambuf_iterator<char>(),
     };
+    manifest_stream.close();
     expect(text.starts_with("shadow-raw-frame-staging-20260822.1 "), "manifest schema");
     expect(text.find("cfa=BGGR") != std::string::npos, "active-origin CFA");
     expect(text.find("black=67,66,65,64") != std::string::npos, "active site levels");
@@ -110,6 +111,7 @@ void active_plane_and_shifted_cfa_are_published_atomically() {
         std::istreambuf_iterator<char>(sample_stream),
         std::istreambuf_iterator<char>(),
     };
+    sample_stream.close();
     expect(samples.size() == 32U, "sample file size");
     expect(samples[0] == 7U && samples[1] == 0U, "first active sample");
     expect(samples[30] == 28U && samples[31] == 0U, "last active sample");
