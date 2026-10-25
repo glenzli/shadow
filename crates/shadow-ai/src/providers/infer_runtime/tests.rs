@@ -13,6 +13,9 @@ use sha2::Digest as _;
 
 use super::*;
 
+#[cfg(windows)]
+mod windows_credentials;
+
 const SDK_JOB_FIXTURE: &str = r#"{
   "id":"resp_example","app_id":"shadow","intent":"text.summarize",
   "consumer_core_contract":"infer-runtime.consumer-core@20260813.1",
@@ -89,7 +92,11 @@ fn sdk_job_fixture_preserves_shadow_app_and_dated_contract_without_daemon() {
     credential
         .write_all(b"shadow-managed-test-token-0000000000000000")
         .expect("write credential fixture");
-    let client = InferRuntimeClient::from_credential_file(&endpoint, credential.path())
+    // The SDK reads a stable private file; release the writable fixture handle first.
+    let credential = credential.into_temp_path();
+    #[cfg(windows)]
+    windows_credentials::protect(&credential);
+    let client = InferRuntimeClient::from_credential_file(&endpoint, &credential)
         .expect("official SDK client");
     let job = client.job("resp_example").expect("SDK Job fixture");
     assert_eq!(job.app_id, "shadow");
