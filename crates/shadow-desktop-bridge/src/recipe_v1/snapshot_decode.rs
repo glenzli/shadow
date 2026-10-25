@@ -427,6 +427,7 @@ pub(crate) fn decode_grade_node_draft_from_recipe_v1_layer(
             } => Some(SharedGradeNodeReference {
                 layer_id: *layer_id,
                 revision_id: *revision_id,
+                shared_follow_head: layer.shared_follow_head(),
             }),
             LayerContent::Shared {
                 revision: LayerRevisionSelector::FollowHead,
@@ -578,14 +579,15 @@ pub(crate) fn grade_node_draft_from_shared_revision(
 pub(crate) fn ffi_shared_grade_node(
     revision: &LayerRevision,
 ) -> AnyResult<ffi::FfiSharedGradeNode> {
+    let mut grade_node =
+        encode_grade_node_draft_recipe_v1(grade_node_draft_from_shared_revision(revision)?)?;
+    grade_node.shared_revision_number = revision.revision_number();
     Ok(ffi::FfiSharedGradeNode {
         layer_id: revision.layer_id().to_string(),
         revision_id: revision.id().to_string(),
         revision_number: revision.revision_number(),
         label: revision.label().to_owned(),
-        grade_node: encode_grade_node_draft_recipe_v1(grade_node_draft_from_shared_revision(
-            revision,
-        )?)?,
+        grade_node,
     })
 }
 

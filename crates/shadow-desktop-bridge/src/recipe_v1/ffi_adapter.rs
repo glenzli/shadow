@@ -1034,6 +1034,7 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
     ) {
         (true, true) => None,
         (false, false) => Some(SharedGradeNodeReference {
+            shared_follow_head: grade_node.shared_follow_head,
             layer_id: grade_node
                 .shared_layer_id
                 .parse::<LayerId>()
@@ -1055,6 +1056,9 @@ pub(crate) fn decode_grade_node_draft_recipe_v1(
         }),
         _ => bail!("Grade Node {index} has an incomplete shared-node reference"),
     };
+    if shared.is_none() && grade_node.shared_follow_head {
+        bail!("Grade Node {index} following policy has no shared reference");
+    }
     let composite_mask = composite_mask_from_ffi(grade_node, index)?;
     Ok(GradeNodeDraft {
         recipe_v1_identity: GradeNodeRecipeV1Identity {
@@ -1590,6 +1594,11 @@ pub(crate) fn encode_grade_node_draft_recipe_v1(
         grade_node_id: identity.grade_node_id.to_string(),
         shared_layer_id,
         shared_revision_id,
+        shared_follow_head: grade_node
+            .shared
+            .is_some_and(|shared| shared.shared_follow_head),
+        shared_revision_number: 0,
+        shared_locally_modified: false,
         local_mask_components,
         local_mask_invert,
         label: grade_node.label,

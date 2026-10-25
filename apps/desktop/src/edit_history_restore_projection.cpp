@@ -38,7 +38,11 @@ bool EditHistoryRestoreProjection::gradeNodeListChanged(
         const std::uint8_t right_single_mask_kind =
             right.local_mask_components.size() == 1 ? right.local_mask_components.front().kind : 0U;
         if (left.grade_node_id != right.grade_node_id || left.label != right.label
-            || left.enabled != right.enabled
+            || left.enabled != right.enabled || left.shared_layer_id != right.shared_layer_id
+            || left.shared_revision_id != right.shared_revision_id
+            || left.shared_follow_head != right.shared_follow_head
+            || left.shared_revision_number != right.shared_revision_number
+            || left.shared_locally_modified != right.shared_locally_modified
             || left.local_mask_components.size() != right.local_mask_components.size()
             || left_single_mask_kind != right_single_mask_kind) {
             return true;

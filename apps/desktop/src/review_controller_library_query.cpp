@@ -104,9 +104,15 @@ void ReviewController::cancelScan() {
     static_cast<void>(import_coordinator_.cancel());
 }
 
+void ReviewController::prioritizeVisibleRefinements(
+    const QString& selected,
+    const QStringList& visible
+) {
+    import_coordinator_.prioritizeVisible(selected, visible);
+}
+
 void ReviewController::loadMore() {
-    const bool admitted =
-        !scanning() && !comparison_coordinator_.busy() && !decision_coordinator_.busy();
+    const bool admitted = !comparison_coordinator_.busy() && !decision_coordinator_.busy();
     static_cast<void>(query_coordinator_.loadMore(admitted));
 }
 

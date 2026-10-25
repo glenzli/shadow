@@ -2,8 +2,8 @@
 #include "backend/native_path_input.hpp"
 #include "photo_inspection_projection.hpp"
 
-#include <memory>
 #include <limits>
+#include <memory>
 #include <utility>
 
 namespace {
@@ -12,28 +12,37 @@ namespace {
     return QString::fromUtf8(
         value.data(),
         static_cast<qsizetype>(std::min<std::size_t>(
-            value.size(), static_cast<std::size_t>(std::numeric_limits<qsizetype>::max())
+            value.size(),
+            static_cast<std::size_t>(std::numeric_limits<qsizetype>::max())
         ))
     );
 }
 
 } // namespace
 
-DesktopBackend::DesktopBackend(const QString& catalog_path, const QString& cache_root)
-    : impl_(std::make_unique<Impl>(shadow::desktop::open_desktop_session(
-          native_path_input::path(catalog_path),
-          native_path_input::path(cache_root)
-      ))) {}
+DesktopBackend::DesktopBackend(const QString& catalog_path, const QString& cache_root) :
+    impl_(
+        std::make_unique<Impl>(shadow::desktop::open_desktop_session(
+            native_path_input::path(catalog_path),
+            native_path_input::path(cache_root)
+        ))
+    ) {}
 
 DesktopBackend::~DesktopBackend() = default;
 
 void DesktopBackend::beginFolderScan(const std::uint64_t scan_id) const {
     impl_->folder_scan_backend.beginFolderScan(scan_id);
 }
-BackendScanReport DesktopBackend::scanFolder(
-    const QString& folder_path,
-    const std::uint64_t scan_id
+void DesktopBackend::prioritizeVisibleRefinements(
+    const std::uint64_t scan_id,
+    const QString& selected,
+    const QStringList& visible
 ) const {
+    impl_->folder_scan_backend.prioritizeVisibleRefinements(scan_id, selected, visible);
+}
+
+BackendScanReport
+DesktopBackend::scanFolder(const QString& folder_path, const std::uint64_t scan_id) const {
     return impl_->folder_scan_backend.scanFolder(folder_path, scan_id);
 }
 
@@ -45,12 +54,8 @@ bool DesktopBackend::cancelFolderScan(const std::uint64_t scan_id) const {
     return impl_->folder_scan_backend.cancelFolderScan(scan_id);
 }
 
-DesktopBackend::PipelineInput DesktopBackend::admitPipelineInput(
-    const QString& source_path
-) const {
-    const auto source = impl_->session->admit_pipeline_input(
-        native_path_input::path(source_path)
-    );
+DesktopBackend::PipelineInput DesktopBackend::admitPipelineInput(const QString& source_path) const {
+    const auto source = impl_->session->admit_pipeline_input(native_path_input::path(source_path));
     return {
         .photo_id = qstring(source.photo_id),
         .representation_id = qstring(source.representation_id),
@@ -59,13 +64,9 @@ DesktopBackend::PipelineInput DesktopBackend::admitPipelineInput(
     };
 }
 
-BackendPhotoInspection DesktopBackend::photoInspection(
-    const QString& photo_id,
-    const QString& representation_id
-) const {
-    const auto source = impl_->session->photo_inspection(
-        photo_id.toStdString(),
-        representation_id.toStdString()
-    );
+BackendPhotoInspection
+DesktopBackend::photoInspection(const QString& photo_id, const QString& representation_id) const {
+    const auto source =
+        impl_->session->photo_inspection(photo_id.toStdString(), representation_id.toStdString());
     return project_photo_inspection(source);
 }

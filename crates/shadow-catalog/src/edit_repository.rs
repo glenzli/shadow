@@ -283,7 +283,7 @@ impl Catalog {
     }
 }
 
-fn commit_edit_repository_in_transaction(
+pub(crate) fn commit_edit_repository_in_transaction(
     transaction: &Transaction<'_>,
     request: &CommitEditRepository,
 ) -> Result<EditRepositoryCommitRecord, CatalogError> {

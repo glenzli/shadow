@@ -6,7 +6,7 @@
 //! - [`factory`] owns worker-count policy and construction of independent
 //!   provider instances.
 
-mod actor;
+pub(super) mod actor;
 mod factory;
 
 pub use actor::DecodeInspectionActor;

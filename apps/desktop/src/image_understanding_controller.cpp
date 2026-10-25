@@ -26,14 +26,19 @@ ImageUnderstandingController::ImageUnderstandingController(
     QObject(parent), preferences_(preferences), batch_runner_(std::move(batch_runner)),
     snapshot_loader_(std::move(snapshot_loader)), pause_writer_(std::move(pause_writer)),
     review_runner_(std::move(review_runner)), review_accepter_(std::move(review_accepter)),
-    review_dismisser_(std::move(review_dismisser)),
-    proposal_loader_(std::move(proposal_loader)), keyword_accepter_(std::move(keyword_accepter)),
+    review_dismisser_(std::move(review_dismisser)), proposal_loader_(std::move(proposal_loader)),
+    keyword_accepter_(std::move(keyword_accepter)),
     category_provider_(std::move(category_provider)),
     taxonomy_revision_provider_(std::move(taxonomy_revision_provider)) {
     Q_ASSERT(preferences_ != nullptr);
     next_batch_timer_.setSingleShot(true);
     next_batch_timer_.setInterval(450);
-    connect(&next_batch_timer_, &QTimer::timeout, this, &ImageUnderstandingController::runNextBatch);
+    connect(
+        &next_batch_timer_,
+        &QTimer::timeout,
+        this,
+        &ImageUnderstandingController::runNextBatch
+    );
     connect(
         &batch_watcher_,
         &QFutureWatcher<ImageUnderstandingTaskResult>::finished,
@@ -63,12 +68,7 @@ ImageUnderstandingController::ImageUnderstandingController(
         policy_changed_ = true;
         reconcileBackgroundPolicy();
     };
-    connect(
-        preferences_,
-        &AiPreferences::imageUnderstandingScanScopeChanged,
-        this,
-        policy_changed
-    );
+    connect(preferences_, &AiPreferences::imageUnderstandingScanScopeChanged, this, policy_changed);
     connect(
         preferences_,
         &AiPreferences::imageUnderstandingMinimumRatingChanged,
@@ -98,13 +98,23 @@ bool ImageUnderstandingController::busy() const noexcept {
     return batch_watcher_.isRunning() || state_ == State::Running;
 }
 
+void ImageUnderstandingController::setProfileSwitchPending(const bool pending) {
+    if (profile_switch_pending_ == pending)
+        return;
+    profile_switch_pending_ = pending;
+    if (pending)
+        pause();
+    else
+        reconcileBackgroundPolicy();
+}
+
 bool ImageUnderstandingController::canPause() const noexcept {
     return state_ == State::Running;
 }
 
 bool ImageUnderstandingController::canResume() const noexcept {
     return executionAllowed() && !generation_.isEmpty()
-        && (state_ == State::Paused || state_ == State::Failed);
+           && (state_ == State::Paused || state_ == State::Failed);
 }
 
 int ImageUnderstandingController::progressPercent() const noexcept {
@@ -272,8 +282,12 @@ void ImageUnderstandingController::requestAdvancedReview(
     advanced_photo_id_ = photo_id;
     advanced_representation_id_ = representation_id;
     emit advancedReviewChanged();
-    review_watcher_.setFuture(QtConcurrent::run(
-        [runner = review_runner_, photo_id, representation_id, taxonomy_revision, categories]() {
+    review_watcher_.setFuture(
+        QtConcurrent::run([runner = review_runner_,
+                           photo_id,
+                           representation_id,
+                           taxonomy_revision,
+                           categories]() {
             AdvancedClassificationTaskResult result;
             try {
                 result.proposal =
@@ -282,8 +296,8 @@ void ImageUnderstandingController::requestAdvancedReview(
                 result.diagnostic = QString::fromUtf8(error.what());
             }
             return result;
-        }
-    ));
+        })
+    );
 }
 
 void ImageUnderstandingController::acceptAdvancedReview() {
@@ -405,6 +419,10 @@ void ImageUnderstandingController::restoreSnapshot() {
 }
 
 void ImageUnderstandingController::reconcileBackgroundPolicy() {
+    if (profile_switch_pending_) {
+        pause();
+        return;
+    }
     if (!executionAllowed()) {
         if (state_ == State::Running)
             pause();
@@ -429,7 +447,7 @@ void ImageUnderstandingController::reconcileBackgroundPolicy() {
 }
 
 void ImageUnderstandingController::startRun(const bool start_new) {
-    if (!executionAllowed() || batch_watcher_.isRunning())
+    if (profile_switch_pending_ || !executionAllowed() || batch_watcher_.isRunning())
         return;
     if (start_new) {
         generation_.clear();
@@ -456,17 +474,19 @@ void ImageUnderstandingController::runNextBatch() {
     const bool start_new = first_batch_;
     const bool auto_apply = preferences_->imageUnderstandingAutoApplyKeywords();
     first_batch_ = false;
-    batch_watcher_.setFuture(QtConcurrent::run(
-        [runner = batch_runner_, scope, minimum_rating, generation, start_new, auto_apply]() {
-            ImageUnderstandingTaskResult result;
-            try {
-                result.batch = runner(scope, minimum_rating, generation, start_new, auto_apply);
-            } catch (const std::exception& error) {
-                result.diagnostic = QString::fromUtf8(error.what());
+    batch_watcher_.setFuture(
+        QtConcurrent::run(
+            [runner = batch_runner_, scope, minimum_rating, generation, start_new, auto_apply]() {
+                ImageUnderstandingTaskResult result;
+                try {
+                    result.batch = runner(scope, minimum_rating, generation, start_new, auto_apply);
+                } catch (const std::exception& error) {
+                    result.diagnostic = QString::fromUtf8(error.what());
+                }
+                return result;
             }
-            return result;
-        }
-    ));
+        )
+    );
 }
 
 void ImageUnderstandingController::finishBatch() {
@@ -508,10 +528,13 @@ void ImageUnderstandingController::finishAdvancedReview() {
 QString ImageUnderstandingController::expectedPolicyRevision() const {
     const QString scope = preferences_->imageUnderstandingScanScope();
     const bool uses_rating = scope == QStringLiteral("minimum_rating")
-        || scope == QStringLiteral("liked_or_minimum_rating");
+                             || scope == QStringLiteral("liked_or_minimum_rating");
     return QStringLiteral("shadow.image-understanding-scan:v1:%1:rating-%2:batch-4")
-        .arg(scope, uses_rating ? QString::number(preferences_->imageUnderstandingMinimumRating())
-                                : QStringLiteral("none"));
+        .arg(
+            scope,
+            uses_rating ? QString::number(preferences_->imageUnderstandingMinimumRating())
+                        : QStringLiteral("none")
+        );
 }
 
 bool ImageUnderstandingController::executionAllowed() const noexcept {

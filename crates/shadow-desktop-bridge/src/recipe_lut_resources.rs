@@ -5,7 +5,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::{Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, bail};
@@ -103,6 +103,54 @@ pub(crate) fn restore_lut(lut: &mut LutEditParameters, installed: &InstalledReci
     } else {
         false
     }
+}
+
+// Resource identity, not the historical directory, chooses bytes after a
+// profile restore. Immutable Recipes and their digests stay unchanged.
+pub(crate) fn local_lut_path(root: &Path, resource_id: &str) -> PathBuf {
+    root.join("lut-store").join(format!("{resource_id}.cube"))
+}
+
+pub(crate) fn read_verified_lut(
+    path: &Path,
+    resource_id: &str,
+    root: Option<&Path>,
+) -> Result<Vec<u8>> {
+    let relocated;
+    let path = if let Some(root) = root {
+        relocated = local_lut_path(root, resource_id);
+        let canonical = relocated
+            .canonicalize()
+            .context("open library-local LUT resource")?;
+        if !canonical.starts_with(root.canonicalize()?) {
+            bail!("managed LUT leaves its library directory");
+        }
+        &relocated
+    } else {
+        path
+    };
+    let bytes = read_bounded_lut(path)?;
+    if format!("{:x}", Sha256::digest(&bytes)) != resource_id {
+        bail!("library-local LUT SHA-256 does not match its Recipe resource identity");
+    }
+    Ok(bytes)
+}
+
+pub(crate) fn relocate_draft_luts(draft: &mut GradeStackDraft, root: &Path) -> Result<()> {
+    for node in &mut draft.grade_nodes {
+        let lut = &mut node.fine.lut;
+        if !lut.resource_id.is_empty() {
+            let path = local_lut_path(root, &lut.resource_id);
+            // Validate before exposing a relocated editable path. Missing or
+            // corrupt local bytes cannot fall back to the original library.
+            read_verified_lut(&path, &lut.resource_id, Some(root))?;
+            lut.managed_path = path
+                .to_str()
+                .context("managed LUT path is not UTF-8")?
+                .to_owned();
+        }
+    }
+    Ok(())
 }
 
 fn verify_lut(resource_id: &str, bytes: &[u8]) -> Result<()> {

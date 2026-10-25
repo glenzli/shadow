@@ -7,6 +7,7 @@
 
 // Library lifecycle and durable application services.
 mod digest_hex;
+mod editable_document;
 pub mod headless_project;
 mod history_service;
 mod library_server_host;
@@ -34,6 +35,8 @@ mod session_review;
 mod session_scan;
 mod session_semantic_search;
 mod session_smart_classification;
+mod storage_profile_archive;
+use editable_document::{pack_editable_document, unpack_editable_document};
 mod wall_clock;
 
 // Photo source admission, preview delivery, and detail viewports.
@@ -75,6 +78,7 @@ mod session_subject_emphasis;
 mod session_subject_mask;
 mod shared_grade_application;
 mod shared_grade_library;
+mod shared_grade_linking;
 mod subject_mask_people;
 mod subject_mask_runtime;
 mod subject_mask_service;
@@ -122,9 +126,25 @@ use lut_export::{
 use photo_inspection_service::PhotoInspectionService;
 use preview_render_registry::PreviewRenderRegistry;
 use recipe_v1::new_basic_grade_node;
+use storage_profile_archive::{
+    ProfileArchiveControl, cancel_profile_archive, new_profile_archive_control,
+    profile_archive_progress, run_profile_archive,
+};
 
 #[cxx::bridge(namespace = "shadow::desktop")]
 mod ffi {
+    #[derive(Debug)]
+    struct FfiProfileArchiveResult {
+        root: FfiNativePath,
+        file_count: u64,
+        byte_count: u64,
+    }
+
+    #[derive(Debug)]
+    struct FfiProfileArchiveProgress {
+        completed_files: u64,
+        total_files: u64,
+    }
     /// Filesystem path supplied by the native desktop shell.
     ///
     /// Only the payload selected by `platform` may be populated. `display_path`
@@ -536,6 +556,19 @@ mod ffi {
         representation_id: String,
         source_path: String,
         title: String,
+    }
+
+    struct FfiDocumentHistoryEntry {
+        key: String,
+        before_base: String,
+        before: FfiEditSettings,
+        after_base: String,
+        after: FfiEditSettings,
+    }
+
+    struct FfiDocumentUndo {
+        undo: Vec<FfiDocumentHistoryEntry>,
+        redo: Vec<FfiDocumentHistoryEntry>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1453,6 +1486,12 @@ mod ffi {
         shared_layer_id: String,
         /// Empty for a photo-local node; shared nodes always pin one revision.
         shared_revision_id: String,
+        /// Scheduling policy only; the graph and revision remain immutable.
+        shared_follow_head: bool,
+        /// Derived presentation of this exact immutable shared revision.
+        shared_revision_number: u32,
+        /// Read-only hint against this node's pinned revision, never persisted.
+        shared_locally_modified: bool,
         local_mask_components: Vec<FfiMaskComponent>,
         /// Applied after the complete ordered component composition.
         local_mask_invert: bool,
@@ -1480,6 +1519,57 @@ mod ffi {
         revision_number: u32,
         label: String,
         grade_node: FfiGradeNode,
+    }
+
+    #[derive(Debug)]
+    struct FfiSharedGradePublishReceipt {
+        shared_node: FfiSharedGradeNode,
+        state: FfiPhotoEditState,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FfiSharedGradeLinkedInstance {
+        grade_node_id: String,
+        shared_revision_id: String,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FfiSharedGradeLinkedTarget {
+        photo_id: String,
+        source_path: String,
+        representation_id: String,
+        source_byte_len: u64,
+        has_source_modified_at_ms: bool,
+        source_modified_at_ms: i64,
+        variant_id: String,
+        working_commit_id: String,
+        instances: Vec<FfiSharedGradeLinkedInstance>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FfiSharedGradeTargetPage {
+        targets: Vec<FfiSharedGradeLinkedTarget>,
+        has_more: bool,
+        next_photo_id: String,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum FfiSharedGradeUpdateStatus {
+        Unchanged = 0,
+        Updated = 1,
+        LocalChanged = 2,
+        HeadChanged = 3,
+        Unavailable = 4,
+    }
+
+    #[derive(Debug)]
+    struct FfiSharedGradeLinkUpdateReceipt {
+        status: FfiSharedGradeUpdateStatus,
+        diagnostic: String,
+        has_state: bool,
+        /// Prepare returns the durable before state; commit returns the exact
+        /// acknowledged state projected before its atomic publication.
+        state: FfiPhotoEditState,
     }
 
     /// One small, deterministic repair target. Coordinates are normalized to
@@ -2533,6 +2623,19 @@ mod ffi {
 
         fn new_basic_grade_node(label: &str) -> Result<FfiGradeNode>;
 
+        type ProfileArchiveControl;
+        fn new_profile_archive_control() -> Box<ProfileArchiveControl>;
+        fn cancel_profile_archive(control: &ProfileArchiveControl);
+        fn profile_archive_progress(control: &ProfileArchiveControl) -> FfiProfileArchiveProgress;
+        fn run_profile_archive(
+            action: u8,
+            source: &FfiNativePath,
+            parent: &FfiNativePath,
+            name: &str,
+            expected_id: &str,
+            control: &ProfileArchiveControl,
+        ) -> Result<FfiProfileArchiveResult>;
+
         #[cxx_name = "open_desktop_session"]
         fn open_desktop_session_ffi(
             catalog_path: &FfiNativePath,
@@ -2550,6 +2653,12 @@ mod ffi {
         fn stop(self: &LibraryServerHost) -> Result<FfiLibraryServerSnapshot>;
         fn reset_cache(self: &LibraryServerHost) -> Result<FfiLibraryServerSnapshot>;
         fn begin_folder_scan(self: &DesktopSession, scan_id: u64) -> Result<()>;
+        fn prioritize_visible_refinements(
+            self: &DesktopSession,
+            scan_id: u64,
+            selected: &str,
+            visible: &[String],
+        ) -> Result<bool>;
         #[cxx_name = "scan_folder"]
         fn scan_folder_ffi(
             self: &DesktopSession,
@@ -2562,6 +2671,33 @@ mod ffi {
             self: &DesktopSession,
             source_path: &FfiNativePath,
         ) -> Result<FfiPipelineInput>;
+        fn unpack_editable_document(
+            source: &FfiNativePath,
+            root: &FfiNativePath,
+        ) -> Result<Vec<FfiPipelineInput>>;
+        fn pack_editable_document(
+            root: &FfiNativePath,
+            output: &FfiNativePath,
+            replace_sha256: &str,
+        ) -> Result<String>;
+        fn record_document_history(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            action: u8,
+            entry: &FfiDocumentHistoryEntry,
+        ) -> Result<()>;
+        fn document_undo(self: &DesktopSession, photo_id: &str) -> Result<FfiDocumentUndo>;
+        fn document_history_page(
+            self: &DesktopSession,
+            photo_id: &str,
+            before: i64,
+        ) -> Result<String>;
+        fn checkout_document_history(
+            self: &DesktopSession,
+            photo_id: &str,
+            step: i64,
+        ) -> Result<FfiDocumentHistoryEntry>;
         fn review_page(
             self: &DesktopSession,
             cursor_path: &str,
@@ -2902,6 +3038,8 @@ mod ffi {
             representation_id: &str,
             token: u64,
         ) -> Result<FfiSemanticSearchReport>;
+        fn begin_smart_classification(self: &DesktopSession) -> Result<u64>;
+        fn cancel_smart_classification(self: &DesktopSession, token: u64);
         fn classify_smart_categories_batch(
             self: &DesktopSession,
             infer_base_url: &str,
@@ -2911,6 +3049,7 @@ mod ffi {
             generation: &str,
             start_new: bool,
             clear_embeddings: bool,
+            token: u64,
         ) -> Result<FfiSmartClassificationBatch>;
         fn smart_classification_snapshot(
             self: &DesktopSession,
@@ -3091,6 +3230,55 @@ mod ffi {
             source_path: &str,
         ) -> Result<Vec<FfiOpticsProfileCandidate>>;
         fn shared_grade_nodes(self: &DesktopSession) -> Result<Vec<FfiSharedGradeNode>>;
+        fn publish_shared_grade_node_from_photo(
+            self: &DesktopSession,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            expected_variant_id: &str,
+            expected_representation_id: &str,
+            settings: &FfiEditSettings,
+            grade_node_id: &str,
+            label: &str,
+        ) -> Result<FfiSharedGradePublishReceipt>;
+        fn shared_grade_linked_targets(
+            self: &DesktopSession,
+            layer_id: &str,
+            revision_id: &str,
+            after_photo_id: &str,
+            limit: u32,
+        ) -> Result<FfiSharedGradeTargetPage>;
+        fn shared_grade_linked_target(
+            self: &DesktopSession,
+            layer_id: &str,
+            photo_id: &str,
+            source_path: &str,
+        ) -> Result<FfiSharedGradeLinkedTarget>;
+        fn prepare_shared_grade_link_update(
+            self: &DesktopSession,
+            layer_id: &str,
+            revision_id: &str,
+            target: &FfiSharedGradeLinkedTarget,
+        ) -> Result<FfiSharedGradeLinkUpdateReceipt>;
+        fn commit_shared_grade_link_update(
+            self: &DesktopSession,
+            layer_id: &str,
+            revision_id: &str,
+            target: &FfiSharedGradeLinkedTarget,
+        ) -> Result<FfiSharedGradeLinkUpdateReceipt>;
+        fn commit_shared_grade_node_link(
+            self: &DesktopSession,
+            plan_token: u64,
+            layer_id: &str,
+            revision_id: &str,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            expected_variant_id: &str,
+            settings: &FfiEditSettings,
+        ) -> Result<FfiPhotoEditState>;
         fn publish_shared_grade_node(
             self: &DesktopSession,
             label: &str,
@@ -3248,6 +3436,18 @@ mod ffi {
             expected_working_commit_id: &str,
             settings: &FfiEditSettings,
         ) -> Result<FfiEditSettings>;
+        /// Appends the finalized destination plan before projecting managed
+        /// masks back into opaque Qt controls, with working-head + Variant CAS.
+        fn commit_semantic_recipe_append(
+            self: &DesktopSession,
+            plan_token: u64,
+            photo_id: &str,
+            source_path: &str,
+            base_commit_id: &str,
+            expected_working_commit_id: &str,
+            expected_variant_id: &str,
+            settings: &FfiEditSettings,
+        ) -> Result<FfiPhotoEditState>;
         fn close_semantic_recipe_import(self: &DesktopSession, plan_token: u64) -> Result<()>;
         /// Allocates one cancellable completion job before Qt submits its
         /// input render and Infer Runtime work.
@@ -3439,6 +3639,7 @@ struct DesktopSession {
     edit_detail_sessions: Mutex<EditDetailSessionCache>,
     edit_detail_render_token: AtomicU64,
     semantic_search_token: AtomicU64,
+    smart_classification_token: AtomicU64,
     similar_review_token: AtomicU64,
     people_analyses: people_analysis_service::PeopleAnalysisService,
     people_library: people_library_store::PeopleLibraryStore,
@@ -3559,6 +3760,7 @@ fn open_desktop_session_at(
         edit_detail_sessions: Mutex::new(EditDetailSessionCache::default()),
         edit_detail_render_token: AtomicU64::new(0),
         semantic_search_token: AtomicU64::new(0),
+        smart_classification_token: AtomicU64::new(0),
         similar_review_token: AtomicU64::new(0),
         people_analyses: people_analysis_service::PeopleAnalysisService::new(),
         people_library: people_library_store::PeopleLibraryStore::open(people_library_root)?,

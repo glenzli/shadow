@@ -2,6 +2,7 @@
 
 #include <QtConcurrentRun>
 
+#include <algorithm>
 #include <initializer_list>
 #include <stdexcept>
 #include <utility>
@@ -42,26 +43,14 @@ constexpr qint64 STREAM_VISUAL_REFRESH_MIN_INTERVAL_MS = 150;
 
 } // namespace
 
-ReviewImportCoordinator::ReviewImportCoordinator(
-    Operations operations,
-    QObject* parent
-)
-    : QObject(parent),
-      operations_(std::move(operations)) {
-    if (!operations_.begin || !operations_.scan || !operations_.progress
-        || !operations_.cancel) {
-        throw std::invalid_argument(
-            "all Review import operations are required"
-        );
+ReviewImportCoordinator::ReviewImportCoordinator(Operations operations, QObject* parent) :
+    QObject(parent), operations_(std::move(operations)) {
+    if (!operations_.begin || !operations_.scan || !operations_.progress || !operations_.cancel) {
+        throw std::invalid_argument("all Review import operations are required");
     }
     progress_timer_.setInterval(SCAN_PROGRESS_POLL_MS);
     progress_timer_.setTimerType(Qt::CoarseTimer);
-    connect(
-        &progress_timer_,
-        &QTimer::timeout,
-        this,
-        &ReviewImportCoordinator::pollProgress
-    );
+    connect(&progress_timer_, &QTimer::timeout, this, &ReviewImportCoordinator::pollProgress);
     connect(
         &watcher_,
         &QFutureWatcher<TaskResult>::finished,
@@ -75,10 +64,25 @@ ReviewImportCoordinator::~ReviewImportCoordinator() {
     if (running_) {
         try {
             static_cast<void>(operations_.cancel(generation_));
-        } catch (const std::exception&) {
-        }
+        } catch (const std::exception&) {}
     }
     watcher_.waitForFinished();
+}
+
+void ReviewImportCoordinator::prioritizeVisible(
+    const QString& selected,
+    const QStringList& visible
+) {
+    if (!running_ || !operations_.prioritize || visible.size() > 512
+        || (selected == priority_selected_ && visible == priority_visible_))
+        return;
+    try {
+        operations_.prioritize(generation_, selected, visible);
+        priority_selected_ = selected;
+        priority_visible_ = visible;
+    } catch (const std::exception&) {
+        // A hint cannot fail an import. Keep the last accepted scheduling policy.
+    }
 }
 
 bool ReviewImportCoordinator::scanning() const noexcept {
@@ -139,10 +143,7 @@ LocalizedUiMessage ReviewImportCoordinator::refreshingStatusMessage() const {
             "Refreshing photos retained before import was cancelled…"
         ));
     }
-    return import_message(QT_TRANSLATE_NOOP(
-        "ReviewController",
-        "Loading the local Library…"
-    ));
+    return import_message(QT_TRANSLATE_NOOP("ReviewController", "Loading the local Library…"));
 }
 
 LocalizedUiMessage ReviewImportCoordinator::readyStatusMessage(
@@ -188,18 +189,18 @@ LocalizedUiMessage ReviewImportCoordinator::readyStatusMessage(
             "Local Library is empty · add a photo folder to begin"
         ));
     }
-    const char* const source = loading_more
-        ? QT_TRANSLATE_NOOP(
-              "ReviewController",
-              "%1 / %2 loaded · %3 supported · %4/%5 preview checks completed "
-              "· %6 filesystem issues · %7 decode failures · %8 preview "
-              "failures · loading more"
-          )
-        : QT_TRANSLATE_NOOP(
-              "ReviewController",
-              "%1 / %2 loaded · %3 supported · %4/%5 preview checks completed "
-              "· %6 filesystem issues · %7 decode failures · %8 preview failures"
-          );
+    const char* const source =
+        loading_more ? QT_TRANSLATE_NOOP(
+                           "ReviewController",
+                           "%1 / %2 loaded · %3 supported · %4/%5 preview checks completed "
+                           "· %6 filesystem issues · %7 decode failures · %8 preview "
+                           "failures · loading more"
+                       )
+                     : QT_TRANSLATE_NOOP(
+                           "ReviewController",
+                           "%1 / %2 loaded · %3 supported · %4/%5 preview checks completed "
+                           "· %6 filesystem issues · %7 decode failures · %8 preview failures"
+                       );
     return import_message(
         source,
         {
@@ -215,19 +216,15 @@ LocalizedUiMessage ReviewImportCoordinator::readyStatusMessage(
     );
 }
 
-bool ReviewImportCoordinator::start(
-    const QUrl& folder_url,
-    const bool admitted
-) {
+bool ReviewImportCoordinator::start(const QUrl& folder_url, const bool admitted) {
     if (!admitted || running_) {
         return false;
     }
     const QString path = folder_url.toLocalFile();
     if (path.isEmpty()) {
-        publishStatus(import_message(QT_TRANSLATE_NOOP(
-            "ReviewController",
-            "The selected folder is not a local path"
-        )));
+        publishStatus(import_message(
+            QT_TRANSLATE_NOOP("ReviewController", "The selected folder is not a local path")
+        ));
         return false;
     }
 
@@ -239,10 +236,7 @@ bool ReviewImportCoordinator::start(
         operations_.begin(next_generation);
     } catch (const std::exception& error) {
         publishStatus(import_message(
-            QT_TRANSLATE_NOOP(
-                "ReviewController",
-                "Could not start import · %1"
-            ),
+            QT_TRANSLATE_NOOP("ReviewController", "Could not start import · %1"),
             {QString::fromUtf8(error.what())}
         ));
         return false;
@@ -262,12 +256,7 @@ bool ReviewImportCoordinator::start(
     emit runningChanged();
     emit progressChanged();
     emit statusMessageChanged();
-    watcher_.setFuture(QtConcurrent::run(
-        runTask,
-        operations_,
-        folder_path_,
-        generation_
-    ));
+    watcher_.setFuture(QtConcurrent::run(runTask, operations_, folder_path_, generation_));
     return true;
 }
 
@@ -281,10 +270,7 @@ bool ReviewImportCoordinator::cancel() {
         }
     } catch (const std::exception& error) {
         publishStatus(import_message(
-            QT_TRANSLATE_NOOP(
-                "ReviewController",
-                "Could not cancel import · %1"
-            ),
+            QT_TRANSLATE_NOOP("ReviewController", "Could not cancel import · %1"),
             {QString::fromUtf8(error.what())}
         ));
         return false;
@@ -305,17 +291,18 @@ bool ReviewImportCoordinator::takeStreamRefreshRequest(
     }
     const quint64 catalogued = cataloguedFiles();
     const qint64 elapsed = clock_.isValid() ? clock_.elapsed() : 0;
-    const bool first_visible_page = visible_items == 0 && catalogued > 0
-        && last_stream_refresh_ms_ < 0;
-    const bool paced_refresh = catalogued >= next_stream_refresh_at_
+    const bool first_visible_page =
+        visible_items == 0 && catalogued > 0 && last_stream_refresh_ms_ < 0;
+    const bool paced_refresh =
+        catalogued >= next_stream_refresh_at_
         && (last_stream_refresh_ms_ < 0
-            || elapsed - last_stream_refresh_ms_
-                >= STREAM_REFRESH_MIN_INTERVAL_MS);
-    const bool visual_refresh =
-        preview_artifacts_ready_ > last_stream_visual_refresh_at_
-        && (last_stream_refresh_ms_ < 0
-            || elapsed - last_stream_refresh_ms_
-                >= STREAM_VISUAL_REFRESH_MIN_INTERVAL_MS);
+            || elapsed - last_stream_refresh_ms_ >= STREAM_REFRESH_MIN_INTERVAL_MS);
+    const bool visual_refresh = preview_artifacts_ready_ > last_stream_visual_refresh_at_
+                                && (last_stream_refresh_ms_ < 0
+                                    || elapsed - last_stream_refresh_ms_ >= std::max<qint64>(
+                                           STREAM_VISUAL_REFRESH_MIN_INTERVAL_MS,
+                                           std::min<qint64>(2'000, (visible_items / 96) * 50)
+                                       ));
     if (!first_visible_page && !paced_refresh && !visual_refresh) {
         return false;
     }
@@ -360,10 +347,7 @@ void ReviewImportCoordinator::pollProgress() {
     } catch (const std::exception& error) {
         if (running_) {
             publishStatus(import_message(
-                QT_TRANSLATE_NOOP(
-                    "ReviewController",
-                    "Import progress unavailable · %1"
-                ),
+                QT_TRANSLATE_NOOP("ReviewController", "Import progress unavailable · %1"),
                 {QString::fromUtf8(error.what())}
             ));
         }
@@ -409,8 +393,8 @@ void ReviewImportCoordinator::finishTask() {
         decode_cancelled_ = result.report.decode_cancelled;
         issue_count_ = result.report.issue_count;
         terminal_cancelled_ = result.report.cancelled;
-        phase_ = result.report.cancelled ? BackendScanPhase::Cancelled
-                                         : BackendScanPhase::Completed;
+        phase_ =
+            result.report.cancelled ? BackendScanPhase::Cancelled : BackendScanPhase::Completed;
     }
     running_ = false;
     emit terminalRefreshRequested();
@@ -470,6 +454,8 @@ void ReviewImportCoordinator::updateActiveStatus() {
 }
 
 void ReviewImportCoordinator::resetProgress() {
+    priority_selected_.clear();
+    priority_visible_.clear();
     update_sequence_ = 0;
     files_seen_ = 0;
     supported_files_ = 0;
@@ -489,9 +475,7 @@ void ReviewImportCoordinator::resetProgress() {
     last_stream_refresh_ms_ = -1;
 }
 
-void ReviewImportCoordinator::applyProgress(
-    const BackendScanProgress& progress
-) {
+void ReviewImportCoordinator::applyProgress(const BackendScanProgress& progress) {
     update_sequence_ = progress.update_sequence;
     files_seen_ = progress.files_seen;
     supported_files_ = progress.supported_files;

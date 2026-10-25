@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -11,11 +12,29 @@
 // persistence and preview rendering; this helper only records working-state
 // transitions. A gesture remains pending until it ends, so an arbitrary number
 // of slider updates becomes exactly one undo entry.
-template <typename State, std::size_t MaxEntries = 256>
-class SessionEditHistory final {
+template <typename State, std::size_t MaxEntries = 256> class SessionEditHistory final {
     static_assert(MaxEntries > 0);
 
-public:
+  public:
+    struct Entry final {
+        State before;
+        State after;
+        std::string key;
+    };
+    struct Archive final {
+        std::vector<Entry> undo;
+        std::vector<Entry> redo;
+    };
+    // The optional document owner persists completed semantic actions on its
+    // worker. The normal Library keeps its bounded session-only behavior.
+    void setObserver(std::function<void(unsigned, const Entry&)> observer) {
+        observer_ = std::move(observer);
+    }
+    void restore(Archive archive) {
+        pending_.reset();
+        undo_ = std::move(archive.undo);
+        redo_ = std::move(archive.redo);
+    }
     [[nodiscard]] bool canUndo() const noexcept {
         return !undo_.empty() || pendingChanged();
     }
@@ -46,11 +65,7 @@ public:
         pending_ = Pending{std::move(key), current, current};
     }
 
-    void record(
-        std::string key,
-        const State& before,
-        const State& after
-    ) {
+    void record(std::string key, const State& before, const State& after) {
         if (before == after) {
             return;
         }
@@ -78,20 +93,20 @@ public:
         }
         pending_->after = current;
         if (pending_->before != pending_->after) {
-            pushUndo(Entry{
-                std::move(pending_->before),
-                std::move(pending_->after),
-                std::move(pending_->key),
-            });
+            pushUndo(
+                Entry{
+                    std::move(pending_->before),
+                    std::move(pending_->after),
+                    std::move(pending_->key),
+                }
+            );
             redo_.clear();
         }
         pending_.reset();
     }
 
-    [[nodiscard]] std::optional<State> undo(
-        const State& current,
-        std::string* const restored_key = nullptr
-    ) {
+    [[nodiscard]] std::optional<State>
+    undo(const State& current, std::string* const restored_key = nullptr) {
         if (restored_key != nullptr) {
             restored_key->clear();
         }
@@ -110,13 +125,13 @@ public:
             *restored_key = entry.key;
         }
         redo_.push_back(std::move(entry));
+        if (observer_)
+            observer_(1, redo_.back());
         return result;
     }
 
-    [[nodiscard]] std::optional<State> redo(
-        const State& current,
-        std::string* const restored_key = nullptr
-    ) {
+    [[nodiscard]] std::optional<State>
+    redo(const State& current, std::string* const restored_key = nullptr) {
         if (restored_key != nullptr) {
             restored_key->clear();
         }
@@ -134,17 +149,13 @@ public:
         if (restored_key != nullptr) {
             *restored_key = entry.key;
         }
-        pushUndo(std::move(entry));
+        if (observer_)
+            observer_(2, entry);
+        pushUndo(std::move(entry), false);
         return result;
     }
 
-private:
-    struct Entry final {
-        State before;
-        State after;
-        std::string key;
-    };
-
+  private:
     struct Pending final {
         std::string key;
         State before;
@@ -155,7 +166,9 @@ private:
         return pending_ && pending_->before != pending_->after;
     }
 
-    void pushUndo(Entry entry) {
+    void pushUndo(Entry entry, bool record = true) {
+        if (record && observer_)
+            observer_(0, entry);
         if (undo_.size() == MaxEntries) {
             undo_.erase(undo_.begin());
         }
@@ -165,4 +178,5 @@ private:
     std::vector<Entry> undo_;
     std::vector<Entry> redo_;
     std::optional<Pending> pending_;
+    std::function<void(unsigned, const Entry&)> observer_;
 };

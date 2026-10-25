@@ -19,9 +19,9 @@ use shadow_domain::{DecoderSnapshot, PreviewPayload, ProxyPayload};
 
 use self::grid_proxy_identity::grid_proxy_variant_key;
 use crate::isolated_proxy::{
-    ProviderHostInventory, configured_helper_path, isolated_helper_implementation_identity,
+    ProviderHostInventory, configured_helper_path, extract_isolated_embedded_preview,
+    inspect_isolated_photo_quick, isolated_helper_implementation_identity,
     render_isolated_photo_reference_proxy, render_isolated_photo_reference_proxy_to_file,
-    snapshot_isolated_photo_decoder,
 };
 
 #[derive(Debug, Clone)]
@@ -31,6 +31,24 @@ pub struct PhotoInspector {
     proxy_variant_key: String,
     isolated_proxy_runtime_cache: Option<PathBuf>,
     isolated_helper_path: Option<PathBuf>,
+    pending_preview: Option<PendingCameraPreview>,
+}
+
+#[derive(Clone)]
+struct PendingCameraPreview {
+    path: PathBuf,
+    source: shadow_catalog::RepresentationFingerprint,
+    result: Result<Option<PreviewPayload>, String>,
+}
+
+impl std::fmt::Debug for PendingCameraPreview {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PendingCameraPreview")
+            .field("source", &self.source)
+            .field("has_preview", &matches!(self.result, Ok(Some(_))))
+            .finish_non_exhaustive()
+    }
 }
 
 // The generated-library proxy is deliberately a lower-bandwidth artifact than the warm editing
@@ -92,6 +110,7 @@ impl PhotoInspector {
             proxy_variant_key,
             isolated_proxy_runtime_cache: runtime_cache_root,
             isolated_helper_path: helper_path,
+            pending_preview: None,
         })
     }
 
@@ -136,6 +155,7 @@ impl PhotoInspector {
             proxy_variant_key,
             isolated_proxy_runtime_cache: Some(runtime_cache_root),
             isolated_helper_path: Some(helper_path),
+            pending_preview: None,
         })
     }
 }
@@ -154,6 +174,7 @@ impl DecodeInspector for PhotoInspector {
     }
 
     fn inspect(&mut self, path: &Path) -> Result<DecoderSnapshot, String> {
+        self.pending_preview = None;
         match self.inspection_route(path) {
             InspectionRoute::Direct => inspect_photo(path)
                 .map(|mut snapshot| {
@@ -173,14 +194,23 @@ impl DecodeInspector for PhotoInspector {
                 let helper_path = self.isolated_helper_path.as_deref().ok_or_else(|| {
                     "isolated RAW decode helper is unavailable; Shadow will not run a native decoder inside the desktop process".to_owned()
                 })?;
-                snapshot_isolated_photo_decoder(helper_path, runtime_cache_root, path)
-                    .map(|snapshot| {
+                let source =
+                    shadow_core::fingerprint_source(path).map_err(|error| error.to_string())?;
+                inspect_isolated_photo_quick(helper_path, runtime_cache_root, path)
+                    .map(|inspection| {
+                        self.pending_preview = Some(PendingCameraPreview {
+                            path: path.to_path_buf(),
+                            source,
+                            result: inspection.preview,
+                        });
                         // The child may route through a private provider whose
                         // identity the desktop intentionally cannot load. The
                         // catalog's stable inspector contract therefore remains
                         // the public outer router; helper identity stays in the
                         // local isolated snapshot cache only.
-                        snapshot.into_catalog_snapshot(self.provider_id(), self.provider_version())
+                        inspection
+                            .snapshot
+                            .into_catalog_snapshot(self.provider_id(), self.provider_version())
                     })
                     .map_err(|error| error.to_string())
             }
@@ -189,10 +219,24 @@ impl DecodeInspector for PhotoInspector {
 
     fn extract_best_preview(&mut self, path: &Path) -> Result<Option<PreviewPayload>, String> {
         match self.inspection_route(path) {
-            // The catalog worker will immediately ask render_proxy after this
-            // legitimate None. Never reopen a helper-enabled RAW merely to
-            // decode embedded preview bytes in the desktop process.
-            InspectionRoute::IsolatedRaw => Ok(None),
+            InspectionRoute::IsolatedRaw => {
+                if let Some(preview) = self.pending_preview.take()
+                    && preview.path == path
+                    && shadow_core::fingerprint_source(path).ok() == Some(preview.source)
+                {
+                    return preview.result;
+                }
+                let cache = self
+                    .isolated_proxy_runtime_cache
+                    .as_deref()
+                    .ok_or_else(|| "isolated preview cache is unavailable".to_owned())?;
+                let helper = self
+                    .isolated_helper_path
+                    .as_deref()
+                    .ok_or_else(|| "isolated embedded preview helper is unavailable".to_owned())?;
+                extract_isolated_embedded_preview(helper, cache, path)
+                    .map_err(|error| error.to_string())
+            }
             InspectionRoute::Direct => {
                 extract_best_photo_preview(path).map_err(|error| error.to_string())
             }

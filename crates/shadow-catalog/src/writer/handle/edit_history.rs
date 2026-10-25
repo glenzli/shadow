@@ -1,14 +1,19 @@
 //! Client adapters for per-photo Recipe and Library-wide edit history.
 
-use shadow_domain::{EditCommitId, EditObjectId, PhotoId, PhotoVariantId, RecipeCommitId};
+use shadow_domain::{
+    EditCommitId, EditObjectId, LayerId, LayerRevision, LayerRevisionId, PhotoId, PhotoVariantId,
+    RecipeCommitId,
+};
 
 use crate::{
     ActivatePhotoVariant, CatalogError, CommitEditRepository, CommitRecipe,
-    CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult, CreatePhotoVariant,
-    EditObjectPackWrite, EditObjectRecord, EditRepositoryCommitRecord, EditRepositoryHistoryCursor,
-    EditRepositoryHistoryPage, EditRepositoryRefPage, EditRepositoryRefRecord, PhotoVariantRecord,
-    RecipeCommitRecord, RecipeHistoryCursor, RecipeHistoryPage, RecipeRefRecord,
-    RemovePhotoVariant, RenamePhotoVariant, SetRecipeRef, StoreEditObjectPackResult,
+    CommitRecipeAndEditRepository, CommitRecipeAndEditRepositoryResult,
+    CommitSharedGradeLinkUpdate, CreatePhotoVariant, EditObjectPackWrite, EditObjectRecord,
+    EditRepositoryCommitRecord, EditRepositoryHistoryCursor, EditRepositoryHistoryPage,
+    EditRepositoryRefPage, EditRepositoryRefRecord, PhotoVariantRecord, RecipeCommitRecord,
+    RecipeHistoryCursor, RecipeHistoryPage, RecipeRefRecord, RemovePhotoVariant,
+    RenamePhotoVariant, SetRecipeRef, SharedGradeLinkWriteResult, SharedGradeLinkedWorkingPage,
+    SharedGradeSourceGuard, StoreEditObjectPackResult,
 };
 
 use super::super::{
@@ -17,6 +22,64 @@ use super::super::{
 };
 
 impl CatalogHandle {
+    pub fn shared_grade_linked_working_page(
+        &self,
+        layer_id: LayerId,
+        revision_id: LayerRevisionId,
+        after_photo_id: Option<PhotoId>,
+        limit: usize,
+    ) -> Result<SharedGradeLinkedWorkingPage, CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::SharedGradeLinkedWorkingPage(
+                layer_id,
+                revision_id,
+                after_photo_id,
+                limit,
+                response,
+            ))
+        })
+    }
+
+    pub fn shared_grade_revision_by_id(
+        &self,
+        layer_id: LayerId,
+        revision_id: LayerRevisionId,
+    ) -> Result<Option<LayerRevision>, CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::SharedGradeRevisionById(
+                layer_id,
+                revision_id,
+                response,
+            ))
+        })
+    }
+
+    pub fn commit_shared_grade_link_update(
+        &self,
+        request: &CommitSharedGradeLinkUpdate,
+    ) -> Result<SharedGradeLinkWriteResult, CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::CommitSharedGradeLinkUpdate(
+                Box::new(request.clone()),
+                response,
+            ))
+        })
+    }
+
+    pub fn commit_shared_grade_publication(
+        &self,
+        request: &CommitRecipeAndEditRepository,
+        source: &SharedGradeSourceGuard,
+    ) -> Result<Option<CommitRecipeAndEditRepositoryResult>, CatalogError> {
+        self.request(|response| {
+            Message::EditHistory(EditHistoryMessage::CommitSharedGradePublication(
+                Box::new(request.clone()),
+                source.clone(),
+                response,
+            ))
+        })
+    }
+
     /// Persists an immutable Recipe commit and optional ref move through the
     /// single Catalog writer.
     ///

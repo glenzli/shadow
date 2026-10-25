@@ -372,6 +372,9 @@ shadow::desktop::FfiGradeNode ffi_grade_node(const BackendGradeNode& source) {
     result.grade_node_id = source.grade_node_id.toStdString();
     result.shared_layer_id = source.shared_layer_id.toStdString();
     result.shared_revision_id = source.shared_revision_id.toStdString();
+    result.shared_follow_head = source.shared_follow_head;
+    result.shared_revision_number = source.shared_revision_number;
+    result.shared_locally_modified = false;
     result.local_mask_components.reserve(
         static_cast<std::size_t>(source.local_mask_components.size())
     );
@@ -425,6 +428,9 @@ BackendGradeNode grade_node(const shadow::desktop::FfiGradeNode& source) {
     result.grade_node_id = qstring(source.grade_node_id);
     result.shared_layer_id = qstring(source.shared_layer_id);
     result.shared_revision_id = qstring(source.shared_revision_id);
+    result.shared_follow_head = source.shared_follow_head;
+    result.shared_revision_number = source.shared_revision_number;
+    result.shared_locally_modified = source.shared_locally_modified;
     result.local_mask_components.reserve(
         checked_qt_vector_size(source.local_mask_components.size(), "local_mask_components")
     );

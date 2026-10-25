@@ -14,6 +14,7 @@ struct ExportTaskResult final {
     int completed = 0;
     int failed = 0;
     bool cancelled = false;
+    bool paused = false;
     bool recovered_on_startup = false;
     int paused_conflicts = 0;
     int cancelled_items = 0;
@@ -34,7 +35,8 @@ namespace ExportTaskRunner {
     const QString& settings_json,
     bool recover_existing,
     const std::shared_ptr<std::atomic_bool>& cancellation_token,
-    const ExportProgressReporter& report_progress
+    const ExportProgressReporter& report_progress,
+    const std::shared_ptr<std::atomic_bool>& pause_token = {}
 );
 
 } // namespace ExportTaskRunner

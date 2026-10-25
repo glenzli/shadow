@@ -11,6 +11,91 @@ Rectangle {
     id: gallery
 
     required property var workspace
+    property string scrollAnchorPhotoId: ""
+    property string scrollAnchorRepresentationId: ""
+    property real scrollAnchorOffset: 0
+    property int scrollAnchorRevision: 0
+
+    function publishVisibleRefinements() {
+        if (!workspace || !workspace.controller || !workspace.controller.scanning)
+            return
+        const ids = []
+        let selected = ""
+        if (visible && justifiedGrid.visible) {
+            const children = justifiedGrid.contentItem.children
+            const top = justifiedGrid.contentY
+            const bottom = top + justifiedGrid.height
+            for (let i = 0; i < children.length && ids.length < 512; ++i) {
+                const row = children[i]
+                if (row.rowKind !== "photos" || !row.visible || row.height <= 0
+                        || row.y + row.height <= top || row.y >= bottom)
+                    continue
+                for (let j = 0; j < row.items.length && ids.length < 512; ++j) {
+                    const entry = row.items[j]
+                    if (entry.isRemote)
+                        continue
+                    const id = String(entry.representationId || "")
+                    if (id.length > 0)
+                        ids.push(id)
+                }
+            }
+            if (ids.indexOf(workspace.selectedRepresentationId) >= 0)
+                selected = workspace.selectedRepresentationId
+        } else if (visible && singlePhotoPreview.visible) {
+            singlePhotoPreview.publishVisibleRefinements()
+            return
+        }
+        workspace.controller.prioritizeVisibleRefinements(selected, ids)
+    }
+
+    // Sampling coalesces layout/scroll/selection changes and never walks the full library.
+    Timer {
+        interval: 75
+        repeat: true
+        running: gallery.visible && gallery.workspace.controller.scanning
+        onTriggered: gallery.publishVisibleRefinements()
+    }
+    onVisibleChanged: if (!visible) publishVisibleRefinements()
+
+    function retainScrollAnchor() {
+        scrollAnchorPhotoId = ""
+        if (!justifiedGrid.visible || justifiedGrid.moving)
+            return
+        const first = justifiedGrid.indexAt(1, justifiedGrid.contentY + 1)
+        for (let row = Math.max(0, first); row < Math.max(0, first) + 4; ++row) {
+            const item = justifiedGrid.itemAtIndex(row)
+            if (!item || item.rowKind !== "photos" || item.items.length === 0)
+                continue
+            scrollAnchorPhotoId = String(item.items[0].photoId)
+            scrollAnchorRepresentationId = String(item.items[0].representationId)
+            scrollAnchorOffset = justifiedGrid.contentY - item.y
+            return
+        }
+    }
+
+    function restoreScrollAnchor(revision) {
+        if (revision !== scrollAnchorRevision || scrollAnchorPhotoId.length === 0
+                || justifiedGrid.moving)
+            return
+        const target = gallery.workspace.justifiedReviewLayout.navigationTarget(
+            scrollAnchorPhotoId, scrollAnchorRepresentationId, 0, 0)
+        if (!target || String(target.photoId) !== scrollAnchorPhotoId)
+            return
+        justifiedGrid.positionViewAtIndex(Number(target.layoutRow), ListView.Beginning)
+        justifiedGrid.contentY += scrollAnchorOffset
+    }
+
+    Connections {
+        target: gallery.workspace.justifiedReviewLayout
+        function onModelAboutToBeReset() {
+            ++gallery.scrollAnchorRevision
+            gallery.retainScrollAnchor()
+        }
+        function onModelReset() {
+            const revision = gallery.scrollAnchorRevision
+            Qt.callLater(() => gallery.restoreScrollAnchor(revision))
+        }
+    }
     property bool similarStackCollapsed: true
     property bool clusterHadResults: false
     signal openLibraryManagementRequested()
@@ -242,11 +327,21 @@ Rectangle {
         bottomMargin: galleryDecisionToolbar.visible
             ? galleryDecisionToolbar.height + 30 : 18
         cacheBuffer: 900
+        // The opt-in benchmark drives an exact number of pages itself.
+        property bool automaticPagingEnabled: true
         model: gallery.workspace.justifiedReviewLayout
 
+        function positionAtPhoto(photoId, representationId) {
+            const target = gallery.workspace.justifiedReviewLayout.navigationTarget(
+                photoId, representationId, 0, 0)
+            if (!target || String(target.photoId) !== photoId)
+                return false
+            positionViewAtIndex(Number(target.layoutRow), ListView.Beginning)
+            return true
+        }
+
         function maybeLoadMore() {
-            if (gallery.workspace.controller.hasMore
-                    && !gallery.workspace.controller.scanning
+            if (automaticPagingEnabled && visible && gallery.workspace.controller.hasMore
                     && !gallery.workspace.controller.refreshing
                     && !gallery.workspace.controller.busy
                     && !gallery.workspace.controller.loadingMore
@@ -264,6 +359,17 @@ Rectangle {
         onContentYChanged: maybeLoadMore()
         onHeightChanged: Qt.callLater(maybeLoadMore)
         onCountChanged: Qt.callLater(maybeLoadMore)
+
+        Connections {
+            target: gallery.workspace.controller
+            function onHasMoreChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+            function onRefreshingChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+            function onBusyChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+            function onLoadingMoreChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+            function onComparisonStateChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+            function onDecisionStateChanged() { Qt.callLater(justifiedGrid.maybeLoadMore) }
+        }
+
         Keys.onPressed: event => {
             let horizontal = 0
             let vertical = 0

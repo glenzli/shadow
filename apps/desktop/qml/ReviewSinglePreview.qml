@@ -17,6 +17,23 @@ Item {
     property string pendingForwardPhotoId: ""
     property string pendingForwardRepresentationId: ""
 
+    function publishVisibleRefinements() {
+        if (!visible)
+            return
+        const ids = []
+        const children = filmstrip.contentItem.children
+        for (let i = 0; i < children.length && ids.length < 512; ++i) {
+            const card = children[i]
+            if (!card.visible || card.x + card.width <= filmstrip.contentX
+                    || card.x >= filmstrip.contentX + filmstrip.width)
+                continue
+            const id = String(card.representationId || "")
+            if (id.length > 0)
+                ids.push(id)
+        }
+        review.controller.prioritizeVisibleRefinements(review.selectedRepresentationId, ids)
+    }
+
     function clearPendingForward() {
         pendingForwardPhotoId = ""
         pendingForwardRepresentationId = ""
@@ -24,7 +41,7 @@ Item {
 
     function maybeLoadMore(force) {
         const controller = review.controller
-        if (!visible || !controller.hasMore || controller.scanning
+        if (!visible || !controller.hasMore
                 || controller.refreshing || controller.busy
                 || controller.loadingMore || controller.comparisonBusy
                 || controller.decisionBusy)
@@ -153,7 +170,8 @@ Item {
         anchors.bottom: filmstripPanel.top
         anchors.margins: 20
         anchors.bottomMargin: 16
-        source: root.review.selectedVisualSource
+        // This surface stays alive in grid mode; visibility alone does not stop image loading.
+        source: root.visible ? root.review.selectedVisualSource : ""
         autoTransform: root.review.selectedVisualAutoTransform
         selectionKey: root.review.selectedPhotoId.length > 0
             ? root.review.selectedPhotoId + "/" + root.review.selectedRepresentationId : ""
@@ -365,7 +383,7 @@ Item {
 
                 ShadowRoundedImage {
                     anchors.fill: parent
-                    source: filmCard.visualSource
+                    source: root.visible ? filmCard.visualSource : ""
                     autoTransform: filmCard.visualAutoTransform
                     radius: filmCard.radius
                     fillMode: Image.PreserveAspectCrop

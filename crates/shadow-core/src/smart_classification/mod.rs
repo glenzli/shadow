@@ -175,6 +175,35 @@ pub fn classify_review_smart_categories(
     request: &SmartClassificationRequest,
     policy: SmartClassificationPolicy,
 ) -> Result<SmartClassificationBatch, SmartClassificationError> {
+    classify_review_smart_categories_cancellable(
+        catalog,
+        cache_root,
+        provider,
+        definitions,
+        request,
+        policy,
+        &|| false,
+    )
+}
+
+/// Classifies a bounded page with cancellation during provider calls.
+///
+/// Cancellation pauses the durable generation without advancing an incomplete
+/// page or replacing published memberships. Verified vectors remain reusable
+/// when that exact generation resumes.
+///
+/// # Errors
+///
+/// Returns the same validation, integrity and provider errors as the uncancellable API.
+pub fn classify_review_smart_categories_cancellable(
+    catalog: &CatalogHandle,
+    cache_root: impl Into<std::path::PathBuf>,
+    provider: &impl SemanticEmbeddingProvider,
+    definitions: &[SmartCategoryDefinition],
+    request: &SmartClassificationRequest,
+    policy: SmartClassificationPolicy,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<SmartClassificationBatch, SmartClassificationError> {
     validate_request(definitions, policy)?;
     validate_config_revision(&request.config_revision)?;
     if request.clear_embeddings && !request.start_new {
@@ -196,7 +225,23 @@ pub fn classify_review_smart_categories(
         policy,
         &mut index,
         &checkpoint,
+        cancelled,
     );
+    if matches!(result, Err(SmartClassificationError::Cancelled)) {
+        index.mark_paused(&checkpoint.generation)?;
+        return Ok(SmartClassificationBatch {
+            config_revision: checkpoint.config_revision,
+            generation: checkpoint.generation,
+            status: SmartClassificationStatus::Paused,
+            embedding_space: checkpoint.embedding_space,
+            model_build: checkpoint.model_build,
+            processed_photos: checkpoint.processed_photos,
+            embedded_photos: 0,
+            reused_photos: 0,
+            skipped_photos: 0,
+            total_photos: checkpoint.total_photos,
+        });
+    }
     if result.is_err() {
         let _ = index.mark_failed(&checkpoint.generation);
     }
@@ -211,11 +256,13 @@ fn classify_prepared_batch(
     policy: SmartClassificationPolicy,
     index: &mut SemanticIndex,
     checkpoint: &index::RunCheckpoint,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<SmartClassificationBatch, SmartClassificationError> {
+    check_cancelled(cancelled)?;
     let expected_space =
         (!checkpoint.embedding_space.is_empty()).then_some(checkpoint.embedding_space.as_str());
     let (category_embeddings, embedding_space, model_build) =
-        category_embeddings(index, provider, definitions, expected_space)?;
+        category_embeddings(index, provider, definitions, expected_space, cancelled)?;
     let (adaptive_models, explicit_feedback) = adaptive_models(
         definitions,
         &category_embeddings,
@@ -232,6 +279,7 @@ fn classify_prepared_batch(
     let mut uncertainties = Vec::new();
 
     for item in page.items {
+        check_cancelled(cancelled)?;
         let Some(record) = item.visual else {
             skipped_photos += 1;
             continue;
@@ -247,12 +295,16 @@ fn classify_prepared_batch(
                 cached.embedding
             } else {
                 let image = loader.load_bytes(&record)?;
-                let evidence = provider.embed_image_semantics(
-                    &image,
-                    "image/jpeg",
-                    &source_revision,
-                    SemanticRequestPriority::Background,
-                )?;
+                let evidence = provider
+                    .embed_image_semantics_cancellable(
+                        &image,
+                        "image/jpeg",
+                        &source_revision,
+                        SemanticRequestPriority::Background,
+                        cancelled,
+                    )?
+                    .ok_or(SmartClassificationError::Cancelled)?;
+                check_cancelled(cancelled)?;
                 if evidence.width != record.artifact.dimensions.width
                     || evidence.height != record.artifact.dimensions.height
                 {
@@ -333,6 +385,7 @@ fn classify_prepared_batch(
         }
     }
 
+    check_cancelled(cancelled)?;
     let updated = index.checkpoint_batch(
         checkpoint,
         &embedding_space,
@@ -547,11 +600,13 @@ fn category_embeddings(
     provider: &impl SemanticEmbeddingProvider,
     definitions: &[SmartCategoryDefinition],
     expected_space: Option<&str>,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<(Vec<SemanticEmbedding>, String, String), SmartClassificationError> {
     let mut selected_space = expected_space.map(str::to_owned);
     let mut selected_build = String::new();
     let mut embeddings = Vec::with_capacity(definitions.len());
     for definition in definitions {
+        check_cancelled(cancelled)?;
         let revision = category_revision(definition);
         let cached = selected_space
             .as_deref()
@@ -563,12 +618,16 @@ fn category_embeddings(
         } = if let Some(cached) = cached {
             cached
         } else {
-            let evidence = provider.embed_text_semantics(
-                &definition.description,
-                &revision,
-                Some("en"),
-                SemanticRequestPriority::Background,
-            )?;
+            let evidence = provider
+                .embed_text_semantics_cancellable(
+                    &definition.description,
+                    &revision,
+                    Some("en"),
+                    SemanticRequestPriority::Background,
+                    cancelled,
+                )?
+                .ok_or(SmartClassificationError::Cancelled)?;
+            check_cancelled(cancelled)?;
             if let Some(space) = selected_space.as_deref()
                 && evidence.embedding.space().space_id() != space
             {
@@ -595,6 +654,14 @@ fn category_embeddings(
         selected_space.expect("validated non-empty definitions"),
         selected_build,
     ))
+}
+
+fn check_cancelled(cancelled: &dyn Fn() -> bool) -> Result<(), SmartClassificationError> {
+    if cancelled() {
+        Err(SmartClassificationError::Cancelled)
+    } else {
+        Ok(())
+    }
 }
 
 type ExplicitFeedback = HashMap<(String, String, String), FeedbackLabel>;
@@ -733,6 +800,8 @@ fn semantic_source_revision(photo_id: PhotoId, record: &CachedArtifactRecord) ->
 
 #[derive(Debug, Error)]
 pub enum SmartClassificationError {
+    #[error("smart classification was cancelled")]
+    Cancelled,
     #[error("smart classification policy is invalid")]
     InvalidPolicy,
     #[error("smart category definitions are invalid")]

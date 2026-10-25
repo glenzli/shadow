@@ -515,6 +515,8 @@ class ReviewController final : public QObject {
     Q_INVOKABLE void cancelScan();
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void
+    prioritizeVisibleRefinements(const QString& selected, const QStringList& visible);
+    Q_INVOKABLE void
     requestPhotoInspection(const QString& photo_id, const QString& representation_id);
     Q_INVOKABLE void retryPhotoInspection();
     Q_INVOKABLE void clearPhotoInspection();

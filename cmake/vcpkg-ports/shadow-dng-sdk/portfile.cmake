@@ -11,7 +11,9 @@ file(COPY
     "${CMAKE_CURRENT_LIST_DIR}/shadow_dng_host.h"
     DESTINATION "${SOURCE_PATH}"
 )
-vcpkg_cmake_configure(SOURCE_PATH "${SOURCE_PATH}")
+vcpkg_find_acquire_program(PKGCONFIG)
+vcpkg_cmake_configure(SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS "-DPKG_CONFIG_EXECUTABLE=${PKGCONFIG}")
 vcpkg_cmake_install()
 vcpkg_cmake_config_fixup(CONFIG_PATH "lib/cmake/ShadowDngSdk")
 vcpkg_fixup_pkgconfig()

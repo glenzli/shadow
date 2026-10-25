@@ -14,7 +14,8 @@ use std::{
 };
 
 use anyhow::{Result as AnyResult, anyhow, bail};
-use shadow_domain::LayerInstanceId;
+use shadow_catalog::RepresentationFingerprint;
+use shadow_domain::{LayerInstanceId, RepresentationId};
 
 use crate::{
     recipe_import_plan::{
@@ -29,6 +30,8 @@ pub(crate) const MAX_ACTIVE_RECIPE_IMPORT_PLANS: usize = 8;
 pub(crate) struct RecipeImportTargetIdentity {
     pub(crate) photo_id: String,
     pub(crate) source_path: String,
+    pub(crate) representation_id: RepresentationId,
+    pub(crate) source_fingerprint: RepresentationFingerprint,
     pub(crate) base_commit_id: String,
     pub(crate) expected_working_commit_id: String,
     pub(crate) settings: GradeStackDraft,

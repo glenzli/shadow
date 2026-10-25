@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <tuple>
 
 // Complete non-destructive edit wire contract used by the Qt shell facade.
 struct BackendBasicEditParameters final {
@@ -176,6 +177,12 @@ struct BackendGradeNode final {
     QString grade_node_id;
     QString shared_layer_id;
     QString shared_revision_id;
+    // Following schedules explicit working-Recipe updates; rendering always
+    // consumes the immutable graph pinned by shared_revision_id.
+    bool shared_follow_head = false;
+    std::uint32_t shared_revision_number = 0;
+    // Read-only pinned-revision hint; not part of the editable content identity.
+    bool shared_locally_modified = false;
     // One node-bound MaskRevision owns this complete ordered vector. Empty
     // means no mask. It is deliberately photo-instance-local even when the
     // adjustment graph is shared.
@@ -198,7 +205,33 @@ struct BackendGradeNode final {
     BackendFineEditParameters fine;
     bool enabled = true;
 
-    bool operator==(const BackendGradeNode&) const = default;
+    bool operator==(const BackendGradeNode& other) const {
+        const auto content = [](const BackendGradeNode& node) {
+            return std::tie(
+                node.grade_node_id,
+                node.shared_layer_id,
+                node.shared_revision_id,
+                node.shared_follow_head,
+                node.shared_revision_number,
+                node.local_mask_components,
+                node.local_mask_invert,
+                node.label,
+                node.opacity,
+                node.exposure_render_op_id,
+                node.contrast_render_op_id,
+                node.selective_tone_render_op_id,
+                node.white_balance_render_op_id,
+                node.saturation_render_op_id,
+                node.perceptual_color_render_op_id,
+                node.lut_render_op_id,
+                node.sharpen_render_op_id,
+                node.basic,
+                node.fine,
+                node.enabled
+            );
+        };
+        return content(*this) == content(other);
+    }
 };
 
 struct BackendSharedGradeNode final {

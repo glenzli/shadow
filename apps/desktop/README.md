@@ -1,5 +1,84 @@
 # Shadow desktop
 
+## Storage profiles
+
+[`src/storage_profile.*`](src/storage_profile.hpp) owns startup selection, immutable profile identity,
+per-process-owner locking and one-time legacy preference preservation. The existing application-data
+directory is the Daily Library; Debug builds default to its separate `-debug` sibling. `--profile
+daily` opens existing daily data, `--profile debug` selects the debug library, and `--profile-root
+/absolute/path` opens a separate custom library. The existing `SHADOW_DESKTOP_DATA_ROOT` override
+remains supported, but ambiguous selections and overlapping daily/profile directories fail closed.
+
+Each process owns one profile until exit. Catalog, derived rasters, people, remote mirrors,
+cache, preferences, brush presets, and resumable jobs all use its resolved root. Daily enrollment
+preserves existing Catalog and attachment bytes in place and copies legacy preferences and brush
+presets without deleting their originals; existing profile-local settings win. Debug/custom profiles
+never import daily settings. Only the read-only Infer Runtime service identity is shared; all
+request state, checkpoints and generated artifacts remain local to the selected profile.
+
+The independent Shadow Server uses the same profile selection and defaults. Desktop and Server
+can coexist in one profile because they own separate Catalogs, preference files and lifetime locks;
+profile enrollment is serialized. Daily Server preferences are preserved once from their legacy
+native store into `server-manager.ini`, independently of desktop preference preservation.
+
+`storage_profile_registry.*` owns bounded recent locations and separate normal/Debug launch choices;
+the bootstrap registry lives outside the libraries and contains no Catalog, edit, settings or job data.
+`storage_profile_controller.*` projects names, locations and management actions into
+`StorageProfilesDialog.qml`, reachable from the title bar or Settings → Libraries. Display-name
+changes preserve the profile UUID and directory. New libraries start empty; opening an existing
+library checks its marker, identity and writer lock. A missing or replaced remembered library opens
+the explicit recovery chooser in `storage_profile_startup.*`, without recreating it or falling back.
+Debug remembers only independent libraries; an intentional Daily open does not replace that choice.
+
+`storage_profile_switch.*` owns the two-process restart handshake. The management controller freezes
+background admission, checkpoints resumable classification/export work, waits for other current
+operations and uses the existing editor close-save contract. The target must load its services and
+packaged window, then acknowledge activation before the old process releases its lock. Save or target
+startup failure retains the old session. Export pause stops between atomic photo publications and
+leaves queued items for that library's next recovery drain. Original bytes, Recipe meaning and render
+cache identities are unchanged; existing close-time preview cancellation is the only render boundary,
+with no new host/device transfers or recomputation path.
+
+Changing profiles requires a new process. Close older Shadow builds before first opening Daily
+with the profile-aware build, since older executables do not participate in the profile lock.
+
+`storage_profile_archive.*` owns the cancellable native worker for **Back Up**, **Verify Backup**,
+**Restore Backup**, and **Test Copy** in the Libraries dialog. Its Qt-free storage contract lives in
+[`storage_profile_archive`](../../crates/shadow-desktop-bridge/src/storage_profile_archive.rs).
+Backup first pauses background admission, waits for current operations, saves edits and flushes
+preferences. Library sharing must be stopped; the independent Server writer and enrollment are
+locked during the consistency cut. Each SQLite database is snapshotted including committed WAL,
+then checked for integrity; every retained file has a bounded streaming SHA-256 verification.
+File modification times are recorded and restored, preserving source fingerprints for owned
+materialized originals even if a backup's filesystem timestamps change. Nested directories are
+synchronized before the completion marker. An immutable `Shadow-Backup-*` directory contains
+`shadow-library-backup.json` and `payload/`.
+Existing destinations are never replaced, and incomplete private directories are removed on failure
+or cancellation. Interrupted processes may leave an incomplete directory, which has no valid
+completion marker and cannot be opened as a library or accepted as a backup.
+
+Backups retain Catalogs, immutable edit history, derived masks/rasters, LUTs, local people data,
+preferences and cache resources (including authored AI Foundation artifacts), excluding process
+locks and SQLite sidecars. They reference external original photos without copying them; those
+photos need a separate backup. Backups can contain saved local credentials and should be stored
+with the same access restrictions as the source library. No encryption or automatic schedule is
+implied. Symlinks and unsupported/newer archive or Catalog formats fail before restoration.
+
+Restore verifies the entire archive and creates a new custom library with a fresh UUID. Test Copy
+uses the same verified snapshot and restore path. Both preserve the old library, immutable Recipes
+and completed history, relocate profile-owned materialized-original locations, retire unfinished
+export/import work, turn off automatic AI and sharing admission, and omit inherited sharing/remote
+credentials. Cache and attachments are physically independent. Creating them adds a recent location
+without switching the current library or either launch choice; select the result to open it. The
+startup recovery chooser also offers Restore Backup when the remembered library is unavailable.
+The archive format currently restores on the original operating-system path platform.
+
+Managed LUT execution and editable projection resolve the active library's `lut-store/<SHA-256>.cube`
+and verify its bytes rather than reopening a historical profile path. Saved Recipe bytes and digests
+stay unchanged. This is resource-location persistence policy: existing warm CFA/Foundation/input,
+grade recomputation frontier, CPU/device transfers and revision cancellation remain unchanged, and
+preview/detail/export consume the same verified LUT document under their existing quality policies.
+
 The first macOS Review slice is a native Qt Quick application backed by the existing Rust and C++ core:
 
 ```text
@@ -10,6 +89,7 @@ startup Catalog page / Add Folder / QML Review grid
   → shadow-core controlled scan / cancellable decode workers
   → shadow-catalog single writer
   → embedded preview or generated proxy cache
+  → live keyset paging while import continues
   → bounded display-luma observation worker → dated Catalog summary
 
 two signed exact-artifact handles / explicit outcome
@@ -27,7 +107,53 @@ remote Mac manifest / client-local proxy cache
   → normal local Catalog identity → Precision + local RecipePreview precedence
 ```
 
-QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. While import is changing sort order, each live first-page snapshot is reconciled as a prefix: matching rows move or update, new rows insert, and every already loaded key outside that prefix remains in its existing tail. No pagination cursor is exposed in this phase. At terminal state Qt pages again from the stable origin until the rebuilt sorted prefix contains every still-present loaded representation, then atomically publishes that exact boundary and re-enables pagination. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests use a stable URL across Library generations, allowing Qt to reuse decoded images and textures when the ticket is unchanged; comparison requests retain their generation identity. Grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
+QML never opens SQLite, calls LibRaw, or interprets blob paths. The global local Library loads its existing first page at startup; Add Folder starts a separate import job and no longer clears already visible photos. The first page owns startup priority on the serialized Catalog boundary: aggregate count, facets, albums, keywords, source health, and shared Grade Nodes begin only after that page has been projected, so secondary navigation cannot delay visible photos. The Rust bridge returns bounded Review metadata pages using a stable path/representation cursor and exposes a generation-bound progress snapshot for Qt to poll. During import, each live refresh covers the loaded window: matching rows move or update, new rows insert, and already loaded identities remain available. Paging retains a continuation and coalesces overlapping keyset results while source metadata changes. The terminal refresh reconciles the same loaded window before accepting its final continuation. Compressed visuals are not stored in the Qt model: a forced-asynchronous `QQuickImageProvider` requests a verified cache blob only when Qt needs that image and decodes only the requested display size. [`src/review_visual_request.hpp`](src/review_visual_request.hpp) owns the image-URL protocol: signed immutable grid requests use a stable URL across Library generations, allowing Qt to reuse decoded images and textures when the ticket is unchanged; comparison requests retain their generation identity. Grid requests may finish while the Library advances generations, whereas decoded-frame-receipt comparison requests remain strictly current-generation-bound.
+
+## Copying adjustments between photos
+
+[`adjustment_transfer_controller.*`](src/adjustment_transfer_controller.hpp) owns the profile-local
+clipboard, frozen destination queue, visible-photo priority, cancellation, failed-photo retry and
+one-batch undo receipts. [`adjustment_transfer_operations.*`](src/adjustment_transfer_operations.hpp)
+validates the complete copied nodes and prepares each target on a worker. Semantic masks use the
+existing Recipe import inference lifecycle; each target is committed only after every mask succeeds.
+Spatial masks require explicit normalized-position copying. Cropping, RAW development and Foundation
+remain specific to the target. Repeated application of the same clipboard uses acknowledged heads
+to avoid duplicates, and changed targets retain their newer edits.
+
+[`edit_adjustment_transfer.cpp`](src/edit_adjustment_transfer.cpp) reserves the editor only during
+the final metadata transaction, then accepts the committed stack through the existing grade-history
+and preview path. Warm RAW/Foundation input remains reusable; copied grades invalidate from the
+first appended node. Unopened destinations publish a 1024-pixel Gallery preview through the existing
+warm renderer and durable cache boundary after the metadata reservation is released. Only one
+background preview runs at a time; foreground rendering preempts it, and cancellation preserves
+acknowledged edits. Existing inference and rendering own their bounded input/output transfers; this
+controller introduces no separate pixel pipeline. Preview, detail and export consume the same
+persisted nodes and target-specific masks through their existing quality policies.
+
+`AdjustmentTransferBar.qml` provides direct Copy/Paste and Apply to selected photos;
+`AdjustmentTransferDialog.qml` owns remembered copy choices and the nonmodal result list.
+
+## Shared node links
+
+[`shared_grade_link_controller.*`](src/shared_grade_link_controller.hpp) and
+[`shared_grade_link_operations.*`](src/shared_grade_link_operations.hpp) own explicit shared
+publication, bounded destination updates, cancellation and recovery. The Rust
+[`shared_grade_linking`](../../crates/shadow-desktop-bridge/src/shared_grade_linking.rs) owner
+publishes the source link and shared revision together and checks each destination's working
+head, active Variant, source and exact node instances before updating it.
+
+Following is persistent scheduling intent. Each Recipe still pins and materializes its exact
+shared graph, so history and export reproduce that snapshot. Strength, enabled state, masks and
+unrelated edits remain specific to each photo. A locally changed shared graph needs explicit
+publication or unlinking; background propagation preserves it. Inactive Variants retain their
+snapshot and link intent until they are active and explicitly synchronized. Unlinking keeps the
+current graph as an independent node. Ordinary adjustment copying remains independent.
+The local-change hint compares the node with its own pinned revision, including after the shared
+head advances. It is read-only presentation data and does not invalidate the edit or render identity.
+
+Linked grade updates reuse the existing warm source and recompute from the affected grade onwards.
+The existing renderer owns side-resource transfers and the final Gallery preview publication;
+the link queue adds no pixel transport or alternate preview/detail/export algorithm.
 
 ## Single-photo external edit tools
 
@@ -99,6 +225,12 @@ Shared confirmation surfaces use [`qml/ShadowDialog.qml`](qml/ShadowDialog.qml) 
 titles, spacing and standard action buttons; acceptance policy remains with each feature.
 
 ## Desktop source index
+
+Bulk import uses the core's separate quick-preview and refinement pool. Camera JPEGs remain
+session-local browsing visuals; deterministic generated proxies keep the existing render identity.
+The Library query coordinator refreshes the loaded window and retains its continuation during
+import, while gallery and filmstrip paging remain available. Gallery layout updates retain the
+visible photo anchor rather than restarting browsing at the first page.
 
 Application startup is split from environment-driven automation:
 
@@ -182,7 +314,7 @@ Application startup is split from environment-driven automation:
 - [`src/smart_category_controller.*`](src/smart_category_controller.hpp) owns configurable,
   overlapping smart-category definitions, checkpointed background classification, atomic
   membership publication, and category selection. It consumes the rebuildable SigLIP sidecar
-  through `DesktopBackend`; vectors never enter Qt or the Catalog.
+  through `DesktopBackend`; vectors never enter Qt or the Catalog. Each bounded batch has a session-local cancellation token; pause, profile switch and shutdown cancel provider requests before waiting, leaving an incomplete page resumable.
 - [`src/image_understanding_controller.*`](src/image_understanding_controller.hpp) owns the
   policy-gated Qwen background queue, resumable checkpoints, description and keyword proposal
   projection, and explicit closed-set classification review. It keeps model output as assistant
@@ -191,7 +323,7 @@ Application startup is split from environment-driven automation:
 - [`src/justified_review_layout_model.*`](src/justified_review_layout_model.hpp) owns virtualized
   aspect-preserving photo rows plus ordered presentation sections. Section descriptors contain
   display labels and exact photo-representation membership only; filter and grouping-rule
-  compilation stay upstream, and unassigned filtered photos are never silently discarded.
+  compilation stay upstream, and unassigned filtered photos are never silently discarded. Recomputed rows with unchanged ordered membership publish only changed roles, preserving delegates and decoded visuals during proxy upgrades; changed membership still takes the safe reset path.
   [`src/review_gallery_grouping_controller.*`](src/review_gallery_grouping_controller.hpp) is that
   upstream grouping owner. It composes an optional semantic-relevance outer section with selected
   stable dimensions, currently mutually exclusive year/month/week and an independent resolved
@@ -415,6 +547,9 @@ Application startup is split from environment-driven automation:
   verifies full-stack lossless round trips plus malformed vector rejection.
 - [`src/desktop_smoke_harness.cpp`](src/desktop_smoke_harness.cpp) owns documented
   `SHADOW_DESKTOP_*` flag selection and shared scenario dispatch.
+- [`src/desktop_smoke/bulk_import.cpp`](src/desktop_smoke/bulk_import.cpp) owns native import
+  observations and the fixed four-page/four-photo workload. The external-profile runner and
+  comparable-input checks live in [`benchmark_bulk_import.py`](../../scripts/benchmark_bulk_import.py).
 - [`src/desktop_smoke/scenario_setup.cpp`](src/desktop_smoke/scenario_setup.cpp) owns first-photo,
   first-comparison, and first-decision readiness wiring.
 - [`src/desktop_smoke/application_lifecycle.cpp`](src/desktop_smoke/application_lifecycle.cpp)
@@ -1065,7 +1200,8 @@ Review presentation keeps the workspace as the composition and compatibility sur
   complete coordinator signal, invalidation, and status-routing topology.
 - [`src/review_import_coordinator.cpp`](src/review_import_coordinator.cpp) owns one complete folder
   import after cross-workflow admission: scan identity, blocking worker lifetime, monotonic progress
-  polling, cooperative cancellation, live-Library refresh pacing, terminal outcome, localized
+  polling, coalesced gallery/filmstrip refinement hints fenced to that scan, cooperative
+  cancellation, live-Library refresh pacing, terminal outcome, localized
   status, and destruction wait. `ReviewController` decides only whether another workflow permits
   the import and performs the requested page/source-health refreshes. Its
   [`tests/review_import_coordinator/`](tests/review_import_coordinator/) contracts cover progress
@@ -1300,7 +1436,7 @@ Review presentation keeps the workspace as the composition and compatibility sur
   explicit destructive confirmation. The album coordinator remains the authoritative owner of
   data, selection, and mutations behind the stable controller facade.
 
-Import progress is intentionally absolute rather than a fabricated percentage: the scanner does not perform a separate counting walk. During active scanning the UI reports discovered/catalogued files and queued preview checks; exact completed, decode-failure, preview-failure, and cancelled-job counts are terminal summaries. The first catalogued batch can appear while enumeration and preview checks are still active, and those rows may already be opened in Precision. Manual decisions, Compare writes, Add Folder, and pagination remain disabled through the terminal stable-prefix refresh. Stop Import uses one cooperative token across enumeration and queued decode jobs; already registered assets remain durable, queued jobs skip provider work, and one in-flight provider call may finish. If cancellation reaches enumeration/catalog registration, that journal ends as `cancelled`; if it arrives only during the `PreparingPreviews` tail, enumeration may already be journaled `completed` while the desktop/FFI job still terminates `cancelled` and queued preview work stops.
+Import progress is intentionally absolute rather than a fabricated percentage: the scanner does not perform a separate counting walk. During active scanning the UI reports discovered/catalogued files and queued preview checks; exact completed, decode-failure, preview-failure, and cancelled-job counts are terminal summaries. The first catalogued batch can appear while enumeration and preview checks are still active, and those rows may already be opened in Precision. Manual decisions, Compare writes, and Add Folder remain disabled through the terminal stable-prefix refresh; gallery and filmstrip paging remain available during import. Stop Import uses one cooperative token across enumeration and queued decode jobs; already registered assets remain durable, queued jobs skip provider work, and one in-flight provider call may finish. If cancellation reaches enumeration/catalog registration, that journal ends as `cancelled`; if it arrives only during the `PreparingPreviews` tail, enumeration may already be journaled `completed` while the desktop/FFI job still terminates `cancelled` and queued preview work stops.
 
 When the preferred cached visual is JPEG, the core also queues a maximum-512-edge
 display-luma observation on a separate bounded single-worker actor. Catalog commits
@@ -1462,6 +1598,33 @@ slice does not yet copy the separate technical-observation payload into the
 feedback event.
 
 ## macOS development
+
+The fixed import benchmark uses a fresh profile and registry per run, a 1440 × 900 window, exactly
+384 loaded photos, and source rows 288, 192, 96, 0. Each step waits for the real QML thumbnail's
+generated proxy. It records this wait separately from total import time and GUI peak RSS. Pass
+`--seed-catalog` only for a prepared scratch catalog: its copied metadata/order are retained while
+decode snapshots and visual artifact references are cleared in the copy. Source photos stay read-only.
+
+```sh
+python3 scripts/benchmark_bulk_import.py run --app /absolute/Shadow.app \
+  --source /absolute/corpus --seed-catalog /absolute/scratch/catalog.sqlite \
+  --output /private/tmp/import-fifo --fifo
+python3 scripts/benchmark_bulk_import.py run --app /absolute/Shadow.app \
+  --source /absolute/corpus --seed-catalog /absolute/scratch/catalog.sqlite \
+  --output /private/tmp/import-visible
+python3 scripts/benchmark_bulk_import.py compare \
+  /private/tmp/import-fifo/result.json /private/tmp/import-visible/result.json
+```
+
+Use the same linked app for both policies. `--fifo` only disables viewport hints inside the opt-in
+fixed benchmark; ordinary imports prioritize visible photos. The complete bundle (including the RAW
+helper), corpus bytes/timestamps, seed identity, machine, page count, window size/display scale, and selected
+photo identities must match before comparison. Bundle and corpus must also stay unchanged within
+each run. Use an optimized build for timing; `--profile-launch-context debug` still isolates every
+run from the daily Library. These are measured
+observations rather than universal timing budgets; the event-loop p95 is a histogram upper bound.
+Run the two policies sequentially without concurrent builds. The legacy continuous-wheel smoke
+remains a functional stress test, not a comparable performance workload.
 
 The API baseline is Qt 6.11.1, matching the current stable development runtime.
 Shadow follows the latest stable Qt minor instead of preserving compatibility
@@ -1745,13 +1908,20 @@ identities before entering a group-scoped comparison.
 
 ## Independent photo editor
 
+The independent editor saves self-contained **`.shdw` documents**. **Save document**,
+**Save as**, **Save and close**, and the paged **History** dialog preserve originals,
+complete editable state, named versions, semantic steps and their resources. Open an
+existing document through `--isolate`, a lone `.shdw` argument, the picker, or drop.
+Each opened document gets its own private process. See the [document contract](../../docs/development/editable-document.md)
+for the ZIP envelope, source relocation, publication rules and `shadow.document-edit/1`.
+
 Run `Shadow --isolate /absolute/photo.nef /absolute/another.jpg`, or `Shadow --isolate` to
 choose/drop files in the window. Input decoding uses the installed RAW, JPEG, HEIF and supported
-TIFF providers; PNG input is currently unsupported (PNG output is available). This opens an independent process with a private temporary
+TIFF and PNG providers. This opens an independent process with a private temporary
 Catalog/cache/settings root; the regular Library can remain open. Add up to 256 local photos,
 switch with the photo selector or previous/next buttons, then export the set. Switching saves
-each photo's working Recipe in this session. Closing without export requires confirmation and
-removes the temporary session; this is not a persistent project format.
+each photo's working Recipe in this session. Closing with unsaved document edits offers saving or discarding them, then
+removes the temporary session. Only an explicit document save retains its state for reopening.
 
 Interactive export chooses an existing output folder, JPEG/PNG/TIFF, sRGB/Display P3 and format
 quality/bit depth. Outputs retain full resolution, use `-edited` filenames with numeric collision

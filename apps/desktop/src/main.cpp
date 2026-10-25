@@ -1,3 +1,4 @@
+#include "adjustment_transfer_controller.hpp"
 #include "ai_preferences.hpp"
 #include "amap_place_search_service.hpp"
 #include "cache_maintenance_controller.hpp"
@@ -5,6 +6,7 @@
 #include "catalog_startup_recovery.hpp"
 #include "composition_controller.hpp"
 #include "desktop_backend.hpp"
+#include "desktop_smoke/storage_profiles.hpp"
 #include "desktop_smoke_harness.hpp"
 #include "edit_controller.hpp"
 #include "edit_interchange_controller.hpp"
@@ -30,13 +32,19 @@
 #include "personal_profile.hpp"
 #include "pipeline_launch.hpp"
 #include "pipeline_run_controller.hpp"
-#include "review_controller.hpp"
 #include "review_clustering_controller.hpp"
+#include "review_controller.hpp"
 #include "review_diagnostics.hpp"
 #include "review_focus_detail_provider.hpp"
 #include "review_gallery_grouping_controller.hpp"
 #include "semantic_search_controller.hpp"
+#include "shared_grade_link_controller.hpp"
 #include "smart_category_controller.hpp"
+#include "storage_profile.hpp"
+#include "storage_profile_controller.hpp"
+#include "storage_profile_registry.hpp"
+#include "storage_profile_startup.hpp"
+#include "storage_profile_switch.hpp"
 #include "thumbnail_provider.hpp"
 #include "ui_preferences.hpp"
 
@@ -50,6 +58,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QIcon>
+#include <QLocale>
 #include <QMessageBox>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
@@ -57,6 +66,7 @@
 #include <QStandardPaths>
 #include <QStringList>
 #include <QTimer>
+#include <QTranslator>
 #include <QUrl>
 #include <QVariant>
 #include <QWindow>
@@ -119,6 +129,17 @@ int main(int argc, char* argv[]) {
     if (pipeline_request.has_value()) {
         return runPipelineEdit(application, *pipeline_request);
     }
+    StorageProfileSwitchEndpoint switch_endpoint(QCoreApplication::arguments());
+    if (!switch_endpoint.valid()) {
+        qCritical().noquote() << switch_endpoint.error();
+        return EXIT_FAILURE;
+    }
+    QObject::connect(
+        &switch_endpoint,
+        &StorageProfileSwitchEndpoint::abandoned,
+        &application,
+        [&application] { application.exit(EXIT_FAILURE); }
+    );
     const QString initial_settings_section =
         requestedSettingsSection(QCoreApplication::arguments());
 
@@ -136,21 +157,72 @@ int main(int argc, char* argv[]) {
         qWarning().noquote() << "Isolated RAW decode helper is unavailable:" << decode_helper_path;
     }
 
-    QString application_data = qEnvironmentVariable("SHADOW_DESKTOP_DATA_ROOT");
-    if (application_data.isEmpty()) {
-        application_data = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    QString profile_error;
+    StorageProfileLaunch profile_launch;
+    profile_launch.arguments = QCoreApplication::arguments();
+    profile_launch.daily_root =
+        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    profile_launch.legacy_brush_file = qEnvironmentVariable("SHADOW_PAINT_BRUSH_SETTINGS_FILE");
+    if (profile_launch.legacy_brush_file.isEmpty()) {
+        profile_launch.legacy_brush_file =
+            QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
+                .filePath(QStringLiteral("paint-brushes.ini"));
     }
-    QDir().mkpath(application_data);
+    profile_launch.override_root = qEnvironmentVariable("SHADOW_DESKTOP_DATA_ROOT");
+    profile_launch.override_root_set = qEnvironmentVariableIsSet("SHADOW_DESKTOP_DATA_ROOT");
+#ifndef NDEBUG
+    profile_launch.debug_build = true;
+#endif
+    const bool headless_startup_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST");
+    const QString registry_root = qEnvironmentVariableIsSet("SHADOW_PROFILE_REGISTRY_ROOT")
+                                      ? qEnvironmentVariable("SHADOW_PROFILE_REGISTRY_ROOT")
+                                      : QDir(QFileInfo(profile_launch.daily_root).absolutePath())
+                                            .filePath("library-profiles");
+    StorageProfileRegistry profile_registry(profile_launch.daily_root, registry_root);
+    const QString launch_context =
+        StorageProfileRegistry::launchContext(profile_launch, &profile_error);
+    if (launch_context.isEmpty()) {
+        switch_endpoint.reportFailure(profile_error);
+        qCritical().noquote() << profile_error;
+        return EXIT_FAILURE;
+    }
+    // Recovery owns no Catalog or preference services, and never silently
+    // recreates a missing remembered profile or falls back to Daily.
+    QTranslator startup_translator;
+    const auto locale = QLocale::system();
+    if (locale.language() == QLocale::Chinese && locale.script() == QLocale::SimplifiedHanScript
+        && startup_translator.load(":/i18n/shadow_zh_CN.qm"))
+        application.installTranslator(&startup_translator);
+    auto resolved_launch =
+        profile_registry.resolveLaunch(profile_launch, launch_context, &profile_error);
+    auto storage_profile =
+        resolved_launch ? StorageProfile::open(*resolved_launch, &profile_error) : nullptr;
+    while (!storage_profile && !switch_endpoint.requested() && !headless_startup_smoke) {
+        const auto selected =
+            chooseStorageProfileAtStartup(profile_registry, launch_context, profile_error);
+        if (!selected)
+            return EXIT_SUCCESS;
+        profile_error.clear();
+        profile_launch.arguments = {"Shadow"};
+        profile_launch.arguments.append(profile_registry.argumentsFor(*selected));
+        profile_launch.override_root_set = false;
+        storage_profile = StorageProfile::open(profile_launch, &profile_error);
+    }
+    application.removeTranslator(&startup_translator);
+    if (!storage_profile || !storage_profile->bindProcessEnvironment()) {
+        switch_endpoint.reportFailure(profile_error);
+        qCritical().noquote() << "Cannot open storage profile:" << profile_error;
+        return EXIT_FAILURE;
+    }
+    const QString application_data = storage_profile->root();
+    qInfo().noquote() << "Storage profile:" << storage_profile->kind() << storage_profile->id()
+                      << application_data;
     if (!ReviewDiagnostics::instance().configureLogDirectory(application_data)) {
         qWarning() << "Review diagnostic log is unavailable; summaries remain on the console";
     }
-    const QString catalog_path = QDir(application_data).filePath(QStringLiteral("catalog.sqlite"));
-    const QString cache_root = QDir(application_data).filePath(QStringLiteral("cache"));
-    const bool headless_startup_smoke = qEnvironmentVariableIsSet("SHADOW_DESKTOP_SMOKE_TEST");
-    const QString isolated_settings_file =
-        qEnvironmentVariableIsSet("SHADOW_DESKTOP_DATA_ROOT")
-            ? QDir(application_data).filePath(QStringLiteral("ui-preferences.ini"))
-            : QString{};
+    const QString catalog_path = storage_profile->catalogPath();
+    const QString cache_root = storage_profile->cacheRoot();
+    const QString isolated_settings_file = storage_profile->settingsFile();
     UiPreferences preferences(application, isolated_settings_file);
     AiPreferences ai_preferences(application_data, isolated_settings_file);
     CachePreferences cache_preferences(cache_root, isolated_settings_file);
@@ -174,14 +246,28 @@ int main(int argc, char* argv[]) {
         QDir(application_data).filePath(QStringLiteral("profiles/optics"))
     );
 
+    QString infer_base_url = qEnvironmentVariable("SHADOW_INFER_BASE_URL");
+    QString infer_credential_file = qEnvironmentVariable("SHADOW_INFER_CREDENTIAL_FILE");
+    if (infer_credential_file.isEmpty()) {
+        infer_credential_file =
+            QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
+                .filePath(QStringLiteral("Shadow/credentials/infer-runtime-shadow.token"));
+    }
+    // Bind the read-only service identity before Rust constructs its consumers.
+    // Request state, checkpoints and generated artifacts remain profile-local.
+    qputenv("SHADOW_INFER_CREDENTIAL_FILE", infer_credential_file.toUtf8());
+
     std::shared_ptr<DesktopBackend> backend;
     while (!backend) {
         try {
             backend = std::make_shared<DesktopBackend>(catalog_path, cache_root);
         } catch (const std::exception& error) {
             qCritical() << "Cannot start Shadow's local backend:" << error.what();
-            const bool reset_for_smoke = headless_startup_smoke
-                                         && qEnvironmentVariableIsSet("SHADOW_DESKTOP_DATA_ROOT")
+            if (switch_endpoint.requested()) {
+                switch_endpoint.reportFailure(QString::fromUtf8(error.what()));
+                return EXIT_FAILURE;
+            }
+            const bool reset_for_smoke = headless_startup_smoke && !storage_profile->isDaily()
                                          && is_development_catalog_reset_error(error);
             if (!reset_for_smoke && headless_startup_smoke) {
                 return EXIT_FAILURE;
@@ -236,17 +322,6 @@ int main(int argc, char* argv[]) {
         &ReviewController::scanFolder
     );
     CacheMaintenanceController cache_maintenance_controller(backend, &cache_preferences);
-    QString infer_base_url = qEnvironmentVariable("SHADOW_INFER_BASE_URL");
-    QString infer_credential_file = qEnvironmentVariable("SHADOW_INFER_CREDENTIAL_FILE");
-    if (infer_credential_file.isEmpty()) {
-        // Infer Runtime provisions App credentials beside, rather than inside,
-        // Shadow's application-specific Catalog/cache directory. Using the
-        // generic data root also avoids duplicating the organization and app
-        // names (for example, Shadow/Shadow/credentials on macOS).
-        infer_credential_file =
-            QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
-                .filePath(QStringLiteral("Shadow/credentials/infer-runtime-shadow.token"));
-    }
     PeopleAnalysisController people_analysis_controller(
         PeopleAnalysisController::Operations{
             .load = [backend]() { return backend->peopleLibrarySnapshot(); },
@@ -395,21 +470,32 @@ int main(int argc, char* argv[]) {
     );
     ReviewClusteringController review_clustering_controller(
         [backend, infer_base_url, infer_credential_file](
-            const QString& photo_id, const QString& representation_id, std::uint64_t token
+            const QString& photo_id,
+            const QString& representation_id,
+            std::uint64_t token
         ) {
             return backend->suggestSimilarReview(
-                infer_base_url, infer_credential_file, photo_id, representation_id, token
+                infer_base_url,
+                infer_credential_file,
+                photo_id,
+                representation_id,
+                token
             );
         },
         [backend]() { return backend->beginSimilarReview(); },
         [backend](std::uint64_t token) { backend->cancelSimilarReview(token); },
         [backend](
-            const QString& album_id, const BackendLibraryPhotoCursor& cursor, std::uint32_t limit
+            const QString& album_id,
+            const BackendLibraryPhotoCursor& cursor,
+            std::uint32_t limit
         ) {
             BackendLibraryPhotoFilter filter;
             filter.album_id = album_id;
             return backend->libraryPhotoPage(
-                filter, BackendLibraryPhotoOrder::CaptureTimeDescending, cursor, limit
+                filter,
+                BackendLibraryPhotoOrder::CaptureTimeDescending,
+                cursor,
+                limit
             );
         }
     );
@@ -419,7 +505,8 @@ int main(int argc, char* argv[]) {
             const QString& config_revision,
             const QString& generation,
             const bool start_new,
-            const bool clear_embeddings
+            const bool clear_embeddings,
+            const std::uint64_t token
         ) {
             return backend->classifySmartCategoriesBatch(
                 infer_base_url,
@@ -428,7 +515,8 @@ int main(int argc, char* argv[]) {
                 config_revision,
                 generation,
                 start_new,
-                clear_embeddings
+                clear_embeddings,
+                token
             );
         },
         [backend]() { return backend->smartClassificationSnapshot(); },
@@ -449,7 +537,12 @@ int main(int argc, char* argv[]) {
             const QString& representation_id,
             const QVector<BackendSmartCategoryFeedbackDecision>& decisions
         ) { backend->completeSmartCategoryReview(photo_id, representation_id, decisions); },
-        [backend](const QString& generation) { backend->pauseSmartClassification(generation); }
+        [backend](const QString& generation) { backend->pauseSmartClassification(generation); },
+        isolated_settings_file,
+        {
+            [backend]() { return backend->beginSmartClassification(); },
+            [backend](const std::uint64_t token) { backend->cancelSmartClassification(token); },
+        }
     );
     ImageUnderstandingController image_understanding_controller(
         &ai_preferences,
@@ -616,6 +709,65 @@ int main(int argc, char* argv[]) {
         editor(backend, edit_preview_store, edit_preview_presentation_context, &ai_preferences);
     EditNeighborPreheater edit_neighbor_preheater(backend, editor, justified_review_layout);
     EditInterchangeController edit_interchange_controller(*backend, editor);
+    AdjustmentTransferController adjustment_transfer_controller(
+        adjustmentTransferOperations(*backend),
+        adjustmentTransferEditor(editor)
+    );
+    SharedGradeLinkController shared_grade_link_controller(
+        sharedGradeLinkOperations(*backend),
+        sharedGradeLinkEditor(editor)
+    );
+    QObject::connect(
+        &preferences,
+        &UiPreferences::effectiveLanguageChanged,
+        &shared_grade_link_controller,
+        &SharedGradeLinkController::retranslateUi
+    );
+    QObject::connect(
+        &editor,
+        &EditController::busyChanged,
+        &shared_grade_link_controller,
+        &SharedGradeLinkController::foregroundWorkChanged
+    );
+    QObject::connect(
+        &shared_grade_link_controller,
+        &SharedGradeLinkController::sharedNodesChanged,
+        &editor,
+        &EditController::refreshSharedGradeNodes
+    );
+    QObject::connect(
+        &shared_grade_link_controller,
+        &SharedGradeLinkController::sharedNodesChanged,
+        &controller,
+        &ReviewController::refreshSharedGradeNodes
+    );
+    QObject::connect(
+        &editor,
+        &EditController::busyChanged,
+        &adjustment_transfer_controller,
+        &AdjustmentTransferController::foregroundWorkChanged
+    );
+    QTimer adjustment_transfer_refresh;
+    adjustment_transfer_refresh.setSingleShot(true);
+    adjustment_transfer_refresh.setInterval(250);
+    QObject::connect(
+        &adjustment_transfer_controller,
+        &AdjustmentTransferController::photosChanged,
+        &adjustment_transfer_refresh,
+        qOverload<>(&QTimer::start)
+    );
+    QObject::connect(
+        &shared_grade_link_controller,
+        &SharedGradeLinkController::photosChanged,
+        &adjustment_transfer_refresh,
+        qOverload<>(&QTimer::start)
+    );
+    QObject::connect(
+        &adjustment_transfer_refresh,
+        &QTimer::timeout,
+        &controller,
+        &ReviewController::refreshVisibleLibrary
+    );
     LutExportController lut_export_controller([&](bool selected_only) {
         if (!editor.active() || editor.stateBusy()
             || (selected_only && editor.selectedRecipeNodeKind() != QStringLiteral("grade"))) {
@@ -700,6 +852,95 @@ int main(int argc, char* argv[]) {
         &review_gallery_grouping,
         &ReviewGalleryGroupingController::retranslateUi
     );
+    StorageProfileArchive profile_archive;
+    StorageProfileController profile_controller(
+        *storage_profile,
+        profile_registry,
+        launch_context,
+        StorageProfileController::SwitchHooks{
+            .blocker =
+                [&composition_controller] {
+                    return composition_controller.ready()
+                                   && composition_controller.savedPath().isEmpty()
+                               ? QCoreApplication::translate(
+                                     "StorageProfileController",
+                                     "Save the composed image before switching libraries."
+                                 )
+                               : QString{};
+                },
+            .suspend_background =
+                [&](bool pending) {
+                    export_controller.setProfileSwitchPending(pending);
+                    image_understanding_controller.setProfileSwitchPending(pending);
+                    smart_category_controller.setProfileSwitchPending(pending);
+                    adjustment_transfer_controller.setProfileSwitchPending(pending);
+                    shared_grade_link_controller.setProfileSwitchPending(pending);
+                },
+            .jobs_quiet =
+                [&] {
+                    return !editor.busy() && !controller.scanning() && !export_controller.busy()
+                           && !controller.decisionBusy() && !controller.comparisonBusy()
+                           && !controller.libraryKeywordsBusy() && !controller.libraryAlbumsBusy()
+                           && !controller.libraryMetadataBusy()
+                           && !controller.librarySourceRemovalBusy()
+                           && !controller.librarySourceReconcileBusy()
+                           && !controller.sourceRelinkBusy() && !controller.remoteLibrarySyncing()
+                           && !controller.remoteLibraryMaterializing()
+                           && !composition_controller.busy() && !people_analysis_controller.busy()
+                           && !people_scope_controller.busy()
+                           && !cache_maintenance_controller.busy()
+                           && !smart_category_controller.busy()
+                           && !image_understanding_controller.busy()
+                           && !image_understanding_controller.advancedReviewBusy()
+                           && !lut_export_controller.busy()
+                           && !edit_interchange_controller.recipeReading()
+                           && !edit_interchange_controller.recipeExportBusy()
+                           && !edit_interchange_controller.recipeAdaptationRunning()
+                           && !adjustment_transfer_controller.busy()
+                           && !shared_grade_link_controller.busy();
+                },
+            .prepare_editor = [&editor] { return editor.prepareToClose(); },
+            .restart = {},
+            .archive_blocker = {},
+            .archive = [&profile_archive](
+                           const StorageProfileArchiveRequest& request
+                       ) { profile_archive.start(request); },
+            .cancel_archive = [&profile_archive] { profile_archive.cancel(); },
+        }
+    );
+    QObject::connect(
+        &profile_archive,
+        &StorageProfileArchive::completed,
+        &profile_controller,
+        &StorageProfileController::archiveCompleted
+    );
+    QObject::connect(
+        &profile_archive,
+        &StorageProfileArchive::failed,
+        &profile_controller,
+        &StorageProfileController::archiveFailed
+    );
+    QObject::connect(
+        &profile_archive,
+        &StorageProfileArchive::progress,
+        &profile_controller,
+        &StorageProfileController::archiveProgress
+    );
+    QObject::connect(
+        &editor,
+        &EditController::closeReady,
+        &profile_controller,
+        &StorageProfileController::editorReady
+    );
+    QObject::connect(&editor, &EditController::closeSaveFailed, &profile_controller, [&] {
+        profile_controller.editorSaveFailed(editor.autosaveErrorText());
+    });
+    QObject::connect(
+        &profile_controller,
+        &StorageProfileController::switched,
+        &application,
+        &QCoreApplication::quit
+    );
     QQmlApplicationEngine engine;
     preferences.attachEngine(engine);
 
@@ -720,6 +961,10 @@ int main(int argc, char* argv[]) {
         )
     );
     engine.setInitialProperties({
+        {QStringLiteral("adjustmentTransferController"),
+         QVariant::fromValue(&adjustment_transfer_controller)},
+        {QStringLiteral("sharedGradeLinkController"),
+         QVariant::fromValue(&shared_grade_link_controller)},
         {QStringLiteral("controller"), QVariant::fromValue(&controller)},
         {QStringLiteral("lutExportController"), QVariant::fromValue(&lut_export_controller)},
         {QStringLiteral("compositionController"), QVariant::fromValue(&composition_controller)},
@@ -779,6 +1024,8 @@ int main(int argc, char* argv[]) {
         },
         {QStringLiteral("historyController"), QVariant::fromValue(&history)},
         {QStringLiteral("preferences"), QVariant::fromValue(&preferences)},
+        {QStringLiteral("storageProfileController"), QVariant::fromValue(&profile_controller)},
+        {QStringLiteral("profileRestartPending"), switch_endpoint.requested()},
         {QStringLiteral("personalProfile"), QVariant::fromValue(&personal_profile)},
         {
             QStringLiteral("personalLocationSearch"),
@@ -810,10 +1057,22 @@ int main(int argc, char* argv[]) {
     });
     engine.loadFromModule("Shadow.App", "Main");
     if (engine.rootObjects().isEmpty()) {
+        switch_endpoint.reportFailure(
+            QCoreApplication::translate(
+                "StorageProfileController",
+                "Could not load the target library window."
+            )
+        );
         return EXIT_FAILURE;
     }
     auto* const root_window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst());
     if (root_window == nullptr) {
+        switch_endpoint.reportFailure(
+            QCoreApplication::translate(
+                "StorageProfileController",
+                "Could not load the target library window."
+            )
+        );
         qCritical() << "Shadow.App root must be a QQuickWindow";
         return EXIT_FAILURE;
     }
@@ -827,6 +1086,23 @@ int main(int argc, char* argv[]) {
     installMacTitleBarAlignment(qobject_cast<QWindow*>(root_object), title_bar_height);
 #endif
 
+    QObject::connect(&switch_endpoint, &StorageProfileSwitchEndpoint::activate, &application, [&] {
+        profile_controller.rememberCurrent();
+        root_window->setProperty("profileRestartPending", false);
+        switch_endpoint.confirmActivated();
+    });
+    if (switch_endpoint.requested())
+        switch_endpoint.ready(storage_profile->info());
+    else if (!headless_startup_smoke)
+        profile_controller.rememberCurrent();
+
+    auto profile_switch_smoke = DesktopSmoke::installStorageProfileSwitch(
+        application,
+        engine,
+        backend,
+        editor,
+        profile_controller
+    );
     installDesktopSmokeHarness(
         application,
         engine,

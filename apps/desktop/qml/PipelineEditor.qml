@@ -14,6 +14,8 @@ ApplicationWindow {
     required property var opticsProfileLibrary
     required property var lutLibrary
     required property var pipeline
+    required property var documentHistory
+    property bool closeAfterDocumentSave: false
 
     width: 1480
     height: 920
@@ -29,7 +31,7 @@ ApplicationWindow {
     Binding { target: Theme; property: "effectiveDark"; value: window.preferences.dark }
 
     function requestClose() {
-        if (pipeline.finished || pipeline.photoCount === 0)
+        if (pipeline.photoCount === 0 || !pipeline.documentDirty)
             pipeline.cancel()
         else
             closeDialog.open()
@@ -39,6 +41,35 @@ ApplicationWindow {
             pipeline.complete()
         else
             exportDialog.open()
+    }
+    function saveDocument(saveAs) {
+        if (!saveAs && pipeline.documentPath.length > 0)
+            pipeline.saveCurrentDocument()
+        else
+            documentPicker.open()
+    }
+    Connections {
+        target: pipeline
+        function onDocumentSaved() {
+            if (window.closeAfterDocumentSave) {
+                window.closeAfterDocumentSave = false
+                pipeline.cancel()
+            }
+        }
+        function onChanged() {
+            if (pipeline.errorText.length > 0)
+                window.closeAfterDocumentSave = false
+        }
+    }
+    Shortcut {
+        sequences: [StandardKey.Save]
+        enabled: pipeline.interactive && pipeline.photoCount > 0 && !pipeline.busy
+        onActivated: window.saveDocument(false)
+    }
+    Shortcut {
+        sequences: [StandardKey.SaveAs]
+        enabled: pipeline.interactive && pipeline.photoCount > 0 && !pipeline.busy
+        onActivated: window.saveDocument(true)
     }
     onClosing: function(close) {
         close.accepted = false
@@ -131,6 +162,27 @@ ApplicationWindow {
                     enabled: !pipeline.busy && pipeline.completedCount === 0
                     onClicked: photoPicker.open()
                 }
+                ShadowButton {
+                    objectName: "pipelineSaveDocumentButton"
+                    text: qsTr("Save document…")
+                    visible: pipeline.interactive
+                    enabled: pipeline.photoCount > 0 && !pipeline.busy
+                    onClicked: window.saveDocument(false)
+                }
+                ShadowButton {
+                    objectName: "pipelineSaveDocumentAsButton"
+                    text: qsTr("Save as…")
+                    visible: pipeline.interactive && pipeline.documentPath.length > 0
+                    enabled: pipeline.photoCount > 0 && !pipeline.busy
+                    onClicked: window.saveDocument(true)
+                }
+                ShadowButton {
+                    objectName: "pipelineDocumentHistoryButton"
+                    text: qsTr("History")
+                    visible: pipeline.interactive
+                    enabled: editor.active && !pipeline.busy
+                    onClicked: documentHistoryDialog.open()
+                }
                 ShadowIconButton {
                     objectName: "pipelineCloseSessionButton"
                     source: "qrc:/icons/close.svg"
@@ -145,9 +197,9 @@ ApplicationWindow {
                 }
                 ShadowButton {
                     objectName: "externalEditReturnButton"
-                    text: qsTr("Return edited image")
+                    text: pipeline.documentProtocol ? qsTr("Return editable document") : qsTr("Return edited image")
                     variant: ShadowButton.Primary
-                    visible: pipeline.externalEdit && !pipeline.finished
+                    visible: (pipeline.externalEdit || pipeline.documentProtocol) && !pipeline.finished
                     enabled: pipeline.photoCount > 0 && !pipeline.busy
                     onClicked: window.exportPhotos()
                 }
@@ -155,7 +207,7 @@ ApplicationWindow {
                     objectName: "pipelineExportPhotosButton"
                     variant: ShadowIconButton.Tinted
                     source: pipeline.completedCount > 0 ? "qrc:/icons/refresh.svg" : "qrc:/icons/export.svg"
-                    visible: !pipeline.finished && !pipeline.externalEdit
+                    visible: !pipeline.finished && !pipeline.externalEdit && !pipeline.documentProtocol
                     toolTipText: pipeline.completedCount > 0
                         ? qsTr("Retry remaining") : qsTr("Export %1 photos…").arg(pipeline.photoCount)
                     enabled: pipeline.photoCount > 0 && !pipeline.busy
@@ -206,7 +258,8 @@ ApplicationWindow {
                 Label {
                     Layout.fillWidth: true
                     elide: Text.ElideMiddle
-                    text: editor.sourcePath
+                    text: pipeline.documentPath.length > 0 ? pipeline.documentPath : editor.title
+                    textFormat: Text.PlainText
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontMeta
                 }
@@ -292,7 +345,7 @@ ApplicationWindow {
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
                     text: pipeline.finished || pipeline.exportPending ? pipeline.outputFolder
-                        : qsTr("Drop photos here or choose files. Originals stay unchanged; adjustments are kept for this session.")
+                        : qsTr("Drop photos or a Shadow document here. Save a document to keep the originals, edits and history together.")
                     font.pixelSize: Theme.fontBody
                     color: Theme.textSecondary
                 }
@@ -332,12 +385,27 @@ ApplicationWindow {
         id: photoPicker
         title: qsTr("Open photos for independent editing")
         fileMode: FileDialog.OpenFiles
-        nameFilters: [qsTr("Photos (*.nef *.nrw *.cr2 *.cr3 *.arw *.raf *.orf *.rw2 *.pef *.srw *.dng *.jpg *.jpeg *.tif *.tiff *.heic *.heif)"), qsTr("All files (*)")]
+        nameFilters: [qsTr("Photos and Shadow documents (*.shdw *.nef *.nrw *.cr2 *.cr3 *.arw *.raf *.orf *.rw2 *.pef *.srw *.dng *.jpg *.jpeg *.png *.tif *.tiff *.heic *.heif)"), qsTr("All files (*)")]
         onAccepted: pipeline.addFiles(selectedFiles)
     }
     PipelineExportDialog {
         id: exportDialog
         pipeline: window.pipeline
+    }
+    FileDialog {
+        id: documentPicker
+        title: qsTr("Save editable Shadow document")
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "shdw"
+        nameFilters: [qsTr("Shadow documents (*.shdw)")]
+        onAccepted: pipeline.saveDocument(selectedFile)
+        onRejected: window.closeAfterDocumentSave = false
+    }
+    DocumentHistoryDialog {
+        id: documentHistoryDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        history: window.documentHistory
     }
     ShadowDialog {
         id: closeDialog
@@ -345,10 +413,11 @@ ApplicationWindow {
         anchors.centerIn: parent
         objectName: "pipelineCloseSessionDialog"
         width: Math.min(450, parent ? parent.width - 40 : 450)
+        height: Math.min(280, parent ? parent.height - 40 : 280)
         modal: true
         title: qsTr("Close this editing session?")
         contentItem: Label {
-            text: qsTr("Unexported adjustments will be discarded. Originals and files already exported will be kept.")
+            text: qsTr("Save a Shadow document to keep the edits and history. Changes since the last document save will be discarded when closing.")
             wrapMode: Text.Wrap
             font.pixelSize: Theme.fontBody
             color: Theme.textPrimary
@@ -359,6 +428,12 @@ ApplicationWindow {
             leftPadding: 20; rightPadding: 20; topPadding: 0; bottomPadding: 20
             background: Item {}
             ShadowButton { text: qsTr("Keep editing"); onClicked: closeDialog.close() }
+            ShadowButton {
+                text: qsTr("Save and close")
+                visible: pipeline.interactive
+                enabled: !pipeline.busy
+                onClicked: { closeDialog.close(); window.closeAfterDocumentSave = true; window.saveDocument(false) }
+            }
             ShadowButton { variant: ShadowButton.Danger; text: qsTr("Close session"); onClicked: { closeDialog.close(); pipeline.cancel() } }
         }
     }

@@ -18,6 +18,10 @@ import_operations(const std::shared_ptr<DesktopBackend>& backend) {
             },
         .progress = [backend](const quint64 scan_id) { return backend->scanProgress(scan_id); },
         .cancel = [backend](const quint64 scan_id) { return backend->cancelFolderScan(scan_id); },
+        .prioritize =
+            [backend](quint64 scan_id, const QString& selected, const QStringList& visible) {
+                backend->prioritizeVisibleRefinements(scan_id, selected, visible);
+            },
     };
 }
 

@@ -2,16 +2,167 @@
 
 use std::sync::{Arc, Barrier};
 
+use rusqlite::{Connection, params};
 use shadow_catalog::CatalogError;
-use shadow_domain::{PhotoId, RecipeCommitId};
+use shadow_domain::{EntityId, PhotoId, RecipeCommitId};
 
 use crate::{
     open_desktop_session,
+    recipe_v1::{
+        decode_grade_stack_draft_from_recipe_v1_snapshot, decode_grade_stack_draft_recipe_v1,
+    },
     tests::fixtures::{
         edit_session::test_edit_session,
         grade_stack::{assert_close, ffi_parameters},
     },
 };
+
+#[test]
+fn autosave_returns_its_exact_receipt_when_history_projection_breaks_at_publication() {
+    let (root, session, photo, source) = test_edit_session();
+    let before = session
+        .save_basic_edit_version_at(
+            &photo,
+            &source,
+            "",
+            &ffi_parameters(0.25, 1.0, [0.0; 2], 1.0),
+            "Before autosave",
+            100,
+        )
+        .unwrap();
+    let alternate = session
+        .create_photo_variant(&photo, &source, "Alternate")
+        .unwrap();
+    session
+        .activate_photo_variant(&photo, &source, &before.active_variant_id)
+        .unwrap();
+    let connection = Connection::open(root.join("catalog.sqlite")).unwrap();
+    // Break an earlier checkpoint only after the CAS publishes the new head.
+    // A postcommit whole-history read now fails even though this write succeeds.
+    connection
+        .execute_batch(
+            "CREATE TRIGGER break_prior_checkpoint_after_autosave
+         AFTER UPDATE OF commit_id ON recipe_refs WHEN NEW.name = 'working'
+         BEGIN
+             UPDATE recipe_commits SET commit_json = '{}' WHERE id = OLD.commit_id;
+         END;",
+        )
+        .unwrap();
+
+    let saved = session
+        .autosave_basic_edit_working_for_variant_at(
+            &photo,
+            &source,
+            &before.working_commit_id,
+            &before.working_commit_id,
+            Some(&before.active_variant_id),
+            &ffi_parameters(0.75, 1.0, [0.0; 2], 1.0),
+            200,
+        )
+        .expect("the successful CAS has an exact preprojected acknowledgement");
+    assert_ne!(saved.working_commit_id, before.working_commit_id);
+    assert_eq!(saved.recipe_id, before.recipe_id);
+    assert!(saved.has_working_version);
+    assert!(!saved.is_version_draft);
+    assert_eq!(saved.versions.len(), 1);
+    assert!(!saved.versions[0].is_working);
+    let active = saved
+        .variants
+        .iter()
+        .find(|variant| variant.is_active)
+        .unwrap();
+    assert_eq!(active.variant_id, before.active_variant_id);
+    assert_eq!(active.head_commit_id, saved.working_commit_id);
+    assert!(active.has_head);
+    assert_eq!(active.updated_at_ms, 200);
+    let retained = saved
+        .variants
+        .iter()
+        .find(|variant| variant.variant_id == alternate.active_variant_id)
+        .unwrap();
+    assert!(!retained.is_active);
+    assert_eq!(retained.head_commit_id, before.working_commit_id);
+    let persisted = session
+        .catalog
+        .recipe_commit(
+            photo.parse().unwrap(),
+            saved.working_commit_id.parse().unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        decode_grade_stack_draft_recipe_v1(&saved.settings).unwrap(),
+        decode_grade_stack_draft_from_recipe_v1_snapshot(persisted.commit.snapshot()).unwrap(),
+    );
+    assert_eq!(
+        session
+            .catalog
+            .recipe_ref(photo.parse().unwrap(), "working")
+            .unwrap()
+            .unwrap()
+            .commit_id,
+        persisted.commit.id()
+    );
+    assert!(
+        session.photo_edit_state(&photo, &source).is_err(),
+        "the injected later projection really fails"
+    );
+    drop(connection);
+    drop(session);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn autosave_projection_failure_precedes_and_prevents_catalog_mutation() {
+    let (root, session, photo, source) = test_edit_session();
+    let before = session
+        .autosave_basic_edit_working_at(
+            &photo,
+            &source,
+            "",
+            "",
+            &ffi_parameters(0.25, 1.0, [0.0; 2], 1.0),
+            100,
+        )
+        .unwrap();
+    let commit: RecipeCommitId = before.working_commit_id.parse().unwrap();
+    let connection = Connection::open(root.join("catalog.sqlite")).unwrap();
+    connection
+        .execute(
+            "UPDATE recipe_commits SET commit_json = '{}' WHERE id = ?1",
+            params![commit.as_bytes().as_slice()],
+        )
+        .unwrap();
+    let rejected = session.autosave_basic_edit_working_for_variant_at(
+        &photo,
+        &source,
+        "",
+        &before.working_commit_id,
+        Some(&before.active_variant_id),
+        &ffi_parameters(0.75, 1.0, [0.0; 2], 1.0),
+        200,
+    );
+    assert!(rejected.is_err());
+    assert_eq!(
+        session
+            .catalog
+            .recipe_ref(photo.parse().unwrap(), "working")
+            .unwrap()
+            .unwrap()
+            .commit_id,
+        commit
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM recipe_commits", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    drop(connection);
+    drop(session);
+    std::fs::remove_dir_all(root).unwrap();
+}
 
 #[test]
 fn simultaneous_editors_publish_exactly_one_commit_per_expected_head() {

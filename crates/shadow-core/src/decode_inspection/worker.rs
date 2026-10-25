@@ -80,6 +80,49 @@ fn inspect_and_record(
     context: WorkerContext<'_>,
     performance: &mut DecodePerformance,
 ) -> Result<DecodeInspectionOutcome, DecodeInspectionError> {
+    let admission =
+        inspect_source_and_record(inspector, request, cancellation, context, performance)?;
+    let DecodeInspectionOutcome::Recorded {
+        provider_id,
+        provider_version,
+        ..
+    } = admission
+    else {
+        return Ok(admission);
+    };
+    let preview = context
+        .cache
+        .map_or(PreviewCacheOutcome::NotRequested, |cache| {
+            cache_preview(
+                inspector,
+                VisualCacheContext {
+                    catalog: context.catalog,
+                    cache,
+                    technical_observer: context.technical_observer,
+                    embedded_preview_sink: context.embedded_preview_sink,
+                    request,
+                    provider_id: &provider_id,
+                    provider_version: &provider_version,
+                    cancellation,
+                },
+                context.state,
+                performance,
+            )
+        });
+    Ok(DecodeInspectionOutcome::Recorded {
+        provider_id,
+        provider_version,
+        preview,
+    })
+}
+
+pub(super) fn inspect_source_and_record(
+    inspector: &mut impl DecodeInspector,
+    request: &DecodeInspectionRequest,
+    cancellation: &ScanCancellation,
+    context: WorkerContext<'_>,
+    performance: &mut DecodePerformance,
+) -> Result<DecodeInspectionOutcome, DecodeInspectionError> {
     if cancellation.is_cancelled() {
         return Ok(cancelled_outcome());
     }
@@ -146,36 +189,11 @@ fn inspect_and_record(
     )?;
 
     Ok(match status {
-        RecordDecodeSnapshotStatus::Recorded => {
-            let preview = if cancellation.is_cancelled() {
-                PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::Cancelled)
-            } else {
-                context
-                    .cache
-                    .map_or(PreviewCacheOutcome::NotRequested, |cache| {
-                        cache_preview(
-                            inspector,
-                            VisualCacheContext {
-                                catalog: context.catalog,
-                                cache,
-                                technical_observer: context.technical_observer,
-                                embedded_preview_sink: context.embedded_preview_sink,
-                                request,
-                                provider_id: &provider_id,
-                                provider_version: &provider_version,
-                                cancellation,
-                            },
-                            context.state,
-                            performance,
-                        )
-                    })
-            };
-            DecodeInspectionOutcome::Recorded {
-                provider_id,
-                provider_version,
-                preview,
-            }
-        }
+        RecordDecodeSnapshotStatus::Recorded => DecodeInspectionOutcome::Recorded {
+            provider_id,
+            provider_version,
+            preview: PreviewCacheOutcome::NotRequested,
+        },
         RecordDecodeSnapshotStatus::StaleSource => {
             DecodeInspectionOutcome::Discarded(DecodeInspectionDiscardReason::CatalogChanged)
         }

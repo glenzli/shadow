@@ -7,6 +7,7 @@
 #include <QElapsedTimer>
 #include <QFutureWatcher>
 #include <QObject>
+#include <QSet>
 #include <QTimer>
 
 #include <functional>
@@ -55,7 +56,13 @@ class ReviewLibraryQueryCoordinator final : public QObject {
     void setScanRunning(bool running);
     void setDecisionBusy(bool busy);
     void clearForImportStart();
-    void requestReset(BackendLibraryPhotoFilter filter, BackendLibraryPhotoOrder order);
+    void finishImport();
+    void requestReset(
+        BackendLibraryPhotoFilter filter,
+        BackendLibraryPhotoOrder order,
+        int target_rows = 96,
+        bool retain_import_window = false
+    );
     void scheduleReset(BackendLibraryPhotoFilter filter, BackendLibraryPhotoOrder order);
     [[nodiscard]] bool loadMore(bool admitted);
     [[nodiscard]] bool refreshStreamingPrefix(bool admitted);
@@ -101,7 +108,9 @@ class ReviewLibraryQueryCoordinator final : public QObject {
         BackendLibraryPhotoCursor cursor,
         quint64 generation,
         quint64 request_id,
-        PageKind kind
+        PageKind kind,
+        int target_rows,
+        QSet<QString> loaded_photo_ids
     );
     [[nodiscard]] static CountTaskResult runCountTask(
         Operations operations,
@@ -145,6 +154,10 @@ class ReviewLibraryQueryCoordinator final : public QObject {
     bool count_pending_ = false;
     bool terminal_refresh_active_ = false;
     bool has_more_ = false;
+    bool append_pending_ = false;
+    bool retained_import_window_ = false;
+    int reset_target_rows_ = 96;
+    PageKind active_page_kind_ = PageKind::InitialReset;
     QElapsedTimer request_clock_;
     QTimer debounce_timer_;
     QFutureWatcher<PageTaskResult> page_watcher_;

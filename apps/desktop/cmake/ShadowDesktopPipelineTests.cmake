@@ -33,3 +33,12 @@ if(BUILD_TESTING AND UNIX)
     set_tests_properties(shadow-desktop-external-edit-stage PROPERTIES
         TIMEOUT 300 LABELS "desktop;pipeline;protocol")
 endif()
+
+if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME shadow-desktop-editable-document
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/editable_document_integration.py"
+            $<TARGET_FILE:shadow-desktop>)
+    set_tests_properties(shadow-desktop-editable-document PROPERTIES
+        TIMEOUT 600 LABELS "desktop;pipeline;document;protocol")
+endif()

@@ -89,6 +89,10 @@ pub struct LayerInstance {
     opacity: UnitInterval,
     blend_mode: BlendMode,
     mask: Option<MaskReference>,
+    /// Current working-instance subscription policy. Execution always uses
+    /// the pinned revision and graph already materialized in this instance.
+    #[serde(default, skip_serializing_if = "is_false")]
+    shared_follow_head: bool,
 }
 
 impl LayerInstance {
@@ -125,6 +129,7 @@ impl LayerInstance {
             opacity,
             blend_mode,
             mask,
+            shared_follow_head: false,
         };
         layer.validate()?;
         Ok(layer)
@@ -162,6 +167,16 @@ impl LayerInstance {
         self.mask
     }
 
+    pub const fn shared_follow_head(&self) -> bool {
+        self.shared_follow_head
+    }
+
+    pub fn with_shared_follow_head(mut self, follows: bool) -> Result<Self, RecipeValidationError> {
+        self.shared_follow_head = follows;
+        self.validate()?;
+        Ok(self)
+    }
+
     pub(super) fn validate(&self) -> Result<(), RecipeValidationError> {
         validate_text(
             &self.label,
@@ -174,6 +189,17 @@ impl LayerInstance {
             return Err(RecipeValidationError::ZeroMaskRevision);
         }
         self.content.graph().validate()?;
+        if self.shared_follow_head
+            && !matches!(
+                self.content,
+                LayerContent::Shared {
+                    revision: LayerRevisionSelector::Pinned(_),
+                    ..
+                }
+            )
+        {
+            return Err(RecipeValidationError::SharedFollowPolicyRequiresPinnedLayer(self.id));
+        }
         if let LayerContent::Inline { .. } = &self.content
             && self.scope != AdjustmentScope::Photo
         {
@@ -181,6 +207,10 @@ impl LayerInstance {
         }
         Ok(())
     }
+}
+
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// An immutable published definition of a reusable shared adjustment layer.

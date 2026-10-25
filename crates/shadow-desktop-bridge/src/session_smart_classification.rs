@@ -1,21 +1,39 @@
 //! Desktop projection for resumable smart-category classification.
 
-use std::path::Path;
+use std::{path::Path, sync::atomic::Ordering};
 
 use anyhow::{Context, Result as AnyResult, anyhow};
 use shadow_ai::InferRuntimeClient;
 use shadow_core::{
     SmartCategoryDefinition, SmartCategoryFeedbackDecision, SmartCategoryReviewDecision,
     SmartClassificationPolicy, SmartClassificationRequest, SmartClassificationSnapshot,
-    SmartClassificationStatus, classify_review_smart_categories, complete_smart_category_review,
-    pause_smart_classification, set_smart_category_feedback, smart_category_members,
-    smart_category_review_queue, smart_classification_snapshot,
+    SmartClassificationStatus, classify_review_smart_categories_cancellable,
+    complete_smart_category_review, pause_smart_classification, set_smart_category_feedback,
+    smart_category_members, smart_category_review_queue, smart_classification_snapshot,
 };
 use shadow_domain::{PhotoId, RepresentationId};
 
 use super::{DesktopSession, ffi};
 
 impl DesktopSession {
+    pub(crate) fn begin_smart_classification(&self) -> AnyResult<u64> {
+        self.smart_classification_token
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                value.checked_add(1).filter(|next| *next < u64::MAX)
+            })
+            .map(|value| value + 1)
+            .map_err(|_| anyhow!("smart classification token exhausted"))
+    }
+
+    pub(crate) fn cancel_smart_classification(&self, token: u64) {
+        let _ = self.smart_classification_token.compare_exchange(
+            token,
+            token.saturating_add(1),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
     pub(crate) fn classify_smart_categories_batch(
         &self,
         infer_base_url: &str,
@@ -25,6 +43,7 @@ impl DesktopSession {
         generation: &str,
         start_new: bool,
         clear_embeddings: bool,
+        token: u64,
     ) -> AnyResult<ffi::FfiSmartClassificationBatch> {
         let provider = InferRuntimeClient::from_credential_file_with_discovery(
             (!infer_base_url.is_empty()).then_some(infer_base_url),
@@ -39,7 +58,7 @@ impl DesktopSession {
                 minimum_similarity: definition.minimum_similarity,
             })
             .collect::<Vec<_>>();
-        let batch = classify_review_smart_categories(
+        let batch = classify_review_smart_categories_cancellable(
             &self.catalog,
             &self.cache_root,
             &provider,
@@ -51,6 +70,7 @@ impl DesktopSession {
                 clear_embeddings,
             },
             SmartClassificationPolicy::default(),
+            &|| self.smart_classification_token.load(Ordering::Acquire) != token,
         )
         .map_err(|error| anyhow!("classify current Library visuals: {error}"))?;
         Ok(ffi::FfiSmartClassificationBatch {
@@ -169,6 +189,9 @@ impl DesktopSession {
             .map_err(|error| anyhow!("pause smart-category classification: {error}"))
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 fn ffi_snapshot(
     snapshot: SmartClassificationSnapshot,

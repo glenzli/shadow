@@ -18,8 +18,9 @@ enum class EditPreviewPolicy : std::uint8_t {
     Interactive,
     Settled,
     // A settled frame whose exact Recipe/source presentation must be durable
-    // before the worker returns. Used only at the Precision -> Library
-    // boundary; normal settled frames remain non-blocking cache candidates.
+    // before the worker returns. Used at Precision -> Library and background
+    // adjustment-application boundaries; normal settled frames remain
+    // non-blocking cache candidates.
     PresentationCommit,
     NeutralBefore,
 };

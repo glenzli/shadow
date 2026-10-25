@@ -13,6 +13,10 @@ Item {
     required property var editor
     required property var interchangeController
     property var lutExportController: null
+    property var adjustmentTransferController: null
+    property var sharedGradeLinkController: null
+    readonly property var selectedSharedState: gradeNodeContextPopup.targetData
+        || editor.selectedSharedGradeNodeState || ({})
 
     function openExchange(anchorItem) {
         const point = anchorItem.mapToItem(exchangePopup.parent, 0, anchorItem.height + 5)
@@ -210,11 +214,16 @@ Item {
 
     Popup {
         id: gradeNodeContextPopup
+        objectName: "gradeNodeContextPopup"
         parent: Overlay.overlay
         width: 224
         padding: 7
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         property var targetData: null
+        onOpened: {
+            x = Math.max(8, Math.min(x, parent.width - width - 8))
+            y = Math.max(8, Math.min(y, parent.height - height - 8))
+        }
         background: Rectangle {
             radius: 8
             color: Theme.panelRaised
@@ -224,16 +233,83 @@ Item {
         contentItem: Column {
             spacing: 2
             PopupAction {
-                text: gradeNodeContextPopup.targetData
-                    && gradeNodeContextPopup.targetData.shared
-                    ? qsTr("Update shared node…")
-                    : qsTr("Share node…")
+                objectName: "copyAdjustmentNodeAction"
+                visible: menus.adjustmentTransferController !== null
+                text: qsTr("Copy node")
+                enabled: menus.adjustmentTransferController !== null
+                    && !menus.adjustmentTransferController.busy
+                    && !menus.adjustmentTransferController.copying
+                    && menus.editor.active && menus.editor.hasSelectedGradeNode
+                    && !menus.editor.stateBusy
                 onClicked: {
                     gradeNodeContextPopup.close()
-                    const suggested = gradeNodeContextPopup.targetData
-                        ? gradeNodeContextPopup.targetData.rawLabel : ""
-                    sharedNodeNameField.text = suggested
-                    sharedNodeNamePopup.open()
+                    menus.adjustmentTransferController.copyAdjustments(true, false)
+                }
+            }
+            PopupAction {
+                objectName: "publishSharedNodeAction"
+                visible: menus.sharedGradeLinkController !== null
+                text: gradeNodeContextPopup.targetData
+                    && gradeNodeContextPopup.targetData.shared
+                    ? qsTr("Publish update…") : qsTr("Share and link…")
+                enabled: menus.sharedGradeLinkController !== null
+                    && menus.sharedGradeLinkController.admissionEnabled
+                    && !menus.sharedGradeLinkController.busy
+                    && menus.editor.active && !menus.editor.stateBusy
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    menus.sharedGradeLinkController.requestPublication()
+                }
+            }
+            PopupAction {
+                objectName: "linkSharedNodeAction"
+                visible: menus.sharedGradeLinkController !== null
+                    && gradeNodeContextPopup.targetData && gradeNodeContextPopup.targetData.shared
+                text: qsTr("Link to selected photos…")
+                enabled: menus.sharedGradeLinkController !== null
+                    && menus.sharedGradeLinkController.admissionEnabled
+                    && !menus.sharedGradeLinkController.busy
+                    && menus.editor.active && !menus.editor.stateBusy
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    menus.sharedGradeLinkController.requestLinks()
+                }
+            }
+            PopupAction {
+                objectName: "syncSharedNodeAction"
+                visible: menus.sharedGradeLinkController !== null
+                    && gradeNodeContextPopup.targetData && gradeNodeContextPopup.targetData.shared
+                    && menus.selectedSharedState.sharedFollowHead === true
+                text: qsTr("Update to latest")
+                enabled: menus.sharedGradeLinkController !== null
+                    && menus.sharedGradeLinkController.admissionEnabled
+                    && !menus.sharedGradeLinkController.busy
+                    && menus.editor.active && !menus.editor.stateBusy
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    menus.sharedGradeLinkController.syncSelected()
+                }
+            }
+            PopupAction {
+                objectName: "freezeSharedNodeAction"
+                visible: gradeNodeContextPopup.targetData && gradeNodeContextPopup.targetData.shared
+                text: menus.selectedSharedState.sharedFollowHead === true
+                    ? qsTr("Keep this revision") : qsTr("Follow published updates")
+                enabled: menus.editor.active && !menus.editor.stateBusy
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    menus.editor.setSelectedGradeNodeSharedFollowHead(
+                        menus.selectedSharedState.sharedFollowHead !== true)
+                }
+            }
+            PopupAction {
+                objectName: "unlinkSharedNodeAction"
+                visible: gradeNodeContextPopup.targetData && gradeNodeContextPopup.targetData.shared
+                text: qsTr("Unlink node")
+                enabled: menus.editor.active && !menus.editor.stateBusy
+                onClicked: {
+                    gradeNodeContextPopup.close()
+                    menus.editor.unlinkSelectedGradeNode()
                 }
             }
             PopupAction {
@@ -260,87 +336,6 @@ Item {
                 onClicked: {
                     gradeNodeContextPopup.close()
                     menus.editor.deleteSelectedGradeNode()
-                }
-            }
-        }
-    }
-
-    Popup {
-        id: sharedNodeNamePopup
-        parent: Overlay.overlay
-        x: Math.round((parent.width - width) / 2)
-        y: Math.round((parent.height - height) / 2)
-        width: 340
-        padding: 16
-        modal: true
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        onOpened: {
-            sharedNodeNameField.forceActiveFocus()
-            sharedNodeNameField.selectAll()
-        }
-        background: Rectangle {
-            radius: 10
-            color: Theme.panelRaised
-            border.width: 1
-            border.color: Theme.borderStrong
-        }
-        contentItem: ColumnLayout {
-            spacing: 12
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Shared Grade Node")
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fontTitle
-                font.weight: Font.DemiBold
-            }
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("A stable library node can be linked to many photos.")
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontMeta
-                wrapMode: Text.WordWrap
-            }
-            ShadowTextField {
-                id: sharedNodeNameField
-                Layout.fillWidth: true
-                placeholderText: qsTr("Node name")
-                selectByMouse: true
-                color: Theme.textPrimary
-                placeholderTextColor: Theme.textPlaceholder
-                background: Rectangle {
-                    radius: Theme.controlRadius
-                    color: Theme.panelRaised
-                    border.width: sharedNodeNameField.activeFocus ? 1 : 0
-                    border.color: Theme.accent
-                }
-                onAccepted: {
-                    if (text.trim().length > 0) {
-                        menus.editor.publishSelectedGradeNode(text)
-                        sharedNodeNamePopup.close()
-                    }
-                }
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-                Item { Layout.fillWidth: true }
-                ShadowButton {
-                    compact: true
-                    variant: ShadowButton.Ghost
-                    text: qsTr("Cancel")
-                    onClicked: sharedNodeNamePopup.close()
-                }
-                ShadowButton {
-                    compact: true
-                    variant: ShadowButton.Primary
-                    text: qsTr("Share")
-                    enabled: sharedNodeNameField.text.trim().length > 0
-                    onClicked: {
-                        menus.editor.publishSelectedGradeNode(
-                            sharedNodeNameField.text)
-                        sharedNodeNamePopup.close()
-                    }
                 }
             }
         }

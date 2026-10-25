@@ -4,7 +4,7 @@ use shadow_catalog::{
     LibraryPhotoFacts, RecordLibraryPlaceResolution, RecordLibraryPlaceResolutionStatus,
     RegisterAsset, RepresentationFingerprint,
 };
-use shadow_domain::{AssetLocation, EntityId, Platform, RepresentationId, RepresentationKind};
+use shadow_domain::{EntityId, RepresentationId, RepresentationKind};
 
 use crate::{DesktopSession, ffi, open_desktop_session};
 
@@ -380,16 +380,11 @@ fn register_library_fixture(
         vec![0_u8; usize::try_from(byte_len).expect("bounded fixture size")],
     )
     .expect("write Library source fixture");
-    let display_path = path.to_string_lossy().into_owned();
     let registered = session
         .catalog
         .register_asset(&RegisterAsset {
             kind: RepresentationKind::OriginalRaw,
-            location: AssetLocation::new(
-                Platform::MacOs,
-                display_path.as_bytes().to_vec(),
-                display_path,
-            ),
+            location: shadow_native_path::native_location(path),
             byte_len,
             modified_at_ms,
             now_ms: captured_at_unix_seconds,

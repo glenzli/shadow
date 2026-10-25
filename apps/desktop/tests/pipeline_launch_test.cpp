@@ -267,5 +267,62 @@ int main() {
             "cancelled external receipt fabricated an artifact"
         ))
         return EXIT_FAILURE;
+    {
+        QTemporaryDir documents;
+        if (!documents.isValid())
+            return EXIT_FAILURE;
+        const QDir root(QDir(documents.path()).canonicalPath());
+        const auto image = root.filePath("input.png");
+        const auto document = root.filePath("input.shdw");
+        const auto instruction = root.filePath("request.json");
+        const auto receipt = root.filePath("result.json");
+        writeFile(image, "parser fixture");
+        writeFile(document, "ZIP fixture");
+        QJsonObject request{
+            {"schema", "shadow.document-edit/1"},
+            {"requestId", "document"},
+            {"input", image},
+            {"inputSha256", QString(64, 'a')},
+            {"output", root.filePath("new.shdw")}
+        };
+        const auto parse_document = [&] {
+            writeFile(instruction, QJsonDocument(request).toJson());
+            return parsePipelineLaunch(
+                {"Shadow", "--pipeline-edit", "--request", instruction, "--result", receipt},
+                &error
+            );
+        };
+        auto parsed = parse_document();
+        if (!require(
+                parsed && parsed->document_protocol && parsed->photos.size() == 1,
+                "document image admission failed"
+            ))
+            return EXIT_FAILURE;
+        request["input"] = document;
+        parsed = parse_document();
+        if (!require(
+                parsed && parsed->document_input == document && parsed->photos.isEmpty(),
+                "document continuation admission failed"
+            ))
+            return EXIT_FAILURE;
+        request["operations"] = QJsonArray{};
+        if (!require(!parse_document(), "document unsupported operation intent accepted"))
+            return EXIT_FAILURE;
+        request.remove("operations");
+        request["inputSha256"] = "invalid";
+        if (!require(!parse_document(), "document invalid input digest accepted"))
+            return EXIT_FAILURE;
+        parsed = parsePipelineLaunch({"Shadow", document}, &error);
+        if (!require(
+                parsed && parsed->interactive && parsed->document_input == document,
+                "document positional launch failed"
+            ))
+            return EXIT_FAILURE;
+        if (!require(
+                !parsePipelineLaunch({"Shadow", "--isolate", document, image}, &error),
+                "mixed document/photo session admitted"
+            ))
+            return EXIT_FAILURE;
+    }
     return EXIT_SUCCESS;
 }

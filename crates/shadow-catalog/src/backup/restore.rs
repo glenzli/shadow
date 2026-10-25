@@ -2,7 +2,7 @@
 
 use std::{
     ffi::OsString,
-    fs::{self, File},
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use super::{
     CatalogBackupError, CatalogBackupVerification, absolute_destination, create_and_verify_partial,
-    sync_parent_directory, verify_catalog_backup,
+    sync_file, sync_parent_directory, verify_catalog_backup,
 };
 
 /// Receipt for one verified offline restore publication.
@@ -125,7 +125,7 @@ pub fn restore_catalog_backup_offline(
         });
     }
 
-    if let Err(source) = File::open(&destination).and_then(|file| file.sync_all()) {
+    if let Err(source) = sync_file(&destination) {
         let original = format!("synchronize restored Catalog: {source}");
         if let Err((path, source)) = displaced.rollback(&destination) {
             return Err(CatalogRestoreError::RollbackFailed {
@@ -239,7 +239,7 @@ impl DisplacedCatalog {
             moved: Vec::new(),
         };
         for original in components.iter().filter(|path| path.exists()) {
-            if let Err(source) = File::open(original).and_then(|file| file.sync_all()) {
+            if let Err(source) = sync_file(original) {
                 let original_error = format!("synchronize existing Catalog component: {source}");
                 if let Err((path, source)) = displaced.restore_moved() {
                     return Err(CatalogRestoreError::RollbackFailed {
@@ -358,7 +358,7 @@ fn io_from_backup_error(
 
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<(), std::io::Error> {
-    File::open(path)?.sync_all()
+    fs::File::open(path)?.sync_all()
 }
 
 #[cfg(not(unix))]

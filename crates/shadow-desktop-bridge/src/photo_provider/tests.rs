@@ -10,6 +10,7 @@ fn inspector_with_route_cache(runtime_cache_root: Option<PathBuf>) -> PhotoInspe
         proxy_variant_key: "test-proxy".to_owned(),
         isolated_proxy_runtime_cache: runtime_cache_root,
         isolated_helper_path,
+        pending_preview: None,
     }
 }
 

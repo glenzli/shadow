@@ -1,7 +1,7 @@
 //! Desktop contract for manual metadata correction and previewed GPX application.
 
 use shadow_catalog::{LibraryPhotoFacts, RegisterAsset, RepresentationFingerprint};
-use shadow_domain::{AssetLocation, EntityId, Platform, RepresentationId, RepresentationKind};
+use shadow_domain::RepresentationKind;
 
 use crate::{DesktopSession, ffi, open_desktop_session};
 
@@ -301,16 +301,13 @@ struct MetadataFixture {
     root: std::path::PathBuf,
     source_path: std::path::PathBuf,
     session: Box<DesktopSession>,
+    _root_guard: tempfile::TempDir,
 }
 
 impl MetadataFixture {
     fn open() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "shadow-desktop-library-metadata-{}-{}",
-            std::process::id(),
-            RepresentationId::new_v7()
-        ));
-        std::fs::create_dir_all(&root).expect("create Library metadata fixture");
+        let root_guard = tempfile::tempdir().expect("create Library metadata fixture");
+        let root = root_guard.path().to_path_buf();
         let session = open_desktop_session(
             root.join("catalog.sqlite").to_str().expect("catalog path"),
             root.join("cache").to_str().expect("cache path"),
@@ -320,6 +317,7 @@ impl MetadataFixture {
             source_path: root.join("source.nef"),
             root,
             session,
+            _root_guard: root_guard,
         }
     }
 
@@ -347,17 +345,12 @@ impl MetadataFixture {
         coordinates: Option<(f64, f64, &str)>,
     ) -> shadow_catalog::RegisteredAsset {
         let source_path = self.root.join(file_name);
-        let display_path = source_path.to_string_lossy().into_owned();
         let registered = self
             .session
             .catalog
             .register_asset(&RegisterAsset {
                 kind: RepresentationKind::OriginalRaw,
-                location: AssetLocation::new(
-                    Platform::MacOs,
-                    display_path.as_bytes().to_vec(),
-                    display_path,
-                ),
+                location: shadow_native_path::native_location(&source_path),
                 byte_len: 20_000,
                 modified_at_ms: Some(200),
                 now_ms: 1_700_000_000,
@@ -389,11 +382,5 @@ impl MetadataFixture {
             })
             .expect("index metadata fixture facts");
         registered
-    }
-}
-
-impl Drop for MetadataFixture {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.root).expect("remove Library metadata fixture");
     }
 }

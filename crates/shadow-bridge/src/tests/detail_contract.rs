@@ -201,7 +201,9 @@ fn full_edit_detail_contract_is_send_sync_and_rejects_invalid_rectangles_locally
         "the source-neutral detail API must retain the existing bounded session type"
     );
     assert_eq!(MAX_EDIT_DETAIL_TILE_SIDE, 1_024);
-    assert_eq!(MAX_EDIT_DETAIL_RETAINED_BYTES, 1_024 * 1_024 * 1_024);
+    // Scene-linear panoramas use the native 2 GiB cap; packed RGB and CFA
+    // retain their smaller source-specific limits in the native session.
+    assert_eq!(MAX_EDIT_DETAIL_RETAINED_BYTES, 2 * 1_024 * 1_024 * 1_024);
 
     let dimensions = ImageDimensions {
         width: 4_000,

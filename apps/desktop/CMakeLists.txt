@@ -319,6 +319,11 @@ qt_add_executable(
     src/desktop_backend_raw_foundation.cpp
     src/desktop_backend_cache.cpp
     src/desktop_backend_edit.cpp
+    src/desktop_backend_document.cpp
+    src/backend/document_types.hpp
+    src/editable_document_history.cpp
+    src/editable_document_history.hpp
+    src/desktop_backend_shared_grade_link.cpp
     src/desktop_backend_lut_export.cpp
     src/backend/lut_export_types.hpp
     src/lut_export_controller.cpp
@@ -362,12 +367,16 @@ qt_add_executable(
     src/desktop_smoke/grade_stack_persistence.hpp
     src/desktop_smoke/library_lifecycle.cpp
     src/desktop_smoke/library_lifecycle.hpp
+    src/desktop_smoke/bulk_import.cpp
+    src/desktop_smoke/bulk_import.hpp
     src/desktop_smoke/review_mutations.cpp
     src/desktop_smoke/review_mutations.hpp
     src/desktop_smoke/scenario_setup.cpp
     src/desktop_smoke/scenario_setup.hpp
     src/desktop_smoke/visual_capture.cpp
     src/desktop_smoke/visual_capture.hpp
+    src/desktop_smoke/storage_profiles.cpp
+    src/desktop_smoke/storage_profiles.hpp
     src/cache_maintenance_controller.cpp
     src/cache_maintenance_controller.hpp
     src/edit_controller.cpp
@@ -376,6 +385,16 @@ qt_add_executable(
     src/edit_interchange_controller.cpp
     src/edit_interchange_controller.hpp
     src/edit_interchange_application.cpp
+    src/adjustment_transfer_controller.cpp
+    src/adjustment_transfer_controller.hpp
+    src/adjustment_transfer_operations.cpp
+    src/adjustment_transfer_operations.hpp
+    src/edit_adjustment_transfer.cpp
+    src/shared_grade_link_controller.cpp
+    src/shared_grade_link_controller.hpp
+    src/shared_grade_link_operations.cpp
+    src/shared_grade_link_operations.hpp
+    src/edit_shared_grade_link.cpp
     src/xmp_develop_import.cpp
     src/xmp_develop_import.hpp
     src/edit_variant_controller.cpp
@@ -541,6 +560,18 @@ qt_add_executable(
     src/image_understanding_controller.hpp
     src/catalog_startup_recovery.cpp
     src/catalog_startup_recovery.hpp
+    src/storage_profile.cpp
+    src/storage_profile.hpp
+    src/storage_profile_registry.cpp
+    src/storage_profile_registry.hpp
+    src/storage_profile_controller.cpp
+    src/storage_profile_controller.hpp
+    src/storage_profile_archive.cpp
+    src/storage_profile_archive.hpp
+    src/storage_profile_switch.cpp
+    src/storage_profile_switch.hpp
+    src/storage_profile_startup.cpp
+    src/storage_profile_startup.hpp
     src/main.cpp
     src/external_edit_contract.cpp
     src/external_edit_contract.hpp
@@ -557,10 +588,13 @@ qt_add_executable(
     src/rgb_curve_smoke_harness.cpp
     src/rgb_curve_smoke_harness.hpp
     src/pipeline_smoke_harness.cpp
+    src/document_smoke_harness.cpp
+    src/document_smoke_harness.hpp
     src/pipeline_smoke_harness.hpp
     src/raw_white_balance_smoke_harness.cpp
     src/raw_white_balance_smoke_harness.hpp
     src/pipeline_runtime.cpp
+    src/pipeline_document.cpp
     src/pipeline_run_controller.cpp
     src/pipeline_run_controller.hpp
     src/ai_preferences.cpp
@@ -821,6 +855,8 @@ qt_add_executable(
     WIN32
     MACOSX_BUNDLE
     src/server_manager/main.cpp
+    src/storage_profile.cpp
+    src/storage_profile.hpp
 )
 qt_add_qml_module(
     shadow-server-manager
@@ -933,12 +969,14 @@ qt_add_qml_module(
         qml/LutManagerWindow.qml
         qml/LutExportDialog.qml
         qml/ApplicationSettingsDialog.qml
+        qml/StorageProfilesDialog.qml
         qml/SettingsGeneralPane.qml
         qml/SettingsLibraryPane.qml
         qml/SettingsAiPane.qml
         qml/SettingsStoragePane.qml
         qml/Main.qml
         qml/PipelineEditor.qml
+        qml/DocumentHistoryDialog.qml
         qml/PipelineExportDialog.qml
         qml/MainTitleBar.qml
         qml/ShadowTitleBar.qml
@@ -1050,6 +1088,10 @@ qt_add_qml_module(
         qml/ReviewDailyCollection.qml
         qml/ReviewTravelCollections.qml
         qml/ReviewSharedGradePicker.qml
+        qml/AdjustmentTransferBar.qml
+        qml/AdjustmentTransferDialog.qml
+        qml/SharedGradeLinkPanel.qml
+        qml/SharedGradeLinkDialog.qml
         qml/ReviewPhotoCard.qml
         qml/LibraryMissingPhotoDialogs.qml
         qml/ReviewPhotoContextMenu.qml

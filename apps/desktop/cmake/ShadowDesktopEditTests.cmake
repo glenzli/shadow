@@ -1,5 +1,47 @@
 # Precision edit-session, preview/detail transport, tool interaction, and
 # packaged edit-component contracts.
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    qt_add_executable(shadow-shared-grade-link-controller-test
+        tests/shared_grade_link_controller_test.cpp
+        src/shared_grade_link_controller.cpp src/shared_grade_link_controller.hpp
+        src/adjustment_transfer_controller.cpp src/adjustment_transfer_controller.hpp)
+    target_compile_features(shadow-shared-grade-link-controller-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-shared-grade-link-controller-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-shared-grade-link-controller-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test Qt6::Concurrent)
+    add_test(NAME shadow-desktop-shared-grade-link-controller COMMAND shadow-shared-grade-link-controller-test)
+    set_tests_properties(shadow-desktop-shared-grade-link-controller PROPERTIES
+        TIMEOUT 40 LABELS "desktop;grading")
+    qt_add_executable(shadow-shared-grade-link-panel-test
+        tests/shared_grade_link_panel_contract_test.cpp)
+    target_compile_features(shadow-shared-grade-link-panel-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-shared-grade-link-panel-test PRIVATE Qt6::Gui Qt6::Test Qt6::Quick Qt6::Qml Qt6::QuickControls2)
+    target_compile_definitions(shadow-shared-grade-link-panel-test PRIVATE
+        SHADOW_SHARED_GRADE_LINK_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+    add_dependencies(shadow-shared-grade-link-panel-test shadow-desktop-release-translations)
+    qt_add_qml_module(shadow-shared-grade-link-panel-test
+        URI Shadow.SharedGradeLinkContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES
+            qml/SharedGradeLinkPanel.qml qml/SharedGradeLinkDialog.qml
+            qml/PrecisionGradeNodeMenus.qml
+            qml/LutExportDialog.qml qml/XmpImportDialog.qml qml/ShadowRecipeInterchangeDialog.qml
+            qml/ShadowDialog.qml qml/ShadowButton.qml qml/ShadowCheckBox.qml
+            qml/ShadowComboBox.qml qml/ShadowTextField.qml qml/ShadowIcon.qml
+            qml/ShadowIconButton.qml qml/Theme.qml)
+    qt_add_resources(shadow-shared-grade-link-panel-test shared-grade-link-panel-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/close.svg icons/check.svg icons/shared-link.svg icons/chevron-down.svg)
+    add_test(NAME shadow-desktop-shared-grade-link-panel COMMAND shadow-shared-grade-link-panel-test)
+    set_tests_properties(shadow-desktop-shared-grade-link-panel PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
+        TIMEOUT 40 LABELS "desktop;grading")
+    qt_add_executable(shadow-adjustment-transfer-controller-test
+        tests/adjustment_transfer_controller_test.cpp
+        src/adjustment_transfer_controller.cpp src/adjustment_transfer_controller.hpp)
+    target_compile_features(shadow-adjustment-transfer-controller-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-adjustment-transfer-controller-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-adjustment-transfer-controller-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test Qt6::Concurrent)
+    add_test(NAME shadow-desktop-adjustment-transfer-controller COMMAND shadow-adjustment-transfer-controller-test)
+    set_tests_properties(shadow-desktop-adjustment-transfer-controller PROPERTIES TIMEOUT 40 LABELS "desktop;grading")
     qt_add_executable(shadow-lut-export-controller-test
         tests/lut_export_controller_test.cpp
         src/lut_export_controller.cpp src/lut_export_controller.hpp)

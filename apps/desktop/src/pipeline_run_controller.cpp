@@ -3,9 +3,12 @@
 #include "edit_controller.hpp"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QPointer>
+#include <QProcess>
 #include <QTimer>
 #include <QtConcurrent>
 #include <cstdlib>
@@ -15,10 +18,25 @@ PipelineRunController::PipelineRunController(
     std::shared_ptr<DesktopBackend> backend,
     EditController& editor,
     PipelineLaunchRequest request,
+    QString runtime_root,
+    QVector<DesktopBackend::PipelineInput> restored,
     QObject* parent
 ) :
     QObject(parent), backend_(std::move(backend)), editor_(editor), inspection_(backend_),
-    request_(std::move(request)) {
+    request_(std::move(request)), inputs_(std::move(restored)),
+    runtime_root_(std::move(runtime_root)), document_path_(request_.document_input),
+    document_digest_(request_.document_digest) {
+    document_dirty_ = document_path_.isEmpty();
+    connect(&editor_, &EditController::documentEdited, this, [this] {
+        document_dirty_ = true;
+        emit changed();
+    });
+    connect(
+        &document_watcher_,
+        &QFutureWatcher<DocumentSaveResult>::finished,
+        this,
+        &PipelineRunController::finishDocumentSave
+    );
     connect(
         &inspection_,
         &ReviewPhotoInspectionCoordinator::stateChanged,
@@ -84,16 +102,18 @@ PipelineRunController::~PipelineRunController() {
         cancellation_token_->store(true, std::memory_order_relaxed);
     admission_watcher_.waitForFinished();
     export_watcher_.waitForFinished();
+    document_watcher_.waitForFinished();
 }
 
 bool PipelineRunController::busy() const noexcept {
-    return admission_watcher_.isRunning() || exporting() || completion_requested_
-           || (editor_.stateBusy() || editor_.toolOperationRunning());
+    return admission_watcher_.isRunning() || exporting() || savingDocument()
+           || completion_requested_ || (editor_.stateBusy() || editor_.toolOperationRunning());
 }
 
 bool PipelineRunController::navigationEnabled() const noexcept {
-    return !terminal_ && !finished_ && !completion_requested_ && !exporting()
-           && !admission_watcher_.isRunning() && (editor_.active() || !editor_.stateBusy());
+    return !terminal_ && !finished_ && !completion_requested_ && !exporting() && !savingDocument()
+           && !editor_.stateBusy() && !admission_watcher_.isRunning()
+           && (editor_.active() || !editor_.stateBusy());
 }
 
 bool PipelineRunController::currentPhotoEditable() const noexcept {
@@ -106,7 +126,7 @@ QVariantList PipelineRunController::photos() const {
     for (const auto& input : inputs_)
         result.append(
             QVariantMap{
-                {QStringLiteral("name"), QFileInfo(input.source_path).fileName()},
+                {QStringLiteral("name"), input.title},
                 {QStringLiteral("path"), input.source_path},
                 {QStringLiteral("photoId"), input.photo_id},
             }
@@ -115,6 +135,8 @@ QVariantList PipelineRunController::photos() const {
 }
 
 QString PipelineRunController::statusText() const {
+    if (savingDocument())
+        return tr("Saving editable document…");
     if (finished_)
         return tr("Exported %1 photos. You can close this session.").arg(completedCount());
     if (admission_watcher_.isRunning())
@@ -138,6 +160,11 @@ void PipelineRunController::start() {
     if (started_ || terminal_)
         return;
     started_ = true;
+    if (!inputs_.isEmpty()) {
+        selectPhoto(0);
+        emit changed();
+        return;
+    }
     QStringList paths;
     for (const auto& photo : request_.photos)
         paths.append(photo.input_path);
@@ -150,8 +177,23 @@ void PipelineRunController::start() {
 void PipelineRunController::addFiles(const QList<QUrl>& files) {
     if (!interactive() || busy() || terminal_ || finished_ || completedCount() > 0)
         return;
+    for (const auto& file : files) {
+        if (file.isLocalFile() && file.toLocalFile().endsWith(".shdw", Qt::CaseInsensitive)) {
+            if (files.size() != 1
+                || !QProcess::startDetached(
+                    QCoreApplication::applicationFilePath(),
+                    {"--isolate", file.toLocalFile()}
+                ))
+                error_text_ = tr("Open one Shadow document in a separate editor window.");
+            else if (inputs_.isEmpty())
+                cancel();
+            emit changed();
+            return;
+        }
+    }
     QStringList paths;
     QSet<QString> seen;
+    seen.unite(original_paths_);
     for (const auto& input : inputs_)
         seen.insert(input.source_path);
     for (const auto& file : files) {
@@ -183,7 +225,9 @@ void PipelineRunController::admit(const QStringList& paths) {
         QtConcurrent::run([backend = backend_,
                            paths,
                            cancel = admission_cancellation_,
-                           binding = request_.external] {
+                           binding = request_.external,
+                           expected =
+                               request_.document_protocol ? request_.input_sha256 : QString{}] {
             AdmissionResult result;
             if (binding) {
                 try {
@@ -197,7 +241,18 @@ void PipelineRunController::admit(const QStringList& paths) {
                 if (cancel->load(std::memory_order_relaxed))
                     break;
                 try {
-                    result.inputs.append(backend->admitPipelineInput(path));
+                    const auto admitted = backend->admitPipelineInput(path);
+                    if (!expected.isEmpty()) {
+                        QFile input(admitted.source_path);
+                        QCryptographicHash hash(QCryptographicHash::Sha256);
+                        if (!input.open(QIODevice::ReadOnly) || !hash.addData(&input)
+                            || QString::fromLatin1(hash.result().toHex()) != expected)
+                            throw std::runtime_error(
+                                "Document input snapshot differs from its requested SHA-256"
+                            );
+                    }
+                    result.inputs.append(admitted);
+                    result.original_paths.insert(path);
                 } catch (const std::exception& error) {
                     result.errors.append(
                         QFileInfo(path).fileName() + QStringLiteral(" · ")
@@ -223,6 +278,9 @@ void PipelineRunController::finishAdmission() {
         return;
     }
     inputs_ += result.inputs;
+    if (!result.inputs.isEmpty())
+        document_dirty_ = true;
+    original_paths_.unite(result.original_paths);
     if (interactive()) {
         request_.photos.clear();
         for (const auto& input : inputs_)
@@ -239,6 +297,7 @@ void PipelineRunController::selectPhoto(const int index) {
     if (index < 0 || index >= inputs_.size() || !navigationEnabled())
         return;
     const auto& input = inputs_[index];
+    editor_.finishDocumentGesture();
     if (!editor_.openPhoto(input.photo_id, input.representation_id, input.source_path, input.title))
         error_text_ = editor_.statusText();
     else if (!editor_.autosaveFailed())
@@ -295,6 +354,10 @@ bool PipelineRunController::configureExport(const QUrl& folder, const QVariantMa
 void PipelineRunController::complete() {
     if (terminal_ || finished_ || !started_ || busy() || inputs_.isEmpty())
         return;
+    if (request_.document_protocol) {
+        saveDocument(QUrl::fromLocalFile(request_.document_output));
+        return;
+    }
     for (const auto& photo : request_.photos)
         if (photo.output_path.isEmpty())
             return;
@@ -312,6 +375,7 @@ void PipelineRunController::complete() {
 
 void PipelineRunController::persistenceFailed() {
     completion_requested_ = false;
+    document_save_pending_ = false;
     editor_.cancelPendingPhotoOpen();
     error_text_ = tr("Adjustments could not be saved. Retry saving before switching or exporting.");
     emit changed();
@@ -320,6 +384,10 @@ void PipelineRunController::persistenceFailed() {
 void PipelineRunController::beginExport() {
     if (terminal_ || !completion_requested_ || exporting() || editor_.active() || editor_.busy())
         return;
+    if (document_save_pending_) {
+        beginDocumentSave();
+        return;
+    }
     try {
         const auto options = ExportSettingsCodec::fromVariantMap(request_.export_options);
         const auto backend = std::shared_ptr<ExportBackend>(backend_, &backend_->exportBackend());
@@ -445,7 +513,7 @@ void PipelineRunController::cancel() {
     cancel_requested_ = true;
     if (admission_cancellation_)
         admission_cancellation_->store(true, std::memory_order_relaxed);
-    if (admission_watcher_.isRunning() || exporting()) {
+    if (admission_watcher_.isRunning() || exporting() || document_watcher_.isRunning()) {
         stopExport();
         emit changed();
         return;

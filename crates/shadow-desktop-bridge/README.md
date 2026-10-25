@@ -12,10 +12,11 @@ presentation, SQLite schema details, or native image algorithms.
 | Headless basic/geometry and five-channel curve authoring/read projection into the canonical desktop DTO, preserving complete Recipe state and existing CAS | [`src/headless_project/edit.rs`](src/headless_project/edit.rs), [`src/headless_project/protocol.rs`](src/headless_project/protocol.rs) |
 | Headless explicitly user-directed flags/ratings, exact existing decision-ledger CAS receipts, bounded history and honest provenance limits | [`src/headless_project/review.rs`](src/headless_project/review.rs), [`src/review_service/decisions.rs`](src/review_service/decisions.rs) |
 | Desktop CXX structs, methods, and session composition | [`src/lib.rs`](src/lib.rs) |
+| Whole-profile SQLite/attachment snapshots, verified immutable backup manifests, fresh-identity restores and runnable-work isolation | [`src/storage_profile_archive.rs`](src/storage_profile_archive.rs), [`src/storage_profile_archive/`](src/storage_profile_archive/) |
 | Versioned Recipe document projection and verified bundled LUT storage | [`src/recipe_interchange.rs`](src/recipe_interchange.rs), [`src/recipe_lut_resources.rs`](src/recipe_lut_resources.rs) |
 | Exact pre-curve recipe prefix, existing warm-source lookup and cancellable scalar input map | [`src/edit_preview/curve_input.rs`](src/edit_preview/curve_input.rs) |
 | Frozen color-only Grade Stack projection, explicit omissions, and cancellable LUT export | [`src/lut_export.rs`](src/lut_export.rs) |
-| Checkpointed smart-category classification projection | [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
+| Checkpointed smart-category classification projection and session-local batch cancellation | [`src/session_smart_classification.rs`](src/session_smart_classification.rs) |
 | Library service composition | [`src/library_service.rs`](src/library_service.rs) |
 | Ordered Library photo paging, facets, and signed visual presentation | [`src/library_service/browse.rs`](src/library_service/browse.rs) |
 | Provider-independent Library viewport aggregation | [`src/library_service/map_browse.rs`](src/library_service/map_browse.rs) |
@@ -42,7 +43,8 @@ presentation, SQLite schema details, or native image algorithms.
 | Automatic completion source matching and quiet review of non-color changes | [`src/image_completion_source.rs`](src/image_completion_source.rs) |
 | Local Infer completion admission, bounded RGB-to-linear reconstruction, and eight-entry / 8 MiB session candidate reuse with explicit refresh bypass | [`src/image_completion_runtime.rs`](src/image_completion_runtime.rs), [`src/image_completion_runtime/color_encoding.rs`](src/image_completion_runtime/color_encoding.rs), [`src/image_completion_runtime/request_cache.rs`](src/image_completion_runtime/request_cache.rs) |
 | Shared default Infer Runtime credential location across RAW denoise, subject masks, and image completion | [`src/infer_runtime_credentials.rs`](src/infer_runtime_credentials.rs) |
-| Folder import lifecycle | [`src/scan_service.rs`](src/scan_service.rs) |
+| Folder import lifecycle, scan-fenced visible-photo hints, and separate quick-preview/refinement admission | [`src/scan_service.rs`](src/scan_service.rs), [`shadow-core/decode_inspection/progressive.rs`](../shadow-core/src/decode_inspection/progressive.rs), [`refinement_queue.rs`](../shadow-core/src/decode_inspection/progressive/refinement_queue.rs) |
+| Isolated, nonce-bound camera JPEG extraction and temporary-transfer cleanup | [`src/isolated_proxy/embedded_preview.rs`](src/isolated_proxy/embedded_preview.rs) |
 | Folder-owned source relinking from scan evidence, an unavailable Library card, or a configured source: verified attachment, replacement-root adoption, unresolved counts, and safe obsolete-source retirement | [`src/relink_service.rs`](src/relink_service.rs) |
 | Replacement-folder planning: old-directory sibling/source-tree discovery, exact-identity matching, bounded legacy identity bootstrapping, ambiguity rejection, and pre-scan duplicate prevention | [`src/relink_service/folder_recovery.rs`](src/relink_service/folder_recovery.rs) |
 | Review presentation, decisions, and comparison evidence | [`src/review_service.rs`](src/review_service.rs) |
@@ -73,6 +75,7 @@ presentation, SQLite schema details, or native image algorithms.
 | Strict flat Liquify DTO decoding and bounded node construction | [`src/recipe_v1/ffi_adapter/liquify.rs`](src/recipe_v1/ffi_adapter/liquify.rs) |
 | Condition-mask executability and opaque managed-raster gates between persistent Recipe values, the flat Qt DTO, verified application storage, and native render plans | [`src/recipe_v1/snapshot_decode.rs`](src/recipe_v1/snapshot_decode.rs), [`src/recipe_v1/ffi_adapter.rs`](src/recipe_v1/ffi_adapter.rs), [`src/recipe_v1/managed_raster_resolution.rs`](src/recipe_v1/managed_raster_resolution.rs), [`src/recipe_v1/compiler.rs`](src/recipe_v1/compiler.rs) |
 | Shared Grade Node library, application, and desktop-session orchestration | [`src/shared_grade_library.rs`](src/shared_grade_library.rs), [`src/shared_grade_application.rs`](src/shared_grade_application.rs), [`src/session_shared_grade.rs`](src/session_shared_grade.rs) |
+| Materialized shared-grade subscriptions, exact-instance conflict protection, bounded active-working discovery, and atomic source self-link publication | [`src/shared_grade_linking.rs`](src/shared_grade_linking.rs), [`shadow-catalog/recipe/shared_grade_links.rs`](../shadow-catalog/src/recipe/shared_grade_links.rs) |
 | Recipe-exact raster export execution (including fail-closed AI RAW-foundation routing and provider-neutral RawFrame staging when the public decoder cannot develop the source), durable queueing, and source-stage RAW DNG publication that preserves the staged CFA mosaic and source calibration without applying the Recipe; isolated display JPEGs are never substituted for RAW export | [`src/export_service.rs`](src/export_service.rs), [`src/export_queue_service.rs`](src/export_queue_service.rs), [`src/raw_dng_export.rs`](src/raw_dng_export.rs), [`src/isolated_proxy/raw_frame_staging.rs`](src/isolated_proxy/raw_frame_staging.rs) |
 | Cache ownership and explicit maintenance | [`src/cache_maintenance_service.rs`](src/cache_maintenance_service.rs) |
 | Cross-responsibility facade contracts and responsibility-owned fixtures | [`src/tests/mod.rs`](src/tests/mod.rs), [`src/tests/fixtures/mod.rs`](src/tests/fixtures/mod.rs) |
@@ -121,6 +124,8 @@ half-width feather, while a nonzero absolute minimum-chroma gate has its own cub
 detail uses a complete-render, edge-clamped `(2r + 1)²` Oklab-lightness box, fixed residual
 normalization, and rational full-render scale with round-half-up radius conversion; tile dimensions
 do not alter its footprint.
+
+The independent editor's self-contained `.shdw` envelope, verified ZIP publication/reopen, source relocation, and durable semantic history belong to [`src/editable_document.rs`](src/editable_document.rs). The public [document contract](../../docs/development/editable-document.md) covers consumers and version boundaries.
 
 ## Test layout
 

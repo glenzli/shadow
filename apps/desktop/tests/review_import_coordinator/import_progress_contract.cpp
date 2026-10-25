@@ -42,6 +42,26 @@ void run_import_progress_contracts() {
         "the coordinator owns the active folder and running state"
     );
 
+    coordinator.prioritizeVisible(QStringLiteral("selected"), {QStringLiteral("visible")});
+    coordinator.prioritizeVisible(QStringLiteral("selected"), {QStringLiteral("visible")});
+    {
+        std::lock_guard lock(state->mutex);
+        require(
+            state->prioritized_ids == QVector<quint64>{1}
+                && state->selected_id == QStringLiteral("selected")
+                && state->visible_ids == QStringList{QStringLiteral("visible")},
+            "viewport hints use the active scan identity and identical samples are coalesced"
+        );
+    }
+    coordinator.prioritizeVisible({}, {});
+    {
+        std::lock_guard lock(state->mutex);
+        require(
+            state->prioritized_ids.size() == 2 && state->visible_ids.isEmpty(),
+            "hiding the viewport clears old priorities without cancelling import"
+        );
+    }
+
     set_progress(
         state,
         {

@@ -13,6 +13,8 @@ Rectangle {
     required property var editor
     required property var interchangeController
     property var lutExportController: null
+    property var adjustmentTransferController: null
+    property var sharedGradeLinkController: null
     required property color panel
     required property color panelRaised
     required property color borderColor
@@ -45,6 +47,8 @@ Rectangle {
         editor: pane.editor
         interchangeController: pane.interchangeController
         lutExportController: pane.lutExportController
+        adjustmentTransferController: pane.adjustmentTransferController
+        sharedGradeLinkController: pane.sharedGradeLinkController
         onCropGeometryRequested: pane.cropToolRequested()
         onRepairRequested: pane.repairToolRequested()
         onLiquifyRequested: pane.liquifyToolRequested()
@@ -308,6 +312,13 @@ Rectangle {
                 readonly property bool selected:
                     pane.editor.selectedRecipeNodeKind === "grade"
                     && gradeNodeRow.index === pane.editor.selectedGradeNodeIndex
+                readonly property var sharedState: selected
+                    ? pane.editor.selectedSharedGradeNodeState || ({}) : modelData
+                readonly property string linkStatus: !modelData.shared ? qsTr("LOCAL")
+                    : sharedState.sharedLocallyModified === true ? qsTr("LOCAL CHANGES · UNPUBLISHED")
+                    : sharedState.sharedFollowHead !== true ? qsTr("FIXED · V%1").arg(modelData.sharedRevisionNumber)
+                    : sharedState.sharedUpdateAvailable === true ? qsTr("LINKED · V%1 · UPDATE AVAILABLE").arg(modelData.sharedRevisionNumber)
+                    : qsTr("LINKED · V%1").arg(modelData.sharedRevisionNumber)
 
                 width: gradeNodeList.width
                 height: 52
@@ -350,12 +361,18 @@ Rectangle {
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: (gradeNodeRow.modelData.shared ? (gradeNodeRow.modelData.enabled ? qsTr("SHARED · V%1 · ENABLED").arg(gradeNodeRow.modelData.sharedRevisionNumber) : qsTr("SHARED · V%1 · BYPASSED").arg(gradeNodeRow.modelData.sharedRevisionNumber)) : (gradeNodeRow.modelData.enabled ? qsTr("LOCAL · ENABLED") : qsTr("LOCAL · BYPASSED"))) + (gradeNodeRow.modelData.hasLocalMask ? qsTr(" · %L1 MASK PART(S)").arg(gradeNodeRow.modelData.localMaskComponentCount) : "")
+                            objectName: "sharedGradeNodeStatus"
+                            text: gradeNodeRow.linkStatus
+                                + (gradeNodeRow.modelData.enabled ? qsTr(" · ENABLED") : qsTr(" · BYPASSED"))
+                                + (gradeNodeRow.modelData.hasLocalMask ? qsTr(" · %L1 MASK PART(S)").arg(gradeNodeRow.modelData.localMaskComponentCount) : "")
                             color: gradeNodeRow.modelData.enabled ? (gradeNodeRow.selected ? Theme.accentTextMuted : pane.textMuted) : Theme.textMuted
                             font.pixelSize: Theme.fontCaption
                             font.weight: Font.DemiBold
                             font.letterSpacing: 0.2
                             elide: Text.ElideRight
+                            ToolTip.visible: nodeStatusHover.hovered
+                            ToolTip.text: text
+                            HoverHandler { id: nodeStatusHover }
                         }
                     }
 

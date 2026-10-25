@@ -1,5 +1,68 @@
 # Application-shell and Qt/backend boundary contracts: startup, history,
 # export, folder import, and production-linked backend projection.
+
+add_executable(shadow-storage-profile-archive-test
+    tests/storage_profile_archive_test.cpp src/storage_profile.cpp src/storage_profile_archive.cpp src/storage_profile_archive.hpp)
+target_compile_features(shadow-storage-profile-archive-test PRIVATE cxx_std_20)
+target_include_directories(shadow-storage-profile-archive-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}")
+target_link_libraries(shadow-storage-profile-archive-test PRIVATE Qt6::Core Qt6::Concurrent Qt6::Test shadow-desktop-rust Shadow::Image)
+add_dependencies(shadow-storage-profile-archive-test shadow-desktop-rust-build)
+add_test(NAME shadow-desktop-storage-profile-archive COMMAND shadow-storage-profile-archive-test)
+set_tests_properties(shadow-desktop-storage-profile-archive PROPERTIES LABELS "desktop;storage;profiles;backup" TIMEOUT 45)
+
+add_executable(shadow-export-task-runner-test tests/export_task_runner_test.cpp src/export_task_runner.cpp)
+target_compile_features(shadow-export-task-runner-test PRIVATE cxx_std_20)
+target_include_directories(shadow-export-task-runner-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${SHADOW_CXXBRIDGE_INCLUDE_DIRECTORY}")
+target_link_libraries(shadow-export-task-runner-test PRIVATE shadow-desktop-export-backend)
+add_dependencies(shadow-export-task-runner-test shadow-desktop-rust-build)
+add_test(NAME shadow-desktop-export-task-runner COMMAND shadow-export-task-runner-test)
+set_tests_properties(shadow-desktop-export-task-runner PROPERTIES LABELS "desktop;export;profiles" TIMEOUT 30)
+
+add_executable(shadow-storage-profile-registry-test
+    tests/storage_profile_registry_test.cpp src/storage_profile.cpp src/storage_profile_registry.cpp)
+target_compile_features(shadow-storage-profile-registry-test PRIVATE cxx_std_20)
+target_include_directories(shadow-storage-profile-registry-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(shadow-storage-profile-registry-test PRIVATE Qt6::Core)
+add_test(NAME shadow-desktop-storage-profile-registry COMMAND shadow-storage-profile-registry-test)
+set_tests_properties(shadow-desktop-storage-profile-registry PROPERTIES LABELS "desktop;storage;profiles" TIMEOUT 30)
+
+add_executable(shadow-storage-profile-controller-test
+    tests/storage_profile_controller_test.cpp
+    src/storage_profile.cpp src/storage_profile_registry.cpp src/storage_profile_controller.cpp
+    src/storage_profile_controller.hpp src/storage_profile_switch.cpp src/storage_profile_switch.hpp)
+target_compile_features(shadow-storage-profile-controller-test PRIVATE cxx_std_20)
+target_include_directories(shadow-storage-profile-controller-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(shadow-storage-profile-controller-test PRIVATE Qt6::Core Qt6::Gui Qt6::Network Qt6::Test)
+add_test(NAME shadow-desktop-storage-profile-controller COMMAND shadow-storage-profile-controller-test)
+set_tests_properties(shadow-desktop-storage-profile-controller PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "desktop;storage;profiles" TIMEOUT 30)
+
+add_executable(shadow-storage-profile-restart-test
+    tests/storage_profile_restart_test.cpp src/storage_profile.cpp src/storage_profile_registry.cpp
+    src/storage_profile_switch.cpp src/storage_profile_switch.hpp)
+target_compile_features(shadow-storage-profile-restart-test PRIVATE cxx_std_20)
+target_include_directories(shadow-storage-profile-restart-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(shadow-storage-profile-restart-test PRIVATE Qt6::Core Qt6::Network Qt6::Test)
+add_test(NAME shadow-desktop-storage-profile-restart COMMAND shadow-storage-profile-restart-test)
+set_tests_properties(shadow-desktop-storage-profile-restart PROPERTIES LABELS "desktop;storage;profiles" TIMEOUT 30)
+
+add_executable(shadow-storage-profiles-qml-test
+    tests/storage_profiles_qml_test.cpp
+    src/storage_profile.cpp src/storage_profile_registry.cpp src/storage_profile_controller.cpp
+    src/storage_profile_controller.hpp src/storage_profile_switch.cpp src/storage_profile_switch.hpp)
+target_compile_features(shadow-storage-profiles-qml-test PRIVATE cxx_std_20)
+target_compile_definitions(shadow-storage-profiles-qml-test PRIVATE SHADOW_PROFILE_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+add_dependencies(shadow-storage-profiles-qml-test shadow-desktop)
+target_include_directories(shadow-storage-profiles-qml-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(shadow-storage-profiles-qml-test PRIVATE Qt6::Gui Qt6::Network Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+qt_add_qml_module(shadow-storage-profiles-qml-test
+    URI Shadow.StorageProfilesContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+    QML_FILES qml/StorageProfilesDialog.qml qml/ShadowDialog.qml qml/ShadowButton.qml
+        qml/ShadowTextField.qml qml/ShadowIcon.qml qml/Theme.qml qml/AutosaveFailureRecovery.qml)
+add_test(NAME shadow-desktop-storage-profiles-qml COMMAND shadow-storage-profiles-qml-test)
+set_tests_properties(shadow-desktop-storage-profiles-qml PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" LABELS "desktop;storage;profiles" TIMEOUT 30)
+
     add_executable(shadow-export-workflow-contract-test
         tests/export_workflow_contract_test.cpp)
     target_compile_features(shadow-export-workflow-contract-test PRIVATE cxx_std_20)
@@ -21,6 +84,15 @@
         NAME shadow-desktop-map-workspace-startup
         COMMAND $<TARGET_FILE:shadow-desktop>
     )
+
+    add_executable(shadow-storage-profile-contract-test
+        tests/storage_profile_contract_test.cpp src/storage_profile.cpp src/storage_profile.hpp)
+    target_compile_features(shadow-storage-profile-contract-test PRIVATE cxx_std_20)
+    target_include_directories(shadow-storage-profile-contract-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(shadow-storage-profile-contract-test PRIVATE Qt6::Core)
+    add_test(NAME shadow-desktop-storage-profile-contract COMMAND shadow-storage-profile-contract-test)
+    set_tests_properties(shadow-desktop-storage-profile-contract PROPERTIES
+        LABELS "desktop;storage;profiles" TIMEOUT 30)
 
     add_executable(
         shadow-people-analysis-controller-test

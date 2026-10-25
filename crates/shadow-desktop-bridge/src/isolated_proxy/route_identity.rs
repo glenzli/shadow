@@ -23,6 +23,7 @@ const SOURCE_SIGNATURE_SAMPLE_BYTES: usize = 64 * 1024;
 pub(super) const REFERENCE_PROXY_PROTOCOL: &str = "shadow-proxy-v1";
 pub(super) const METADATA_SNAPSHOT_PROTOCOL: &str = "shadow-metadata-v4";
 pub(super) const DECODER_SNAPSHOT_PROTOCOL: &str = "shadow-inspect-v5";
+pub(super) const EMBEDDED_PREVIEW_PROTOCOL: &str = "shadow-embedded-preview-v1";
 
 const REFERENCE_PROXY_OPERATION: &str = "reference-proxy";
 const METADATA_SNAPSHOT_OPERATION: &str = "metadata-snapshot";
@@ -61,6 +62,30 @@ pub(super) struct DecoderSafetyKey {
 }
 
 impl DecoderSafetyKey {
+    /// The metadata frame of one successful combined operation has the same captured source,
+    /// helper and provider identity; changing only its protocol cannot recapture a newer file.
+    pub(super) fn decoder_snapshot_stage(&self) -> Self {
+        let mut key = self.clone();
+        key.helper_protocol = DECODER_SNAPSHOT_PROTOCOL.to_owned();
+        key.operation = DECODER_SNAPSHOT_OPERATION.to_owned();
+        key
+    }
+    pub(super) fn quick_inspection(source_path: &Path, helper_path: &Path) -> Result<Self> {
+        Self::for_operation(
+            source_path,
+            helper_path,
+            "shadow-inspect-v5+embedded-preview-v1",
+            "quick-inspection",
+        )
+    }
+    pub(super) fn embedded_preview(source_path: &Path, helper_path: &Path) -> Result<Self> {
+        Self::for_operation(
+            source_path,
+            helper_path,
+            EMBEDDED_PREVIEW_PROTOCOL,
+            "embedded-preview",
+        )
+    }
     pub(super) fn reference_proxy(source_path: &Path, helper_path: &Path) -> Result<Self> {
         Self::for_operation(
             source_path,

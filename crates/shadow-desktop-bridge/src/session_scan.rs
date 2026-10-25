@@ -7,6 +7,15 @@ use shadow_core::{DecodeInspectionSummary, ScanCancellation};
 use super::{DesktopSession, ffi};
 
 impl DesktopSession {
+    pub(crate) fn prioritize_visible_refinements(
+        &self,
+        scan_id: u64,
+        selected: &str,
+        visible: &[String],
+    ) -> AnyResult<bool> {
+        self.scanner.prioritize_visible(scan_id, selected, visible)
+    }
+
     pub(crate) fn scan_folder_ffi(
         &self,
         folder_path: &ffi::FfiNativePath,

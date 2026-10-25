@@ -251,6 +251,27 @@ BackendGradeStack DesktopBackend::finalizeSemanticRecipeImport(
     ));
 }
 
+BackendPhotoEditState DesktopBackend::commitSemanticRecipeAppend(
+    const std::uint64_t plan_token,
+    const QString& photo_id,
+    const QString& source_path,
+    const QString& base_commit_id,
+    const QString& expected_working_commit_id,
+    const QString& expected_variant_id,
+    const BackendGradeStack& grade_stack_value
+) const {
+    const auto settings = ffi_grade_stack(grade_stack_value);
+    return edit_state(impl_->session->commit_semantic_recipe_append(
+        plan_token,
+        photo_id.toStdString(),
+        source_path.toStdString(),
+        base_commit_id.toStdString(),
+        expected_working_commit_id.toStdString(),
+        expected_variant_id.toStdString(),
+        settings
+    ));
+}
+
 void DesktopBackend::closeSemanticRecipeImport(const std::uint64_t plan_token) const {
     impl_->session->close_semantic_recipe_import(plan_token);
 }

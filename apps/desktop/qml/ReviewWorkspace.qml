@@ -9,6 +9,7 @@ Item {
     objectName: "reviewWorkspace"
 
     property var peopleController: null
+    property var adjustmentTransferController: null
     signal returnToPeopleRequested()
     required property var controller
     required property var justifiedReviewLayout

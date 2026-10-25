@@ -84,6 +84,10 @@ compatibility entry points remain clamped; normal composite editing uses the flo
 
 ## Decoder boundary
 
+[`tools/embedded_preview.cpp`](tools/embedded_preview.cpp) owns the helper's bounded camera-JPEG
+extraction operation. It copies an embedded visual without RAW development; the desktop consumes
+the nonce-bound transfer through its isolated-preview owner.
+
 ```text
 DecoderProvider
 └─ DecodeSession

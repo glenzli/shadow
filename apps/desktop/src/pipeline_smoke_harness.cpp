@@ -2,6 +2,7 @@
 #include "auto_start_smoke_harness.hpp"
 #include "color_warper_smoke_harness.hpp"
 #include "direct_edit_smoke_harness.hpp"
+#include "document_smoke_harness.hpp"
 #include "edit_controller.hpp"
 #include "paint_interaction_smoke_harness.hpp"
 #include "paint_smoke_harness.hpp"
@@ -33,6 +34,10 @@ void installPipelineSmokeHarness(
     const QString action = qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_ACTION");
     if (action == QStringLiteral("raw-white-balance")) {
         installRawWhiteBalanceSmokeHarness(engine, pipeline, editor);
+        return;
+    }
+    if (action == QStringLiteral("document")) {
+        installDocumentSmokeHarness(engine, pipeline, editor);
         return;
     }
     if (action == QStringLiteral("color-warper")) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "backend/cache_types.hpp"
+#include "backend/document_types.hpp"
 #include "backend/edit_types.hpp"
 #include "backend/history_types.hpp"
 #include "backend/image_understanding_types.hpp"
@@ -11,10 +12,12 @@
 #include "backend/remote_library_types.hpp"
 #include "backend/review_types.hpp"
 #include "backend/semantic_search_types.hpp"
+#include "backend/shared_grade_link_types.hpp"
 #include "backend/smart_category_types.hpp"
 #include "folder_scan_backend.hpp"
 
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVector>
 
@@ -23,6 +26,7 @@
 #include <optional>
 
 class ExportBackend;
+struct AdjustmentTransferPrepared;
 
 class DesktopBackend final {
   public:
@@ -43,11 +47,29 @@ class DesktopBackend final {
     DesktopBackend& operator=(const DesktopBackend&) = delete;
 
     void beginFolderScan(std::uint64_t scan_id) const;
+    void prioritizeVisibleRefinements(
+        std::uint64_t scan_id,
+        const QString& selected,
+        const QStringList& visible
+    ) const;
     [[nodiscard]] BackendScanReport
     scanFolder(const QString& folder_path, std::uint64_t scan_id) const;
     [[nodiscard]] BackendScanProgress scanProgress(std::uint64_t scan_id) const;
     [[nodiscard]] bool cancelFolderScan(std::uint64_t scan_id) const;
     [[nodiscard]] PipelineInput admitPipelineInput(const QString& source_path) const;
+    static QVector<PipelineInput> unpackDocument(const QString& path, const QString& root);
+    static QString
+    packDocument(const QString& root, const QString& path, const QString& expected_digest);
+    void recordDocumentHistory(
+        const QString& photo,
+        const QString& source,
+        unsigned action,
+        DocumentHistoryEntry entry
+    ) const;
+    void flushDocumentHistory() const;
+    [[nodiscard]] DocumentUndo documentUndo(const QString& photo) const;
+    [[nodiscard]] QString documentHistoryPage(const QString& photo, qint64 before = 0) const;
+    [[nodiscard]] DocumentHistoryEntry documentHistoryStep(const QString& photo, qint64 step) const;
     [[nodiscard]] BackendPhotoInspection
     photoInspection(const QString& photo_id, const QString& representation_id) const;
     [[nodiscard]] BackendRemoteLibrarySnapshot
@@ -283,12 +305,60 @@ class DesktopBackend final {
         const QString& expected_working_commit_id,
         const BackendGradeStack& grade_stack
     ) const;
+    // Keeps newly resolved raster identities on the Rust side until the
+    // complete append is published under the captured working-head/Variant CAS.
+    [[nodiscard]] BackendPhotoEditState commitSemanticRecipeAppend(
+        std::uint64_t plan_token,
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const QString& expected_working_commit_id,
+        const QString& expected_variant_id,
+        const BackendGradeStack& grade_stack
+    ) const;
     void closeSemanticRecipeImport(std::uint64_t plan_token) const;
     [[nodiscard]] BackendPhotoEditState
     resetIncompatiblePhotoEditHistory(const QString& photo_id, const QString& source_path) const;
     [[nodiscard]] QVariantList
     opticsProfileCandidates(const QString& photo_id, const QString& source_path) const;
     [[nodiscard]] QVector<BackendSharedGradeNode> sharedGradeNodes() const;
+    [[nodiscard]] BackendSharedGradePublicationReceipt publishSharedGradeNodeFromPhoto(
+        const QString& photo_id,
+        const QString& source_path,
+        const QString& base_commit_id,
+        const QString& expected_working_commit_id,
+        const QString& expected_variant_id,
+        const QString& expected_representation_id,
+        const BackendGradeStack& settings,
+        const QString& grade_node_id,
+        const QString& label
+    ) const;
+    [[nodiscard]] BackendSharedGradeLinkedTargetsPage sharedGradeLinkedTargets(
+        const QString& layer_id,
+        const QString& revision_id,
+        const QString& after_photo_id,
+        std::uint32_t limit
+    ) const;
+    [[nodiscard]] BackendSharedGradeLinkedTarget sharedGradeLinkedTarget(
+        const QString& layer_id,
+        const QString& photo_id,
+        const QString& source_path
+    ) const;
+    [[nodiscard]] BackendSharedGradeLinkUpdateResult prepareSharedGradeLinkUpdate(
+        const QString& layer_id,
+        const QString& revision_id,
+        const BackendSharedGradeLinkedTarget& target
+    ) const;
+    [[nodiscard]] BackendSharedGradeLinkUpdateResult commitSharedGradeLinkUpdate(
+        const QString& layer_id,
+        const QString& revision_id,
+        const BackendSharedGradeLinkedTarget& target
+    ) const;
+    [[nodiscard]] BackendPhotoEditState commitSharedGradeNodeLink(
+        const AdjustmentTransferPrepared& prepared,
+        const QString& layer_id,
+        const QString& revision_id
+    ) const;
     [[nodiscard]] BackendSharedGradeNode
     publishSharedGradeNode(const QString& label, const BackendGradeNode& grade_node) const;
     [[nodiscard]] BackendBatchGradeReceipt applySharedGradeNodeToPhotos(
@@ -350,6 +420,8 @@ class DesktopBackend final {
         const QString& representation_id,
         std::uint64_t token
     ) const;
+    [[nodiscard]] std::uint64_t beginSmartClassification() const;
+    void cancelSmartClassification(std::uint64_t token) const;
     [[nodiscard]] BackendSmartClassificationBatch classifySmartCategoriesBatch(
         const QString& infer_base_url,
         const QString& credential_file,
@@ -357,7 +429,8 @@ class DesktopBackend final {
         const QString& config_revision,
         const QString& generation,
         bool start_new,
-        bool clear_embeddings
+        bool clear_embeddings,
+        std::uint64_t token
     ) const;
     [[nodiscard]] BackendSmartClassificationSnapshot smartClassificationSnapshot() const;
     [[nodiscard]] QStringList smartCategoryMembers(const QString& category_id) const;

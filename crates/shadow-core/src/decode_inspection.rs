@@ -8,8 +8,9 @@
 //! - [`submission`] owns bounded admission, source support routing, progress
 //!   snapshots, and completion tickets.
 //! - [`worker`] owns the guarded inspect-and-record transaction.
+//! - [`progressive`] owns separate bounded quick-preview and refinement workers.
 //! - [`visual_cache`] owns transient embedded previews and durable generated
-//!   proxy publication.
+//!   proxy publication, including verified proxy reuse for analysis backfill.
 //! - [`source_identity`] owns filesystem fingerprints used at async
 //!   boundaries.
 //! - [`tests`] verifies admission, worker and pool lifecycle, preview caching,
@@ -20,6 +21,7 @@
 
 mod contract;
 mod pool;
+mod progressive;
 mod runtime_state;
 mod source_identity;
 mod submission;
@@ -35,6 +37,7 @@ pub use contract::{
 pub use pool::{
     DecodeInspectionActor, DecodeInspectionPool, recommended_decode_inspection_worker_count,
 };
+pub use progressive::{MAX_VISIBLE_REFINEMENTS, ProgressiveInspectionPool, RefinementPriority};
 pub use source_identity::fingerprint_source;
 pub use submission::{DecodeInspectionHandle, DecodeInspectionTicket};
 

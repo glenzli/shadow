@@ -1,5 +1,7 @@
 #include "library_query_fixture.hpp"
 
+#include <QSet>
+
 namespace review_library_query_test {
 
 void run_projection_pagination_contracts() {
@@ -75,6 +77,94 @@ void run_projection_pagination_contracts() {
                 && state->page_calls.back().order == BackendLibraryPhotoOrder::FileNameAscending
                 && state->page_calls.back().cursor_photo_id == QStringLiteral("photo-1"),
             "both page calls share the bound and the append uses the exact cursor"
+        );
+    }
+
+    {
+        auto live = std::make_shared<QueryBackendState>();
+        live->bulk_rows = 300;
+        ReviewModel live_model;
+        ReviewLibraryQueryCoordinator live_coordinator(operations(live), live_model);
+        live_coordinator.setScanRunning(true);
+        BackendLibraryPhotoFilter live_filter;
+        live_filter.camera_key = QStringLiteral("bulk");
+        live_coordinator.requestReset(live_filter, BackendLibraryPhotoOrder::FileNameAscending);
+        wait_until([&]() { return !live_coordinator.pageRunning(); }, "first live import page");
+        require(
+            live_model.rowCount() == 96 && live_coordinator.hasMore(),
+            "the live first page retains its continuation"
+        );
+        {
+            std::lock_guard lock(live->mutex);
+            live->repeat_cursor_row = true;
+        }
+        require(live_coordinator.loadMore(true), "paging is admitted during import");
+        wait_until(
+            [&]() { return !live_coordinator.pageRunning(); },
+            "live duplicate-aware append"
+        );
+        require(
+            live_model.rowCount() == 192,
+            "a moved cursor row is updated instead of duplicated"
+        );
+        {
+            std::lock_guard lock(live->mutex);
+            live->visual_revision = QStringLiteral("-refined");
+            live->block_first_page = true;
+            live->blocked_page_call = live->page_calls.size() + 1;
+        }
+        require(
+            live_coordinator.refreshStreamingPrefix(true),
+            "refresh the complete loaded window"
+        );
+        wait_until(
+            [&]() {
+                std::lock_guard lock(live->mutex);
+                return live->first_page_entered;
+            },
+            "streaming refresh enters the backend"
+        );
+        require(
+            !live_coordinator.refreshing() && !live_coordinator.loadingMore(),
+            "background visual refresh leaves browsing admission available"
+        );
+        require(
+            live_coordinator.loadMore(true),
+            "a browse request queues behind the active refresh"
+        );
+        {
+            std::lock_guard lock(live->mutex);
+            live->release_first_page = true;
+            live->condition.notify_all();
+        }
+        wait_until(
+            [&]() { return !live_coordinator.pageRunning() && live_model.rowCount() == 288; },
+            "the requested continuation runs after the visual refresh"
+        );
+        require(
+            live_model.data(live_model.index(150, 0), ReviewModel::VisualHandleRole)
+                .toString()
+                .endsWith(QStringLiteral("-refined")),
+            "preview upgrades beyond the first page reach already-loaded photos"
+        );
+        live_coordinator.setScanRunning(false);
+        live_coordinator.finishImport();
+        wait_until([&]() { return !live_coordinator.pageRunning(); }, "settle the imported window");
+        require(
+            live_model.rowCount() == 288 && live_coordinator.hasMore(),
+            "import completion preserves the amount already browsed"
+        );
+        require(live_coordinator.loadMore(true), "finish browsing the imported library");
+        wait_until([&]() { return !live_coordinator.pageRunning(); }, "last live page");
+        QSet<QString> identities;
+        for (int row = 0; row < live_model.rowCount(); ++row) {
+            identities.insert(
+                live_model.data(live_model.index(row, 0), ReviewModel::PhotoIdRole).toString()
+            );
+        }
+        require(
+            live_model.rowCount() == 300 && identities.size() == 300 && !live_coordinator.hasMore(),
+            "live import paging retains every photo once across upgrade and completion"
         );
     }
 }

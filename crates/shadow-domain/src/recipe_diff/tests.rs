@@ -293,3 +293,22 @@ fn shared_revision_and_instance_override_changes_are_explicit() {
     assert_eq!(summary.shared_revision_selectors_changed, 1);
     assert_eq!(summary.layer_instance_fields_changed, 1);
 }
+
+#[test]
+fn following_policy_changes_are_visible_without_changing_the_pinned_graph() {
+    let layer = shared_layer(entity(921), entity(922), entity(923), 1.0).unwrap();
+    let before = snapshot(vec![layer.clone()]);
+    let after = snapshot(vec![layer.with_shared_follow_head(true).unwrap()]);
+    let diff = diff_recipe_snapshots(&before, &after);
+    assert_eq!(diff.modified_layers().len(), 1);
+    let modified = &diff.modified_layers()[0];
+    let policy = modified
+        .instance()
+        .shared_follow_head()
+        .expect("following policy change");
+    assert!(!*policy.before());
+    assert!(*policy.after());
+    assert!(modified.content().is_none());
+    assert_eq!(diff.summary().layer_instance_fields_changed, 1);
+    assert_eq!(diff.summary().shared_revision_selectors_changed, 0);
+}

@@ -1,5 +1,8 @@
 //! Embedded-preview publication and generated-proxy persistence.
 
+mod reuse;
+pub(super) use reuse::reuse_generated_proxy;
+
 use std::sync::Mutex;
 
 use shadow_cache::{ContentAddressedStore, StoredBlob};
@@ -48,12 +51,23 @@ pub(super) fn cache_preview(
     if source_changed_profiled(context.request, performance) {
         return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
     }
-    // A camera preview is the fast path to a populated Library, not the final
-    // Shadow rendering contract. Desktop sessions may keep it only in memory;
-    // callers without a sink retain the legacy durable-cache behavior. In both
-    // cases a generated proxy continues from the same source and replaces the
-    // temporary visual when its deterministic render is recorded.
-    let mut fallback = None;
+    if let Some(outcome) = reuse_generated_proxy(inspector, context, performance) {
+        return outcome;
+    }
+    let fallback = cache_embedded_preview(inspector, context, inspection_state, performance);
+    if let Some(outcome @ PreviewCacheOutcome::Discarded(_)) = fallback {
+        return outcome;
+    }
+    cache_generated_preview(inspector, context, inspection_state, performance, fallback)
+}
+
+/// The quick stage retains only a camera-produced visual; it never develops RAW pixels.
+pub(super) fn cache_embedded_preview(
+    inspector: &mut impl DecodeInspector,
+    context: VisualCacheContext<'_>,
+    inspection_state: &Mutex<DecodeInspectionState>,
+    performance: &mut DecodePerformance,
+) -> Option<PreviewCacheOutcome> {
     match extract_embedded_preview(inspector, context, performance) {
         Ok(Some(preview)) => {
             let outcome = if let Some(sink) = context.embedded_preview_sink {
@@ -62,20 +76,32 @@ pub(super) fn cache_preview(
                 let prepared = prepare_embedded_cached_visual(context, preview);
                 store_prepared_cached_visual(context, prepared, inspection_state, performance)
             };
-            if matches!(outcome, PreviewCacheOutcome::Discarded(_)) {
-                return outcome;
-            }
-            fallback = Some(outcome);
+            Some(outcome)
         }
-        Ok(None) => {}
-        Err(outcome) => {
-            if matches!(outcome, PreviewCacheOutcome::Discarded(_)) {
-                return outcome;
-            }
-            fallback = Some(outcome);
-        }
+        Ok(None) => None,
+        Err(outcome) => Some(outcome),
     }
+}
 
+/// Independently scheduled refinement preserves the quick visual on render failure.
+pub(super) fn cache_generated_preview(
+    inspector: &mut impl DecodeInspector,
+    context: VisualCacheContext<'_>,
+    inspection_state: &Mutex<DecodeInspectionState>,
+    performance: &mut DecodePerformance,
+    fallback: Option<PreviewCacheOutcome>,
+) -> PreviewCacheOutcome {
+    if context.cancellation.is_cancelled() {
+        return cancelled_preview();
+    }
+    if source_changed_profiled(context.request, performance) {
+        return PreviewCacheOutcome::Discarded(DecodeInspectionDiscardReason::FilesystemChanged);
+    }
+    // A queued refinement may have been satisfied since admission. In particular,
+    // technical-analysis backfill must not pay for another full RAW development.
+    if let Some(outcome) = reuse_generated_proxy(inspector, context, performance) {
+        return outcome;
+    }
     match prepare_generated_proxy(inspector, context, performance) {
         Ok(Some(prepared)) => {
             let outcome =

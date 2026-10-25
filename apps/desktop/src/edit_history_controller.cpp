@@ -31,6 +31,21 @@ bool clear_completed_tool_feedback(const bool running, LocalizedUiMessage& messa
 
 } // namespace
 
+void EditController::enableDocumentHistory() {
+    document_history_enabled_ = true;
+    history_.setObserver([this](unsigned action, const DocumentHistoryEntry& entry) {
+        if (active_) {
+            backend_->recordDocumentHistory(photo_id_, source_path_, action, entry);
+            emit documentEdited();
+        }
+    });
+}
+
+void EditController::finishDocumentGesture() {
+    if (active_)
+        finishActiveGesture();
+}
+
 void EditController::beginParameterEdit(const QString& parameter_key) {
     const auto* const grade_node = selectedGradeNode();
     const bool photo_local_retouch = parameter_key.startsWith(QStringLiteral("retouch/"));
@@ -192,6 +207,8 @@ void EditController::revertEdits() {
         versions_.setSelectedCommit(durable_working_commit_id_);
         setGradeStack(committed_grade_stack_);
         clearSessionHistory();
+        if (document_history_enabled_)
+            emit documentEdited();
         schedulePreview(0);
         setStatusMessage(edit_message(QT_TRANSLATE_NOOP(
             "EditController",
@@ -407,6 +424,8 @@ void EditController::clearSessionHistory() {
 }
 
 void EditController::recordWorkingTransition(const QString& key, const BackendGradeStack& before) {
+    if (document_history_enabled_)
+        emit documentEdited();
     const bool could_undo = canUndo();
     const bool could_redo = canRedo();
     history_.record(key.toStdString(), {before, base_commit_id_}, {grade_stack_, base_commit_id_});

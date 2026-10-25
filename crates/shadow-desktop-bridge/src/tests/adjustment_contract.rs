@@ -1,5 +1,6 @@
 //! Basic, cross-family fine-edit, curve, LUT, and non-color FFI contracts.
 
+use sha2::{Digest, Sha256};
 use shadow_bridge::{
     AdjustmentRenderOperation, BasicEditParameters, ColorRangeParameters,
     OKLAB_COLOR_WARPER_CONTROL_POINT_COUNT, OklabColorWarperControlPoint,
@@ -360,9 +361,9 @@ fn managed_lut_round_trips_and_compiles_the_exact_document_and_strength() {
         Uuid::now_v7()
     ));
     std::fs::create_dir_all(&root).expect("create LUT fixture root");
-    let resource_id = "a".repeat(64);
-    let path = root.join(format!("{resource_id}.cube"));
     let document = b"LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+    let resource_id = crate::digest_hex::encode_hex(&Sha256::digest(document));
+    let path = root.join(format!("{resource_id}.cube"));
     std::fs::write(&path, document).expect("write managed LUT fixture");
 
     let mut grade_node = GradeNodeDraft::neutral(BASIC_LAYER_LABEL);

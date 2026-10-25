@@ -1,5 +1,6 @@
 """Publication failures must preserve the last usable Windows deployment."""
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -52,6 +53,44 @@ class WindowsDeploymentContract(unittest.TestCase):
         (self.root / "current-debug-windows.json").write_text(json.dumps({"schema": 1, "release": "../candidate"}))
         with self.assertRaisesRegex(ValueError, "escapes"):
             runtime.current_release(self.root)
+
+    def test_input_check_never_opens_an_application(self):
+        self.publish()
+        with patch.object(runtime.subprocess, "Popen") as spawn, patch("sys.stdout", io.StringIO()):
+            runtime.launch(self.root, ["--check"])
+            with self.assertRaisesRegex(ValueError, "extra arguments"):
+                runtime.launch(self.root, ["--check", "unexpected"])
+            spawn.assert_not_called()
+
+    def test_server_debug_launch_preserves_explicit_library_choices(self):
+        release = self.publish()
+        cases = [
+            ([], {}, ["--profile", "debug"]),
+            (["--profile-launch-context", "debug"], {},
+             ["--profile-launch-context", "debug", "--profile", "debug"]),
+            (["--profile-launch-context=normal"], {},
+             ["--profile-launch-context=normal", "--profile", "daily"]),
+            (["--profile", "daily"], {}, ["--profile", "daily"]),
+            (["--profile-root=D:/Libraries/Separate"], {},
+             ["--profile-root=D:/Libraries/Separate"]),
+            ([], {"SHADOW_SERVER_MANAGER_DATA_ROOT": "D:/Libraries/Separate"}, []),
+            ([], {"SHADOW_SERVER_MANAGER_DATA_ROOT": ""}, []),
+        ]
+        for arguments, environment, expected in cases:
+            with self.subTest(arguments=arguments, environment=environment):
+                with patch.dict(runtime.os.environ, environment, clear=True), \
+                        patch.object(runtime.subprocess, "Popen") as spawn, \
+                        patch("sys.stdout", io.StringIO()):
+                    runtime.launch(self.root, ["--server", *arguments])
+                    self.assertEqual(spawn.call_args.args[0],
+                                     [str(release / "Shadow Server.exe"), *expected])
+
+    def test_photo_application_receives_its_development_launch_context(self):
+        release = self.publish()
+        arguments = ["--profile-launch-context", "debug", "--profile-root", "D:/Libraries/Separate"]
+        with patch.object(runtime.subprocess, "Popen") as spawn, patch("sys.stdout", io.StringIO()):
+            runtime.launch(self.root, arguments)
+            self.assertEqual(spawn.call_args.args[0], [str(release / "Shadow.exe"), *arguments])
 
 
 if __name__ == "__main__":

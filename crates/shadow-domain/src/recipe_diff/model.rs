@@ -86,6 +86,7 @@ pub struct LayerInstanceDiff {
     pub(super) opacity: Option<ValueChange<UnitInterval>>,
     pub(super) blend_mode: Option<ValueChange<BlendMode>>,
     pub(super) mask: Option<ValueChange<Option<MaskReference>>>,
+    pub(super) shared_follow_head: Option<ValueChange<bool>>,
 }
 
 impl LayerInstanceDiff {
@@ -113,6 +114,10 @@ impl LayerInstanceDiff {
         self.mask.as_ref()
     }
 
+    pub const fn shared_follow_head(&self) -> Option<&ValueChange<bool>> {
+        self.shared_follow_head.as_ref()
+    }
+
     pub const fn is_empty(&self) -> bool {
         self.label.is_none()
             && self.scope.is_none()
@@ -120,6 +125,7 @@ impl LayerInstanceDiff {
             && self.opacity.is_none()
             && self.blend_mode.is_none()
             && self.mask.is_none()
+            && self.shared_follow_head.is_none()
     }
 
     pub fn changed_field_count(&self) -> usize {
@@ -130,6 +136,7 @@ impl LayerInstanceDiff {
             self.opacity.is_some(),
             self.blend_mode.is_some(),
             self.mask.is_some(),
+            self.shared_follow_head.is_some(),
         ]
         .into_iter()
         .filter(|changed| *changed)

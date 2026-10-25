@@ -9,11 +9,12 @@ use anyhow::{Context, Result, bail};
 use shadow_domain::{
     DecodeCapabilitySnapshot, DecodeProviderSnapshot, DecodeSupport, DecoderSnapshot,
     ImageDimensions, PendingCorrectionsSnapshot, PreviewCodec, PreviewDescriptorSnapshot,
-    RawDevelopmentCapabilitySnapshot,
+    PreviewPayload, RawDevelopmentCapabilitySnapshot,
 };
 use uuid::Uuid;
 
 use super::{
+    embedded_preview::read_embedded_preview_output,
     helper_process::{
         HELPER_TIMEOUT, HelperExecution, HelperProcessOutput, execute_decode_helper,
         helper_exit_looks_like_crash, helper_stderr_suffix,
@@ -21,7 +22,8 @@ use super::{
     helper_wire_fields::{decode_protocol_hex_text_field, parse_metadata_u32, parse_metadata_u64},
     metadata::parse_raw_metadata_snapshot_fields,
     persistent_evidence::{
-        DecoderSafetyRegistry, IsolatedDecodeObservation, write_atomic_cache_record,
+        DecoderSafetyRegistry, IsolatedDecodeObservation,
+        record_safety_observation_if_source_is_current, write_atomic_cache_record,
     },
     route_identity::{DECODER_SNAPSHOT_PROTOCOL, DecoderSafetyKey},
 };
@@ -30,6 +32,92 @@ const MAX_DECODER_SNAPSHOT_IDENTITY_TEXT_BYTES: usize = 4 * 1024;
 const MAX_DECODER_SNAPSHOT_METADATA_TEXT_BYTES: usize = 1024;
 const MAX_DECODER_SNAPSHOT_PREVIEWS: usize = 64;
 const DECODER_SNAPSHOT_SCHEMA: u8 = 1;
+
+#[derive(Debug)]
+pub(crate) struct IsolatedQuickInspection {
+    pub(crate) snapshot: IsolatedPhotoDecoderSnapshot,
+    pub(crate) preview: Result<Option<PreviewPayload>, String>,
+}
+
+/// Reuses one child-owned open source for factual inspection and its camera visual.
+pub(crate) fn inspect_isolated_photo_quick(
+    helper: &Path,
+    cache_root: &Path,
+    source: &Path,
+) -> Result<IsolatedQuickInspection> {
+    let key = DecoderSafetyKey::quick_inspection(source, helper)?;
+    let metadata_key = key.decoder_snapshot_stage();
+    if let Some(observation) = DecoderSafetyRegistry::shared().observation(cache_root, &key)?
+        && observation.quarantines_main_process_native_decode()
+    {
+        bail!(
+            "isolated quick inspection is quarantined after {}",
+            observation.diagnostic_label()
+        );
+    }
+    let directory = cache_root.join("decode-helper");
+    fs::create_dir_all(&directory).context("create isolated quick-inspection directory")?;
+    let nonce = Uuid::now_v7().simple().to_string();
+    let path = directory.join(format!("quick-{nonce}.jpg"));
+    let execution = execute_decode_helper(helper, |command| {
+        command
+            .arg("quick-inspection")
+            .arg(source)
+            .arg(&path)
+            .arg(&nonce);
+    });
+    let (result, observation) = match execution {
+        Ok(HelperExecution::TimedOut(_)) => (
+            Err(anyhow::anyhow!("isolated quick inspection timed out")),
+            IsolatedDecodeObservation::TimedOut,
+        ),
+        Ok(HelperExecution::Completed(output)) => {
+            let result = if output.status.success() {
+                (|| {
+                    let boundary = output
+                        .stdout
+                        .iter()
+                        .position(|byte| *byte == b'\n')
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("quick inspection omitted its metadata frame")
+                        })?;
+                    let snapshot =
+                        parse_decoder_snapshot_protocol(&output.stdout[..boundary], &nonce)?;
+                    let preview =
+                        read_embedded_preview_output(&output.stdout[boundary + 1..], &path, &nonce)
+                            .map_err(|error| error.to_string());
+                    Ok(IsolatedQuickInspection { snapshot, preview })
+                })()
+            } else {
+                Err(anyhow::anyhow!(
+                    "isolated quick inspection exited with {}{}",
+                    output.status,
+                    helper_stderr_suffix(&output.stderr)
+                ))
+            };
+            let observation = if result.is_ok() {
+                IsolatedDecodeObservation::LegacyStageSucceededUnproven
+            } else if !output.status.success() && helper_exit_looks_like_crash(output.status) {
+                IsolatedDecodeObservation::ChildCrashed
+            } else if !output.status.success() {
+                IsolatedDecodeObservation::ChildRejected
+            } else {
+                IsolatedDecodeObservation::InvalidOutput
+            };
+            (result, observation)
+        }
+        Err(error) => (Err(error), IsolatedDecodeObservation::LaunchFailed),
+    };
+    let _ = fs::remove_file(&path);
+    record_safety_observation_if_source_is_current(cache_root, source, helper, &key, observation);
+    if result.is_ok() && !key.is_current(source, helper) {
+        bail!("source or helper changed during quick inspection");
+    }
+    if let Ok(inspection) = &result {
+        let _ = write_decoder_snapshot(cache_root, &metadata_key, &inspection.snapshot);
+    }
+    result
+}
 const DECODER_SNAPSHOT_CAPABILITY_FIELD_COUNT: usize = 16;
 pub(super) const DECODER_SNAPSHOT_BASE_FIELD_COUNT: usize = 72;
 pub(super) const DECODER_SNAPSHOT_PREVIEW_FIELD_COUNT: usize = 8;
@@ -51,8 +139,8 @@ impl IsolatedPhotoDecoderSnapshot {
     /// pretending that the helper's provider graph is in-process. This is a
     /// **catalog-only** snapshot: metadata survives, but every capability that
     /// would let a caller reopen/decode/develop source pixels in the desktop
-    /// process is explicitly unavailable. The generated helper proxy remains
-    /// the only safe visual path for this route.
+    /// process is explicitly unavailable. Camera previews and generated proxies
+    /// cross their separate guarded helper operations instead.
     pub(crate) fn into_catalog_snapshot(
         mut self,
         provider_id: &str,

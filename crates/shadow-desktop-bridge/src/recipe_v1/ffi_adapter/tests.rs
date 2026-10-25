@@ -18,6 +18,30 @@ fn unit(value: f64) -> UnitInterval {
     UnitInterval::new(value).expect("test unit interval")
 }
 
+#[test]
+fn shared_following_policy_round_trips_as_a_materialized_pinned_instance() {
+    use shadow_domain::{EntityId, LayerId, LayerRevisionId};
+    let mut draft = GradeStackDraft::default();
+    draft.grade_nodes[0].shared = Some(crate::recipe_v1::SharedGradeNodeReference {
+        layer_id: LayerId::new_v7(),
+        revision_id: LayerRevisionId::new_v7(),
+        shared_follow_head: true,
+    });
+    let ffi = encode_grade_stack_draft_recipe_v1(draft.clone()).unwrap();
+    assert!(ffi.grade_nodes[0].shared_follow_head);
+    assert_eq!(decode_grade_stack_draft_recipe_v1(&ffi).unwrap(), draft);
+    let snapshot = crate::recipe_v1::grade_stack_recipe_v1_snapshot(&draft, None).unwrap();
+    assert!(snapshot.layers()[0].shared_follow_head());
+    assert!(!snapshot.layers()[0].content().follows_head());
+    assert_eq!(
+        crate::recipe_v1::decode_grade_stack_draft_from_recipe_v1_snapshot(&snapshot).unwrap(),
+        draft
+    );
+    let mut independent = encode_grade_stack_draft_recipe_v1(GradeStackDraft::default()).unwrap();
+    independent.grade_nodes[0].shared_follow_head = true;
+    assert!(decode_grade_stack_draft_recipe_v1(&independent).is_err());
+}
+
 fn ffi_mask_component(kind: u8) -> ffi::FfiMaskComponent {
     ffi::FfiMaskComponent {
         condition_expression: String::new(),

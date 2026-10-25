@@ -1,3 +1,4 @@
+use shadow_catalog::RepresentationFingerprint;
 use shadow_domain::{
     EntityId, ManagedRasterMask, MaskComponentId, MaskComponentOperation, MaskDefinition,
     RasterMaskEncoding, SemanticMaskAggregation, SemanticMaskIntent, ShadowRecipeDocument,
@@ -76,6 +77,17 @@ fn target_identity_conflict_and_registry_bound_fail_closed() {
             .to_string()
             .contains("identity changed")
     );
+    let mut changed_representation = target("working-a");
+    changed_representation.representation_id =
+        "00000000-0000-0000-0000-000000000002".parse().unwrap();
+    assert!(
+        service
+            .finalize(first.plan_token, &changed_representation)
+            .is_err()
+    );
+    let mut changed_source = target("working-a");
+    changed_source.source_fingerprint.modified_at_ms = Some(101);
+    assert!(service.finalize(first.plan_token, &changed_source).is_err());
 
     let seeds = ['b', 'c', 'd', 'e', 'f', '1', '2'];
     for (index, seed) in seeds.into_iter().enumerate() {
@@ -171,6 +183,11 @@ fn target(working: &str) -> RecipeImportTargetIdentity {
     RecipeImportTargetIdentity {
         photo_id: "photo-a".into(),
         source_path: "/photos/a.raw".into(),
+        representation_id: "00000000-0000-0000-0000-000000000001".parse().unwrap(),
+        source_fingerprint: RepresentationFingerprint {
+            byte_len: 4_096,
+            modified_at_ms: Some(100),
+        },
         base_commit_id: "base-a".into(),
         expected_working_commit_id: working.into(),
         settings: GradeStackDraft::default(),

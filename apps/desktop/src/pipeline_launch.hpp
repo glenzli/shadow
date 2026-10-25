@@ -24,6 +24,11 @@ struct PipelineLaunchRequest final {
     bool agent_stdio = false;
     bool legacy_single = false;
     std::optional<ExternalEditBinding> external;
+    QString document_input;
+    QString document_output;
+    QString document_digest;
+    QString input_sha256;
+    bool document_protocol = false;
 };
 
 [[nodiscard]] std::optional<PipelineLaunchRequest>

@@ -14,6 +14,8 @@ Item {
     required property var editNeighborPreheater
     required property var interchangeController
     property var lutExportController: null
+    property var adjustmentTransferController: null
+    property var sharedGradeLinkController: null
     required property var editPreviewPresentation
     required property var lutLibrary
     required property var captureMetadata
@@ -353,6 +355,8 @@ Item {
             editor: precision.editor
             interchangeController: precision.interchangeController
             lutExportController: precision.lutExportController
+            adjustmentTransferController: precision.adjustmentTransferController
+            sharedGradeLinkController: precision.sharedGradeLinkController
             panel: precision.panel
             panelRaised: precision.panelRaised
             borderColor: precision.border
@@ -469,6 +473,9 @@ Item {
         anchors.bottomMargin: 14
         spacing: 8
         visible: precision.editor.active
+            // The mask's preview/apply/cancel controls own this canvas edge
+            // while a prompt is active, including an unavailable result.
+            && !precision.editor.aiMaskPromptActive
             && (Boolean(precision.editNeighborPreheater.previousTarget.photoId)
                 || Boolean(precision.editNeighborPreheater.nextTarget.photoId))
         z: 2

@@ -21,6 +21,9 @@ use shadow_domain::{ManagedImageCompletionPatch, ManagedRasterMask, RasterMaskEn
 const DERIVED_RASTER_STORE_DIRECTORY: &str = "derived-rasters";
 
 pub(crate) trait ManagedRasterMaskResolver {
+    fn library_root(&self) -> Option<&Path> {
+        None
+    }
     fn resolve(
         &self,
         raster: &ManagedRasterMask,
@@ -41,12 +44,17 @@ pub(crate) trait ManagedImageCompletionResolver {
 #[derive(Debug)]
 pub(super) struct FilesystemManagedRasterMaskResolver {
     store: FilesystemDerivedRasterStore,
+    library_root: PathBuf,
 }
 
 impl FilesystemManagedRasterMaskResolver {
     pub(super) fn open_for_runtime_cache(runtime_cache_root: &Path) -> AnyResult<Self> {
         let store_root = managed_raster_store_root(runtime_cache_root)?;
         Ok(Self {
+            library_root: runtime_cache_root
+                .parent()
+                .context("runtime cache has no library parent")?
+                .to_path_buf(),
             store: FilesystemDerivedRasterStore::open(&store_root).with_context(|| {
                 format!(
                     "open durable managed raster store beside {}",
@@ -58,6 +66,9 @@ impl FilesystemManagedRasterMaskResolver {
 }
 
 impl ManagedRasterMaskResolver for FilesystemManagedRasterMaskResolver {
+    fn library_root(&self) -> Option<&Path> {
+        Some(&self.library_root)
+    }
     fn resolve(
         &self,
         raster: &ManagedRasterMask,

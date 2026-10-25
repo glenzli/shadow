@@ -6,6 +6,7 @@
 #include <QElapsedTimer>
 #include <QThread>
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstdlib>
 #include <iostream>
@@ -51,6 +52,10 @@ struct QueryBackendState final {
     bool fail_page = false;
     bool fail_count = false;
     bool invalid_cursor = false;
+    int blocked_page_call = 1;
+    int bulk_rows = 0;
+    bool repeat_cursor_row = false;
+    QString visual_revision;
 };
 
 inline BackendReviewItem item(
@@ -91,13 +96,34 @@ operations(const std::shared_ptr<QueryBackendState>& state) {
                     .cursor_photo_id = cursor.photo_id,
                     .limit = limit,
                 });
-                if (state->block_first_page && state->page_calls.size() == 1) {
+                if (state->block_first_page
+                    && state->page_calls.size() == state->blocked_page_call) {
                     state->first_page_entered = true;
                     state->condition.notify_all();
                     state->condition.wait(lock, [state]() { return state->release_first_page; });
                 }
                 if (state->fail_page) {
                     throw std::runtime_error("page failed");
+                }
+                if (filter.camera_key == QStringLiteral("bulk")) {
+                    int first = cursor.photo_id.isEmpty() ? 0 : cursor.photo_id.mid(5).toInt() + 1;
+                    if (state->repeat_cursor_row && first > 0) {
+                        --first;
+                        state->repeat_cursor_row = false;
+                    }
+                    const int last = std::min(state->bulk_rows, first + static_cast<int>(limit));
+                    BackendLibraryPhotoPage page;
+                    for (int row = first; row < last; ++row) {
+                        auto value = item(QStringLiteral("bulk-%1").arg(row), QString::number(row));
+                        value.visual_handle += state->visual_revision;
+                        page.items.push_back(std::move(value));
+                    }
+                    page.has_more = last < state->bulk_rows;
+                    if (page.has_more) {
+                        page.next_cursor.photo_id = QStringLiteral("bulk-%1").arg(last - 1);
+                        page.next_cursor.file_name = QString::number(last - 1);
+                    }
+                    return page;
                 }
                 if (filter.camera_key == QStringLiteral("paginate")) {
                     if (cursor.photo_id.isEmpty()) {
@@ -148,6 +174,9 @@ operations(const std::shared_ptr<QueryBackendState>& state) {
                 state->count_calls.push_back(filter.camera_key);
                 if (state->fail_count) {
                     throw std::runtime_error("count failed");
+                }
+                if (filter.camera_key == QStringLiteral("bulk")) {
+                    return static_cast<quint64>(state->bulk_rows);
                 }
                 return filter.camera_key == QStringLiteral("paginate") ? quint64{2} : quint64{1};
             },

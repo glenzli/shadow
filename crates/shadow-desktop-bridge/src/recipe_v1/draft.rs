@@ -70,6 +70,7 @@ pub(crate) struct GradeNodeDraft {
 pub(crate) struct SharedGradeNodeReference {
     pub(crate) layer_id: LayerId,
     pub(crate) revision_id: LayerRevisionId,
+    pub(crate) shared_follow_head: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

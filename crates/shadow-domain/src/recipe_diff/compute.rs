@@ -99,6 +99,7 @@ fn diff_layer_instance(before: &LayerInstance, after: &LayerInstance) -> LayerIn
         opacity: changed(before.opacity(), after.opacity()),
         blend_mode: changed(before.blend_mode(), after.blend_mode()),
         mask: changed(before.mask(), after.mask()),
+        shared_follow_head: changed(before.shared_follow_head(), after.shared_follow_head()),
     }
 }
 

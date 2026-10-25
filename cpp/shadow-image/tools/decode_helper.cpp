@@ -1,3 +1,5 @@
+#include "embedded_preview.hpp"
+
 #include <shadow/image/decoder.hpp>
 #include <shadow/image/full_edit_detail.hpp>
 #include <shadow/image/proxy_rendering.hpp>
@@ -497,16 +499,17 @@ int snapshot_metadata(const fs::path& input, const std::string_view nonce) {
 // exits. Preview pixels, RawFrame samples and developed RGB deliberately stay
 // inside the child; the host will request the existing bounded proxy stage for
 // a visual instead.
-int snapshot_decoder(const fs::path& input, const std::string_view nonce) {
+int print_decoder_snapshot(
+    const image::ProviderInfo& provider_info,
+    const image::DecodeSession& session,
+    const std::string_view nonce
+) {
     if (nonce.empty()) {
         throw std::runtime_error("decoder snapshot nonce must be non-empty");
     }
-    const auto provider = image::make_photo_decoder_provider();
-    const auto session = provider->open(input);
-    const auto& provider_info = provider->info();
-    const auto& metadata = session->metadata();
-    const auto& capabilities = session->capabilities();
-    const auto previews = session->previews();
+    const auto& metadata = session.metadata();
+    const auto& capabilities = session.capabilities();
+    const auto previews = session.previews();
     if (previews.size() > max_decoder_snapshot_previews) {
         throw std::runtime_error("decoder snapshot has too many preview descriptors");
     }
@@ -516,7 +519,7 @@ int snapshot_decoder(const fs::path& input, const std::string_view nonce) {
     // processed-RGB compatibility path—owns capability negotiation.
     const auto raw_development = capabilities.raw_frame
                                      ? image::shadow_raw_frame_development_capabilities()
-                                     : session->raw_development_capabilities();
+                                     : session.raw_development_capabilities();
 
     std::cout << "shadow-inspect-v5 decoder-snapshot " << nonce << ' '
               << hex_encode_bounded(
@@ -554,6 +557,29 @@ int snapshot_decoder(const fs::path& input, const std::string_view nonce) {
 // the full-resolution session and display conversion can all remain inside the
 // child. Recipe/layer serialization is a separate, versioned request contract;
 // this command must never silently substitute a JPEG proxy for a RAW tile.
+int snapshot_decoder(const fs::path& input, const std::string_view nonce) {
+    const auto provider = image::make_photo_decoder_provider();
+    const auto session = provider->open(input);
+    return print_decoder_snapshot(provider->info(), *session, nonce);
+}
+
+int quick_inspection(const fs::path& input, const fs::path& output, const std::string_view nonce) {
+    if (!is_uuid_style_nonce(nonce)) {
+        throw std::runtime_error("quick inspection nonce must be a UUID-style token");
+    }
+    const auto provider = image::make_photo_decoder_provider();
+    const auto session = provider->open(input);
+    print_decoder_snapshot(provider->info(), *session, nonce);
+    // Camera-preview failure is independent of factual metadata admission. Keep the source
+    // snapshot and let the refinement stage recover instead of rejecting a readable photo.
+    try {
+        return write_embedded_preview(*session, output, nonce);
+    } catch (const std::exception&) {
+        std::cout << "shadow-embedded-preview-v1 " << nonce << " failed\n";
+        return 0;
+    }
+}
+
 int render_neutral_detail_tile(
     const fs::path& input,
     const fs::path& output,
@@ -629,6 +655,13 @@ int main(const int argument_count, char** arguments) {
                 parse_quality(arguments[5])
             );
         }
+        if (command == "embedded-preview" && argument_count == 5) {
+            const std::string_view nonce(arguments[4]);
+            if (!is_uuid_style_nonce(nonce)) {
+                throw std::runtime_error("embedded preview nonce must be a UUID-style token");
+            }
+            return extract_embedded_preview(fs::path(arguments[2]), fs::path(arguments[3]), nonce);
+        }
         if (command == "probe" && argument_count == 3) {
             return probe_open_metadata(fs::path(arguments[2]));
         }
@@ -644,6 +677,13 @@ int main(const int argument_count, char** arguments) {
         }
         if (command == "metadata-snapshot" && argument_count == 4) {
             return snapshot_metadata(fs::path(arguments[2]), std::string_view(arguments[3]));
+        }
+        if (command == "quick-inspection" && argument_count == 5) {
+            return quick_inspection(
+                fs::path(arguments[2]),
+                fs::path(arguments[3]),
+                std::string_view(arguments[4])
+            );
         }
         if (command == "decoder-snapshot" && argument_count == 4) {
             return snapshot_decoder(fs::path(arguments[2]), std::string_view(arguments[3]));
@@ -669,11 +709,13 @@ int main(const int argument_count, char** arguments) {
         std::cerr
             << "usage: shadow-image-decode-helper proxy <input> <output> <max-edge> "
                "<jpeg-quality>\n"
+            << "       shadow-image-decode-helper embedded-preview <input> <output> <nonce>\n"
             << "       shadow-image-decode-helper probe <input>\n"
             << "       shadow-image-decode-helper provider-inventory\n"
             << "       shadow-image-decode-helper preview-receipt <input> <max-edge> <nonce>\n"
             << "       shadow-image-decode-helper metadata-snapshot <input> <nonce>\n"
             << "       shadow-image-decode-helper decoder-snapshot <input> <nonce>\n"
+            << "       shadow-image-decode-helper quick-inspection <input> <output> <nonce>\n"
             << "       shadow-image-decode-helper raw-frame-staging <input> <manifest> <nonce>\n"
             << "       shadow-image-decode-helper neutral-detail-tile <input> <output> <x> <y> "
                "<width> <height> <nonce>\n";

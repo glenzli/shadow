@@ -2,6 +2,271 @@ use super::*;
 use shadow_catalog::ReviewCursor;
 use shadow_domain::{EntityId, PhotoId, RepresentationId};
 
+use shadow_ai::{
+    ImageEmbeddingEvidence, SemanticEmbeddingSpace, TextEmbeddingEvidence, VisionProvenance,
+};
+use std::cell::Cell;
+
+struct CancellingProvider {
+    cancelled: Cell<bool>,
+    cancel_text: Cell<bool>,
+    cancel_image_call: Cell<Option<usize>>,
+    image_calls: Cell<usize>,
+}
+
+fn classification_embedding() -> SemanticEmbedding {
+    SemanticEmbedding::new(
+        SemanticEmbeddingSpace::new(
+            shadow_ai::SEMANTIC_EMBEDDING_CONTRACT_VERSION,
+            "test-space",
+            2,
+        )
+        .unwrap(),
+        vec![1.0, 0.0],
+    )
+    .unwrap()
+}
+
+fn classification_provenance() -> VisionProvenance {
+    VisionProvenance {
+        job_id: "test-job".into(),
+        provider: "test".into(),
+        deployment: "test".into(),
+        model_build: "test-build".into(),
+        artifact_sha256: "test-sha".into(),
+        preprocessing_identity: "test-preprocess".into(),
+        postprocessing_identity: "test-postprocess".into(),
+        tokenizer: None,
+        runtime: "test-runtime".into(),
+        requested_execution_provider: "cpu".into(),
+        actual_execution_provider: "cpu".into(),
+        execution_provider_fallback_reason: None,
+        precision: "fp32".into(),
+    }
+}
+
+impl SemanticEmbeddingProvider for CancellingProvider {
+    fn embed_image_semantics(
+        &self,
+        _: &[u8],
+        _: &str,
+        revision: &str,
+        _: SemanticRequestPriority,
+    ) -> Result<ImageEmbeddingEvidence, InferRuntimeClientError> {
+        self.image_calls.set(self.image_calls.get() + 1);
+        Ok(ImageEmbeddingEvidence {
+            source_revision: revision.into(),
+            width: 2,
+            height: 2,
+            orientation: "display_pixels_orientation_normalized".into(),
+            embedding: classification_embedding(),
+            provenance: classification_provenance(),
+        })
+    }
+    fn embed_text_semantics(
+        &self,
+        _: &str,
+        revision: &str,
+        language: Option<&str>,
+        _: SemanticRequestPriority,
+    ) -> Result<TextEmbeddingEvidence, InferRuntimeClientError> {
+        Ok(TextEmbeddingEvidence {
+            query_revision: revision.into(),
+            language: language.map(str::to_owned),
+            embedding: classification_embedding(),
+            provenance: classification_provenance(),
+        })
+    }
+    fn embed_text_semantics_cancellable(
+        &self,
+        text: &str,
+        revision: &str,
+        language: Option<&str>,
+        priority: SemanticRequestPriority,
+        _: &dyn Fn() -> bool,
+    ) -> Result<Option<TextEmbeddingEvidence>, InferRuntimeClientError> {
+        if self.cancel_text.get() {
+            self.cancelled.set(true);
+            return Ok(None);
+        }
+        self.embed_text_semantics(text, revision, language, priority)
+            .map(Some)
+    }
+    fn embed_image_semantics_cancellable(
+        &self,
+        image: &[u8],
+        media: &str,
+        revision: &str,
+        priority: SemanticRequestPriority,
+        _: &dyn Fn() -> bool,
+    ) -> Result<Option<ImageEmbeddingEvidence>, InferRuntimeClientError> {
+        let value = self.embed_image_semantics(image, media, revision, priority)?;
+        if self.cancel_image_call.get() == Some(self.image_calls.get()) {
+            self.cancelled.set(true);
+            return Ok(None);
+        }
+        Ok(Some(value))
+    }
+}
+
+#[test]
+fn cancelled_provider_calls_preserve_checkpoint_and_published_memberships_on_resume() {
+    use shadow_cache::ContentAddressedStore;
+    use shadow_catalog::{
+        CachedArtifact, CachedArtifactRole, CatalogActor, RecordCachedArtifact, RegisterAsset,
+        RepresentationFingerprint,
+    };
+    use shadow_domain::{
+        AssetLocation, ImageDimensions, Platform, PreviewByteOrder, RepresentationKind,
+    };
+    let root = std::env::temp_dir().join(format!(
+        "shadow-classification-resume-{}",
+        PhotoId::new_v7()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let actor = CatalogActor::spawn(&root.join("catalog.sqlite")).unwrap();
+    let catalog = actor.handle();
+    let cache_root = root.join("cache");
+    let store = ContentAddressedStore::open(&cache_root).unwrap();
+    for i in 0..3_u8 {
+        let source = RepresentationFingerprint {
+            byte_len: 4096,
+            modified_at_ms: Some(1),
+        };
+        let path = format!("/classification/{i}.dng");
+        let photo = catalog
+            .register_asset(&RegisterAsset {
+                kind: RepresentationKind::OriginalRaw,
+                location: AssetLocation::new(
+                    Platform::MacOs,
+                    path.as_bytes().to_vec(),
+                    path.clone(),
+                ),
+                byte_len: source.byte_len,
+                modified_at_ms: source.modified_at_ms,
+                now_ms: 1,
+            })
+            .unwrap();
+        let blob = store.put(&[i]).unwrap();
+        catalog
+            .record_cached_artifact(&RecordCachedArtifact {
+                representation_id: photo.representation_id,
+                expected_source: source,
+                artifact: CachedArtifact {
+                    role: CachedArtifactRole::GeneratedProxy,
+                    variant_key: format!("test-{i}"),
+                    generator_id: "test".into(),
+                    generator_version: "1".into(),
+                    recipe_snapshot_digest: None,
+                    provider_preview_id: None,
+                    blob_algorithm: blob.digest.algorithm().into(),
+                    blob_digest: *blob.digest.as_bytes(),
+                    blob_byte_len: blob.byte_len,
+                    codec: PreviewCodec::Jpeg,
+                    byte_order: PreviewByteOrder::NotApplicable,
+                    dimensions: ImageDimensions {
+                        width: 2,
+                        height: 2,
+                    },
+                    bits_per_channel: 8,
+                    channels: 3,
+                    created_at_ms: 1,
+                },
+            })
+            .unwrap();
+    }
+    let provider = CancellingProvider {
+        cancelled: Cell::new(false),
+        cancel_text: Cell::new(true),
+        cancel_image_call: Cell::new(None),
+        image_calls: Cell::new(0),
+    };
+    let definitions = [SmartCategoryDefinition {
+        id: "portrait".into(),
+        description: "portrait".into(),
+        minimum_similarity: 0.2,
+    }];
+    let mut request = SmartClassificationRequest {
+        config_revision: "config".into(),
+        generation: None,
+        start_new: true,
+        clear_embeddings: false,
+    };
+    let run = |request: &SmartClassificationRequest, policy| {
+        classify_review_smart_categories_cancellable(
+            &catalog,
+            &cache_root,
+            &provider,
+            &definitions,
+            request,
+            policy,
+            &|| provider.cancelled.get(),
+        )
+        .unwrap()
+    };
+    let paused = run(&request, SmartClassificationPolicy::default());
+    assert_eq!(paused.status, SmartClassificationStatus::Paused);
+    assert_eq!(paused.processed_photos, 0);
+    assert_eq!(provider.image_calls.get(), 0);
+    provider.cancel_text.set(false);
+    provider.cancelled.set(false);
+    request.start_new = false;
+    request.generation = Some(paused.generation);
+    let complete = run(&request, SmartClassificationPolicy::default());
+    assert_eq!(complete.status, SmartClassificationStatus::Complete);
+    assert_eq!(
+        smart_category_members(&cache_root, "portrait")
+            .unwrap()
+            .len(),
+        3
+    );
+    request.start_new = true;
+    request.clear_embeddings = true;
+    request.generation = None;
+    provider.image_calls.set(0);
+    provider.cancel_image_call.set(Some(2));
+    let paused = run(&request, SmartClassificationPolicy { batch_size: 2 });
+    assert_eq!(paused.status, SmartClassificationStatus::Paused);
+    let index = SemanticIndex::open(&cache_root).unwrap();
+    let checkpoint = index.run_checkpoint().unwrap().unwrap();
+    assert_eq!(checkpoint.status, "paused");
+    assert_eq!(checkpoint.processed_photos, 0);
+    assert!(
+        checkpoint.cursor.is_none(),
+        "an incomplete page is never skipped on resume"
+    );
+    assert_eq!(
+        index.published_snapshot().unwrap().unwrap().generation,
+        complete.generation
+    );
+    assert_eq!(
+        smart_category_members(&cache_root, "portrait")
+            .unwrap()
+            .len(),
+        3
+    );
+    provider.cancelled.set(false);
+    provider.cancel_image_call.set(None);
+    request.start_new = false;
+    request.clear_embeddings = false;
+    request.generation = Some(paused.generation);
+    let resumed = run(&request, SmartClassificationPolicy { batch_size: 2 });
+    assert_eq!(resumed.status, SmartClassificationStatus::Running);
+    assert_eq!(resumed.processed_photos, 2);
+    assert_eq!(
+        resumed.reused_photos, 1,
+        "verified work in the cancelled page remains reusable"
+    );
+    assert_eq!(
+        run(&request, SmartClassificationPolicy { batch_size: 2 }).status,
+        SmartClassificationStatus::Complete
+    );
+    drop(index);
+    drop(store);
+    actor.shutdown().unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn definitions_are_open_ended_multi_label_prompts() {
     let definitions = vec![

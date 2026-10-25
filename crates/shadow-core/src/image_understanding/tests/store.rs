@@ -44,6 +44,7 @@ fn paused_run_reopens_with_exact_branch_cursor() {
         store.branch_cursor(&generation, 0).expect("load cursor"),
         Some(cursor)
     );
+    drop(store);
     cleanup(root);
 }
 
@@ -134,6 +135,7 @@ fn proposals_are_idempotent_and_bound_to_current_source_revision() {
             .expect("stale proposal lookup")
             .is_none()
     );
+    drop(store);
     cleanup(root);
 }
 
@@ -159,6 +161,7 @@ fn combined_policy_completes_only_after_both_branches() {
         .expect("complete second branch");
     assert_eq!(complete.status, ImageUnderstandingRunStatus::Complete);
     assert_eq!(complete.completed_branches, 2);
+    drop(store);
     cleanup(root);
 }
 
@@ -212,6 +215,7 @@ fn disposition_update_uses_exact_source_compare_and_swap() {
             .disposition,
         ImageUnderstandingProposalDisposition::Accepted
     );
+    drop(store);
     cleanup(root);
 }
 

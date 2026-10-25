@@ -88,7 +88,9 @@ def current_release(root: Path) -> Path:
 
 def launch(root: Path, arguments: list[str]) -> None:
     release = current_release(root)
-    if arguments == ["--check"]:
+    if arguments[:1] == ["--check"]:
+        if len(arguments) != 1:
+            raise ValueError("--check does not accept extra arguments")
         print(f"Windows debug applications: {release}")
         return
     executable = "Shadow.exe"
@@ -103,6 +105,18 @@ def launch(root: Path, arguments: list[str]) -> None:
     log_path = log_root / ("shadow-server-debug.log" if executable != "Shadow.exe" else "shadow-debug.log")
     environment = os.environ.copy()
     environment.setdefault("QT_FORCE_STDERR_LOGGING", "1")
+    # The standalone Server uses StorageProfile directly, rather than the
+    # desktop's launch-history registry. Select its development library even
+    # for RelWithDebInfo, while retaining intentional profile/root overrides.
+    if executable == "Shadow Server.exe":
+        selected = any(argument in ("--profile", "--profile-root")
+                       or argument.startswith(("--profile=", "--profile-root="))
+                       for argument in arguments)
+        if not selected and "SHADOW_SERVER_MANAGER_DATA_ROOT" not in environment:
+            normal_context = "--profile-launch-context=normal" in arguments or any(
+                arguments[index:index + 2] == ["--profile-launch-context", "normal"]
+                for index in range(len(arguments)))
+            arguments = [*arguments, "--profile", "daily" if normal_context else "debug"]
     with log_path.open("ab") as log:
         child = subprocess.Popen([str(release / executable), *arguments], cwd=release,
                                  stdin=subprocess.DEVNULL, stdout=log, stderr=log,

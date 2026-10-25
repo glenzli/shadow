@@ -49,6 +49,22 @@ void FolderScanBackend::beginFolderScan(const std::uint64_t scan_id) const {
     session_->begin_folder_scan(scan_id);
 }
 
+void FolderScanBackend::prioritizeVisibleRefinements(
+    const std::uint64_t scan_id,
+    const QString& selected,
+    const QStringList& visible
+) const {
+    rust::Vec<rust::String> ids;
+    ids.reserve(static_cast<std::size_t>(visible.size()));
+    for (const auto& id : visible)
+        ids.push_back(id.toStdString());
+    static_cast<void>(session_->prioritize_visible_refinements(
+        scan_id,
+        selected.toStdString(),
+        rust::Slice<const rust::String>(ids.data(), ids.size())
+    ));
+}
+
 BackendScanReport FolderScanBackend::scanFolder(
     const QString& folder_path,
     const std::uint64_t scan_id

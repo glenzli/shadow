@@ -365,7 +365,7 @@ void ReviewController::initializeCoordinatorWiring() {
         this,
         [this]() {
             refreshLibrarySourceHealth();
-            requestLibraryReset();
+            query_coordinator_.finishImport();
         }
     );
     connect(&query_coordinator_, &ReviewLibraryQueryCoordinator::workStateChanged, this, [this]() {

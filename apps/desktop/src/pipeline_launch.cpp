@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QSet>
 #include <QTemporaryFile>
+#include <algorithm>
 #include <exception>
 #include <filesystem>
 
@@ -53,7 +54,9 @@ std::optional<PipelineLaunchRequest>
 parsePipelineLaunch(const QStringList& arguments, QString* error) {
     if (error)
         error->clear();
-    const bool direct = arguments.contains(QStringLiteral("--isolate"));
+    const bool direct = arguments.contains(QStringLiteral("--isolate"))
+                        || (arguments.size() == 2
+                            && arguments[1].endsWith(QStringLiteral(".shdw"), Qt::CaseInsensitive));
     const bool protocol = arguments.contains(QStringLiteral("--pipeline-edit"));
     const bool agent = arguments.contains(QStringLiteral("--agent-stdio"));
     if (!direct && !protocol && !agent)
@@ -104,6 +107,17 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
             return fail(QStringLiteral("--agent-stdio requires exactly one explicit photo"));
         if (request.photos.size() > max_photos)
             return fail(QStringLiteral("an isolated session accepts at most 256 photos"));
+        for (const auto& photo : request.photos) {
+            if (photo.input_path.endsWith(QStringLiteral(".shdw"), Qt::CaseInsensitive)) {
+                if (request.photos.size() != 1 || agent)
+                    return fail(
+                        QStringLiteral("open one Shadow document in its own independent session")
+                    );
+                request.document_input = photo.input_path;
+                request.photos.clear();
+                break;
+            }
+        }
         return request;
     }
 
@@ -137,6 +151,34 @@ parsePipelineLaunch(const QStringList& arguments, QString* error) {
         return fail(QStringLiteral("pipeline request must be one JSON object"));
     const auto object = document.object();
     const QString schema = object.value(QStringLiteral("schema")).toString();
+    if (schema == QStringLiteral("shadow.document-edit/1")) {
+        if (agent
+            || unsupportedField(object, {"schema", "requestId", "input", "inputSha256", "output"}))
+            return fail(QStringLiteral("unsupported document request field or transport"));
+        request.request_id = object.value("requestId").toString();
+        const QString input = existingFile(object.value("input").toString());
+        request.document_output = newFile(object.value("output").toString());
+        request.input_sha256 = object.value("inputSha256").toString();
+        if (request.request_id.isEmpty() || request.request_id.size() > 256 || input.isEmpty()
+            || request.document_output.isEmpty()
+            || !request.document_output.endsWith(".shdw", Qt::CaseInsensitive)
+            || request.input_sha256.size() != 64
+            || !std::all_of(
+                request.input_sha256.cbegin(),
+                request.input_sha256.cend(),
+                [](QChar c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }
+            )
+            || pathKey(input) == pathKey(request.document_output)
+            || pathKey(request.document_output) == pathKey(request.result_path)
+            || pathKey(request.document_output) == pathKey(request_path))
+            return fail(QStringLiteral("invalid document request identity, digest or paths"));
+        request.document_protocol = true;
+        if (input.endsWith(".shdw", Qt::CaseInsensitive))
+            request.document_input = input;
+        else
+            request.photos.push_back({input, {}});
+        return request;
+    }
     if (schema == QStringLiteral("shadow.external-edit/1")) {
         request.external =
             ExternalEditContract::parse(object, request_path, request.result_path, error);
@@ -270,6 +312,25 @@ bool writePipelineResult(
     }
     if (request.external)
         result = ExternalEditContract::result(*request.external, outcome, errors, receipt);
+    if (request.document_protocol) {
+        result = {
+            {"schema", "shadow.document-result/1"},
+            {"requestId", request.request_id},
+            {"inputSha256", request.input_sha256},
+            {"outcome", outcome},
+            {"errors", error_values}
+        };
+        if (outcome == "completed")
+            result.insert(
+                "artifact",
+                QJsonObject{
+                    {"path", request.document_output},
+                    {"sha256", request.document_digest},
+                    {"byteLength", QString::number(QFileInfo(request.document_output).size())},
+                    {"format", "shdw"}
+                }
+            );
+    }
     // Same-directory staging plus an exclusive hard link publishes one complete
     // result without replacing a file created since request admission.
     QTemporaryFile staging(
