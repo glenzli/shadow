@@ -41,6 +41,10 @@ ShadowTitleBar {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             spacing: 10
+            // Windows keeps the descriptive native caption for the taskbar,
+            // accessibility, and system window UI. Drawing the decorative
+            // brand in the same expanded title-bar area overlaps that caption.
+            visible: Qt.platform.os !== "windows"
 
             Label {
                 text: "SHADOW"

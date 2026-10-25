@@ -4,7 +4,7 @@ use crate::{
     recipe_v1::{GradeNodeDraft, GradeNodeRecipeV1Identity, grade_node_draft_from_shared_revision},
 };
 use shadow_catalog::RegisterAsset;
-use shadow_domain::{AssetLocation, MaskDefinition, Platform, RepresentationKind, UnitInterval};
+use shadow_domain::{MaskDefinition, RepresentationKind, UnitInterval};
 
 struct Fixture {
     session: Box<DesktopSession>,
@@ -33,7 +33,7 @@ impl Fixture {
             .catalog
             .register_asset(&RegisterAsset {
                 kind: RepresentationKind::OriginalRaw,
-                location: AssetLocation::new(Platform::MacOs, source.as_bytes().to_vec(), &source),
+                location: shadow_native_path::native_location(std::path::Path::new(&source)),
                 byte_len: fingerprint.byte_len,
                 modified_at_ms: fingerprint.modified_at_ms,
                 now_ms: 100,

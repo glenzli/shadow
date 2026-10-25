@@ -101,7 +101,9 @@ fn verified_snapshot_restores_real_edit_heads_attachments_and_wal_sidecars_indep
         .unwrap()
         .modified()
         .unwrap();
-    fs::File::open(archive.join("payload/derived-rasters/attachment.bin"))
+    fs::File::options()
+        .write(true)
+        .open(archive.join("payload/derived-rasters/attachment.bin"))
         .unwrap()
         .set_times(fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
         .unwrap();

@@ -28,15 +28,17 @@ namespace raw_pipeline_detail {
 class ResidentRawSource;
 }
 
-// Full-detail sessions retain a provider's complete packed reference image or one CPU/device
-// resident uint16 CFA source, but never more than 512 MiB. Route-specific metadata preflight uses
-// this bound for a possible resident RawFrame and the fp32 bound below only for materialized RAW.
+// Resident uint16 CFA retains at most 512 MiB. Packed provider RGB and scene-linear RGB use
+// separate bounds so stitched panoramas can keep their immutable source while detail work
+// remains tile-local. Route-specific metadata preflight preserves the smaller CFA bound.
 inline constexpr std::uint64_t maximum_full_edit_detail_retained_bytes =
     512ULL * 1'024ULL * 1'024ULL;
+inline constexpr std::uint64_t maximum_full_edit_packed_rgb_retained_bytes =
+    1ULL * 1'024ULL * 1'024ULL * 1'024ULL;
 // Owned RawFrame development keeps scene-linear fp32 values so it can retain highlight headroom.
 // A full-detail session therefore receives a larger, separate cap than packed RGB sources.
 inline constexpr std::uint64_t maximum_full_edit_scene_linear_retained_bytes =
-    1ULL * 1'024ULL * 1'024ULL * 1'024ULL;
+    2ULL * 1'024ULL * 1'024ULL * 1'024ULL;
 // Detail work stays tile-local so one request cannot accidentally materialize another full-size
 // float image while the immutable 16-bit source is resident.
 inline constexpr std::uint32_t maximum_edit_detail_tile_side = 1'024;
@@ -65,10 +67,12 @@ struct DetailTileRect final {
 inline constexpr std::uint32_t detail_tile_execution_receipt_schema_version = 1U;
 inline constexpr std::uint32_t detail_tile_cpu_backend_version = 1U;
 inline constexpr std::uint32_t detail_tile_metal_backend_version = 1U;
+inline constexpr std::uint32_t detail_tile_cuda_backend_version = 1U;
 
 enum class DetailTileRenderBackend : std::uint8_t {
     cpu,
     metal,
+    cuda,
 };
 
 // Runtime provenance for one tile render. The backend and fallback status describe the effective

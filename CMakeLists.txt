@@ -9,7 +9,12 @@ project(
 
 option(SHADOW_BUILD_RAW_PROBE "Build the LibRaw vertical-spike probe" ON)
 option(SHADOW_BUILD_DESKTOP "Build the Qt Quick desktop application" OFF)
+option(SHADOW_BUILD_SERVER_MANAGER "Build the standalone Shadow Server manager" OFF)
 option(SHADOW_ENABLE_METAL "Build the macOS Metal image backend" ${APPLE})
+option(SHADOW_ENABLE_CUDA "Build the NVIDIA CUDA image backend" OFF)
+if(SHADOW_ENABLE_CUDA AND SHADOW_ENABLE_METAL)
+    message(FATAL_ERROR "Select one resident image backend: CUDA or Metal")
+endif()
 option(
     SHADOW_REQUIRE_METAL_TESTS
     "Require native tests to execute the Metal backend instead of allowing a local skip"
@@ -42,6 +47,10 @@ set(
     "Optional Lensfun installation prefix (contains include/, lib/, and share/lensfun/)"
 )
 set(SHADOW_LENSFUN_PKGCONFIG_PATH "")
+set(SHADOW_LENSFUN_DATABASE_PATH "" CACHE PATH "Optional offline Lensfun XML database to test and deploy")
+if(SHADOW_LENSFUN_DATABASE_PATH AND NOT IS_DIRECTORY "${SHADOW_LENSFUN_DATABASE_PATH}")
+    message(FATAL_ERROR "SHADOW_LENSFUN_DATABASE_PATH must contain the Lensfun XML database")
+endif()
 if(SHADOW_LENSFUN_ROOT)
     set(SHADOW_LENSFUN_PKGCONFIG_PATH "${SHADOW_LENSFUN_ROOT}/lib/pkgconfig")
     if(NOT EXISTS "${SHADOW_LENSFUN_PKGCONFIG_PATH}")
@@ -61,8 +70,9 @@ if(SHADOW_LENSFUN_ROOT)
 endif()
 
 include(CTest)
+include(cmake/ShadowWindowsDependencies.cmake)
 add_subdirectory(cpp/shadow-image)
 
-if(SHADOW_BUILD_DESKTOP)
+if(SHADOW_BUILD_DESKTOP OR SHADOW_BUILD_SERVER_MANAGER)
     add_subdirectory(apps/desktop)
 endif()

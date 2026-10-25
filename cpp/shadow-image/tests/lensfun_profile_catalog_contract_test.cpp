@@ -66,6 +66,13 @@ void profile_identity_admission_distinguishes_automatic_and_manual_selection() {
 }
 
 void real_database_discovery_and_resolution_are_stable_when_available() {
+    if (std::getenv("SHADOW_TEST_LENSFUN_BUNDLED") != nullptr) {
+        const catalog::Catalog bundled(std::nullopt);
+        expect(
+            bundled.info().available && !bundled.profile_candidates(nikon_d850_metadata()).empty(),
+            "application-local Lensfun profiles load without machine-specific paths"
+        );
+    }
     const auto* database = std::getenv("SHADOW_TEST_LENSFUN_DB");
     if (database == nullptr || *database == '\0') {
         return;

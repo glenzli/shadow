@@ -10,26 +10,16 @@
 #include <QStandardPaths>
 #include <QTemporaryFile>
 #include <QtConcurrent>
-#include <cerrno>
-#include <filesystem>
-#ifdef Q_OS_MACOS
-#include <stdio.h>
-#endif
 #ifdef Q_OS_WIN
-#include <windows.h>
+#include <QtCore/qt_windows.h>
 #endif
-namespace {
-std::filesystem::path nativePath(const QString& path) {
-#ifdef _WIN32
-    return std::filesystem::path(path.toStdWString());
-#else
-    auto p = path.toUtf8();
-    return std::filesystem::path(std::string(p.constData(), size_t(p.size())));
-#endif
-}
-} // namespace
 CompositionController::CompositionController(QObject* p) :
     QObject(p), cancelled_(std::make_shared<std::atomic_bool>(false)) {
+#ifdef Q_OS_WIN
+    process_.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* arguments) {
+        arguments->flags |= CREATE_NO_WINDOW;
+    });
+#endif
     connect(&process_, &QProcess::readyReadStandardOutput, this, &CompositionController::receive);
     connect(&process_, &QProcess::readyReadStandardError, this, [this] {
         process_.readAllStandardError();
@@ -317,24 +307,15 @@ CompositionController::Publication CompositionController::publish(
     output.close();
     if (cancelled->load())
         return {{}, "cancelled"};
-    const auto temporary = nativePath(output.fileName());
-    const auto destination = nativePath(target);
-#ifdef Q_OS_MACOS
-    const bool committed = ::renamex_np(temporary.c_str(), destination.c_str(), RENAME_EXCL) == 0;
-#elif defined(Q_OS_WIN)
-    const bool committed =
-        ::MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH) != 0;
-#else
-    std::error_code error;
-    std::filesystem::create_hard_link(temporary, destination, error);
-    const bool committed = !error;
-#endif
-    if (!committed)
+    // close() retains QTemporaryFile's native handle on Windows. Its own rename() releases
+    // that handle and commits atomically without overwriting or falling back to copy/delete.
+    if (!output.rename(target))
         return {{}, QFileInfo::exists(target) ? "output-conflict" : "output-unavailable"};
+    output.setAutoRemove(false);
     return {
         target,
         {}
-    }; // Atomic no-replace commit point. The temporary name is removed by its owner.
+    };
 }
 void CompositionController::save(const QUrl& url) {
     if (!ready() || !staging_)

@@ -57,6 +57,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QIcon>
 #include <QLocale>
 #include <QMessageBox>
 #include <QQmlApplicationEngine>
@@ -115,6 +116,9 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName(QStringLiteral("Shadow"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("shadow.dev"));
     QCoreApplication::setApplicationName(QStringLiteral("Shadow"));
+#if defined(Q_OS_WIN)
+    application.setWindowIcon(QIcon(QStringLiteral(":/branding/app-icon-source.png")));
+#endif
     QString pipeline_error;
     const auto pipeline_request =
         parsePipelineLaunch(QCoreApplication::arguments(), &pipeline_error);
@@ -143,7 +147,7 @@ int main(int argc, char* argv[]) {
     // behind a separate helper process. Keep the helper beside the desktop
     // executable so development and packaged builds share the same boundary.
     const QString decode_helper_path = QDir(QCoreApplication::applicationDirPath())
-                                           .filePath(QStringLiteral("shadow-image-decode-helper"));
+                                           .filePath(QStringLiteral(SHADOW_DECODE_HELPER_FILE_NAME));
     // A missing helper must degrade to a reported unsupported decode rather
     // than loading a third-party decoder inside the desktop process.
     qputenv("SHADOW_DISABLE_PRIVATE_DECODER", QByteArrayLiteral("1"));

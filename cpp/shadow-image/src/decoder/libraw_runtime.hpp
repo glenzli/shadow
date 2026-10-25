@@ -9,6 +9,22 @@
 
 namespace shadow::image {
 
+// Optional public DNG SDK host. Declare it before its LibRaw instance so LibRaw is
+// destroyed first; the SDK host never crosses the provider-neutral image API.
+class LibRawDngHost final {
+  public:
+    LibRawDngHost();
+    ~LibRawDngHost();
+    LibRawDngHost(const LibRawDngHost&) = delete;
+    LibRawDngHost& operator=(const LibRawDngHost&) = delete;
+    // Call after open_file: only an identified JPEG XL DNG receives the SDK host.
+    void attach(LibRaw& decoder) const noexcept;
+    [[nodiscard]] bool available() const noexcept { return host_ != nullptr; }
+
+  private:
+    void* host_ = nullptr;
+};
+
 [[noreturn]] void throw_libraw_error(
     int result,
     std::string_view operation

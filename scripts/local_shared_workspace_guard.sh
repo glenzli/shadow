@@ -49,6 +49,15 @@ validate_external_path() {
     variable_name=$1
     configured_path=$2
     if [ -n "$configured_path" ]; then
+        # PowerShell passes native drive paths to Git Bash unchanged. Compare them in the
+        # same MSYS namespace as pwd before applying the external-output boundary.
+        case "$configured_path" in
+            [A-Za-z]:/*|[A-Za-z]:\\*)
+                if command -v cygpath >/dev/null 2>&1; then
+                    configured_path=$(cygpath -u -a "$configured_path")
+                fi
+                ;;
+        esac
         case "$configured_path" in
             /*) ;;
             *)

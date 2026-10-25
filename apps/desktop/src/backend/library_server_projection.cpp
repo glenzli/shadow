@@ -1,5 +1,6 @@
 #include "library_server_projection.hpp"
 
+#include "backend/native_path_input.hpp"
 #include "backend/rust_qt_projection.hpp"
 #include "shadow-desktop-bridge/src/lib.rs.h"
 
@@ -33,7 +34,7 @@ shadow::desktop::FfiLibraryServerConfig config(const BackendLibraryServerConfig&
     result.serves_originals = source.serves_originals;
     result.share_roots.reserve(static_cast<std::size_t>(source.share_roots.size()));
     for (const QString& root : source.share_roots) {
-        result.share_roots.push_back(root.toStdString());
+        result.share_roots.push_back(native_path_input::path(root));
     }
     return result;
 }

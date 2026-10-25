@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use shadow_catalog::RegisterAsset;
-use shadow_domain::{AssetLocation, EntityId, Platform, RepresentationId, RepresentationKind};
+use shadow_domain::{EntityId, RepresentationId, RepresentationKind};
 
 use crate::{DesktopSession, open_desktop_session};
 
@@ -28,11 +28,7 @@ pub(in crate::tests) fn test_edit_session() -> (PathBuf, Box<DesktopSession>, St
         .catalog
         .register_asset(&RegisterAsset {
             kind: RepresentationKind::OriginalRaw,
-            location: AssetLocation::new(
-                Platform::MacOs,
-                source_path.as_bytes().to_vec(),
-                source_path.clone(),
-            ),
+            location: shadow_native_path::native_location(std::path::Path::new(&source_path)),
             byte_len: 4_096,
             modified_at_ms: Some(123),
             now_ms: 100,

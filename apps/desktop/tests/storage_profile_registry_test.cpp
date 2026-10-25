@@ -43,7 +43,7 @@ std::unique_ptr<StorageProfile> selected(
     auto resolved = registry.resolveLaunch(input, context, &error);
     require(resolved.has_value(), "resolve launch");
     auto profile = StorageProfile::open(*resolved, &error);
-    require(profile != nullptr, "open selected launch");
+    require(profile != nullptr, qPrintable(QStringLiteral("open selected launch: ") + error));
     return profile;
 }
 void contracts() {

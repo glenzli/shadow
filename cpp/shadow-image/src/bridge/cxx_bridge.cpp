@@ -154,6 +154,8 @@ edit_preview_analysis(const image::EditPreviewAnalysis& analysis) {
         return FfiEditPreviewBackend::Cpu;
     case image::EditPreviewBackend::metal:
         return FfiEditPreviewBackend::Metal;
+    case image::EditPreviewBackend::cuda:
+        return FfiEditPreviewBackend::Cuda;
     }
     throw image::DecodeError(
         image::DecodeErrorCode::internal,
@@ -285,6 +287,9 @@ edit_preview_mask_coverage(const std::optional<image::EditPreviewMaskCoverage>& 
     case image::DetailTileRenderBackend::metal:
         result.execution_backend = 1U;
         break;
+    case image::DetailTileRenderBackend::cuda:
+        result.execution_backend = 2U;
+        break;
     }
     result.execution_backend_version = tile.execution.backend_version;
     result.source_cache_hit = tile.execution.source_cache_hit;
@@ -309,6 +314,9 @@ rendered_detail_tile16(const image::RenderedDetailTile16& tile) {
         break;
     case image::DetailTileRenderBackend::metal:
         result.execution_backend = 1U;
+        break;
+    case image::DetailTileRenderBackend::cuda:
+        result.execution_backend = 2U;
         break;
     }
     result.execution_backend_version = tile.execution.backend_version;

@@ -26,10 +26,10 @@ use shadow_ai::{
 use shadow_catalog::RegisterAsset;
 use shadow_core::execute_and_stage_derived_raster;
 use shadow_domain::{
-    AssetLocation, ManagedRasterMask, MaskCoordinateSpace, MaskDefinition, PhotoCanvasNode,
-    PhotoFoundationNode, Platform, RasterMaskEncoding, RawTemperatureTint, RawWhiteBalance,
-    RecipeInputSettings, RecipeOpticsSettings, RecipeSnapshot, RepresentationKind,
-    SemanticMaskAggregation, SemanticMaskIntent, ShadowRecipeDocument, UnitInterval,
+    ManagedRasterMask, MaskCoordinateSpace, MaskDefinition, PhotoCanvasNode, PhotoFoundationNode,
+    RasterMaskEncoding, RawTemperatureTint, RawWhiteBalance, RecipeInputSettings,
+    RecipeOpticsSettings, RecipeSnapshot, RepresentationKind, SemanticMaskAggregation,
+    SemanticMaskIntent, ShadowRecipeDocument, UnitInterval,
 };
 
 #[test]
@@ -82,11 +82,7 @@ impl ImportFixture {
             .catalog
             .register_asset(&RegisterAsset {
                 kind: RepresentationKind::OriginalRaw,
-                location: AssetLocation::new(
-                    Platform::MacOs,
-                    source.as_bytes().to_vec(),
-                    source.clone(),
-                ),
+                location: shadow_native_path::native_location(std::path::Path::new(&source)),
                 byte_len: 16,
                 modified_at_ms: Some(100),
                 now_ms: 100,

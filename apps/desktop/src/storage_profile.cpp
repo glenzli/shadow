@@ -8,14 +8,59 @@
 #include <QLockFile>
 #include <QSaveFile>
 #include <QSettings>
-#include <QTemporaryFile>
+#include <QTemporaryDir>
 #include <QUuid>
+#if defined(Q_OS_WIN)
+#include <qt_windows.h>
+#endif
 
 #include <algorithm>
 #include <utility>
 
 namespace {
 constexpr qint64 maximum_settings_bytes = 16 * 1024 * 1024;
+
+QString canonicalExistingPath(const QString& path) {
+#if defined(Q_OS_WIN)
+    // Qt's canonicalFilePath does not resolve every NTFS junction ancestor.
+    // Ask the filesystem for the opened object's final path, including long
+    // drive/UNC paths, before applying the profile containment policy.
+    QString native = QDir::toNativeSeparators(path);
+    if (!native.startsWith(QStringLiteral("\\\\?\\"))) {
+        native = native.startsWith(QStringLiteral("\\\\"))
+                     ? QStringLiteral("\\\\?\\UNC\\") + native.sliced(2)
+                     : QStringLiteral("\\\\?\\") + native;
+    }
+    const HANDLE handle = CreateFileW(
+        reinterpret_cast<const wchar_t*>(native.utf16()),
+        0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS,
+        nullptr
+    );
+    if (handle == INVALID_HANDLE_VALUE)
+        return {};
+    QString resolved(32768, Qt::Uninitialized);
+    const DWORD length = GetFinalPathNameByHandleW(
+        handle,
+        reinterpret_cast<wchar_t*>(resolved.data()),
+        static_cast<DWORD>(resolved.size()),
+        FILE_NAME_NORMALIZED | VOLUME_NAME_DOS
+    );
+    CloseHandle(handle);
+    if (length == 0 || length >= static_cast<DWORD>(resolved.size()))
+        return {};
+    resolved.truncate(static_cast<qsizetype>(length));
+    resolved = QDir::fromNativeSeparators(resolved);
+    if (resolved.startsWith(QStringLiteral("//?/UNC/")))
+        return QStringLiteral("//") + resolved.sliced(8);
+    return resolved.startsWith(QStringLiteral("//?/")) ? resolved.sliced(4) : resolved;
+#else
+    return QFileInfo(path).canonicalFilePath();
+#endif
+}
 
 // Resolve existing ancestors as well as the final component. A not-yet-created
 // directory beneath a symlink must not bypass the Daily/Debug separation.
@@ -30,7 +75,7 @@ QString resolvedPath(const QString& path) {
         suffix.prepend(info.fileName());
         ancestor = parent;
     }
-    const QString canonical = QFileInfo(ancestor).canonicalFilePath();
+    const QString canonical = canonicalExistingPath(ancestor);
     return canonical.isEmpty() ? QString{}
                                : QDir::cleanPath(QDir(canonical).filePath(suffix.join('/')));
 }
@@ -197,9 +242,8 @@ StorageProfile::open(const StorageProfileLaunch& launch, QString* const error) {
         QString value;
         if (argument.contains('=')) {
             value = argument.sliced(argument.indexOf('=') + 1);
-        } else if (
-            index + 1 < launch.arguments.size() && !launch.arguments[index + 1].startsWith("--")
-        ) {
+        } else if (index + 1 < launch.arguments.size()
+                   && !launch.arguments[index + 1].startsWith("--")) {
             value = launch.arguments[++index];
         }
         if (identity) {
@@ -369,12 +413,14 @@ bool StorageProfile::initialize(
 }
 
 bool StorageProfile::migrateDailySettings(const QString& legacy_brush_file, QString* const error) {
-    QTemporaryFile staging(QDir(root_).filePath(".profile-settings-XXXXXX"));
-    if (!staging.open()) {
+    // QTemporaryFile can retain its native handle after close on Windows.
+    // Let QSettings atomically replace a regular file in a private directory.
+    QTemporaryDir staging(QDir(root_).filePath(".profile-settings-XXXXXX"));
+    const QString staged_settings = staging.filePath(QStringLiteral("settings.ini"));
+    if (!staging.isValid() || !writeAtomically(staged_settings, {})) {
         *error = tr("Could not preserve the daily library settings.");
         return false;
     }
-    staging.close();
     {
         auto legacy = process_ == StorageProfileProcess::Desktop ? std::make_unique<QSettings>()
                                                                  : std::make_unique<QSettings>(
@@ -386,7 +432,7 @@ bool StorageProfile::migrateDailySettings(const QString& legacy_brush_file, QStr
         legacy->setFallbacksEnabled(false);
         QSettings current(settingsFile(), QSettings::IniFormat);
         current.setFallbacksEnabled(false);
-        QSettings destination(staging.fileName(), QSettings::IniFormat);
+        QSettings destination(staged_settings, QSettings::IniFormat);
         destination.setFallbacksEnabled(false);
         for (const QString& key : legacy->allKeys())
             destination.setValue(key, legacy->value(key));
@@ -401,7 +447,7 @@ bool StorageProfile::migrateDailySettings(const QString& legacy_brush_file, QStr
         }
     }
     QByteArray bytes;
-    if (!boundedFileBytes(staging.fileName(), &bytes) || !writeAtomically(settingsFile(), bytes)) {
+    if (!boundedFileBytes(staged_settings, &bytes) || !writeAtomically(settingsFile(), bytes)) {
         *error = tr("Could not preserve the daily library settings.");
         return false;
     }

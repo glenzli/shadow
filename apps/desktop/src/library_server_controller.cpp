@@ -163,9 +163,15 @@ LibraryServerController::LibraryServerController(
 
 LibraryServerController::~LibraryServerController() {
     watcher_.waitForFinished();
-    if (snapshot_.running && operations_.stop) {
+    // A Start task may have completed while the Qt event loop is already
+    // shutting down, before finishTask() can project its new snapshot. Query
+    // the service directly so that window/process teardown never leaves its
+    // listener behind because of that stale UI snapshot.
+    if (operations_.snapshot && operations_.stop) {
         try {
-            operations_.stop();
+            if (operations_.snapshot().running) {
+                operations_.stop();
+            }
         } catch (const std::exception&) {}
     }
 }

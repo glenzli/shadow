@@ -37,6 +37,16 @@ impl WorkflowPaths {
             &build_directory,
             "SHADOW_CANONICAL_DEBUG_BUILD_DIR",
         )?;
+        validate_external_path(
+            &repository_root,
+            &local_build_root,
+            "SHADOW_LOCAL_BUILD_ROOT",
+        )?;
+        validate_external_path(
+            &repository_root,
+            &asset_root,
+            "SHADOW_CANONICAL_DEBUG_ASSET_ROOT",
+        )?;
         let current_app = local_build_root.join("current-debug/Shadow.app");
         Ok(Self {
             repository_root,
@@ -94,7 +104,9 @@ pub(super) fn validate_external_path(
     path: &Path,
     variable: &str,
 ) -> io::Result<()> {
-    if !path.is_absolute() || path.starts_with(repository_root) {
+    if !path.is_absolute()
+        || resolve_output_path(path)?.starts_with(resolve_output_path(repository_root)?)
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
@@ -105,6 +117,32 @@ pub(super) fn validate_external_path(
         ));
     }
     Ok(())
+}
+
+// Resolve the existing ancestor before appending a not-yet-created output directory. This keeps
+// Windows drive paths and canonical verbatim paths comparable and follows existing junctions.
+fn resolve_output_path(path: &Path) -> io::Result<PathBuf> {
+    let absolute = std::path::absolute(path)?;
+    let mut ancestor = absolute.as_path();
+    let mut suffix = Vec::new();
+    loop {
+        match ancestor.canonicalize() {
+            Ok(mut resolved) => {
+                for component in suffix.into_iter().rev() {
+                    resolved.push(component);
+                }
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let component = ancestor.file_name().ok_or(error)?;
+                suffix.push(component);
+                ancestor = ancestor
+                    .parent()
+                    .ok_or_else(|| io::Error::other("output path has no existing ancestor"))?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn env_path(variable: &str, default: PathBuf) -> PathBuf {

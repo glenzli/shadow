@@ -27,7 +27,7 @@ void archiveContracts() {
     QString error;
     auto current = StorageProfile::open(launch, &error);
     require(current != nullptr, "open archive controller fixture");
-    bool quiet = false, saved = false, suspended = false;
+    bool quiet = false, saved = false, suspended = false, save_requested = false;
     int requests = 0, cancellations = 0;
     StorageProfileArchiveRequest request;
     StorageProfileController controller(
@@ -38,7 +38,11 @@ void archiveContracts() {
             .blocker = [] { return QString{}; },
             .suspend_background = [&](bool value) { suspended = value; },
             .jobs_quiet = [&] { return quiet; },
-            .prepare_editor = [&] { return saved; },
+            .prepare_editor =
+                [&] {
+                    save_requested = true;
+                    return saved;
+                },
             .restart = {},
             .archive_blocker = [] { return QString{}; },
             .archive =
@@ -55,7 +59,10 @@ void archiveContracts() {
         "backup waits for quiet jobs and durable edit save"
     );
     quiet = true;
-    QTest::qWait(120);
+    require(
+        QTest::qWaitFor([&] { return save_requested; }),
+        "quiet jobs must reach the editor save boundary"
+    );
     require(controller.busy() && requests == 0, "unsaved edit cannot enter snapshot");
     controller.editorSaveFailed("disk full");
     QCoreApplication::processEvents();

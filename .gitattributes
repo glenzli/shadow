@@ -1,0 +1,2 @@
+# Keep Rust sources consistent with rustfmt on every checkout platform.
+*.rs text eol=lf

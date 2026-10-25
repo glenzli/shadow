@@ -1,22 +1,29 @@
 {
   "name": "shadow-desktop",
   "version-string": "0.1.0",
+  "builtin-baseline": "127402f1c75bb3d5ff6bce04b285faa4930a5aca",
   "description": "Windows native and Qt dependencies for Shadow",
   "dependencies": [
     "lcms",
+    "lensfun",
     "libheif",
     "libiconv",
     "libjpeg-turbo",
     "libpng",
-    "libraw",
-    "libtiff",
-    "opencv4",
+    { "name": "libraw", "features": ["dng-sdk"] },
+    "tiff",
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": ["calib3d", "jpeg", "png", "tiff"]
+    },
     "pkgconf",
     "qtbase",
     "qtdeclarative",
     "qtlocation",
     "qtpositioning",
     "qtsvg",
-    "qttools"
+    "qttools",
+    "qtwebview"
   ]
 }

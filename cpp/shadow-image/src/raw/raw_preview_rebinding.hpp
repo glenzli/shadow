@@ -50,6 +50,9 @@ class RawPreviewRebindingSource final {
     // denoised CFA frame.  Foundation/RGB compatibility paths deliberately do
     // not expose a picker because their pixels are no longer sensor samples.
     [[nodiscard]] bool supports_raw_white_balance_picker() const noexcept;
+    // Camera-authored white point from the retained calibration, even without a local DCP.
+    [[nodiscard]] std::optional<RawWhiteBalancePresentation>
+    as_shot_white_balance() const noexcept;
     [[nodiscard]] std::optional<RawWhiteBalancePresentation>
     pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
     // Estimates one photographic white point from a bounded grid over the

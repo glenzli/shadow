@@ -78,7 +78,7 @@ void contracts() {
     );
     const auto backup = result;
     run({1, backup, base, "Restored", {}});
-    require(failure.isEmpty(), "linked restore succeeds");
+    require(failure.isEmpty(), qPrintable(QStringLiteral("linked restore succeeds: ") + failure));
     const auto restored = StorageProfile::inspect(result, launch.daily_root, &error);
     require(
         restored && restored->id != profile->id() && restored->name() == "Restored",

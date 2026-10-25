@@ -1,6 +1,14 @@
 use std::{ffi::OsString, io};
 
 fn debug_arguments(mut arguments: Vec<OsString>) -> Vec<OsString> {
+    // The check is a launcher operation, not an application launch. Preserve
+    // its exact arguments so neither platform can open a library by accident.
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "--check")
+    {
+        return arguments;
+    }
     let selected = arguments.iter().any(|argument| {
         let argument = argument.to_string_lossy();
         argument == "--profile-launch-context" || argument.starts_with("--profile-launch-context=")
@@ -22,7 +30,11 @@ pub(super) fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<(
     {
         macos::run(arguments)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        super::windows::launch(debug_arguments(arguments.into_iter().collect()))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = arguments;
         Err(io::Error::new(

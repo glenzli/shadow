@@ -38,7 +38,10 @@ namespace native_path_input {
     result.platform = shadow::desktop::FfiNativePathPlatform::Windows;
     const auto size = checked_size(value.size());
     result.windows_units.reserve(size);
-    const char16_t* const units = value.utf16();
+    // Qt exposes UTF-16 through its own code-unit type (ushort on Windows),
+    // which MSVC deliberately keeps distinct from char16_t. Preserve each
+    // code unit numerically instead of assuming pointer-type compatibility.
+    const auto* const units = value.utf16();
     for (std::size_t index = 0; index < size; ++index) {
         result.windows_units.push_back(static_cast<std::uint16_t>(units[index]));
     }

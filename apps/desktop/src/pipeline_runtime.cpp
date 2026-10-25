@@ -55,7 +55,7 @@
 namespace {
 void configurePipelineDecodeHelper() {
     const QString helper_path = QDir(QCoreApplication::applicationDirPath())
-                                    .filePath(QStringLiteral("shadow-image-decode-helper"));
+                                    .filePath(QStringLiteral(SHADOW_DECODE_HELPER_FILE_NAME));
     qputenv("SHADOW_DISABLE_PRIVATE_DECODER", QByteArrayLiteral("1"));
     if (QFileInfo(helper_path).isExecutable()) {
         qputenv("SHADOW_DECODE_HELPER_PATH", helper_path.toUtf8());

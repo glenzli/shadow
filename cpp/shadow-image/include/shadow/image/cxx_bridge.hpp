@@ -197,6 +197,7 @@ class EditPreviewHandle final {
     [[nodiscard]] FfiRawWhiteBalancePresentation
     pick_raw_white_balance(double normalized_x, double normalized_y) const noexcept;
     [[nodiscard]] FfiRawWhiteBalancePresentation auto_raw_white_balance() const noexcept;
+    [[nodiscard]] FfiRawWhiteBalancePresentation as_shot_white_balance() const noexcept;
     [[nodiscard]] FfiCurveInputMap curve_input_map(
         const FfiAdjustmentRenderRequest& request,
         std::uint8_t channel,

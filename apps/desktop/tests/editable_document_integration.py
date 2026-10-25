@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Packaged pointer, self-contained reopen, branch, and publication contracts."""
 import hashlib
+from contextlib import closing
 import json
 import os
+import queue
 from pathlib import Path
 import shutil
 import sqlite3
@@ -10,6 +12,8 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import zipfile
 import zlib
 
@@ -54,7 +58,7 @@ def main():
             source.chmod(0o444)
         env = os.environ.copy()
         env.update(SHADOW_DESKTOP_DATA_ROOT=str(daily), SHADOW_PIPELINE_SMOKE_ACTION='document',
-                   SHADOW_AUTO_START_SMOKE_MEASURED_ONLY='1')
+                   SHADOW_AUTO_START_SMOKE_MEASURED_ONLY='1', QT_FORCE_STDERR_LOGGING='1')
         if sys.platform != 'darwin':
             env.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
@@ -67,7 +71,8 @@ def main():
             if mode == 'cancel':
                 process_env['SHADOW_PIPELINE_SMOKE_ACTION'] = 'cancel'
             proc = subprocess.run([executable, '--pipeline-edit', '--request', str(request), '--result', str(result)],
-                                  env=process_env, capture_output=True, text=True, timeout=120)
+                                  env=process_env, capture_output=True, text=True,
+                                  encoding='utf-8', errors='replace', timeout=120)
             assert proc.returncode == expected, (name, proc.returncode, proc.stderr[-8000:], result.read_text() if result.exists() else 'no result')
             receipt = json.loads(result.read_text())
             assert receipt['schema'] == 'shadow.document-result/1' and receipt['requestId'] == name
@@ -99,7 +104,7 @@ def main():
         with zipfile.ZipFile(metadata) as archive:
             catalog = root / 'metadata-catalog.sqlite'
             catalog.write_bytes(archive.read('catalog.sqlite'))
-        with sqlite3.connect(catalog) as catalog_db:
+        with closing(sqlite3.connect(catalog)) as catalog_db:
             assert catalog_db.execute('SELECT name FROM photo_variants').fetchone()[0] == 'Portable variant'
         _, metadata_render, _ = inspect(metadata)
         assert metadata_render == second_render, 'renaming a Variant changed its pixels'
@@ -128,33 +133,57 @@ def main():
         shutil.copy2(first, conflict)
         process_env = dict(env, SHADOW_DOCUMENT_SMOKE_MODE='conflict')
         proc = subprocess.Popen([executable, '--isolate', str(conflict)], env=process_env,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                encoding='utf-8', errors='replace')
         lines = []
-        import time
-        import selectors
+        output = []
+        messages = queue.Queue()
+
+        def drain(stream, destination, notify=False):
+            try:
+                for line in iter(stream.readline, ''):
+                    destination.append(line)
+                    if notify:
+                        messages.put(line)
+            finally:
+                if notify:
+                    messages.put(None)
+
+        readers = [
+            threading.Thread(target=drain, args=(proc.stderr, lines, True), daemon=True),
+            threading.Thread(target=drain, args=(proc.stdout, output), daemon=True),
+        ]
+        for reader in readers:
+            reader.start()
         deadline = time.monotonic() + 120
-        selector = selectors.DefaultSelector()
-        selector.register(proc.stderr, selectors.EVENT_READ)
         ready = False
         try:
             while time.monotonic() < deadline and proc.poll() is None:
-                if not selector.select(timeout=1):
+                try:
+                    line = messages.get(timeout=1)
+                except queue.Empty:
                     continue
-                line = os.read(proc.stderr.fileno(), 65536).decode("utf-8", errors="replace")
-                lines.append(line)
+                if line is None:
+                    break
                 if 'DOCUMENT_READY_FOR_CONFLICT' in line:
                     conflict.write_bytes(b'external newer revision')
                     ready = True
                     break
-            out, err = proc.communicate(timeout=120)
-            assert ready and proc.returncode == 2, ''.join(lines) + err
+            proc.wait(timeout=120)
+            for reader in readers:
+                reader.join(timeout=5)
+            err = ''.join(lines)
+            assert ready and proc.returncode == 2, err + ''.join(output)
             assert conflict.read_bytes() == b'external newer revision'
             assert 'Document conflicting save rejected' in err
         finally:
-            selector.close()
             if proc.poll() is None:
                 proc.kill()
                 proc.wait()
+            for reader in readers:
+                reader.join(timeout=5)
+            proc.stdout.close()
+            proc.stderr.close()
         print('PASS concurrent-edit-conflict and isolated Library', flush=True)
 
 

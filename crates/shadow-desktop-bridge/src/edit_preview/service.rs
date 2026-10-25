@@ -723,7 +723,7 @@ impl DesktopSession {
                     let _ = defer_recipe_preview_store(store_job);
                 }
             }
-            match rendered {
+            let preview: AnyResult<_> = match rendered {
                 CompletedEditPreview::Interactive(frame) => Ok(OwnedEditedPreview::interactive(
                     frame,
                     level_zero_output_dimensions,
@@ -758,7 +758,8 @@ impl DesktopSession {
                         policy,
                     )))
                 }
-            }
+            };
+            Ok(preview?.with_as_shot_white_balance(session.as_shot_white_balance()))
         })();
 
         match render {

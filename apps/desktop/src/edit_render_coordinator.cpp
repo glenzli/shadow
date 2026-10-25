@@ -229,6 +229,7 @@ void EditController::finishPreviewTask() {
             }
             if (accepted) {
                 const QVariantMap new_receipt = optics_receipt_map(result.preview.optics);
+                publishCameraWhiteBalance(result.preview);
                 if (optics_receipt_ != new_receipt) {
                     optics_receipt_ = new_receipt;
                     emit opticsReceiptChanged();

@@ -239,6 +239,15 @@ pub(super) fn overlaps_inside(path: &Path, source: &Path) -> bool {
     path.starts_with(source)
 }
 
+pub(super) fn sync_file(path: &Path) -> Result<()> {
+    File::options()
+        .read(true)
+        .write(cfg!(windows))
+        .open(path)?
+        .sync_all()?;
+    Ok(())
+}
+
 pub(super) fn sync_directory(path: &Path) -> Result<()> {
     #[cfg(unix)]
     File::open(path)?.sync_all()?;

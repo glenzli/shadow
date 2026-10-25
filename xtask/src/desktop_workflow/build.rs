@@ -27,7 +27,17 @@ pub(super) fn run(arguments: impl IntoIterator<Item = OsString>) -> io::Result<(
         print_usage();
         return Ok(());
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        return match request {
+            BuildRequest::Check => super::windows::build(true, None),
+            BuildRequest::Build {
+                validation_label, ..
+            } => super::windows::build(false, validation_label.as_deref()),
+            BuildRequest::Help => unreachable!("help returned above"),
+        };
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = request;
         return Err(io::Error::new(

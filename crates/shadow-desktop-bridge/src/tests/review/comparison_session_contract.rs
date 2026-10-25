@@ -201,6 +201,7 @@ fn review_handles_reject_forgery_cross_session_and_same_photo() {
             .is_empty()
     );
 
+    drop(other);
     drop(session);
     std::fs::remove_dir_all(root).expect("remove feedback fixture");
 }

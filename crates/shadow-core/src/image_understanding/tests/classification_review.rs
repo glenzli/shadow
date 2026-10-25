@@ -61,6 +61,7 @@ fn review_proposal_round_trips_and_resolves_by_exact_source_revision() {
             .expect("resolve review")
     );
 
+    drop(store);
     std::fs::remove_dir_all(root).expect("remove test sidecar");
 }
 

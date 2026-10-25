@@ -12,7 +12,7 @@
 
 namespace shadow::image {
 
-inline constexpr std::uint32_t libraw_reference_development_contract_version = 2U;
+inline constexpr std::uint32_t libraw_reference_development_contract_version = 3U;
 
 void validate_libraw_development_settings(
     const LibRawDevelopmentSettings& settings

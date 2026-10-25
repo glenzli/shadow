@@ -47,7 +47,13 @@ pub(super) fn inspect(path: &Path) -> Result<Option<VideoReferenceMetadata>> {
     if !supports(path) {
         return Ok(None);
     }
-    let output = match Command::new(ffprobe_program())
+    let mut command = Command::new(ffprobe_program());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+    let output = match command
         .args(["-v", "error", "-print_format", "json", "-show_format"])
         .arg(path)
         .output()

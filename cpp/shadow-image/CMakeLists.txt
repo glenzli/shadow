@@ -60,7 +60,7 @@ function(shadow_image_read_source_manifest output_variable manifest_name)
             continue()
         endif()
         if(
-            NOT entry MATCHES "^src/.+\\.(cpp|mm)$"
+            NOT entry MATCHES "^src/.+\\.(cpp|mm|cu)$"
             OR entry MATCHES "(^|/)\\.\\.?(/|$)"
         )
             message(FATAL_ERROR "Invalid source path '${entry}' in ${manifest_path}")
@@ -79,12 +79,14 @@ endfunction()
 shadow_image_read_source_manifest(SHADOW_IMAGE_PORTABLE_SOURCES portable.txt)
 shadow_image_read_source_manifest(SHADOW_IMAGE_METAL_SOURCES metal.txt)
 shadow_image_read_source_manifest(SHADOW_IMAGE_METAL_STUB_SOURCES metal-stubs.txt)
+shadow_image_read_source_manifest(SHADOW_IMAGE_CUDA_SOURCES cuda.txt)
 
 set(
     SHADOW_IMAGE_ALL_MANIFEST_SOURCES
     ${SHADOW_IMAGE_PORTABLE_SOURCES}
     ${SHADOW_IMAGE_METAL_SOURCES}
     ${SHADOW_IMAGE_METAL_STUB_SOURCES}
+    ${SHADOW_IMAGE_CUDA_SOURCES}
 )
 list(LENGTH SHADOW_IMAGE_ALL_MANIFEST_SOURCES SHADOW_IMAGE_SOURCE_COUNT)
 list(REMOVE_DUPLICATES SHADOW_IMAGE_ALL_MANIFEST_SOURCES)
@@ -110,6 +112,9 @@ if(APPLE AND SHADOW_ENABLE_METAL)
             "${SHADOW_METAL_FRAMEWORK}"
     )
 else()
+    if(SHADOW_ENABLE_CUDA)
+        list(REMOVE_ITEM SHADOW_IMAGE_METAL_STUB_SOURCES src/proxy/warm_edit_gpu_stub.cpp)
+    endif()
     target_sources(
         shadow-image
         PRIVATE
@@ -118,6 +123,9 @@ else()
     target_compile_definitions(shadow-image PRIVATE SHADOW_IMAGE_HAS_METAL=0)
 endif()
 add_library(Shadow::Image ALIAS shadow-image)
+if(SHADOW_ENABLE_CUDA)
+    include(cmake/ShadowImageCuda.cmake)
+endif()
 target_compile_features(shadow-image PUBLIC cxx_std_20)
 set_target_properties(shadow-image PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(
@@ -187,6 +195,8 @@ if(BUILD_TESTING)
         tests/private_decoder_test_plugin.cpp
     )
     target_compile_features(shadow-image-private-decoder-test-plugin PRIVATE cxx_std_20)
+    set_target_properties(shadow-image-private-decoder-test-plugin PROPERTIES
+        WINDOWS_EXPORT_ALL_SYMBOLS ON)
     target_include_directories(
         shadow-image-private-decoder-test-plugin
         PRIVATE
@@ -232,6 +242,8 @@ if(BUILD_TESTING)
         shadow-image-stale-private-decoder-test-plugin
         PRIVATE cxx_std_20
     )
+    set_target_properties(shadow-image-stale-private-decoder-test-plugin PROPERTIES
+        WINDOWS_EXPORT_ALL_SYMBOLS ON)
     target_include_directories(
         shadow-image-stale-private-decoder-test-plugin
         PRIVATE
@@ -247,6 +259,8 @@ if(BUILD_TESTING)
         tests/libraw_dummy_private_decoder_provider.cpp
     )
     target_compile_features(shadow-image-libraw-dummy-private-provider PRIVATE cxx_std_20)
+    set_target_properties(shadow-image-libraw-dummy-private-provider PROPERTIES
+        WINDOWS_EXPORT_ALL_SYMBOLS ON)
     target_link_libraries(shadow-image-libraw-dummy-private-provider PRIVATE Shadow::Image)
     shadow_image_enable_warnings(shadow-image-libraw-dummy-private-provider)
 
@@ -440,9 +454,13 @@ if(BUILD_TESTING)
             LIST_DIRECTORIES TRUE
             "${Lensfun_PREFIX}/share/lensfun/version_*"
         )
-        if(SHADOW_LENSFUN_DATABASE_DIRECTORIES)
+        if(SHADOW_LENSFUN_DATABASE_PATH)
+            set(SHADOW_LENSFUN_TEST_DATABASE "${SHADOW_LENSFUN_DATABASE_PATH}")
+        elseif(SHADOW_LENSFUN_DATABASE_DIRECTORIES)
             list(SORT SHADOW_LENSFUN_DATABASE_DIRECTORIES COMPARE NATURAL ORDER DESCENDING)
             list(GET SHADOW_LENSFUN_DATABASE_DIRECTORIES 0 SHADOW_LENSFUN_TEST_DATABASE)
+        endif()
+        if(SHADOW_LENSFUN_TEST_DATABASE)
             set_tests_properties(
                 shadow-image-optics-preparation-contract
                 shadow-image-lensfun-profile-catalog-contract
@@ -450,6 +468,14 @@ if(BUILD_TESTING)
                 PROPERTIES ENVIRONMENT
                     "SHADOW_TEST_LENSFUN_DB=$<SHELL_PATH:${SHADOW_LENSFUN_TEST_DATABASE}>"
             )
+            if(WIN32)
+                add_custom_command(TARGET shadow-image-lensfun-profile-catalog-tests POST_BUILD
+                    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                        "${SHADOW_LENSFUN_TEST_DATABASE}"
+                        "$<TARGET_FILE_DIR:shadow-image-lensfun-profile-catalog-tests>/Lensfun")
+                set_property(TEST shadow-image-lensfun-profile-catalog-contract APPEND PROPERTY
+                    ENVIRONMENT "SHADOW_TEST_LENSFUN_BUNDLED=1")
+            endif()
         endif()
     endif()
 

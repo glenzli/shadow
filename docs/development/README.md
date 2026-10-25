@@ -126,20 +126,53 @@ when the toolchain is installed elsewhere.
 
 ## Windows compile contract
 
-The Mac-first source tree exposes `windows-native-dev` and `windows-desktop-dev` CMake presets.
+The Mac-first source tree exposes `windows-native-dev`, `windows-server-dev`, and
+`windows-desktop-dev` CMake presets.
 They select the vcpkg toolchain, keep installed packages outside the repository, disable Metal,
 and supply the compatibility prefix used by vcpkg Iconv layouts that install beneath
 `usr/local`. The checked-in `vcpkg.json` owns the Windows native and Qt dependency set.
+Windows development presets use `RelWithDebInfo`: Rust static archives use the release dynamic
+MSVC runtime even in Cargo's development profile, so this keeps the C++, Qt, and Rust boundary on
+one runtime while retaining debug symbols.
 
 ```powershell
-cmake --preset windows-desktop-dev
-cmake --build --preset windows-desktop-dev --target shadow-desktop-rust-build
+cmake --preset windows-server-dev
+cmake --build --preset windows-server-dev --target shadow-server-manager
+ctest --preset windows-server-dev -R shadow-server-manager-qml-startup
+cmake --install ..\.shadow-local-build\windows-server-dev --prefix ..\.shadow-local-dist\windows-server-dev
 ```
 
-The Windows workflow runs the native-path fixtures, configures that desktop graph, compiles the
-Rust/CXX bridge, and builds the portable image kernel. Runtime launch and immutable debug promotion
-remain platform backends behind the shared xtask commands; the macOS backends are implemented here,
-and Windows can add its backend without changing the command contract.
+`windows-server-dev` builds the independent Shadow Server manager without requiring the photo
+application's Qt WebView dependency. It is the Windows bring-up target for local-network Library
+sharing; `windows-desktop-dev` remains the full photo-application graph. The install command creates
+a self-contained Server Manager directory under `.shadow-local-dist/windows-server-dev`, including
+the Qt/QML runtime, non-Qt DLL dependencies, and the isolated decode helper.
+
+The Windows workflow runs the native-path fixtures, configures the selected Server or desktop
+graph, compiles the Rust/CXX bridge, and builds the portable image kernel. Runtime launch and
+immutable debug promotion remain platform backends behind the shared xtask commands. Windows
+`desktop-build-promote` builds both applications, checks localization and startup, deploys their
+dependency closure, and promotes an immutable copy. Set `SHADOW_CANONICAL_DEBUG_BUILD_DIR` to
+the task-private external build directory, `SHADOW_GEONAMES_CITY_INDEX_PATH` to the prepared
+offline index, and optionally `VCPKG_INSTALLED_DIR` to a preinstalled dependency tree.
+`SHADOW_CUDA_TOOLKIT_ROOT` enables the CMake CUDA backend using that toolkit's `nvcc.exe`.
+Set `SHADOW_LENSFUN_DATABASE_PATH` to an offline Lensfun XML database compatible with the
+linked library (version 1 for Lensfun 0.3.4); Windows deploys it beside both applications.
+`cmake/ShadowWindowsDependencies.cmake` decodes localized MSVC `/utf-8` include diagnostics
+explicitly so console and headless Ninja builds retain header-dependency tracking.
+The CUDA executor owns resident pixel-local adjustments and display output; RAW development,
+neighborhood/mask/geometry fallback and RGB16 export preserve the existing CPU semantics.
+
+Windows promotion uses the same canonical-debug steward lock. It verifies every copied file,
+retains immutable revisions under `releases/windows-debug`, and atomically updates
+`current-debug-windows.json`, including the previous revision for rollback. The shared
+`cargo xtask desktop-run-debug` command resolves this pointer; `--server` launches Shadow Server.
+PowerShell users can use `scripts/run_debug.ps1` with the same arguments. A prepared deployment
+can also be promoted with `cargo xtask desktop-promote-debug <absolute-directory> <validation-label>`.
+The Windows debug launcher selects the development Library lane in `RelWithDebInfo` as well;
+the standalone Server defaults to its Debug Library. Explicit `--profile`, `--profile-root`,
+and process-specific data-root overrides retain priority. `--check` only verifies launch inputs.
+Private Nikon binaries and their local decoder link remain separate from this public deployment.
 
 Repository instructions require build output outside the source tree. Agents and concurrent tasks
 must use task-private external Cargo and CMake directories; see [AGENTS.md](../../AGENTS.md) for the

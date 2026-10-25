@@ -116,7 +116,7 @@ fn isolate_catalog(path: &Path, owned: &[manifest::OwnedLocation], new_root: &Pa
         UPDATE import_sessions SET state='cancelled', finished_at_ms=updated_at_ms WHERE state='running';")?;
     tx.commit()?;
     drop(connection);
-    fs::File::open(path)?.sync_all()?;
+    transfer::sync_file(path)?;
     Ok(())
 }
 
@@ -136,7 +136,7 @@ fn isolate_checkpoint_stores(root: &Path) -> Result<()> {
             let connection = Connection::open(&path)?;
             connection.execute_batch(sql)?;
             drop(connection);
-            fs::File::open(&path)?.sync_all()?;
+            transfer::sync_file(&path)?;
             transfer::verify_database(&path, false)?;
         }
     }

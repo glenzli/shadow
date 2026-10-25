@@ -236,6 +236,7 @@ bool run(const QString& executable, const QString& scenario) {
 }
 } // namespace
 int main(int argc, char** argv) {
+    qputenv("QT_FORCE_STDERR_LOGGING", QByteArrayLiteral("1"));
     QCoreApplication app(argc, argv);
     if (argc != 3)
         return 1;

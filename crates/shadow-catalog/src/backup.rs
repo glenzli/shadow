@@ -241,14 +241,22 @@ pub(super) fn create_and_verify_partial(
     drop(source_connection);
 
     let verification = verify_catalog_backup(partial)?;
-    File::open(partial)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| CatalogBackupError::Io {
-            operation: "synchronize partial backup",
-            path: partial.to_path_buf(),
-            source,
-        })?;
+    sync_file(partial).map_err(|source| CatalogBackupError::Io {
+        operation: "synchronize partial backup",
+        path: partial.to_path_buf(),
+        source,
+    })?;
     Ok(verification)
+}
+
+fn sync_file(path: &Path) -> Result<(), std::io::Error> {
+    // Windows FlushFileBuffers requires a write-capable handle. These are
+    // generated backup/restore files, never the read-only source backup.
+    File::options()
+        .read(true)
+        .write(cfg!(windows))
+        .open(path)?
+        .sync_all()
 }
 
 fn canonicalize_source(source: &Path) -> Result<PathBuf, CatalogBackupError> {

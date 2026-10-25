@@ -157,7 +157,8 @@ void validate_detail_tile_rect(const DetailTileRect rect, const Dimensions full_
         .backend = backend,
         .backend_version = backend == DetailTileRenderBackend::metal
                                ? detail_tile_metal_backend_version
-                               : detail_tile_cpu_backend_version,
+                               : backend == DetailTileRenderBackend::cuda
+                                   ? detail_tile_cuda_backend_version : detail_tile_cpu_backend_version,
         .source_cache_hit = source_cache_hit,
         .fell_back = fell_back,
         .diagnostic = std::move(diagnostic),
@@ -288,6 +289,9 @@ bool DetailTileExecutionReceipt::valid() const noexcept {
         if (backend_version != detail_tile_cpu_backend_version || source_cache_hit) {
             return false;
         }
+        break;
+    case DetailTileRenderBackend::cuda:
+        if (backend_version != detail_tile_cuda_backend_version || fell_back) return false;
         break;
     case DetailTileRenderBackend::metal:
         if (backend_version != detail_tile_metal_backend_version || fell_back) {
@@ -430,7 +434,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8(
                 .row_stride_bytes = rect.width * 3U,
                 .bytes = std::move(*gpu.bytes),
                 .execution = detail_tile_execution_receipt(
-                    DetailTileRenderBackend::metal,
+                    gpu.backend == detail::WarmEditGpuBackend::cuda ? DetailTileRenderBackend::cuda : DetailTileRenderBackend::metal,
                     gpu.source_cache_hit,
                     false,
                     {}
@@ -557,7 +561,7 @@ RenderedDetailTile FullEditDetailSession::render_rgb8_layers(
                 .row_stride_bytes = rect.width * 3U,
                 .bytes = std::move(*gpu.bytes),
                 .execution = detail_tile_execution_receipt(
-                    DetailTileRenderBackend::metal,
+                    gpu.backend == detail::WarmEditGpuBackend::cuda ? DetailTileRenderBackend::cuda : DetailTileRenderBackend::metal,
                     gpu.source_cache_hit,
                     false,
                     {}

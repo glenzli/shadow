@@ -9,6 +9,7 @@
 #include "pipeline_run_controller.hpp"
 #include "precision_editing_smoke_harness.hpp"
 #include "rgb_curve_smoke_harness.hpp"
+#include "raw_white_balance_smoke_harness.hpp"
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
@@ -31,6 +32,10 @@ void installPipelineSmokeHarness(
     AiPreferences& ai_preferences
 ) {
     const QString action = qEnvironmentVariable("SHADOW_PIPELINE_SMOKE_ACTION");
+    if (action == QStringLiteral("raw-white-balance")) {
+        installRawWhiteBalanceSmokeHarness(engine, pipeline, editor);
+        return;
+    }
     if (action == QStringLiteral("document")) {
         installDocumentSmokeHarness(engine, pipeline, editor);
         return;

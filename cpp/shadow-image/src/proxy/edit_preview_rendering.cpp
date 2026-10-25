@@ -242,12 +242,15 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
                 auto output = std::move(*attempt.output);
                 EditPreviewExecutionReceipt receipt;
                 if (output.had_active_adjustments) {
-                    receipt.adjustment_backend = EditPreviewBackend::metal;
-                    receipt.adjustment_backend_version =
-                        edit_preview_metal_adjustment_backend_version;
+                    receipt.adjustment_backend = output.backend == detail::WarmEditGpuBackend::cuda
+                        ? EditPreviewBackend::cuda : EditPreviewBackend::metal;
+                    receipt.adjustment_backend_version = output.backend == detail::WarmEditGpuBackend::cuda
+                        ? edit_preview_cuda_adjustment_backend_version : edit_preview_metal_adjustment_backend_version;
                 }
-                receipt.display_backend = EditPreviewBackend::metal;
-                receipt.display_backend_version = edit_preview_metal_display_backend_version;
+                receipt.display_backend = output.backend == detail::WarmEditGpuBackend::cuda
+                    ? EditPreviewBackend::cuda : EditPreviewBackend::metal;
+                receipt.display_backend_version = output.backend == detail::WarmEditGpuBackend::cuda
+                    ? edit_preview_cuda_display_backend_version : edit_preview_metal_display_backend_version;
                 receipt.fused_pipeline = true;
                 receipt.presentation_fell_back = !output.presentation_fallback_diagnostic.empty();
                 if (receipt.presentation_fell_back) {
@@ -462,12 +465,15 @@ public_mask_coverage(detail::WarmEditGpuSession::MaskCoverageResult coverage) {
                 auto output = std::move(*attempt.output);
                 EditPreviewExecutionReceipt receipt;
                 if (output.had_active_adjustments) {
-                    receipt.adjustment_backend = EditPreviewBackend::metal;
-                    receipt.adjustment_backend_version =
-                        edit_preview_metal_adjustment_backend_version;
+                    receipt.adjustment_backend = output.backend == detail::WarmEditGpuBackend::cuda
+                        ? EditPreviewBackend::cuda : EditPreviewBackend::metal;
+                    receipt.adjustment_backend_version = output.backend == detail::WarmEditGpuBackend::cuda
+                        ? edit_preview_cuda_adjustment_backend_version : edit_preview_metal_adjustment_backend_version;
                 }
-                receipt.display_backend = EditPreviewBackend::metal;
-                receipt.display_backend_version = edit_preview_metal_display_backend_version;
+                receipt.display_backend = output.backend == detail::WarmEditGpuBackend::cuda
+                    ? EditPreviewBackend::cuda : EditPreviewBackend::metal;
+                receipt.display_backend_version = output.backend == detail::WarmEditGpuBackend::cuda
+                    ? edit_preview_cuda_display_backend_version : edit_preview_metal_display_backend_version;
                 receipt.fused_pipeline = true;
                 receipt.presentation_fell_back = !output.presentation_fallback_diagnostic.empty();
                 if (receipt.presentation_fell_back) {

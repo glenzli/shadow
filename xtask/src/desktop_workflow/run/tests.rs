@@ -28,3 +28,13 @@ fn debug_launch_preserves_selection_and_uses_independent_launch_history() {
     let explicit_context = vec![OsString::from("--profile-launch-context=normal")];
     assert_eq!(debug_arguments(explicit_context.clone()), explicit_context);
 }
+
+#[test]
+fn debug_input_check_never_becomes_an_application_launch() {
+    for arguments in [
+        vec![OsString::from("--check")],
+        vec![OsString::from("--check"), OsString::from("unexpected")],
+    ] {
+        assert_eq!(debug_arguments(arguments.clone()), arguments);
+    }
+}

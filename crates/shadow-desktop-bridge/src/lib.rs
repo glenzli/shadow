@@ -431,13 +431,15 @@ mod ffi {
         altitude_meters: f64,
     }
 
-    /// Native-only configuration for this Mac's managed remote-Library listener.
+    /// Device-local configuration for the managed remote-Library listener.
     #[derive(Debug)]
     struct FfiLibraryServerConfig {
         bind_address: String,
         authorization: String,
         display_name: String,
-        share_roots: Vec<String>,
+        /// Filesystem roots retain their native payload; display strings must
+        /// never be used to reopen a shared folder.
+        share_roots: Vec<FfiNativePath>,
         serves_originals: bool,
     }
 
@@ -2373,6 +2375,9 @@ mod ffi {
     #[derive(Debug)]
     struct FfiEditedPreview {
         terminal: FfiEditPreviewTerminal,
+        as_shot_white_balance_available: bool,
+        as_shot_temperature_kelvin: u32,
+        as_shot_tint: i16,
         width: u32,
         height: u32,
         /// Current geometry's level-zero output dimensions used by pixel-sized Recipe parameters.

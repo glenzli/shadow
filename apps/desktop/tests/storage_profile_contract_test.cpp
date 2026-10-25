@@ -5,6 +5,10 @@
 #include <QFileInfo>
 #include <QSettings>
 #include <QTemporaryDir>
+#if defined(Q_OS_WIN)
+#include <QProcess>
+#include <qt_windows.h>
+#endif
 
 #include <cstdlib>
 #include <iostream>
@@ -26,6 +30,30 @@ QByteArray read(const QString& path) {
     QFile file(path);
     require(file.open(QIODevice::ReadOnly), "read fixture");
     return file.readAll();
+}
+
+bool directoryAlias(const QString& target, const QString& alias) {
+#if defined(Q_OS_WIN)
+    // QFile::link creates a shell shortcut on Windows. A junction exercises
+    // the actual filesystem boundary without requiring symbolic-link rights.
+    QProcess process;
+    process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* arguments) {
+        arguments->flags |= CREATE_NO_WINDOW;
+    });
+    process.start(
+        QDir(qEnvironmentVariable("SystemRoot")).filePath("System32/cmd.exe"),
+        {"/d",
+         "/c",
+         "mklink",
+         "/J",
+         QDir::toNativeSeparators(alias),
+         QDir::toNativeSeparators(target)}
+    );
+    return process.waitForFinished(10000) && process.exitCode() == 0
+           && QFileInfo(alias).isJunction();
+#else
+    return QFile::link(target, alias);
+#endif
 }
 
 void profileContracts() {
@@ -136,7 +164,7 @@ void profileContracts() {
     auto daily = StorageProfile::open(launch, &error);
     require(
         daily != nullptr && daily->isDaily() && daily->root() == daily_root,
-        "Release preserves Daily root"
+        qPrintable(QStringLiteral("Release preserves Daily root: ") + error)
     );
     QSettings migrated(daily->settingsFile(), QSettings::IniFormat);
     require(migrated.value("appearance/mode").toString() == "light", "local values win migration");
@@ -223,14 +251,14 @@ void profileContracts() {
     );
     require(rejects({"Shadow", "--profile-root=" + fixture_root}), "custom cannot contain Daily");
     const QString alias = fixture_root + "/daily-alias";
-    require(QFile::link(daily_root, alias), "create directory alias");
+    require(directoryAlias(daily_root, alias), "create directory alias");
     require(
         rejects({"Shadow", "--profile-root=" + alias}),
         "symlink alias cannot bypass separation"
     );
     const QString escaped = fixture_root + "/escaped";
     require(QDir().mkpath(escaped), "create escaped profile");
-    require(QFile::link(daily_root + "/cache", escaped + "/cache"), "create cache alias");
+    require(directoryAlias(daily_root + "/cache", escaped + "/cache"), "create cache alias");
     require(
         rejects({"Shadow", "--profile-root=" + escaped}),
         "mutable store cannot escape its profile"

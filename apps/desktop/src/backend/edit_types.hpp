@@ -887,6 +887,9 @@ struct BackendEditedPreview final {
     std::uint32_t level_zero_width = 0;
     std::uint32_t level_zero_height = 0;
     EditPreviewTerminal terminal = EditPreviewTerminal::Completed;
+    bool as_shot_white_balance_available = false;
+    std::uint32_t as_shot_temperature_kelvin = 5'500U;
+    std::int16_t as_shot_tint = 0;
 };
 
 // Result of a source-domain RAW neutral picker lookup. Availability is a

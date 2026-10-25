@@ -389,6 +389,7 @@ PixelBuffer LibRawReferenceDeveloper::render_impl(
     const std::optional<std::uint32_t> preview_max_edge
 ) const {
     require_available();
+    LibRawDngHost dng_host;
     auto renderer = std::make_unique<LibRaw>();
     renderer->imgdata.rawparams.max_raw_memory_mb = 2'048U;
     configure_reference_render_parameters(*renderer, settings_, half_size);
@@ -396,6 +397,7 @@ PixelBuffer LibRawReferenceDeveloper::render_impl(
         libraw_open_path(*renderer, path_),
         "reference open_file"
     );
+    dng_host.attach(*renderer);
     require_libraw_success(renderer->unpack(), "reference unpack");
 
     const Dimensions declared_image_dimensions{
