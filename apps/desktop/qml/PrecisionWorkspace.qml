@@ -199,6 +199,10 @@ Item {
     }
 
     function cancelTransientInteractionOrLeaveTool() {
+        if (editor.subjectEmphasis.active || editor.subjectEmphasis.applied) {
+            editor.subjectEmphasis.dismiss()
+            return
+        }
         if (colorWarperExpanded) {
             closeColorWarper()
             return
@@ -301,6 +305,8 @@ Item {
     Shortcut {
         sequence: "Escape"
         enabled: precision.visible && (precision.editor.pointColorPickerActive
+            || precision.editor.subjectEmphasis.active
+            || precision.editor.subjectEmphasis.applied
             || precision.editor.whiteBalancePickerActive
             || precision.editor.rawWhiteBalancePickerActive
             || precision.editor.retouchPickerActive

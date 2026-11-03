@@ -29,16 +29,28 @@ Popup {
     property bool albumsExpanded: false
     property bool ratingsExpanded: false
     property bool nodesExpanded: false
+    property real anchorX: 0
+    property real anchorY: 0
     readonly property bool hasWorkspace:
         workspace !== null && workspace !== undefined
     signal smartCategoryCorrectionRequested()
 
     width: 258
+    height: Math.min(implicitHeight, Math.max(0, (parent ? parent.height : 900) - 16))
     padding: 6
     modal: false
     focus: true
     parent: Overlay.overlay
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    onOpened: reposition()
+    onHeightChanged: if (visible) Qt.callLater(reposition)
+
+    function reposition() {
+        if (!parent)
+            return
+        x = Math.max(8, Math.min(anchorX, parent.width - width - 8))
+        y = Math.max(8, Math.min(anchorY, parent.height - height - 8))
+    }
 
     function openAt(item, localX, localY, workspaceValue, photoIdValue,
                     locationIdValue, titleValue, sourcePathValue,
@@ -70,11 +82,14 @@ Popup {
             }
         })
         albumsExpanded = false
+        ratingsExpanded = false
         nodesExpanded = false
         parent = Overlay.overlay
         const point = item.mapToItem(Overlay.overlay, localX, localY)
-        x = Math.max(8, Math.min(point.x, workspace.width - width - 8))
-        y = Math.max(8, Math.min(point.y, workspace.height - implicitHeight - 8))
+        anchorX = point.x
+        anchorY = point.y
+        menuViewport.contentY = 0
+        reposition()
         open()
     }
 
@@ -123,11 +138,17 @@ Popup {
         width: parent ? parent.width : 0
         height: 34
         enabled: actionEnabled
+        activeFocusOnTab: actionEnabled
+        Accessible.role: Accessible.MenuItem
+        Accessible.name: text
+        Accessible.onPressAction: if (row.actionEnabled) row.activated()
+        Keys.onReturnPressed: if (row.actionEnabled) row.activated()
+        Keys.onSpacePressed: if (row.actionEnabled) row.activated()
 
         Rectangle {
             anchors.fill: parent
             radius: Theme.compactControlRadius
-            color: rowMouse.containsMouse && row.actionEnabled
+            color: (rowMouse.containsMouse || row.activeFocus) && row.actionEnabled
                 ? Theme.buttonGhostHover : Theme.transparent
         }
 
@@ -171,8 +192,18 @@ Popup {
         }
     }
 
-    contentItem: Column {
-        width: root.width - root.leftPadding - root.rightPadding
+    contentItem: Flickable {
+        id: menuViewport
+        implicitHeight: menuContents.implicitHeight
+        contentWidth: width
+        contentHeight: menuContents.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar {}
+
+        Column {
+        id: menuContents
+        width: parent.width
         spacing: 2
 
         MenuRow {
@@ -187,6 +218,54 @@ Popup {
                 root.close()
             }
         }
+
+        MenuRow {
+            objectName: "copyPhotoStyleAction"
+            visible: root.hasWorkspace
+                && root.workspace.adjustmentTransferController !== undefined
+                && root.workspace.adjustmentTransferController !== null
+            text: qsTr("Copy style…")
+            iconSource: "qrc:/icons/duplicate.svg"
+            actionEnabled: visible && root.photoSourceAvailable && !root.photoIsRemote
+                && !root.workspace.adjustmentTransferController.busy
+                && root.workspace.adjustmentTransferController.admissionEnabled
+            onActivated: {
+                if (!actionEnabled)
+                    return
+                const target = {"photoId": root.photoId,
+                    "sourcePath": root.photoSourcePath, "title": root.photoTitle}
+                const workspace = root.workspace
+                root.close()
+                workspace.copyPhotoStyleRequested(target)
+            }
+        }
+
+        MenuRow {
+            objectName: "pasteAdjustmentsToSelectionAction"
+            visible: root.hasWorkspace
+                && root.workspace.adjustmentTransferController !== undefined
+                && root.workspace.adjustmentTransferController !== null
+            text: qsTr("Paste style")
+            iconSource: "qrc:/icons/grade-node-paste.svg"
+            actionEnabled: visible
+                && root.workspace.adjustmentTransferController.hasClipboard
+                && !root.workspace.adjustmentTransferController.busy
+                && !root.workspace.adjustmentTransferController.copying
+                && !root.adjustmentTransferContainsRemote
+                && root.adjustmentTransferTargets.some(function(target) {
+                    return target.photoId.length > 0
+                        && target.photoId !== root.workspace.adjustmentTransferController.sourcePhotoId
+                })
+            onActivated: {
+                if (!root.hasWorkspace || !actionEnabled)
+                    return
+                root.workspace.adjustmentTransferController.applyToPhotos(
+                    root.adjustmentTransferTargets)
+                root.close()
+            }
+        }
+
+        Divider {}
 
         MenuRow {
             visible: root.hasWorkspace
@@ -440,31 +519,6 @@ Popup {
         }
 
         MenuRow {
-            objectName: "pasteAdjustmentsToSelectionAction"
-            visible: root.hasWorkspace
-                && root.workspace.adjustmentTransferController !== undefined
-                && root.workspace.adjustmentTransferController !== null
-            text: qsTr("Paste adjustments")
-            iconSource: "qrc:/icons/grade-node-paste.svg"
-            actionEnabled: visible
-                && root.workspace.adjustmentTransferController.hasClipboard
-                && !root.workspace.adjustmentTransferController.busy
-                && !root.workspace.adjustmentTransferController.copying
-                && !root.adjustmentTransferContainsRemote
-                && root.adjustmentTransferTargets.some(function(target) {
-                    return target.photoId.length > 0
-                        && target.photoId !== root.workspace.adjustmentTransferController.sourcePhotoId
-                })
-            onActivated: {
-                if (!root.hasWorkspace || !actionEnabled)
-                    return
-                root.workspace.adjustmentTransferController.applyToPhotos(
-                    root.adjustmentTransferTargets)
-                root.close()
-            }
-        }
-
-        MenuRow {
             text: qsTr("Apply Shared Node")
             iconSource: "qrc:/icons/grade-node-paste.svg"
             actionEnabled: root.hasWorkspace
@@ -536,6 +590,7 @@ Popup {
                 root.workspace.requestExport(root.workspace.batchSelectionTargets())
                 root.close()
             }
+        }
         }
     }
 }

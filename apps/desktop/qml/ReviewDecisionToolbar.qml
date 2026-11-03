@@ -46,6 +46,8 @@ Item {
         }
 
         ShadowIconButton {
+            objectName: "reviewPickButton"
+            focusPolicy: Qt.TabFocus
             buttonSize: root.controlSize
             iconSize: 15
             source: "qrc:/icons/pick.svg"
@@ -58,11 +60,15 @@ Item {
                 ? qsTr("Clear pick flag") : qsTr("Pick selected photo")
             accessibleName: toolTipText
             enabled: root.decisionEnabled
-            onClicked: root.review.setSelectedFlag(
-                root.review.selectedDecisionFlag === "picked" ? "unflagged" : "picked")
+            onClicked: {
+                root.review.setSelectedFlag(
+                    root.review.selectedDecisionFlag === "picked" ? "unflagged" : "picked")
+                root.review.focusGallery()
+            }
         }
 
         ShadowIconButton {
+            focusPolicy: Qt.TabFocus
             buttonSize: root.controlSize
             iconSize: 15
             source: "qrc:/icons/reject.svg"
@@ -76,8 +82,11 @@ Item {
                 ? qsTr("Clear reject flag") : qsTr("Reject selected photo")
             accessibleName: toolTipText
             enabled: root.decisionEnabled
-            onClicked: root.review.setSelectedFlag(
-                root.review.selectedDecisionFlag === "rejected" ? "unflagged" : "rejected")
+            onClicked: {
+                root.review.setSelectedFlag(
+                    root.review.selectedDecisionFlag === "rejected" ? "unflagged" : "rejected")
+                root.review.focusGallery()
+            }
         }
 
         Rectangle {
@@ -91,6 +100,8 @@ Item {
 
             delegate: ShadowIconButton {
                 required property int index
+                objectName: "reviewRatingButton" + (index + 1)
+                focusPolicy: Qt.TabFocus
                 buttonSize: root.controlSize - 2
                 iconSize: 14
                 source: root.review.selectedDecisionRating > index
@@ -105,11 +116,16 @@ Item {
                 toolTipText: qsTr("Rate %1 stars").arg(index + 1)
                 accessibleName: toolTipText
                 enabled: root.decisionEnabled
-                onClicked: root.review.setSelectedRating(index + 1)
+                onClicked: {
+                    root.review.setSelectedRating(index + 1)
+                    root.review.focusGallery()
+                }
             }
         }
 
         ShadowIconButton {
+            objectName: "reviewLikeButton"
+            focusPolicy: Qt.TabFocus
             buttonSize: root.controlSize
             iconSize: 16
             source: root.review.selectedLiked
@@ -125,8 +141,11 @@ Item {
                 : qsTr("Like selected photo")
             accessibleName: toolTipText
             enabled: root.decisionEnabled
-            onClicked: root.review.controller.setPhotoLiked(
-                root.review.selectedPhotoId, !root.review.selectedLiked)
+            onClicked: {
+                root.review.controller.setPhotoLiked(
+                    root.review.selectedPhotoId, !root.review.selectedLiked)
+                root.review.focusGallery()
+            }
         }
 
         Rectangle {
@@ -136,6 +155,7 @@ Item {
         }
 
         ShadowIconButton {
+            focusPolicy: Qt.TabFocus
             buttonSize: root.controlSize
             iconSize: 16
             source: "qrc:/icons/candidate.svg"
@@ -153,7 +173,10 @@ Item {
                 && root.review.selectedVisualSource.length > 0
                 && !root.review.comparison.compareMode
                 && !root.review.culling.arenaActive
-            onClicked: root.review.toggleSelectedCandidate()
+            onClicked: {
+                root.review.toggleSelectedCandidate()
+                root.review.focusGallery()
+            }
         }
 
         Rectangle {
@@ -173,15 +196,19 @@ Item {
 
             delegate: ShadowColorLabelButton {
                 required property var modelData
+                focusPolicy: Qt.TabFocus
                 labelColor: Theme.colorLabel(modelData.value)
                 selected: root.review.selectedColorLabel === modelData.value
                 toolTipText: qsTr("Set color label: %1").arg(modelData.name)
                 accessibleName: toolTipText
                 enabled: root.decisionEnabled
-                onClicked: root.review.controller.setPhotoColorLabel(
-                    root.review.selectedPhotoId,
-                    root.review.selectedColorLabel === modelData.value
-                        ? "none" : modelData.value)
+                onClicked: {
+                    root.review.controller.setPhotoColorLabel(
+                        root.review.selectedPhotoId,
+                        root.review.selectedColorLabel === modelData.value
+                            ? "none" : modelData.value)
+                    root.review.focusGallery()
+                }
             }
         }
     }

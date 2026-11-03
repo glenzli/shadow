@@ -256,6 +256,12 @@ Rectangle {
             }
         }
 
+        PrecisionSubjectEmphasisHeader {
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? implicitHeight : 0
+            controller: inspector.editor.subjectEmphasis
+        }
+
         Rectangle {
             id: inspectorTabStrip
             Layout.fillWidth: true

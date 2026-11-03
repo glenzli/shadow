@@ -412,6 +412,9 @@ qt_add_executable(
     src/edit_interchange_controller.cpp
     src/edit_interchange_controller.hpp
     src/edit_interchange_application.cpp
+    src/adjustment_transfer_selection.cpp
+    src/adjustment_transfer_selection.hpp
+    src/grade_node_display_label.hpp
     src/adjustment_transfer_controller.cpp
     src/adjustment_transfer_controller.hpp
     src/adjustment_transfer_operations.cpp
@@ -1071,6 +1074,7 @@ qt_add_qml_module(
         qml/PrecisionRetouchStrokeCoverage.qml
         qml/PrecisionRetouchStrokeHandle.qml
         qml/PrecisionAutoStart.qml
+        qml/PrecisionSubjectEmphasisHeader.qml
         qml/PrecisionSubjectEmphasis.qml
         qml/PrecisionLocalMaskTools.qml
         qml/PrecisionConditionMaskTools.qml

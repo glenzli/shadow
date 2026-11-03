@@ -102,9 +102,9 @@ Item {
     // Unhandled arrows bubble here from the filmstrip, preview and zoom/HUD
     // controls, so inspecting a photo never disables continued culling.
     Keys.onPressed: event => {
-        if (event.key === Qt.Key_Left)
+        if (event.key === Qt.Key_Left || event.key === Qt.Key_Up)
             root.navigate(-1)
-        else if (event.key === Qt.Key_Right)
+        else if (event.key === Qt.Key_Right || event.key === Qt.Key_Down)
             root.navigate(1)
         else
             return
@@ -117,9 +117,12 @@ Item {
         selectingFromFilmstrip = true
         try {
             review.selectPhoto(photo, modifiers)
+            filmstrip.currentIndex = model.indexOfPhoto(
+                review.selectedPhotoId, review.selectedRepresentationId)
         } finally {
             selectingFromFilmstrip = false
         }
+        forceGalleryFocus()
     }
 
     function forceGalleryFocus() {
@@ -263,7 +266,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        height: 112
+        height: 142
         color: Theme.chrome
         border.width: 1
         border.color: Theme.border
@@ -271,11 +274,14 @@ Item {
         ListView {
             id: filmstrip
             objectName: "reviewFilmstrip"
-            anchors.fill: parent
-            anchors.leftMargin: 14
-            anchors.rightMargin: 14
+            anchors.left: scrollPrevious.right
+            anchors.right: scrollNext.left
+            anchors.top: parent.top
+            anchors.bottom: stripPosition.top
+            anchors.leftMargin: 8
+            anchors.rightMargin: 8
             anchors.topMargin: 10
-            anchors.bottomMargin: 10
+            anchors.bottomMargin: 14
             orientation: ListView.Horizontal
             spacing: 8
             clip: true
@@ -284,6 +290,14 @@ Item {
             focus: root.visible
             keyNavigationEnabled: false
             highlightRangeMode: ListView.NoHighlightRange
+            ScrollBar.horizontal: ScrollBar {
+                objectName: "filmstripScrollBar"
+                policy: ScrollBar.AlwaysOn
+                height: 8
+                minimumSize: 0.04
+                anchors.top: parent.bottom
+                anchors.topMargin: 3
+            }
 
             function syncCurrentSelection() {
                 if (!root.visible || root.selectingFromFilmstrip)
@@ -377,12 +391,16 @@ Item {
                         ? 86 * visualWidth / visualHeight : 108))
                 height: filmstrip.height
                 radius: Theme.compactControlRadius
-                color: Theme.panelRaised
+                color: selected ? Theme.accentSurface : Theme.panelRaised
                 border.width: 0
                 clip: true
+                Accessible.role: Accessible.ListItem
+                Accessible.name: title
+                Accessible.selected: selected
 
                 ShadowRoundedImage {
                     anchors.fill: parent
+                    anchors.margins: 4
                     source: root.visible ? filmCard.visualSource : ""
                     autoTransform: filmCard.visualAutoTransform
                     radius: filmCard.radius
@@ -452,25 +470,100 @@ Item {
                     anchors.fill: parent
                     radius: filmCard.radius
                     color: Theme.transparent
-                    border.width: filmCard.selected ? 2 : 0
+                    objectName: "filmstripSelectionOutline"
+                    border.width: filmCard.selected ? 3 : 1
                     border.color: filmCard.selected
                         ? Theme.accent : Theme.border
                 }
 
                 MouseArea {
+                    id: filmMouse
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: mouse =>
-                        root.selectFilmstripPhoto(filmCard, mouse.modifiers)
-                    onDoubleClicked: {
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: mouse => {
+                        if (mouse.button !== Qt.RightButton || !filmCard.selected)
+                            root.selectFilmstripPhoto(filmCard, mouse.modifiers)
+                        else
+                            root.forceGalleryFocus()
+                        if (mouse.button === Qt.RightButton) {
+                            root.review.controller.refreshSharedGradeNodes()
+                            filmMenu.openAt(filmMouse, mouse.x, mouse.y, root.review,
+                                filmCard.photoId, filmCard.locationId, filmCard.title,
+                                filmCard.sourcePath, filmCard.sourceAvailable,
+                                filmCard.liked, filmCard.decisionFlag, filmCard.isRemote,
+                                root.review.snapshotForCard(filmCard))
+                        }
+                    }
+                    onDoubleClicked: mouse => {
+                        if (mouse.button !== Qt.LeftButton)
+                            return
                         root.selectFilmstripPhoto(filmCard, 0)
                         root.review.openSelectedPhoto()
                     }
                 }
             }
         }
+
+        ShadowIconButton {
+            id: scrollPrevious
+            objectName: "filmstripScrollPrevious"
+            anchors.left: parent.left
+            anchors.leftMargin: 8
+            anchors.verticalCenter: filmstrip.verticalCenter
+            source: "qrc:/icons/chevron-down.svg"
+            rotation: 90
+            toolTipText: qsTr("Scroll filmstrip left")
+            enabled: filmstrip.contentX > filmstrip.originX + 1
+            focusPolicy: Qt.TabFocus
+            onClicked: filmstrip.flick(900, 0)
+        }
+
+        ShadowIconButton {
+            id: scrollNext
+            objectName: "filmstripScrollNext"
+            anchors.right: parent.right
+            anchors.rightMargin: 8
+            anchors.verticalCenter: filmstrip.verticalCenter
+            source: "qrc:/icons/chevron-down.svg"
+            rotation: -90
+            toolTipText: qsTr("Scroll filmstrip right")
+            enabled: filmstrip.contentX + filmstrip.width
+                < filmstrip.originX + filmstrip.contentWidth - 1
+                || root.review.controller.hasMore
+            focusPolicy: Qt.TabFocus
+            onClicked: {
+                filmstrip.flick(-900, 0)
+                root.maybeLoadMore(true)
+            }
+        }
+
+        Label {
+            id: stripPosition
+            objectName: "filmstripPosition"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 6
+            text: qsTr("%1 / %2 photos").arg(Math.max(0, filmstrip.currentIndex + 1))
+                .arg(String(filmstrip.count) + (root.review.controller.hasMore ? "+" : ""))
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontMeta
+        }
     }
+
+    ReviewPhotoContextMenu {
+        id: filmMenu
+        objectName: "filmstripPhotoContextMenu"
+        onClosed: if (root.visible) root.forceGalleryFocus()
+        onSmartCategoryCorrectionRequested: filmFeedback.openFor(
+            root, root.review, filmMenu.photoId,
+            String(filmMenu.photoSnapshot.representationId || ""), filmMenu.photoTitle)
+    }
+
+    ReviewSmartCategoryFeedbackPopup { id: filmFeedback }
+
+    Component.onDestruction: filmMenu.releaseOwner(root)
 
     Connections {
         target: root.model

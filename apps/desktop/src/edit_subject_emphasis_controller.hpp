@@ -70,6 +70,7 @@ class EditSubjectEmphasisController final : public QObject {
     Q_INVOKABLE void selectSubject(const QString& query);
     Q_INVOKABLE void apply();
     Q_INVOKABLE void cancel();
+    Q_INVOKABLE void dismiss();
   signals:
     void changed();
 

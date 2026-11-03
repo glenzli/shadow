@@ -151,7 +151,7 @@ ColumnLayout {
             variant: ShadowButton.Ghost
             text: qsTr("Cancel")
             enabled: !root.controller.applying
-            onClicked: root.controller.cancel()
+            onClicked: root.controller.dismiss()
         }
         Item { Layout.fillWidth: true }
         ShadowButton {

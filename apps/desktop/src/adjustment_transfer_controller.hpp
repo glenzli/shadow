@@ -29,6 +29,10 @@ class AdjustmentTransferController final : public QObject {
     Q_PROPERTY(bool hasClipboard READ hasClipboard NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(bool copying READ copying NOTIFY changed)
+    Q_PROPERTY(bool preparingCopy READ preparingCopy NOTIFY changed)
+    Q_PROPERTY(QVariantList copyOptions READ copyOptions NOTIFY changed)
+    Q_PROPERTY(QString copySourceName READ copySourceName NOTIFY changed)
+    Q_PROPERTY(QString copyError READ copyError NOTIFY changed)
     Q_PROPERTY(bool admissionEnabled READ admissionEnabled NOTIFY changed)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY changed)
     Q_PROPERTY(bool canRetry READ canRetry NOTIFY changed)
@@ -57,6 +61,16 @@ class AdjustmentTransferController final : public QObject {
     }
     bool copying() const {
         return copying_;
+    }
+    bool preparingCopy() const {
+        return preparing_copy_;
+    }
+    QVariantList copyOptions() const;
+    QString copySourceName() const {
+        return copy_source_.name;
+    }
+    QString copyError() const {
+        return error_;
     }
     bool admissionEnabled() const {
         return !profile_switch_pending_;
@@ -87,6 +101,8 @@ class AdjustmentTransferController final : public QObject {
     QVariantList results() const;
 
     Q_INVOKABLE void copyAdjustments(bool selected_only = false, bool allow_spatial_masks = false);
+    Q_INVOKABLE bool prepareCopy(const QVariantMap& target = {});
+    Q_INVOKABLE void copyChosenAdjustments(const QVariantList& choices, bool allow_spatial_masks);
     Q_INVOKABLE void applyToPhotos(const QVariantList& targets);
     Q_INVOKABLE void pasteToCurrentPhoto();
     Q_INVOKABLE void cancel();
@@ -126,6 +142,10 @@ class AdjustmentTransferController final : public QObject {
         AdjustmentTransferClipboard clipboard;
         QString error;
     };
+    struct CopySourceResult {
+        AdjustmentTransferSource source;
+        QString error;
+    };
     struct PrepareResult {
         AdjustmentTransferPrepared prepared;
         bool unchanged = false;
@@ -147,10 +167,12 @@ class AdjustmentTransferController final : public QObject {
     void finishRow(const QString& state, AdjustmentTransferFailure failure = {});
     QString issueText(AdjustmentTransferIssue issue) const;
     void startQueue();
+    void startCopy(AdjustmentTransferSource source);
 
     AdjustmentTransferOperations operations_;
     AdjustmentTransferEditor editor_;
     AdjustmentTransferClipboard clipboard_;
+    AdjustmentTransferSource copy_source_;
     AdjustmentTransferClipboard batch_clipboard_;
     QVector<Row> rows_;
     QVector<int> queue_;
@@ -158,6 +180,7 @@ class AdjustmentTransferController final : public QObject {
     QHash<QString, AppliedIdentity> batch_applied_;
     QHash<QString, Receipt> undo_receipts_;
     QFutureWatcher<CopyResult> copy_watcher_;
+    QFutureWatcher<CopySourceResult> copy_source_watcher_;
     QFutureWatcher<PrepareResult> prepare_watcher_;
     QFutureWatcher<WriteResult> write_watcher_;
     QFutureWatcher<PreviewResult> preview_watcher_;
@@ -170,6 +193,7 @@ class AdjustmentTransferController final : public QObject {
     int reservation_attempts_ = 0;
     bool busy_ = false;
     bool copying_ = false;
+    bool preparing_copy_ = false;
     bool undoing_ = false;
     bool reserved_ = false;
     bool new_batch_pending_ = false;
