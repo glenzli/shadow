@@ -4,7 +4,9 @@
     qt_add_executable(shadow-shared-grade-link-controller-test
         tests/shared_grade_link_controller_test.cpp
         src/shared_grade_link_controller.cpp src/shared_grade_link_controller.hpp
-        src/adjustment_transfer_controller.cpp src/adjustment_transfer_controller.hpp)
+        src/adjustment_transfer_controller.cpp src/adjustment_transfer_controller.hpp
+        src/adjustment_transfer_selection.cpp src/adjustment_transfer_selection.hpp
+        src/edit_fine_parameter_registry.cpp src/edit_fine_parameter_registry.hpp)
     target_compile_features(shadow-shared-grade-link-controller-test PRIVATE cxx_std_20)
     target_include_directories(shadow-shared-grade-link-controller-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(shadow-shared-grade-link-controller-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test Qt6::Concurrent)
@@ -36,7 +38,9 @@
         TIMEOUT 40 LABELS "desktop;grading")
     qt_add_executable(shadow-adjustment-transfer-controller-test
         tests/adjustment_transfer_controller_test.cpp
-        src/adjustment_transfer_controller.cpp src/adjustment_transfer_controller.hpp)
+        src/adjustment_transfer_controller.cpp src/adjustment_transfer_controller.hpp
+        src/adjustment_transfer_selection.cpp src/adjustment_transfer_selection.hpp
+        src/edit_fine_parameter_registry.cpp src/edit_fine_parameter_registry.hpp)
     target_compile_features(shadow-adjustment-transfer-controller-test PRIVATE cxx_std_20)
     target_include_directories(shadow-adjustment-transfer-controller-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(shadow-adjustment-transfer-controller-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test Qt6::Concurrent)
@@ -1965,3 +1969,43 @@ endif()
                     $<TARGET_FILE:shadow-desktop> $<TARGET_FILE:shadow-edit-tool-fixture>)
         set_tests_properties(shadow-desktop-edit-tool-owner-ui PROPERTIES TIMEOUT 150 LABELS "desktop;editing;ui")
     endif()
+
+if(BUILD_TESTING)
+    qt_add_executable(shadow-subject-emphasis-panel-contract-test
+        tests/subject_emphasis_panel_contract_test.cpp)
+    target_compile_features(shadow-subject-emphasis-panel-contract-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-subject-emphasis-panel-contract-test PRIVATE
+        Qt6::Gui Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    target_compile_definitions(shadow-subject-emphasis-panel-contract-test PRIVATE
+        SHADOW_SUBJECT_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+    add_dependencies(shadow-subject-emphasis-panel-contract-test shadow-desktop-release-translations)
+    qt_add_qml_module(shadow-subject-emphasis-panel-contract-test
+        URI Shadow.SubjectEmphasisContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/PrecisionSubjectEmphasisHeader.qml qml/ShadowButton.qml qml/Theme.qml)
+    add_test(NAME shadow-desktop-subject-emphasis-panel-contract
+        COMMAND shadow-subject-emphasis-panel-contract-test)
+    set_tests_properties(shadow-desktop-subject-emphasis-panel-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
+        TIMEOUT 30 LABELS "desktop;grading")
+
+    qt_add_executable(shadow-adjustment-transfer-panel-contract-test
+        tests/adjustment_transfer_panel_contract_test.cpp)
+    target_compile_features(shadow-adjustment-transfer-panel-contract-test PRIVATE cxx_std_20)
+    target_link_libraries(shadow-adjustment-transfer-panel-contract-test PRIVATE
+        Qt6::Gui Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test)
+    target_compile_definitions(shadow-adjustment-transfer-panel-contract-test PRIVATE
+        SHADOW_TRANSFER_TRANSLATION="${CMAKE_CURRENT_BINARY_DIR}/shadow_zh_CN.qm")
+    add_dependencies(shadow-adjustment-transfer-panel-contract-test shadow-desktop-release-translations)
+    qt_add_qml_module(shadow-adjustment-transfer-panel-contract-test
+        URI Shadow.AdjustmentTransferContract VERSION 1.0 RESOURCE_PREFIX "/qt/qml" NO_PLUGIN
+        QML_FILES qml/AdjustmentTransferDialog.qml qml/ShadowDialog.qml qml/ShadowButton.qml
+            qml/ShadowCheckBox.qml qml/ShadowIconButton.qml qml/ShadowIcon.qml qml/Theme.qml)
+    qt_add_resources(shadow-adjustment-transfer-panel-contract-test transfer-panel-icons
+        PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
+        FILES icons/check.svg icons/chevron-down.svg)
+    add_test(NAME shadow-desktop-adjustment-transfer-panel-contract
+        COMMAND shadow-adjustment-transfer-panel-contract-test)
+    set_tests_properties(shadow-desktop-adjustment-transfer-panel-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
+        TIMEOUT 30 LABELS "desktop;grading")
+endif()

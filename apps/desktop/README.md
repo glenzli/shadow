@@ -130,8 +130,13 @@ acknowledged edits. Existing inference and rendering own their bounded input/out
 controller introduces no separate pixel pipeline. Preview, detail and export consume the same
 persisted nodes and target-specific masks through their existing quality policies.
 
-`AdjustmentTransferBar.qml` provides direct Copy/Paste and Apply to selected photos;
-`AdjustmentTransferDialog.qml` owns remembered copy choices and the nonmodal result list.
+[`adjustment_transfer_selection.*`](src/adjustment_transfer_selection.hpp) owns the frozen-source
+inventory of modified settings and the exact selected-field projection. `ReviewPhotoContextMenu.qml`
+provides the same independent style-copy/paste entry for grid and filmstrip photos;
+`AdjustmentTransferDialog.qml` owns node/item choices and the nonmodal result list.
+`AdjustmentTransferBar.qml` presents clipboard actions and transfer activity in relevant workspaces.
+`grade_node_display_label.hpp` shares the localized projection of product-generated node names
+between the node list and copy choices without rewriting stored or user-authored labels.
 
 ## Shared node links
 
@@ -1014,7 +1019,8 @@ Review presentation keeps the workspace focused on selection and orchestration:
   grouping controller.
   [`qml/ReviewDecisionToolbar.qml`](qml/ReviewDecisionToolbar.qml)
   owns that floating pick/reject/rating/Like/color interaction contract across grid and single-photo
-  presentation; the application status bar does not duplicate it.
+  presentation, including returning pointer actions to gallery keyboard focus; the application
+  status bar does not duplicate it.
 - [`qml/ReviewGalleryToolbar.qml`](qml/ReviewGalleryToolbar.qml) owns gallery layout, responsive
   semantic search, and batch command presentation while emitting external popup/navigation intents.
 - [`qml/ReviewLibrarySidebar.qml`](qml/ReviewLibrarySidebar.qml) is the Library-side navigation
@@ -1981,6 +1987,8 @@ selection preview. Visible subject/background measurements choose one restrained
 recommend leaving the image unchanged. Applying adds one ordinary masked Grade Node in one undo
 transition. Strength uses existing node rendering; it never reruns inference. The preview is a
 selection preview, not a simulated edited image. Normal before/after remains available after apply.
+`PrecisionSubjectEmphasisHeader.qml` keeps Cancel/Done outside the scrolling inspector; dismissal
+closes the assistant while preserving any applied node and its undo history.
 
 The independent editor explicitly uses the installed Shadow Infer Runtime credential (or the
 existing `SHADOW_INFER_CREDENTIAL_FILE` override). Catalog, derived masks, cache, and preferences

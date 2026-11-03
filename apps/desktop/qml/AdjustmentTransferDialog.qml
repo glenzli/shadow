@@ -4,7 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Presentation state only: copy choices persist for this application session.
+// Presentation state only: the spatial-mask choice persists for this session.
 // Closing the results view neither cancels the batch nor discards its receipt.
 ShadowDialog {
     id: dialog
@@ -13,15 +13,71 @@ ShadowDialog {
     property var transferController: null
     property var editor: null
     property bool copyMode: true
-    property bool selectedOnly: false
     property bool allowSpatialMasks: false
     readonly property bool available: transferController !== null
     readonly property bool admissionEnabled: available
         && transferController.admissionEnabled !== false
     readonly property bool busy: available
         && (transferController.busy || transferController.copying)
-    readonly property bool canCopySelected: editor !== null && editor.active
-        && editor.hasSelectedGradeNode && editor.selectedRecipeNodeKind === "grade"
+    readonly property var copyNodes: available ? transferController.copyOptions : []
+    property var chosenKeys: ({})
+    property string optionsStamp: ""
+    readonly property var choices: {
+        const values = []
+        for (let index = 0; index < copyNodes.length; ++index) {
+            const node = copyNodes[index]
+            const keys = Object.keys(chosenKeys[String(node.nodeId)] || {})
+                .filter(key => chosenKeys[String(node.nodeId)][key])
+            if (keys.length > 0)
+                values.push({"nodeId": String(node.nodeId), "keys": keys})
+        }
+        return values
+    }
+    readonly property bool copyingMasks: choices.some(choice => choice.keys.indexOf("mask") >= 0)
+    onCopyNodesChanged: {
+        const stamp = JSON.stringify(copyNodes)
+        if (stamp === optionsStamp)
+            return
+        optionsStamp = stamp
+        chooseAll(true)
+    }
+
+    function chooseAll(enabled) {
+        const next = ({})
+        for (let index = 0; index < copyNodes.length; ++index) {
+            const node = copyNodes[index]
+            next[String(node.nodeId)] = ({})
+            for (let item = 0; item < node.items.length; ++item)
+                next[String(node.nodeId)][String(node.items[item].key)] = enabled
+        }
+        chosenKeys = next
+    }
+
+    function chooseNode(nodeId, enabled) {
+        const next = Object.assign({}, chosenKeys)
+        const keys = ({})
+        for (let index = 0; index < copyNodes.length; ++index) {
+            const node = copyNodes[index]
+            if (String(node.nodeId) !== nodeId)
+                continue
+            for (let item = 0; item < node.items.length; ++item)
+                keys[String(node.items[item].key)] = enabled
+        }
+        next[nodeId] = keys
+        chosenKeys = next
+    }
+
+    function chooseItem(nodeId, key, enabled) {
+        const next = Object.assign({}, chosenKeys)
+        next[nodeId] = Object.assign({}, next[nodeId] || {})
+        next[nodeId][key] = enabled
+        chosenKeys = next
+    }
+
+    function selectedItemCount(nodeId) {
+        const keys = chosenKeys[nodeId] || {}
+        return Object.keys(keys).filter(key => keys[key]).length
+    }
 
     parent: Overlay.overlay
     anchors.centerIn: parent
@@ -33,14 +89,16 @@ ShadowDialog {
     palette.mid: Theme.borderStrong
     palette.highlight: Theme.accent
     palette.text: Theme.accent
-    title: copyMode ? qsTr("Copy adjustments") : qsTr("Adjustment transfer results")
+    title: copyMode ? qsTr("Copy style") : qsTr("Adjustment transfer results")
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    function presentCopy() {
-        if (!admissionEnabled || busy || editor === null || !editor.active || editor.stateBusy)
+    function presentCopy(target) {
+        if (!admissionEnabled || busy)
             return
         copyMode = true
-        open()
+        optionsStamp = ""
+        if (transferController.prepareCopy(target || {}))
+            open()
     }
 
     function presentResults() {
@@ -84,25 +142,123 @@ ShadowDialog {
                     wrapMode: Text.WordWrap
                 }
 
-                ButtonGroup { id: copyScope }
-
-                RadioButton {
-                    objectName: "copyAllAdjustmentsOption"
+                Label {
                     Layout.fillWidth: true
-                    text: qsTr("All adjustment nodes")
-                    checked: !dialog.selectedOnly
-                    ButtonGroup.group: copyScope
-                    onClicked: dialog.selectedOnly = false
+                    text: dialog.available ? dialog.transferController.copySourceName : ""
+                    color: Theme.textSecondary
+                    elide: Text.ElideMiddle
+                    font.weight: Font.DemiBold
                 }
 
-                RadioButton {
-                    objectName: "copySelectedAdjustmentOption"
+                RowLayout {
                     Layout.fillWidth: true
-                    text: qsTr("Selected adjustment node")
-                    enabled: dialog.canCopySelected
-                    checked: dialog.selectedOnly
-                    ButtonGroup.group: copyScope
-                    onClicked: dialog.selectedOnly = true
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Only modified settings are shown")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontMeta
+                    }
+                    ShadowButton {
+                        compact: true
+                        variant: ShadowButton.Ghost
+                        text: qsTr("Select all")
+                        onClicked: dialog.chooseAll(true)
+                    }
+                    ShadowButton {
+                        compact: true
+                        variant: ShadowButton.Ghost
+                        text: qsTr("Select none")
+                        onClicked: dialog.chooseAll(false)
+                    }
+                }
+
+                BusyIndicator {
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: dialog.available && dialog.transferController.preparingCopy
+                    running: visible
+                }
+
+                Repeater {
+                    model: dialog.copyNodes
+                    delegate: Rectangle {
+                        id: nodeChoice
+                        required property var modelData
+                        property bool expanded: false
+                        readonly property string nodeId: String(modelData.nodeId)
+                        Layout.fillWidth: true
+                        implicitHeight: nodeContents.implicitHeight + 16
+                        radius: Theme.controlRadius
+                        color: Theme.panel
+                        border.color: Theme.border
+                        ColumnLayout {
+                            id: nodeContents
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: 8
+                            spacing: 4
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ShadowCheckBox {
+                                    objectName: "copyNode_" + nodeChoice.nodeId
+                                    Layout.fillWidth: true
+                                    text: String(nodeChoice.modelData.label)
+                                    tristate: true
+                                    checkState: dialog.selectedItemCount(nodeChoice.nodeId) === 0
+                                        ? Qt.Unchecked
+                                        : dialog.selectedItemCount(nodeChoice.nodeId)
+                                            === nodeChoice.modelData.items.length
+                                            ? Qt.Checked : Qt.PartiallyChecked
+                                    onClicked: dialog.chooseNode(nodeChoice.nodeId,
+                                        dialog.selectedItemCount(nodeChoice.nodeId)
+                                            !== nodeChoice.modelData.items.length)
+                                }
+                                ShadowIconButton {
+                                    objectName: "expandCopyNode_" + nodeChoice.nodeId
+                                    source: "qrc:/icons/chevron-down.svg"
+                                    rotation: nodeChoice.expanded ? 180 : 0
+                                    toolTipText: nodeChoice.expanded
+                                        ? qsTr("Hide settings") : qsTr("Choose settings")
+                                    onClicked: nodeChoice.expanded = !nodeChoice.expanded
+                                }
+                                Label {
+                                    text: dialog.selectedItemCount(nodeChoice.nodeId)
+                                        + " / " + nodeChoice.modelData.items.length
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontMeta
+                                }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.leftMargin: 24
+                                visible: nodeChoice.expanded
+                                Repeater {
+                                    model: nodeChoice.modelData.items
+                                    delegate: ShadowCheckBox {
+                                        required property var modelData
+                                        objectName: "copyItem_" + nodeChoice.nodeId + "_" + modelData.key
+                                        Layout.fillWidth: true
+                                        compact: true
+                                        text: String(modelData.label)
+                                        checked: Boolean((dialog.chosenKeys[nodeChoice.nodeId] || {})[String(modelData.key)])
+                                        onClicked: dialog.chooseItem(nodeChoice.nodeId,
+                                            String(modelData.key), checked)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: dialog.available && !dialog.transferController.preparingCopy
+                        && dialog.copyNodes.length === 0
+                    text: dialog.available && dialog.transferController.copyError.length > 0
+                        ? dialog.transferController.copyError
+                        : qsTr("This photo has no modified adjustment settings to copy.")
+                    wrapMode: Text.WordWrap
+                    color: Theme.textSecondary
                 }
 
                 Label {
@@ -114,20 +270,23 @@ ShadowDialog {
                 }
 
                 Rectangle {
+                    visible: dialog.copyingMasks
                     Layout.fillWidth: true
                     implicitHeight: 1
                     color: Theme.border
                 }
 
                 Label {
+                    visible: dialog.copyingMasks
                     Layout.fillWidth: true
                     text: qsTr("Semantic masks are recalculated for each destination photo. If a mask cannot be recalculated, that photo is reported without changing its edits.")
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                 }
 
-                CheckBox {
+                ShadowCheckBox {
                     objectName: "copyRelativePositionMasksOption"
+                    visible: dialog.copyingMasks
                     Layout.fillWidth: true
                     text: qsTr("Include masks at their relative positions")
                     checked: dialog.allowSpatialMasks
@@ -135,6 +294,7 @@ ShadowDialog {
                 }
 
                 Label {
+                    visible: dialog.copyingMasks
                     Layout.fillWidth: true
                     text: qsTr("Brushes and gradients keep their relative positions. Check their alignment on each destination photo.")
                     color: Theme.textMuted
@@ -294,12 +454,10 @@ ShadowDialog {
                 text: qsTr("Copy")
                 variant: ShadowButton.Primary
                 enabled: dialog.admissionEnabled && !dialog.busy
-                    && dialog.editor !== null && dialog.editor.active
-                    && !dialog.editor.stateBusy
-                    && (!dialog.selectedOnly || dialog.canCopySelected)
+                    && dialog.choices.length > 0
                 onClicked: {
-                    dialog.transferController.copyAdjustments(
-                        dialog.selectedOnly, dialog.allowSpatialMasks)
+                    dialog.transferController.copyChosenAdjustments(
+                        dialog.choices, dialog.allowSpatialMasks)
                     dialog.close()
                 }
             }

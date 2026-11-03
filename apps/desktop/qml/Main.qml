@@ -440,6 +440,7 @@ ApplicationWindow {
         ReviewWorkspace {
             id: reviewWorkspace
             adjustmentTransferController: window.adjustmentTransferController
+            onCopyPhotoStyleRequested: target => adjustmentTransferBar.openCopySettings(target)
             peopleController: window.peopleAnalysisController
             // Preserve the last person's view while browsing people. Opening
             // another person replaces it; All Photos explicitly leaves the scope.
@@ -527,10 +528,13 @@ ApplicationWindow {
     footer: Column {
         width: window.width
         AdjustmentTransferBar {
+            id: adjustmentTransferBar
             width: parent.width
             transferController: window.adjustmentTransferController
-            editor: window.editor
+            editor: window.workspaceIndex === window.precisionWorkspacePage ? window.editor : null
             targets: reviewWorkspace.batchSelectionTargets()
+            contextVisible: window.workspaceIndex === window.reviewWorkspacePage
+                || window.workspaceIndex === window.precisionWorkspacePage
         }
         SharedGradeLinkPanel {
             width: parent.width

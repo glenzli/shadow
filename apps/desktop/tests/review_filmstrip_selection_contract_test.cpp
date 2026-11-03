@@ -20,6 +20,16 @@
 #include <iostream>
 #include <memory>
 
+QQuickItem* visualItem(QQuickItem* root, const QString& name) {
+    if (root->objectName() == name)
+        return root;
+    for (auto* child : root->childItems()) {
+        if (auto* found = visualItem(child, name))
+            return found;
+    }
+    return nullptr;
+}
+
 class FilmstripPreviewProvider final : public QQuickImageProvider {
   public:
     FilmstripPreviewProvider() : QQuickImageProvider(Image) {}
@@ -88,6 +98,7 @@ int main(int argc, char** argv) {
 import QtQuick
 import Shadow.ReviewFilmstripContract
 ReviewSinglePreview {
+    id: previewRoot
     width: 600; height: 420
     visible: false
     model: photoModel
@@ -97,12 +108,39 @@ ReviewSinglePreview {
         property string selectedVisualSource: "image://filmstrip-selection/preview"
         property bool selectedVisualAutoTransform: false
         property bool selectedSourceAvailable: true
-        property bool canMutateDecision: false
+        id: reviewState
+        property bool visible: true
+        property real width: 600
+        property real height: 420
+        property bool canMutateDecision: true
+        property bool canOpenSelectedPhoto: true
         property int selectedPhotoCount: 1
         property string selectedDecisionFlag: "unflagged"
         property int selectedDecisionRating: 0
         property bool selectedLiked: false
         property string selectedColorLabel: "none"
+        property var manualLibraryAlbums: []
+        property var smartCategoryController: ({hasPublishedResults: false})
+        property var adjustmentTransferController: QtObject {
+            property bool hasClipboard: true
+            property bool admissionEnabled: true
+            property bool busy: false
+            property bool copying: false
+            property string sourcePhotoId: "copied-source"
+            property var appliedTargets: []
+            function applyToPhotos(targets) { appliedTargets = targets }
+        }
+        property var copiedTarget: null
+        function copyPhotoStyleRequested(target) { copiedTarget = target }
+        function batchSelectionTargets() {
+            return [{photoId: selectedPhotoId, sourcePath: "/isolated/test.dng", title: "Target"}]
+        }
+        function selectionContainsRemote() { return false }
+        function snapshotForCard(card) {
+            return {photoId: card.photoId, representationId: card.representationId,
+                visualSource: card.visualSource}
+        }
+        function sharedNodeQuickList() { return [] }
         property var justifiedReviewLayout: navigationModel
         property QtObject controller: QtObject {
             property bool hasMore: false
@@ -112,6 +150,10 @@ ReviewSinglePreview {
             property bool loadingMore: false
             property bool comparisonBusy: false
             property bool decisionBusy: false
+            property bool libraryAlbumsBusy: false
+            property bool remoteLibraryBusy: false
+            function refreshSharedGradeNodes() {}
+            function setPhotoLiked(photoId, liked) { reviewState.selectedLiked = liked }
             property int loadCount: 0
             property var priorityIds: []
             property string prioritySelected: ""
@@ -127,6 +169,10 @@ ReviewSinglePreview {
         property var culling: ({arenaActive: false, containsCandidate: function() { return false }})
         property int opened: 0
         function selectedVisualSnapshot() { return ({}) }
+        function focusGallery() { previewRoot.forceGalleryFocus() }
+        function setSelectedRating(value) { selectedDecisionRating = value }
+        function setSelectedFlag(value) { selectedDecisionFlag = value }
+        function hasMoreSharedNodes() { return false }
         function isPhotoSelected(photo, representation) {
             return photo === selectedPhotoId && representation === selectedRepresentationId
         }
@@ -284,6 +330,43 @@ ReviewSinglePreview {
         selection_visible() && viewport->property("fitView").toBool(),
         "next photo must reveal its thumbnail and reset the previous zoom"
     );
+    // Pointer curation commands must leave all four navigation keys usable.
+    for (const auto& action :
+         {std::pair{"reviewLikeButton", Qt::Key_Right},
+          std::pair{"reviewRatingButton5", Qt::Key_Down},
+          std::pair{"reviewPickButton", Qt::Key_Up}}) {
+        auto* button = visualItem(window.contentItem(), QString::fromLatin1(action.first));
+        check(button && button->isVisible() && button->isEnabled(), "decision action unreachable");
+        if (!button)
+            continue;
+        const int direction = action.second == Qt::Key_Up ? -1 : 1;
+        const auto expected = navigation.navigationTarget(
+            review->property("selectedPhotoId").toString(),
+            QStringLiteral("raw"),
+            direction,
+            0
+        );
+        QTest::mouseClick(
+            &window,
+            Qt::LeftButton,
+            Qt::NoModifier,
+            button->mapToScene(button->boundingRect().center()).toPoint()
+        );
+        QTest::keyClick(&window, action.second);
+        check(
+            review->property("selectedPhotoId") == expected.value("photoId"),
+            "pointer decision action stole subsequent arrow navigation"
+        );
+        check(selection_visible(), "decision navigation lost visible selection");
+    }
+    check(review->property("selectedLiked").toBool(), "Like click did not execute");
+    check(review->property("selectedDecisionRating").toInt() == 5, "rating click did not execute");
+    auto* position = root->findChild<QQuickItem*>(QStringLiteral("filmstripPosition"));
+    auto* scroll_bar = root->findChild<QQuickItem*>(QStringLiteral("filmstripScrollBar"));
+    check(
+        position && position->isVisible() && scroll_bar && scroll_bar->isVisible(),
+        "filmstrip position and persistent scroll affordance missing"
+    );
     auto* card = strip->property("currentItem").value<QQuickItem*>();
     if (card) {
         const auto point =
@@ -300,6 +383,70 @@ ReviewSinglePreview {
             qAbs(strip->property("contentX").toDouble() - scroll) < 1,
             "pointer selection moved the double-click target"
         );
+    }
+    if (card) {
+        const auto point = card->mapToScene(card->boundingRect().center()).toPoint();
+        QTest::mouseClick(&window, Qt::RightButton, Qt::NoModifier, point);
+        auto* menu = root->findChild<QObject*>(QStringLiteral("filmstripPhotoContextMenu"));
+        check(
+            menu && QTest::qWaitFor([&] { return menu->property("opened").toBool(); }),
+            "filmstrip right click did not open the photo menu"
+        );
+        check(
+            menu && menu->property("photoId") == review->property("selectedPhotoId"),
+            "filmstrip menu did not capture the clicked photo identity"
+        );
+        auto* paste =
+            visualItem(window.contentItem(), QStringLiteral("pasteAdjustmentsToSelectionAction"));
+        if (paste) {
+            check(paste->isVisible() && paste->isEnabled(), "filmstrip paste action disabled");
+            auto* copy = visualItem(window.contentItem(), QStringLiteral("copyPhotoStyleAction"));
+            check(
+                copy && QTest::qWaitFor([&] {
+                    const auto paste_rect = paste->mapRectToScene(paste->boundingRect());
+                    const auto copy_rect = copy->mapRectToScene(copy->boundingRect());
+                    return paste_rect.top() >= copy_rect.bottom()
+                           && copy_rect.top() >= menu->property("y").toReal()
+                           && paste_rect.bottom() <= window.height();
+                }),
+                "photo menu actions did not settle inside the window"
+            );
+            check(
+                menu->property("y").toReal() >= 0
+                    && menu->property("y").toReal() + menu->property("height").toReal()
+                           <= window.height(),
+                "photo menu exceeded the window"
+            );
+            QTest::mouseClick(
+                &window,
+                Qt::LeftButton,
+                Qt::NoModifier,
+                paste->mapToScene(paste->boundingRect().center()).toPoint()
+            );
+            auto* transfer = review->property("adjustmentTransferController").value<QObject*>();
+            check(
+                QTest::qWaitFor([&] {
+                    return !transfer->property("appliedTargets")
+                                .value<QJSValue>()
+                                .toVariant()
+                                .toList()
+                                .isEmpty();
+                }),
+                "filmstrip paste click was not delivered"
+            );
+            const auto targets =
+                transfer->property("appliedTargets").value<QJSValue>().toVariant().toList();
+            check(
+                targets.size() == 1
+                    && targets.first().toMap().value("photoId")
+                           == review->property("selectedPhotoId"),
+                "filmstrip paste did not target the captured selection"
+            );
+        } else {
+            check(false, "filmstrip Paste style action missing");
+        }
+        if (menu)
+            QMetaObject::invokeMethod(menu, "close");
     }
     auto* content = strip->property("contentItem").value<QQuickItem*>();
     check(

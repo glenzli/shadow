@@ -10,6 +10,7 @@ Item {
 
     property var peopleController: null
     property var adjustmentTransferController: null
+    signal copyPhotoStyleRequested(var target)
     signal returnToPeopleRequested()
     required property var controller
     required property var justifiedReviewLayout

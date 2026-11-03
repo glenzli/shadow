@@ -1,4 +1,5 @@
 #include "adjustment_transfer_controller.hpp"
+#include "adjustment_transfer_selection.hpp"
 
 #include <QSignalSpy>
 #include <QTest>
@@ -165,6 +166,108 @@ struct Fixture {
 class AdjustmentTransferTest final : public QObject {
     Q_OBJECT
   private slots:
+    void copy_choices_filter_modified_fields_without_losing_coupled_resources() {
+        AdjustmentTransferSource source;
+        BackendGradeNode neutral;
+        neutral.grade_node_id = QStringLiteral("neutral");
+        BackendGradeNode node;
+        node.grade_node_id = QStringLiteral("look");
+        node.basic.exposure_stops = 1.25;
+        node.basic.saturation_factor = 0.8;
+        node.fine.lut_resource_id = QStringLiteral("verified-lut");
+        node.fine.lut_title = QStringLiteral("Look");
+        node.fine.lut_managed_path = QStringLiteral("/profile/lut.cube");
+        node.fine.lut_intensity = 0.4;
+        source.stack.grade_nodes = {neutral, node};
+        const auto options = AdjustmentTransferSelection::options(source.stack);
+        QCOMPARE(options.size(), 1);
+        QCOMPARE(options.first().toMap().value("nodeId").toString(), QStringLiteral("look"));
+        QSet<QString> keys;
+        for (const auto& item : options.first().toMap().value("items").toList()) {
+            QVERIFY(!item.toMap().value("label").toString().isEmpty());
+            keys.insert(item.toMap().value("key").toString());
+        }
+        QCOMPARE(keys, (QSet<QString>{"exposure", "saturation", "lut"}));
+        const auto copied = AdjustmentTransferSelection::select(
+            source,
+            {QVariantMap{{"nodeId", "look"}, {"keys", QVariantList{"exposure", "lut"}}}}
+        );
+        QCOMPARE(copied.stack.grade_nodes.size(), 1);
+        const auto& result = copied.stack.grade_nodes.first();
+        QCOMPARE(result.basic.exposure_stops, 1.25);
+        QCOMPARE(result.basic.saturation_factor, 1.0);
+        QCOMPARE(result.fine.lut_resource_id, node.fine.lut_resource_id);
+        QCOMPARE(result.fine.lut_managed_path, node.fine.lut_managed_path);
+        QCOMPARE(result.fine.lut_intensity, 0.4);
+        QVERIFY_THROWS_EXCEPTION(
+            std::invalid_argument,
+            (void)AdjustmentTransferSelection::select(
+                source,
+                {QVariantMap{{"nodeId", "look"}, {"keys", QVariantList{"unknown"}}}}
+            )
+        );
+    }
+
+    void photo_context_copy_uses_frozen_source_without_opening_the_editor() {
+        Fixture fixture;
+        auto operations = fixture.operations();
+        AdjustmentTransferSource captured;
+        operations.copy = [&](const AdjustmentTransferSource& source) {
+            captured = source;
+            return AdjustmentTransferClipboard{
+                QByteArray("chosen"),
+                source.photo_id,
+                source.name,
+                static_cast<int>(source.stack.grade_nodes.size()),
+                source.allow_spatial_masks,
+                false
+            };
+        };
+        AdjustmentTransferController controller(std::move(operations), fixture.editor());
+        QVERIFY(controller.prepareCopy(fixture.targets({"b"}).first().toMap()));
+        QTRY_VERIFY(!controller.busy());
+        QVERIFY(!controller.copyOptions().isEmpty());
+        {
+            const std::scoped_lock lock(fixture.mutex);
+            fixture.states["b"].grade_stack.grade_nodes.first().opacity = 0.9;
+        }
+        controller.copyChosenAdjustments(
+            {QVariantMap{{"nodeId", "node-b"}, {"keys", QVariantList{"strength"}}}},
+            false
+        );
+        QTRY_VERIFY(!controller.busy());
+        QCOMPARE(controller.sourcePhotoId(), QStringLiteral("b"));
+        QCOMPARE(captured.stack.grade_nodes.first().opacity, 0.35);
+        QVERIFY(captured.stack.grade_nodes.first().enabled);
+        QCOMPARE(fixture.writes.load(), 0);
+    }
+
+    void failed_copy_keeps_the_previous_clipboard() {
+        Fixture fixture;
+        auto operations = fixture.operations();
+        operations.copy = [&](const AdjustmentTransferSource& source) {
+            if (source.photo_id == QStringLiteral("b"))
+                throw std::runtime_error("copy failed");
+            return AdjustmentTransferClipboard{
+                QByteArray("previous"),
+                source.photo_id,
+                source.name,
+                1,
+                false,
+                false
+            };
+        };
+        AdjustmentTransferController controller(std::move(operations), fixture.editor());
+        controller.copyAdjustments();
+        QTRY_VERIFY(!controller.busy());
+        QCOMPARE(controller.sourcePhotoId(), QStringLiteral("source"));
+        fixture.capture_photo = QStringLiteral("b");
+        controller.copyAdjustments();
+        QTRY_VERIFY(!controller.busy());
+        QCOMPARE(controller.sourcePhotoId(), QStringLiteral("source"));
+        QVERIFY(controller.hasClipboard());
+    }
+
     void append_preserves_private_edits_and_strength_and_undo() {
         Fixture fixture;
         AdjustmentTransferController controller(fixture.operations(), fixture.editor());

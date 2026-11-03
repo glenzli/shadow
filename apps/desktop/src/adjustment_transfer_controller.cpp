@@ -1,4 +1,5 @@
 #include "adjustment_transfer_controller.hpp"
+#include "adjustment_transfer_selection.hpp"
 
 #include <QCoreApplication>
 #include <QEvent>
@@ -39,10 +40,22 @@ AdjustmentTransferController::AdjustmentTransferController(
 ) : QObject(parent), operations_(std::move(operations)), editor_(std::move(editor)) {
     connect(&copy_watcher_, &QFutureWatcher<CopyResult>::finished, this, [this] {
         const auto result = copy_watcher_.result();
-        clipboard_ = result.clipboard;
+        if (result.error.isEmpty() && !result.clipboard.document.isEmpty()) {
+            clipboard_ = result.clipboard;
+            ++clipboard_generation_;
+            applied_.clear();
+        }
         error_ = result.error.isEmpty() ? QString{}
                                         : tr("Could not copy adjustments · %1").arg(result.error);
         copying_ = busy_ = false;
+        emit changed();
+    });
+    connect(&copy_source_watcher_, &QFutureWatcher<CopySourceResult>::finished, this, [this] {
+        const auto result = copy_source_watcher_.result();
+        copy_source_ = result.source;
+        error_ = result.error.isEmpty() ? QString{}
+                                        : tr("Could not copy adjustments · %1").arg(result.error);
+        preparing_copy_ = busy_ = false;
         emit changed();
     });
     connect(
@@ -73,6 +86,7 @@ AdjustmentTransferController::~AdjustmentTransferController() {
     if (preview_cancellation_)
         preview_cancellation_->cancel();
     copy_watcher_.waitForFinished();
+    copy_source_watcher_.waitForFinished();
     prepare_watcher_.waitForFinished();
     write_watcher_.waitForFinished();
     preview_watcher_.waitForFinished();
@@ -105,6 +119,8 @@ QString AdjustmentTransferController::currentPhotoName() const {
     return active_row_ >= 0 ? rows_[active_row_].title : QString{};
 }
 QString AdjustmentTransferController::statusText() const {
+    if (preparing_copy_)
+        return tr("Loading adjustment choices…");
     if (copying_)
         return tr("Copying adjustments…");
     if (!error_.isEmpty())
@@ -173,16 +189,83 @@ QVariantList AdjustmentTransferController::results() const {
 void AdjustmentTransferController::copyAdjustments(bool selected_only, bool allow_spatial_masks) {
     if (busy_ || !admissionEnabled())
         return;
-    clipboard_ = {};
-    ++clipboard_generation_;
-    applied_.clear();
     error_.clear();
     showing_copy_result_ = true;
     try {
         auto source = editor_.capture(selected_only);
         source.allow_spatial_masks = allow_spatial_masks;
-        busy_ = copying_ = true;
-        copy_watcher_.setFuture(QtConcurrent::run([operation = operations_.copy, source] {
+        startCopy(std::move(source));
+    } catch (const std::exception& error) {
+        error_ = tr("Could not copy adjustments · %1").arg(QString::fromUtf8(error.what()));
+    }
+    emit changed();
+}
+
+QVariantList AdjustmentTransferController::copyOptions() const {
+    return AdjustmentTransferSelection::options(copy_source_.stack);
+}
+
+bool AdjustmentTransferController::prepareCopy(const QVariantMap& target) {
+    if (busy_ || !admissionEnabled())
+        return false;
+    copy_source_ = {};
+    error_.clear();
+    const auto id = target.value("photoId").toString();
+    const auto current = editor_.current();
+    if (id.isEmpty() || id == current.photo_id) {
+        try {
+            copy_source_ = editor_.capture(false);
+        } catch (const std::exception& error) {
+            error_ = tr("Could not copy adjustments · %1").arg(QString::fromUtf8(error.what()));
+        }
+        emit changed();
+        return true;
+    }
+    const auto path = target.value("sourcePath").toString();
+    if (path.isEmpty())
+        return false;
+    const auto name = target.value("title", QFileInfo(path).fileName()).toString();
+    preparing_copy_ = busy_ = true;
+    copy_source_watcher_.setFuture(QtConcurrent::run([load = operations_.load, id, path, name] {
+        CopySourceResult result;
+        try {
+            const auto state = load({id, path});
+            if (state.photo_id != id || state.source_path != path)
+                throw std::runtime_error(
+                    tr("The source photo changed. Choose the photo again.").toStdString()
+                );
+            result.source = {id, path, state.base_commit_id, name, state.grade_stack, false};
+        } catch (const std::exception& error) {
+            result.error = QString::fromUtf8(error.what());
+        }
+        return result;
+    }));
+    emit changed();
+    return true;
+}
+
+void AdjustmentTransferController::copyChosenAdjustments(
+    const QVariantList& choices,
+    bool allow_spatial_masks
+) {
+    if (busy_ || !admissionEnabled() || copy_source_.photo_id.isEmpty())
+        return;
+    error_.clear();
+    showing_copy_result_ = true;
+    try {
+        auto source = AdjustmentTransferSelection::select(copy_source_, choices);
+        source.allow_spatial_masks = allow_spatial_masks;
+        startCopy(std::move(source));
+    } catch (const std::exception& error) {
+        error_ = tr("Could not copy adjustments · %1").arg(QString::fromUtf8(error.what()));
+    }
+    emit changed();
+}
+
+void AdjustmentTransferController::startCopy(AdjustmentTransferSource source) {
+    busy_ = copying_ = true;
+    copy_watcher_.setFuture(
+        QtConcurrent::run([operation = operations_.copy, source = std::move(source)] {
             CopyResult result;
             try {
                 result.clipboard = operation(source);
@@ -190,11 +273,8 @@ void AdjustmentTransferController::copyAdjustments(bool selected_only, bool allo
                 result.error = QString::fromUtf8(error.what());
             }
             return result;
-        }));
-    } catch (const std::exception& error) {
-        error_ = tr("Could not copy adjustments · %1").arg(QString::fromUtf8(error.what()));
-    }
-    emit changed();
+        })
+    );
 }
 
 void AdjustmentTransferController::applyToPhotos(const QVariantList& targets) {

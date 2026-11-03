@@ -13,6 +13,7 @@ Rectangle {
     property var transferController: null
     property var editor: null
     property var targets: []
+    property bool contextVisible: true
     readonly property bool available: transferController !== null
     readonly property bool admissionEnabled: available
         && transferController.admissionEnabled !== false
@@ -23,10 +24,8 @@ Rectangle {
     readonly property bool hasResults: available && transferController.results.length > 0
     readonly property int processed: available
         ? transferController.completed + transferController.failed : 0
-    readonly property bool copyScopeAvailable: !transferDialog.selectedOnly
-        || transferDialog.canCopySelected
     readonly property bool canCopy: admissionEnabled && editorActive
-        && !editor.stateBusy && !busy && copyScopeAvailable
+        && !editor.stateBusy && !busy
     readonly property var destinationTargets: {
         const values = []
         const seen = ({})
@@ -49,17 +48,16 @@ Rectangle {
 
     implicitHeight: content.implicitHeight + 16
     color: Theme.panel
-    visible: available && (editorActive || hasClipboard || busy || hasResults)
+    visible: available && (busy || (contextVisible
+        && (editorActive || hasClipboard || hasResults)))
 
     function copyAdjustments() {
-        if (canCopy)
-            transferController.copyAdjustments(
-                transferDialog.selectedOnly, transferDialog.allowSpatialMasks)
+        openCopySettings()
     }
 
-    function openCopySettings() {
-        if (admissionEnabled && editorActive && !editor.stateBusy && !busy)
-            transferDialog.presentCopy()
+    function openCopySettings(target) {
+        if (admissionEnabled && !busy)
+            transferDialog.presentCopy(target || {})
     }
 
     function openResults() {
@@ -86,6 +84,7 @@ Rectangle {
 
             Item {
                 id: copyAction
+                visible: bar.contextVisible && bar.editorActive
                 implicitWidth: copyAdjustmentsButton.implicitWidth
                 implicitHeight: copyAdjustmentsButton.implicitHeight
 
@@ -94,10 +93,9 @@ Rectangle {
                     objectName: "copyAdjustmentsButton"
                     anchors.fill: parent
                     compact: true
-                    text: qsTr("Copy adjustments")
+                    text: qsTr("Copy style…")
                     enabled: bar.canCopy
-                    toolTipText: !bar.copyScopeAvailable
-                        ? qsTr("Select an adjustment node or choose All in Copy options") : ""
+                    toolTipText: qsTr("Choose adjustment nodes and modified settings to copy")
                     onClicked: bar.copyAdjustments()
                 }
 
@@ -113,22 +111,11 @@ Rectangle {
                 }
             }
 
-            ShadowIconButton {
-                objectName: "copyAdjustmentOptionsButton"
-                buttonSize: 30
-                iconSize: 16
-                source: "qrc:/icons/settings.svg"
-                toolTipText: qsTr("Copy options")
-                enabled: bar.admissionEnabled && bar.editorActive
-                    && !bar.editor.stateBusy && !bar.busy
-                onClicked: bar.openCopySettings()
-            }
-
             ShadowButton {
                 objectName: "pasteAdjustmentsButton"
                 compact: true
-                visible: bar.editorActive
-                text: qsTr("Paste adjustments")
+                visible: bar.editorActive && bar.contextVisible
+                text: qsTr("Paste style")
                 enabled: bar.admissionEnabled && bar.hasClipboard && !bar.busy
                     && bar.editorActive && !bar.editor.stateBusy
                     && String(bar.editor.photoId) !== String(bar.transferController.sourcePhotoId)
@@ -139,7 +126,8 @@ Rectangle {
             ShadowButton {
                 objectName: "applyAdjustmentsToSelectionButton"
                 compact: true
-                visible: bar.hasClipboard && bar.destinationTargets.length > 0
+                visible: bar.contextVisible && bar.hasClipboard
+                    && bar.destinationTargets.length > 0
                 text: qsTr("Apply to %1 selected").arg(bar.destinationTargets.length)
                 variant: ShadowButton.Tinted
                 enabled: bar.admissionEnabled && !bar.busy

@@ -1516,14 +1516,40 @@ qt_add_qml_module(shadow-review-filmstrip-selection-contract-test
     QML_FILES
         qml/ReviewSinglePreview.qml qml/ReviewPreviewViewport.qml
         qml/ReviewDecisionToolbar.qml qml/ReviewPhotoAffinity.qml
+        qml/ReviewPhotoContextMenu.qml qml/ReviewSmartCategoryFeedbackPopup.qml
+        qml/ShadowCheckBox.qml
         qml/ShadowRoundedImage.qml qml/ShadowColorLabelButton.qml
         qml/ShadowIcon.qml qml/ShadowIconButton.qml qml/ShadowButton.qml
         qml/PrecisionViewportState.qml qml/PrecisionCanvasZoomInput.qml qml/Theme.qml)
 qt_add_resources(shadow-review-filmstrip-selection-contract-test review-filmstrip-icons
     PREFIX "/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icons"
-    FILES icons/zoom-in.svg icons/zoom-out.svg icons/fit-view.svg
-        icons/source-missing.svg icons/pick.svg icons/reject.svg icons/star.svg
-        icons/star-filled.svg icons/heart.svg icons/heart-filled.svg icons/candidate.svg)
+    FILES icons/add-folder.svg
+        icons/album-add.svg
+        icons/candidate.svg
+        icons/check.svg
+        icons/chevron-down.svg
+        icons/close.svg
+        icons/compare.svg
+        icons/duplicate.svg
+        icons/edit.svg
+        icons/export.svg
+        icons/fit-view.svg
+        icons/grade-node-paste.svg
+        icons/grade-node.svg
+        icons/heart-filled.svg
+        icons/heart.svg
+        icons/library-manage.svg
+        icons/location-pin.svg
+        icons/pick.svg
+        icons/refresh.svg
+        icons/reject.svg
+        icons/source-missing.svg
+        icons/star-filled.svg
+        icons/star.svg
+        icons/tag.svg
+        icons/trash.svg
+        icons/zoom-in.svg
+        icons/zoom-out.svg)
 add_test(NAME shadow-desktop-review-filmstrip-selection-contract
     COMMAND shadow-review-filmstrip-selection-contract-test)
 set_tests_properties(shadow-desktop-review-filmstrip-selection-contract

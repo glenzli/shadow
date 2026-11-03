@@ -408,6 +408,15 @@ void EditSubjectEmphasisController::cancel() {
     status_ = tr("Cancelled. The photo and edit history are unchanged.");
     notify();
 }
+void EditSubjectEmphasisController::dismiss() {
+    if (applying_)
+        return;
+    cancel();
+    // Dismissing the assistant never removes the committed node or history.
+    applied_id_.clear();
+    status_.clear();
+    notify();
+}
 void EditSubjectEmphasisController::retireProposal() {
     if (candidate_.proposal_token) {
         try {
